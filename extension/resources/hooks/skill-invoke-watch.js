@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 /**
- * PostToolUse hook (Attribution v2): log explicit skill invocations to runs.jsonl.
- * Matcher: Skill|Read — one row per invoked skill (no equal-split).
+ * PostToolUse hook (Attribution v2): log explicit Skill tool invocations to runs.jsonl.
+ * Matcher: Skill only — avoids counting passive SKILL.md reads.
  */
 const fs = require("fs");
 const path = require("path");
 
 const SOURCE = "skill-invoke-hook-v2";
-const SKILL_PATH_RE = /[\\/]\.claude[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i;
 const BLENDED_USD_PER_M_TOKEN = 9;
 
 function readStdin() {
@@ -32,14 +31,6 @@ function extractSkillName(input) {
       if (plausible(c)) {
         return c.toLowerCase();
       }
-    }
-  }
-
-  if (tool === "Read") {
-    const fp = ti.file_path || ti.path || ti.file || "";
-    const m = String(fp).match(SKILL_PATH_RE);
-    if (m && plausible(m[1])) {
-      return m[1].toLowerCase();
     }
   }
 

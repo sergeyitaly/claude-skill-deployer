@@ -9,7 +9,13 @@ from pathlib import Path
 
 from cost_utils import BLENDED_USD_PER_M_TOKEN, format_usd
 
-ATTRIBUTION_PATH = Path.home() / ".claude" / "learning" / "cost-attribution.json"
+LEGACY_ATTRIBUTION_PATH = Path.home() / ".claude" / "learning" / "cost-attribution.json"
+
+
+def attribution_path(target: Path | str | None = None) -> Path:
+    if target:
+        return Path(target) / ".claude" / "learning" / "cost-attribution.json"
+    return LEGACY_ATTRIBUTION_PATH
 RUNS_RELATIVE = Path(".claude") / "learning" / "runs.jsonl"
 COST_PROFILES_PATH = Path.home() / ".claude" / "learning" / "cost-profiles.json"
 
@@ -47,11 +53,21 @@ def _merge_attribution(data: dict) -> dict[str, dict]:
     return merged
 
 
-def load_cost_attribution() -> dict:
-    if not ATTRIBUTION_PATH.exists():
+def load_cost_attribution(target: Path | str | None = None) -> dict:
+    path = attribution_path(target)
+    if not path.is_file() and target and LEGACY_ATTRIBUTION_PATH.is_file():
+        try:
+            legacy = json.loads(LEGACY_ATTRIBUTION_PATH.read_text(encoding="utf-8"))
+            legacy_ws = legacy.get("workspacePath")
+            if not legacy_ws or Path(legacy_ws).resolve() == Path(target).resolve():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(LEGACY_ATTRIBUTION_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        except (json.JSONDecodeError, OSError):
+            pass
+    if not path.exists():
         return {"skills": {}, "total_cost": 0.0, "top_skill": None}
     try:
-        data = json.loads(ATTRIBUTION_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {"skills": {}, "total_cost": 0.0, "top_skill": None}
 

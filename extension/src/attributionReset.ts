@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { COST_ATTRIBUTION_PATH } from "./costAttribution";
+import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribution";
 
 const COLLECTOR_STATE_PATH = path.join(os.homedir(), ".claude", "learning", "attribution-collector-state.json");
 const RUNS_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
@@ -56,21 +56,23 @@ export function resetMisattributedData(target: string): ResetResult {
     fs.writeFileSync(runsFile, kept.join("\n") + (kept.length ? "\n" : ""), "utf-8");
   }
 
-  if (fs.existsSync(COST_ATTRIBUTION_PATH)) {
-    const backup = `${COST_ATTRIBUTION_PATH}.pre-reset-${Date.now()}.bak`;
-    fs.copyFileSync(COST_ATTRIBUTION_PATH, backup);
+  migrateLegacyCostAttribution(target);
+  const attrPath = costAttributionPath(target);
+  if (fs.existsSync(attrPath)) {
+    const backup = `${attrPath}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(attrPath, backup);
     result.backupAttribution = backup;
 
     try {
-      const raw = JSON.parse(fs.readFileSync(COST_ATTRIBUTION_PATH, "utf-8")) as Record<string, unknown>;
+      const raw = JSON.parse(fs.readFileSync(attrPath, "utf-8")) as Record<string, unknown>;
       raw.transcriptSkills = {};
       raw.unattributed = {};
       raw.updatedAt = new Date().toISOString();
       delete raw.skills;
-      fs.writeFileSync(COST_ATTRIBUTION_PATH, JSON.stringify(raw, null, 2) + "\n", "utf-8");
+      fs.writeFileSync(attrPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
     } catch {
       fs.writeFileSync(
-        COST_ATTRIBUTION_PATH,
+        attrPath,
         JSON.stringify({ transcriptSkills: {}, unattributed: {}, base_context: {} }, null, 2) + "\n",
         "utf-8"
       );

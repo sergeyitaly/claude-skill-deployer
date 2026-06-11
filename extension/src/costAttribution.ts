@@ -14,7 +14,63 @@ export interface AgentAttribution {
 
 export type SkillAttributionMap = Record<string, Partial<Record<AgentId, AgentAttribution>>>;
 
-export const COST_ATTRIBUTION_PATH = path.join(os.homedir(), ".claude", "learning", "cost-attribution.json");
+/** @deprecated Global store — migrate to per-workspace via migrateLegacyCostAttribution(). */
+export const LEGACY_COST_ATTRIBUTION_PATH = path.join(os.homedir(), ".claude", "learning", "cost-attribution.json");
+
+/** @deprecated Use costAttributionPath(target) */
+export const COST_ATTRIBUTION_PATH = LEGACY_COST_ATTRIBUTION_PATH;
+
+export function costAttributionPath(target: string): string {
+  return path.join(target, ".claude", "learning", "cost-attribution.json");
+}
+
+/** Copy legacy global attribution into the workspace when it belongs to this project. */
+export function migrateLegacyCostAttribution(target: string): boolean {
+  const wsPath = costAttributionPath(target);
+  if (fs.existsSync(wsPath)) {
+    return false;
+  }
+  if (!fs.existsSync(LEGACY_COST_ATTRIBUTION_PATH)) {
+    return false;
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(LEGACY_COST_ATTRIBUTION_PATH, "utf-8")) as { workspacePath?: string };
+    const legacyWs = raw.workspacePath;
+    if (legacyWs && path.resolve(legacyWs) !== path.resolve(target)) {
+      return false;
+    }
+    fs.mkdirSync(path.dirname(wsPath), { recursive: true });
+    fs.copyFileSync(LEGACY_COST_ATTRIBUTION_PATH, wsPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readStoredAttributionFile(filePath: string): {
+  transcriptSkills: SkillAttributionMap;
+  base_context: BaseContextAttribution;
+  unattributed: UnattributedAttribution;
+} | null {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const stored = JSON.parse(fs.readFileSync(filePath, "utf-8")) as {
+      transcriptSkills?: SkillAttributionMap;
+      skills?: SkillAttributionMap;
+      base_context?: BaseContextAttribution;
+      unattributed?: UnattributedAttribution;
+    };
+    return {
+      transcriptSkills: stored.transcriptSkills ?? stored.skills ?? {},
+      base_context: stored.base_context ?? {},
+      unattributed: stored.unattributed ?? {},
+    };
+  } catch {
+    return null;
+  }
+}
 
 function emptyAgent(): AgentAttribution {
   return { tokens: 0, cost: 0, sessions: 0 };
@@ -93,20 +149,12 @@ export function buildCostAttribution(target: string, libraryDir: string): {
     }
   }
 
-  if (fs.existsSync(COST_ATTRIBUTION_PATH)) {
-    try {
-      const stored = JSON.parse(fs.readFileSync(COST_ATTRIBUTION_PATH, "utf-8")) as {
-        transcriptSkills?: SkillAttributionMap;
-        skills?: SkillAttributionMap;
-        base_context?: BaseContextAttribution;
-        unattributed?: UnattributedAttribution;
-      };
-      transcriptSkills = stored.transcriptSkills ?? stored.skills ?? {};
-      base_context = { ...stored.base_context, ...base_context };
-      unattributed = { ...stored.unattributed, ...unattributed };
-    } catch {
-      // use runs only
-    }
+  migrateLegacyCostAttribution(target);
+  const stored = readStoredAttributionFile(costAttributionPath(target));
+  if (stored) {
+    transcriptSkills = stored.transcriptSkills;
+    base_context = { ...stored.base_context, ...base_context };
+    unattributed = { ...stored.unattributed, ...unattributed };
   }
 
   return {
@@ -210,8 +258,9 @@ export function persistCostAttribution(target: string, libraryDir: string): void
     unattributed: built.unattributed,
     agentTotals: built.agentTotals,
   };
-  fs.mkdirSync(path.dirname(COST_ATTRIBUTION_PATH), { recursive: true });
-  fs.writeFileSync(COST_ATTRIBUTION_PATH, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  const file = costAttributionPath(target);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
 export function cheapestAgentForSkill(skill: string, attribution: SkillAttributionMap): AgentId | null {
@@ -235,7 +284,8 @@ export function formatAttributionReport(
   agentTotals: Partial<Record<AgentId, AgentAttribution>>,
   baseContext?: BaseContextAttribution,
   transcriptSkills?: SkillAttributionMap,
-  unattributed?: UnattributedAttribution
+  unattributed?: UnattributedAttribution,
+  target?: string
 ): string[] {
   const lines: string[] = ["## Cross-agent cost attribution", ""];
 
@@ -290,7 +340,9 @@ export function formatAttributionReport(
       );
     }
   }
-  lines.push("", `Stored at \`${COST_ATTRIBUTION_PATH}\`.`, "");
+  if (target) {
+    lines.push("", `Stored at \`${costAttributionPath(target)}\`.`, "");
+  }
   return lines;
 }
 

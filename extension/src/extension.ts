@@ -645,7 +645,8 @@ export function activate(context: vscode.ExtensionContext) {
           attribution.agentTotals,
           attribution.base_context,
           attribution.transcriptSkills,
-          attribution.unattributed
+          attribution.unattributed,
+          target
         ).join("\n")
       );
       const sessionBreakdown = generateLatestSessionBreakdown(target);
@@ -1242,11 +1243,11 @@ export function activate(context: vscode.ExtensionContext) {
             if (!target || !target.startsWith(repo.rootUri.fsPath)) {
               return;
             }
-            await handleBranchChange(libraryDir, target, log);
             const teamResult = applyTeamBranchProfile(libraryDir, target);
             if (teamResult) {
-              log(`Applied team git profile: +${teamResult.installed.length}, -${teamResult.removed.length}`);
+              log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
             }
+            await handleBranchChange(libraryDir, target, log);
             propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
             refreshAll();
           });
@@ -1257,11 +1258,11 @@ export function activate(context: vscode.ExtensionContext) {
             if (!target || !target.startsWith(repo.rootUri.fsPath)) {
               return;
             }
-            await handleBranchChange(libraryDir, target, log);
             const teamResult = applyTeamBranchProfile(libraryDir, target);
             if (teamResult) {
-              log(`Applied team git profile: +${teamResult.installed.length}, -${teamResult.removed.length}`);
+              log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
             }
+            await handleBranchChange(libraryDir, target, log);
             propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
             refreshAll();
           });
@@ -1281,6 +1282,10 @@ export function activate(context: vscode.ExtensionContext) {
       syncBranchProfileContext(target);
       if (target) {
         void (async () => {
+          const teamResult = applyTeamBranchProfile(libraryDir, target);
+          if (teamResult) {
+            log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
+          }
           await handleBranchChange(libraryDir, target, log);
           propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
             saveBranchProfile: false,

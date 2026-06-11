@@ -7,8 +7,14 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
-ATTR_PATH = Path.home() / ".claude" / "learning" / "cost-attribution.json"
+LEGACY_ATTR_PATH = Path.home() / ".claude" / "learning" / "cost-attribution.json"
 COST_PER_M = 9.0
+
+
+def attr_path_for(workspace: Path | None) -> Path:
+    if workspace:
+        return workspace / ".claude" / "learning" / "cost-attribution.json"
+    return LEGACY_ATTR_PATH
 
 
 def sum_transcript_tokens() -> tuple[int, int]:
@@ -44,7 +50,17 @@ def sum_transcript_tokens() -> tuple[int, int]:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace", default=os.getcwd(), help="Workspace root for per-project attribution file")
+    args = parser.parse_args()
+    workspace = Path(args.workspace).resolve()
+    attr_path = attr_path_for(workspace)
+
     print("=== Cost data sanity check ===\n")
+    print(f"Workspace: {workspace}")
+    print(f"Attribution file: {attr_path}\n")
 
     transcript_tokens, file_count = sum_transcript_tokens()
     transcript_cost = transcript_tokens / 1_000_000 * COST_PER_M
@@ -53,11 +69,21 @@ def main() -> None:
     print(f"Estimated cost at ${COST_PER_M}/M (extension formula): ${transcript_cost:,.2f}")
     print("(This is NOT your real API bill — rough estimate from session logs.)\n")
 
-    if not ATTR_PATH.exists():
-        print(f"Missing: {ATTR_PATH}")
+    if not attr_path.is_file() and LEGACY_ATTR_PATH.is_file():
+        try:
+            legacy = json.loads(LEGACY_ATTR_PATH.read_text(encoding="utf-8"))
+            legacy_ws = legacy.get("workspacePath")
+            if not legacy_ws or Path(legacy_ws).resolve() == workspace:
+                attr_path.parent.mkdir(parents=True, exist_ok=True)
+                attr_path.write_text(LEGACY_ATTR_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if not attr_path.exists():
+        print(f"Missing: {attr_path}")
         return
 
-    attr = json.loads(ATTR_PATH.read_text(encoding="utf-8"))
+    attr = json.loads(attr_path.read_text(encoding="utf-8"))
     ts = attr.get("transcriptSkills") or attr.get("skills") or {}
     print(f"cost-attribution.json updated: {attr.get('updatedAt')}")
     print(f"Attributed skills count: {len(ts)}\n")

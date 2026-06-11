@@ -4,6 +4,7 @@ import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agen
 import {
   areCostControlHooksConfigured,
   HookInstallStatus,
+  installAttributionHooks,
   refreshCostControlHookScripts,
 } from "./hookOps";
 import { listInstalledSkills } from "./usageStats";
@@ -17,7 +18,7 @@ function syncHooksOnSkillChangeEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncHooksOnSkillChange", true);
 }
 
-/** After .claude/skills changes: mirror to other agents and refresh/install cost hooks when appropriate. */
+/** After .claude/skills changes: mirror to other agents and refresh/install hooks when appropriate. */
 export function propagateWorkspaceSkillChange(
   extensionPath: string,
   target: string | undefined,
@@ -50,10 +51,17 @@ export function propagateWorkspaceSkillChange(
     return result;
   }
 
-  // Only refresh hook scripts when user already enabled hooks — never auto-install on skill toggle.
+  const attrStatus = installAttributionHooks(extensionPath, target);
+  if (attrStatus === "installed" || attrStatus === "updated") {
+    result.hooksStatus = attrStatus;
+    log(`Attribution v2 hooks ${attrStatus}.`);
+  }
+
   if (areCostControlHooksConfigured(target)) {
     refreshCostControlHookScripts(extensionPath, target);
-    result.hooksStatus = "refreshed";
+    if (!result.hooksStatus) {
+      result.hooksStatus = "refreshed";
+    }
     log("Cost control hook scripts refreshed in .claude/hooks/.");
   }
 

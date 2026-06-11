@@ -210,7 +210,8 @@ Adding, removing, or editing skills under `.claude/skills/` automatically propag
 ## Per-branch skill profiles & local-only skills
 
 `~/.claude/learning/branch-profiles.json` — personal layouts per git branch.
-Committed `.claude/skills/` remains team source of truth.
+Committed `.claude/skills/` remains team source of truth. Optional team layout in
+`.claude/skills-profile.json` applies **before** your personal profile on branch switch.
 
 **Your personal skill set (not the same as the branch):**
 
@@ -245,13 +246,13 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.5** (`serhiivoinolovych`).
+Current extension version: **1.0.6** (`serhiivoinolovych`).
 
 ## Performance impact
 
 - **CPU**: under 1% idle; 2–5% during attribution collection (5-minute intervals)
 - **Memory**: ~50 MB baseline; +20 MB when the dashboard WebView is open
-- **Disk**: ~500 KB per project for `runs.jsonl`; ~100 KB for attribution data
+- **Disk**: ~500 KB per project for `runs.jsonl` and `cost-attribution.json` under `<workspace>/.claude/learning/`
 - **Startup**: under 200 ms added to VS Code activation
 
 Tuned for workspaces with fewer than 100 skills and fewer than 10K transcript lines.

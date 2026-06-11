@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
-import { COST_ATTRIBUTION_PATH } from "./costAttribution";
+import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribution";
+import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { appendSkillRun, sessionHasV2HookRuns, tokenCostUsd } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 
@@ -46,9 +47,11 @@ function writeCollectorState(state: CollectorState): void {
   fs.writeFileSync(COLLECTOR_STATE_PATH, JSON.stringify(state, null, 2) + "\n", "utf-8");
 }
 
-function loadAttribution(): AttributionStore {
+function loadAttribution(target: string): AttributionStore {
+  migrateLegacyCostAttribution(target);
+  const attrPath = costAttributionPath(target);
   try {
-    const raw = JSON.parse(fs.readFileSync(COST_ATTRIBUTION_PATH, "utf-8")) as {
+    const raw = JSON.parse(fs.readFileSync(attrPath, "utf-8")) as {
       transcriptSkills?: AttributionStore["transcriptSkills"];
       skills?: AttributionStore["transcriptSkills"];
       base_context?: AttributionStore["base_context"];
@@ -67,23 +70,24 @@ function loadAttribution(): AttributionStore {
   }
 }
 
-function saveAttribution(store: AttributionStore): void {
+function saveAttribution(target: string, store: AttributionStore): void {
+  const attrPath = costAttributionPath(target);
   let existing: Record<string, unknown> = {};
   try {
-    existing = JSON.parse(fs.readFileSync(COST_ATTRIBUTION_PATH, "utf-8")) as Record<string, unknown>;
+    existing = JSON.parse(fs.readFileSync(attrPath, "utf-8")) as Record<string, unknown>;
   } catch {
     // fresh file
   }
   const data = {
     ...existing,
     updatedAt: new Date().toISOString(),
-    workspacePath: store.workspacePath,
+    workspacePath: store.workspacePath ?? target,
     transcriptSkills: store.transcriptSkills,
     base_context: store.base_context,
     unattributed: store.unattributed,
   };
-  fs.mkdirSync(path.dirname(COST_ATTRIBUTION_PATH), { recursive: true });
-  fs.writeFileSync(COST_ATTRIBUTION_PATH, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  fs.mkdirSync(path.dirname(attrPath), { recursive: true });
+  fs.writeFileSync(attrPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
 function parserForAgent(agent: AgentId): TranscriptParser | null {
@@ -237,9 +241,11 @@ export class AttributionCollector {
       return 0;
     }
 
+    enrichV2HookRunTokens(this.target, this.libraryDir);
+
     const state = readCollectorState();
     const since = state.lastRun || now - 24 * 60 * 60 * 1000;
-    const store = loadAttribution();
+    const store = loadAttribution(this.target);
     store.workspacePath = this.target;
     let processed = 0;
 
@@ -295,7 +301,7 @@ export class AttributionCollector {
 
     state.lastRun = now;
     writeCollectorState(state);
-    saveAttribution(store);
+    saveAttribution(this.target, store);
     this.lastRun = now;
     return processed;
   }

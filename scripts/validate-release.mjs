@@ -36,6 +36,12 @@ try {
 }
 
 try {
+  execSync("npm test", { cwd: extDir, stdio: "inherit" });
+} catch {
+  fail("Unit tests failed");
+}
+
+try {
   execSync("node scripts/smoke-test.mjs", { cwd: extDir, stdio: "inherit" });
 } catch {
   fail("Smoke tests failed");

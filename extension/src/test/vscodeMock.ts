@@ -1,7 +1,12 @@
 /** Minimal stub so unit tests can import modules that reference `vscode`. */
 export const workspace = {
-  getConfiguration: () => ({
-    get: () => undefined,
+  getConfiguration: (section?: string) => ({
+    get: <T>(key: string, defaultValue?: T): T | undefined => {
+      if (section === "claudeSkills.agents" && key === "enabled") {
+        return ["claude", "cursor", "kiro", "copilot"] as T;
+      }
+      return defaultValue;
+    },
     update: async () => undefined,
   }),
   workspaceFolders: undefined,

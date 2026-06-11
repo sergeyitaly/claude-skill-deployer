@@ -78,12 +78,26 @@ function hasPostToolHook(settings: Settings, filename: string): boolean {
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
 }
 
+const ATTRIBUTION_HOOK_MATCHER = "Skill";
+
+function migrateAttributionHookMatcher(settings: Settings): boolean {
+  let changed = false;
+  for (const matcher of settings.hooks?.PostToolUse ?? []) {
+    const usesHook = matcher.hooks.some((h) => h.command.includes(SKILL_INVOKE_HOOK_FILENAME));
+    if (usesHook && matcher.matcher !== ATTRIBUTION_HOOK_MATCHER) {
+      matcher.matcher = ATTRIBUTION_HOOK_MATCHER;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function ensurePostToolHookRegistered(settings: Settings, matcher: string, filename: string, command: string): boolean {
   settings.hooks = settings.hooks ?? {};
   settings.hooks.PostToolUse = settings.hooks.PostToolUse ?? [];
 
   if (hasPostToolHook(settings, filename)) {
-    return false;
+    return migrateAttributionHookMatcher(settings);
   }
 
   settings.hooks.PostToolUse.push({
@@ -158,12 +172,18 @@ export function installAttributionHooks(extensionPath: string, target: string): 
   const had = hasPostToolHook(settings, SKILL_INVOKE_HOOK_FILENAME);
 
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
-  const added = ensurePostToolHookRegistered(settings, "Skill|Read", SKILL_INVOKE_HOOK_FILENAME, SKILL_INVOKE_HOOK_COMMAND);
+  const added = ensurePostToolHookRegistered(
+    settings,
+    ATTRIBUTION_HOOK_MATCHER,
+    SKILL_INVOKE_HOOK_FILENAME,
+    SKILL_INVOKE_HOOK_COMMAND
+  );
+  const migrated = migrateAttributionHookMatcher(settings);
 
-  if (added) {
+  if (added || migrated) {
     fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-    return "installed";
+    return added && !had ? "installed" : "updated";
   }
   return had ? "already-configured" : "updated";
 }

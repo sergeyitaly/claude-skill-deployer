@@ -16,6 +16,7 @@ import { loadCostProfile } from "./costProfiles";
 import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills } from "./skillArchival";
 import { assessAttributionHealth } from "./attributionHealth";
+import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
 import { formatCompactUsd } from "./skillCost";
@@ -61,6 +62,7 @@ function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>):
 }
 
 export function formatCostDashboardHtml(target: string, libraryDir: string): string {
+  enrichV2HookRunTokens(target, libraryDir);
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);

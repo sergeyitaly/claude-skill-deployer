@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.6] - 2026-06-11
+
+### Added
+
+- **Per-workspace cost attribution** — `cost-attribution.json` lives under `<workspace>/.claude/learning/` (legacy global file migrates on first read).
+- **v2 token backfill** — collector enriches hook rows with zero tokens by matching `tool_use_id` to Claude transcript usage.
+- **attributionHealth** and **v2TokenEnrichment** unit tests; `validate-release.mjs` runs `npm test`.
+
+### Fixed
+
+- **Branch profile order** — team git profile (`.claude/skills-profile.json`) applies first; personal profile applies on top.
+- Attribution v2 hook matcher narrowed to **Skill** only (no passive `Read` of `SKILL.md`).
+
+### Changed
+
+- `syncHooksOnSkillChange` auto-installs/updates Attribution v2 hooks when workspace skills exist.
+
 ## [1.0.5] - 2026-06-11
 
 ### Added

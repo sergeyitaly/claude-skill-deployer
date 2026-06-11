@@ -91,7 +91,7 @@ export function teamBranchProfileToApply(branch: string, team: TeamSkillsProfile
   };
 }
 
-/** Apply team profile from git for the current branch (after personal profile). */
+/** Apply team profile from git for the current branch (baseline before personal profile). */
 export function applyTeamBranchProfile(
   libraryDir: string,
   target: string,
