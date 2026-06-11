@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.10] - 2026-06-11
+
+### Added
+
+- **Unit tests** — 66 Vitest cases covering `costRates`, `usageCost`, `learningPrune`, `autoOptimizerRateLimit`, `budgetConfig`, `skillCost`, `localDate`, and expanded attribution/transcript helpers.
+
+### Fixed
+
+- **Workspace transcript path encoding** — Windows (`C:\...`) and POSIX (`/home/...`) absolutes encode literally on all platforms (fixes Linux CI and cross-OS matching under `~/.claude/projects`).
+- **`workspaceFromTranscriptFile`** — decode without `path.resolve` so Linux runners and paths with hyphens in folder names behave predictably.
+
 ## [1.0.9] - 2026-06-11
 
 ### Added

@@ -253,7 +253,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.9** (`serhiivoinolovych`).
+Current extension version: **1.0.10** (`serhiivoinolovych`).
 
 ## Performance impact
 
@@ -291,7 +291,7 @@ First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL |
 | `Claude Skills: Reset Mis-attributed Cost Data` | Clear bad cost attribution after v1.0.0 collector bug |
 
-See [CHANGELOG.md](CHANGELOG.md) for the full v1.0.x release notes (v1.0.9: workspace-scoped cost totals, official-skills session check, attribution reliability fixes).
+See [CHANGELOG.md](CHANGELOG.md) for the full v1.0.x release notes (v1.0.10: cross-platform transcript path matching + expanded unit tests).
 
 ## What this tool does NOT do
 
