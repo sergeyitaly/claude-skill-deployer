@@ -1,0 +1,60 @@
+{
+  "skills": {
+    "terraform-plan-review": {
+      "description": "Terraform plan/apply review and drift triage",
+      "detect_globs": ["**/*.tf", "**/*.tfvars"]
+    },
+    "azure-rbac-diagnostics": {
+      "description": "Azure RBAC 403/AuthorizationFailed diagnostics",
+      "detect_globs": ["**/*.tf", "**/azure-pipelines.yml", "**/.gitlab-ci.yml", "**/*azure*.yml", "**/*azure*.yaml"]
+    },
+    "adx-schema-check": {
+      "description": "ADX/Kusto schema vs. code cross-check",
+      "detect_globs": ["**/*.kql", "**/adx*", "**/*adx*"]
+    },
+    "ci-pipeline-debug": {
+      "description": "CI pipeline failure debugging (GitLab/GitHub/Azure DevOps)",
+      "detect_globs": ["**/.gitlab-ci.yml", "**/.gitlab/ci/*.yml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/azure-pipelines.yml"]
+    },
+    "aidlc-tracker": {
+      "description": "AI-DLC methodology phase/stage tracking",
+      "detect_globs": ["**/docs/aidlc/**", "**/aidlc-docs/**", "**/AIDLC/**", "**/.aidlc-docs/**"]
+    },
+    "aidlc-doc-writer": {
+      "description": "AI-DLC document generation (inception/construction/operations/verification)",
+      "detect_globs": ["**/docs/aidlc/**", "**/aidlc-docs/**", "**/AIDLC/**", "**/.aidlc-docs/**"]
+    },
+    "ci-preflight": {
+      "description": "Reproduce CI pipeline lint/test/validate stages locally before pushing",
+      "detect_globs": ["**/.gitlab-ci.yml", "**/.gitlab/ci/*.yml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/azure-pipelines.yml"]
+    },
+    "terraform-module-ops": {
+      "description": "Terraform module map, state backend, safe-change workflow and drift guardrails",
+      "detect_globs": ["**/*.tf", "**/*.tfvars"]
+    },
+    "azure-resource-ops": {
+      "description": "Azure CLI resource quick-reference and live diagnostics playbook",
+      "detect_globs": ["**/*.tf", "**/azure-pipelines.yml", "**/.gitlab-ci.yml", "**/*azure*.yml", "**/*azure*.yaml", "**/*.bicep"]
+    },
+    "self-learning": {
+      "description": "Project-local accumulated-experience store: records run outcomes and learned fixes",
+      "detect_globs": ["**/*"]
+    },
+    "gitlab-pipeline-ops": {
+      "description": "Navigate and operate GitLab CI/CD pipeline projects (root .gitlab-ci.yml + .gitlab/ci/*.yml includes, manual gates, glab CLI)",
+      "detect_globs": ["**/.gitlab-ci.yml", "**/.gitlab/ci/*.yml", "**/.gitlab/**"]
+    },
+    "cross-platform-scripting": {
+      "description": "OS detection (Windows/macOS/Linux) and PowerShell version detection/adaptation for .ps1 and shell scripts",
+      "detect_globs": ["**/*.ps1", "**/*.psm1", "**/*.sh", "**/*.cmd", "**/*.bat"]
+    },
+    "file-style-conventions": {
+      "description": "No emoji outside Markdown files, and trailing newline at end of YAML files",
+      "detect_globs": ["**/*"]
+    },
+    "skill-usage-insights": {
+      "description": "Skill usage and KPI report from .claude/learning/runs.jsonl - which skills to keep, fix, add, or remove",
+      "detect_globs": ["**/.claude/learning/runs.jsonl", "**/.claude/skills/**"]
+    }
+  }
+}

@@ -1,0 +1,94 @@
+---
+name: skill-usage-insights
+description: Analyze recorded skill usage in this project (.claude/learning/runs.jsonl, written by self-learning) and the skills installed in .claude/skills/ to produce a usage and KPI report - which skills are actively used and reliable, which are failing, and which are unused or low-value, with recommendations on what to add or remove. Use when asked for "skill usage stats", "skill KPIs", "which skills should we add or remove", or "are our installed skills still useful".
+user-invocable: true
+allowed-tools:
+  - Read
+  - Bash
+  - Grep
+  - Glob
+---
+
+# Skill Usage Insights
+
+Turn `.claude/learning/runs.jsonl` (the [[self-learning]] run log) and the
+contents of `.claude/skills/` into a per-skill usage/KPI report, with
+add/remove recommendations.
+
+## 1. Gather inputs
+
+- `.claude/skills/<name>/SKILL.md` — skills currently installed in this
+  project (one directory per skill).
+- `.claude/learning/runs.jsonl` — append-only JSON-lines log; each line:
+  `{"ts": ..., "skill": ..., "action": ..., "rc": 0|nonzero, "duration": ..., "error": "", "hint": "", "note": ""}`.
+  If this file doesn't exist, say so plainly — there's no usage history yet,
+  not an error. Recommendations in that case are limited to "not yet
+  measurable; check back after the self-learning skill has recorded some
+  runs".
+- Optionally, the library's `manifest.json` (wherever the skill library
+  lives, e.g. `~/.claude/skills/` or a synced `skills_library/`) — useful to
+  see a skill's `detect_globs`/description when judging relevance.
+
+## 2. Aggregate per skill
+
+For each installed skill name, and for each distinct `skill` value in
+`runs.jsonl` that matches an installed skill name:
+
+- `runs` — count of matching records.
+- `success_rate` — `rc == 0` count / `runs` (as a percentage).
+- `avg_duration` — mean of `duration` across records that have it.
+- `last_used` — max `ts`; `days_since_last_use` — days between that and now.
+- Records whose `skill` value doesn't match any installed skill name are
+  general task-tracking entries (per [[self-learning]]'s schema) — ignore
+  them for this report, but you may mention the count as "N other tracked
+  task runs not tied to a specific skill".
+
+## 3. KPI rating per skill
+
+Apply these thresholds (same as the VS Code extension's status bar/report,
+for consistency):
+
+| Rating | Condition |
+|---|---|
+| **Active** | `runs >= 2` and `days_since_last_use <= 30` and not failing badly |
+| **Needs attention** | `runs >= 3` and `success_rate < 60%` |
+| **Low usage** | `runs >= 1` but doesn't qualify as Active (rare or stale) |
+| **Unused** | Installed, but zero matching records in `runs.jsonl` |
+
+## 4. Recommendations
+
+- **Needs attention**: don't recommend removal outright — first point at
+  `.claude/learning/patterns.md` (or the raw failing records) for the
+  recurring error text, since the fix may be a one-line correction to the
+  skill's instructions or `allowed-tools`. Only suggest removal if the
+  skill's premise itself seems wrong for this project (e.g. a Terraform
+  skill in a project with no `.tf` files).
+- **Unused**: if installed very recently (check `SKILL.md` mtime or git log
+  for `.claude/skills/<name>/`), say "too soon to tell". Otherwise flag as a
+  removal candidate — but removal is a user decision, never delete
+  `.claude/skills/<name>/` without explicit confirmation.
+- **Low usage**: keep if the skill's purpose is inherently occasional (e.g.
+  a release/deploy skill used once a sprint) — judge by the skill's
+  description, not just the number.
+- **Gaps (skills to add)**: cross-reference the project's file types against
+  the library's `manifest.json` `detect_globs` (same detection the
+  `claude-skills-deployer` CLI/extension use). If a library skill matches
+  files present in this project but isn't installed, list it as a candidate
+  to add — especially if `runs.jsonl` shows repeated manual `task` entries
+  whose description overlaps with that skill's purpose.
+
+## 5. Output format
+
+A short table (Skill | Runs | Success % | Last used | Rating | Note), then 2-4
+sentences of plain-language recommendation. Keep it concise — this is a
+status check, not an audit report. If the user just wants the headline
+numbers (e.g. "how many skills are active"), answer directly without the
+table.
+
+## 6. Hand-offs
+
+- Investigating a specific failing skill's errors → [[self-learning]]
+  (`patterns.md`, `session-learnings.md`).
+- Installing a recommended-to-add skill, or removing one → the
+  `claude-skills-deployer` CLI (`generate_skills.py`) or its VS Code
+  extension's tree view / "Install to Workspace" command.

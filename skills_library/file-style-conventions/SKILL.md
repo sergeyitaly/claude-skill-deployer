@@ -1,0 +1,63 @@
+---
+name: file-style-conventions
+description: Apply two lightweight file-hygiene conventions when writing or editing files - no emoji characters outside Markdown (.md) files, and YAML files (.yml/.yaml) end with exactly one trailing newline. Use whenever creating or editing non-Markdown files that might contain emoji, or any .yml/.yaml file.
+user-invocable: true
+allowed-tools:
+  - Read
+  - Edit
+  - Write
+  - Bash
+  - Grep
+  - Glob
+---
+
+# File Style Conventions
+
+Two small, easy-to-violate-by-accident conventions enforced on every file
+write/edit:
+
+## 1. No emoji outside Markdown
+
+- Files with extension `.md` (or `.mdx`) may contain emoji **if the user
+  asked for them** — don't add emoji proactively even there.
+- **Every other file type** (source code, YAML/JSON/TOML config, shell/PS1
+  scripts, Dockerfiles, CI configs, etc.) must contain **no emoji
+  characters** at all — including in comments, log messages, string
+  literals, and commit messages/PR titles (these aren't files, but the same
+  rule applies).
+- Why: emoji can break strict-encoding parsers, inflate diffs with
+  multi-byte sequences, misrender in some terminals/log viewers, and are
+  inconsistent with this project's style.
+- Before finalizing a non-`.md` file you wrote/edited, scan for emoji (common
+  ranges: `U+1F300`–`U+1FAFF`, `U+2600`–`U+27BF`, `U+2190`–`U+21FF` arrows
+  used decoratively, variation selectors `U+FE0F`). If found, replace with
+  plain text (e.g. `[OK]`/`[FAIL]` instead of check/cross emoji, `->` instead
+  of arrow emoji) or remove entirely.
+
+## 2. YAML files end with a trailing newline
+
+- Every `.yml`/`.yaml` file must end with exactly one `\n` (the file's last
+  byte is a newline, and there is no trailing blank line beyond it).
+- This matches the POSIX "text file ends with a newline" convention, avoids
+  `git diff` showing `\ No newline at end of file`, and satisfies
+  `yamllint`'s `new-line-at-end-of-file` rule (the default in most CI lint
+  jobs — see `ci-pipeline-debug`/`gitlab-pipeline-ops`).
+- After writing/editing a `.yml`/`.yaml` file, verify:
+  ```bash
+  tail -c1 path/to/file.yml | od -c | head -1   # should show \n, not empty
+  ```
+  or in PowerShell:
+  ```powershell
+  $bytes = [System.IO.File]::ReadAllBytes("path/to/file.yml")
+  $bytes[-1] -eq 10   # 10 = LF; should be True
+  ```
+- If missing, append a single newline — don't add multiple blank lines at
+  end of file.
+
+## Scope
+
+These checks apply to files this skill's user is actively creating or
+editing — don't do a repo-wide sweep reformatting unrelated files unless
+asked. If a pre-existing file already violates one of these conventions and
+you're touching it for an unrelated reason, fix the convention issue too
+while you're there (it's a one-line change), but mention it briefly.

@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "List skills for current workspace",
+      "type": "shell",
+      "command": "py",
+      "args": ["generate_skills.py", "list", "--target", "${workspaceFolder}"],
+      "problemMatcher": [],
+      "group": "none"
+    },
+    {
+      "label": "Generate Claude Skills (dry run)",
+      "type": "shell",
+      "command": "py",
+      "args": ["generate_skills.py", "generate", "--target", "${workspaceFolder}", "--dry-run"],
+      "problemMatcher": [],
+      "group": "none"
+    },
+    {
+      "label": "Sync skill library to ~/.claude/skills",
+      "type": "shell",
+      "command": "py",
+      "args": ["generate_skills.py", "install"],
+      "problemMatcher": [],
+      "group": "none"
+    }
+  ]
+}

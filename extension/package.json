@@ -1,0 +1,142 @@
+{
+  "name": "claude-skills-manager",
+  "displayName": "Claude Skills Manager",
+  "description": "Detect a project's stack and manage Claude Code skills from a personal global skill library.",
+  "version": "0.1.0",
+  "publisher": "serhiivoinolovich",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeSkills",
+          "title": "Claude Skills",
+          "icon": "resources/activity-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeSkills": [
+        {
+          "id": "claudeSkillsView",
+          "name": "Skills Library"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "claudeSkills.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installLibraryToGlobal",
+        "title": "Install Skill Library to ~/.claude/skills",
+        "icon": "$(cloud-download)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.generateForWorkspace",
+        "title": "Install Relevant Skills for Workspace",
+        "icon": "$(check)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.generateAllForWorkspace",
+        "title": "Install All Skills for Workspace",
+        "icon": "$(checklist)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.previewForWorkspace",
+        "title": "Preview Skill Detection (Dry Run)",
+        "icon": "$(eye)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installSkillToWorkspace",
+        "title": "Install to Workspace .claude/skills",
+        "icon": "$(arrow-down)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.openSkill",
+        "title": "Open SKILL.md",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showUsageStats",
+        "title": "Show Skill Usage Report",
+        "icon": "$(graph)",
+        "category": "Claude Skills"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "claudeSkills.refresh",
+          "when": "view == claudeSkillsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeSkills.previewForWorkspace",
+          "when": "view == claudeSkillsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "claudeSkills.generateForWorkspace",
+          "when": "view == claudeSkillsView",
+          "group": "1_install"
+        },
+        {
+          "command": "claudeSkills.generateAllForWorkspace",
+          "when": "view == claudeSkillsView",
+          "group": "1_install"
+        },
+        {
+          "command": "claudeSkills.installLibraryToGlobal",
+          "when": "view == claudeSkillsView",
+          "group": "2_global"
+        },
+        {
+          "command": "claudeSkills.showUsageStats",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "claudeSkills.installSkillToWorkspace",
+          "when": "view == claudeSkillsView && viewItem =~ /^skill-/",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSkills.openSkill",
+          "when": "view == claudeSkillsView && viewItem =~ /^skill-/",
+          "group": "1_open"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run sync-skills && npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "sync-skills": "node ./scripts/sync-skills-library.js",
+    "package": "npm run sync-skills && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
