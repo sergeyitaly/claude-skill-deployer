@@ -77,9 +77,10 @@ function wizardHtml(
   </div>
 
   <div class="step">
-    <h2>3. Optional: budget &amp; cost hooks</h2>
-    <div class="status">Only if you want daily spend warnings — not required for skill deployment.</div>
+    <h2>3. Optional: attribution &amp; budget hooks</h2>
+    <div class="status">Attribution v2 logs each Skill/Read invoke to runs.jsonl (recommended for cost dashboard).</div>
     <div class="actions">
+      <button class="secondary" onclick="run('attribution')">Enable attribution hooks</button>
       <button class="secondary" onclick="run('budget')">Budget settings</button>
       <button class="secondary" onclick="run('hooks')">Enable cost hooks</button>
     </div>
@@ -143,6 +144,9 @@ export async function showOnboardingWizard(
           break;
         case "preview":
           await vscode.commands.executeCommand("claudeSkills.previewForWorkspace");
+          break;
+        case "attribution":
+          await vscode.commands.executeCommand("claudeSkills.installAttributionHooks");
           break;
         case "budget":
           await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");

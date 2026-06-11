@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -106,6 +106,30 @@
         "command": "claudeSkills.installSessionWatchHook",
         "title": "Enable Session Size Notifications",
         "icon": "$(bell-dot)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installAttributionHooks",
+        "title": "Enable Attribution Hooks (v2)",
+        "icon": "$(graph)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.exportTeamBranchProfile",
+        "title": "Export Team Branch Profile to Git",
+        "icon": "$(repo)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.applyTeamBranchProfile",
+        "title": "Apply Team Branch Profile from Git",
+        "icon": "$(repo-sync)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showTeamBranchProfiles",
+        "title": "Show Team Branch Profiles (Git)",
+        "icon": "$(repo)",
         "category": "Claude Skills"
       },
       {
@@ -317,6 +341,11 @@
           "type": "boolean",
           "default": false,
           "description": "When applying a branch profile, remove personal-only skills (not on the branch) that are not in the profile. Branch-committed skills are disabled via skillOverrides instead of deleted."
+        },
+        "claudeSkills.branchProfiles.teamProfilePath": {
+          "type": "string",
+          "default": ".claude/skills-profile.json",
+          "description": "Git-committed team skill layout per branch (export with Export Team Branch Profile to Git)."
         },
         "claudeSkills.preferLocalSkillOverrides": {
           "type": "boolean",
@@ -666,6 +695,7 @@
     "vscode:prepublish": "npm run sync-skills && npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -w -p ./",
+    "test": "vitest run",
     "sync-skills": "node ./scripts/sync-skills-library.js",
     "package": "npm run sync-skills && vsce package"
   },
@@ -673,6 +703,21 @@
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.0",
-    "typescript": "^5.4.0"
-  }
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.4"
+  },
+  "gallery": [
+    {
+      "path": "images/screenshot-skills-tree.png",
+      "caption": "Skills tree with stack detection and per-skill enable toggles"
+    },
+    {
+      "path": "images/screenshot-dashboard.png",
+      "caption": "Cost Intelligence Dashboard with agent spend and attribution setup"
+    },
+    {
+      "path": "images/screenshot-setup-wizard.png",
+      "caption": "Setup wizard for global library, workspace skills, and optional cost hooks"
+    }
+  ]
 }

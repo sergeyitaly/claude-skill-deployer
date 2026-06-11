@@ -53,7 +53,12 @@ import {
   saveBranchProfile,
   setGitApiCache,
 } from "./branchProfiles";
-import { installCostControlHooks, installSessionWatchHook } from "./hookOps";
+import { installAttributionHooks, installCostControlHooks, installSessionWatchHook } from "./hookOps";
+import {
+  applyTeamBranchProfile,
+  exportTeamBranchProfile,
+  formatTeamProfileReport,
+} from "./teamBranchProfiles";
 import { AttributionCollector } from "./attributionCollector";
 import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
@@ -681,6 +686,24 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.commands.executeCommand("claudeSkills.installCostControlHooks");
     }),
 
+    vscode.commands.registerCommand("claudeSkills.installAttributionHooks", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      try {
+        const status = installAttributionHooks(context.extensionPath, target);
+        outputChannel.show(true);
+        log(`\n=== Attribution v2 hooks (PostToolUse Skill|Read) -> ${target} ===`);
+        log(status);
+        vscode.window.showInformationMessage(`Claude Skills: attribution hooks ${status}.`);
+      } catch (err) {
+        recordError();
+        vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
+      }
+    }),
+
     vscode.commands.registerCommand("claudeSkills.installCostControlHooks", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
@@ -743,6 +766,51 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: saved skill profile for branch "${profile.branch}" (${profile.skills.length} skills).`
       );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.exportTeamBranchProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const profile = exportTeamBranchProfile(target, libraryDir);
+      if (!profile) {
+        vscode.window.showWarningMessage("Claude Skills: not on a git branch or could not capture profile.");
+        return;
+      }
+      outputChannel.show(true);
+      log(`\n=== Export team branch profile ===\n${formatTeamProfileReport(target)}`);
+      vscode.window.showInformationMessage(
+        `Claude Skills: wrote team profile (.claude/skills-profile.json) — commit to git.`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.applyTeamBranchProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const result = applyTeamBranchProfile(libraryDir, target);
+      if (!result) {
+        vscode.window.showWarningMessage("Claude Skills: no team profile entry for this branch.");
+        return;
+      }
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      refreshAll();
+      vscode.window.showInformationMessage(
+        `Claude Skills: applied team profile (+${result.installed.length}, -${result.removed.length}).`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.showTeamBranchProfiles", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      outputChannel.show(true);
+      log(`\n=== Team branch profiles (git) ===\n${formatTeamProfileReport(target)}`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.applyBranchProfile", async () => {
@@ -1175,6 +1243,10 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
             await handleBranchChange(libraryDir, target, log);
+            const teamResult = applyTeamBranchProfile(libraryDir, target);
+            if (teamResult) {
+              log(`Applied team git profile: +${teamResult.installed.length}, -${teamResult.removed.length}`);
+            }
             propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
             refreshAll();
           });
@@ -1186,6 +1258,10 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
             await handleBranchChange(libraryDir, target, log);
+            const teamResult = applyTeamBranchProfile(libraryDir, target);
+            if (teamResult) {
+              log(`Applied team git profile: +${teamResult.installed.length}, -${teamResult.removed.length}`);
+            }
             propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
             refreshAll();
           });

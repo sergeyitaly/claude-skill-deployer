@@ -48,7 +48,7 @@ export function generateOptimizationSuggestions(
   if (!health.reliable) {
     return [];
   }
-  const { attribution } = resolveDisplayAttribution(built);
+  const { attribution } = resolveDisplayAttribution(built, target);
   const usageStats = computeUsageStats(target, m);
   const suggestions: OptimizationSuggestion[] = [];
 

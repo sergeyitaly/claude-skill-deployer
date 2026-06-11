@@ -3,10 +3,15 @@ import * as path from "node:path";
 
 export type RunAgent = "claude" | "cursor" | "kiro" | "copilot";
 
+/** Attribution v2: explicit per-invoke rows from PostToolUse hook. */
+export const SKILL_INVOKE_HOOK_SOURCE = "skill-invoke-hook-v2";
+
 export interface RunMetadata {
   task_type?: string;
   duration_seconds?: number;
   cache_hit?: boolean;
+  source?: string;
+  invoked?: boolean;
   [key: string]: unknown;
 }
 
@@ -38,6 +43,41 @@ export function tokenCostUsd(tokens: number): number {
 
 export function runsFilePath(target: string): string {
   return path.join(target, ".claude", "learning", "runs.jsonl");
+}
+
+export function readEnrichedRunsFromFile(file: string): EnrichedRunRecord[] {
+  if (!fs.existsSync(file)) {
+    return [];
+  }
+  const out: EnrichedRunRecord[] = [];
+  for (const line of fs.readFileSync(file, "utf-8").split("\n")) {
+    if (!line.trim()) {
+      continue;
+    }
+    try {
+      const row = normalizeRunRecord(JSON.parse(line) as Record<string, unknown>);
+      if (row) {
+        out.push(row);
+      }
+    } catch {
+      // skip corrupt line
+    }
+  }
+  return out;
+}
+
+export function isV2HookRun(record: EnrichedRunRecord): boolean {
+  return record.metadata?.source === SKILL_INVOKE_HOOK_SOURCE && record.metadata?.invoked === true;
+}
+
+export function countV2HookRuns(target: string): number {
+  return readEnrichedRunsFromFile(runsFilePath(target)).filter(isV2HookRun).length;
+}
+
+export function sessionHasV2HookRuns(target: string, sessionId: string): boolean {
+  return readEnrichedRunsFromFile(runsFilePath(target)).some(
+    (r) => r.session_id === sessionId && isV2HookRun(r)
+  );
 }
 
 /** Normalize legacy and enriched runs.jsonl rows into a common shape. */

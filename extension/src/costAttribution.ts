@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { computeCreditUsageFromRoots } from "./usageCost";
+import { countV2HookRuns } from "./runRecording";
 import { readRunRecords, RunRecord } from "./usageStats";
 
 export interface AgentAttribution {
@@ -147,24 +148,40 @@ export function formatEqualSplitWarning(cluster: { count: number; cost: number }
   );
 }
 
-export function resolveDisplayAttribution(built: {
-  skills: SkillAttributionMap;
-  transcriptSkills: SkillAttributionMap;
-}): {
+export function resolveDisplayAttribution(
+  built: {
+    skills: SkillAttributionMap;
+    transcriptSkills: SkillAttributionMap;
+  },
+  target?: string
+): {
   attribution: SkillAttributionMap;
   staleEqualSplit: boolean;
   equalSplitCluster: { count: number; cost: number } | null;
+  usesV2HookRuns: boolean;
 } {
+  const usesV2HookRuns = target ? countV2HookRuns(target) > 0 : false;
+  if (usesV2HookRuns) {
+    const cluster = detectEqualSplitCluster(built.skills);
+    return {
+      attribution: built.skills,
+      staleEqualSplit: cluster !== null,
+      equalSplitCluster: cluster,
+      usesV2HookRuns: true,
+    };
+  }
+
   const merged = mergeSkillMaps(built.skills, built.transcriptSkills);
   const cluster = detectEqualSplitCluster(merged);
   if (!cluster) {
-    return { attribution: merged, staleEqualSplit: false, equalSplitCluster: null };
+    return { attribution: merged, staleEqualSplit: false, equalSplitCluster: null, usesV2HookRuns: false };
   }
   const runsOnlyStale = detectEqualSplitCluster(built.skills);
   return {
     attribution: runsOnlyStale ? {} : built.skills,
     staleEqualSplit: true,
     equalSplitCluster: cluster,
+    usesV2HookRuns: false,
   };
 }
 

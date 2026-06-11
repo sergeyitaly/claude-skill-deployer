@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { buildCopilotInstructionsFile } from "./copilotTransform";
+import {
+  buildCopilotInstructionsFile,
+  CopilotSkillEntry,
+  parseSkillFrontmatter,
+  writeCopilotBootstrap,
+} from "./copilotTransform";
 import { isFeatureEnabled } from "./featureFlags";
 import {
   copySkill,
@@ -369,7 +374,42 @@ export function syncWorkspaceSkillsToAllAgents(
       }
     }
   }
+
+  if (enabledAgents(libraryDir).includes("copilot")) {
+    syncCopilotBootstrap(target, libraryDir);
+  }
+
   return results;
+}
+
+/** Write .github/copilot-instructions.md index for native Copilot agent mode. */
+export function syncCopilotBootstrap(target: string, libraryDir: string): string | undefined {
+  if (!enabledAgents(libraryDir).includes("copilot")) {
+    return undefined;
+  }
+  const manifest = loadManifest(libraryDir);
+  const effective = listEffectiveEnabledSkills(target);
+  const entries: CopilotSkillEntry[] = [];
+
+  for (const name of effective) {
+    const skillMd = path.join(target, ".claude", "skills", name, "SKILL.md");
+    const bundledMd = path.join(libraryDir, name, "SKILL.md");
+    const mdPath = fs.existsSync(skillMd) ? skillMd : bundledMd;
+    if (!fs.existsSync(mdPath)) {
+      continue;
+    }
+    const raw = fs.readFileSync(mdPath, "utf-8");
+    entries.push({
+      name,
+      detectGlobs: manifest.skills[name]?.detect_globs ?? ["**/*"],
+      description: parseSkillFrontmatter(raw).description,
+    });
+  }
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return writeCopilotBootstrap(target, entries);
 }
 
 /** Mirror learning artifacts (reports, budget, branch profiles) to other agents' learning dirs. */

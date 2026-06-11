@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { COST_ATTRIBUTION_PATH } from "./costAttribution";
-import { appendSkillRun, tokenCostUsd } from "./runRecording";
+import { appendSkillRun, sessionHasV2HookRuns, tokenCostUsd } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 
 const COLLECTOR_STATE_PATH = path.join(os.homedir(), ".claude", "learning", "attribution-collector-state.json");
@@ -121,13 +121,18 @@ function transcriptWorkspace(filePath: string, content: string): string | null {
   return null;
 }
 
-function updateAttribution(store: AttributionStore, parsed: ParsedTranscript): void {
+function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, target: string): void {
   const { agent, tokens, activeSkills } = parsed;
   if (tokens <= 0) {
     return;
   }
 
   store.unattributed = store.unattributed ?? {};
+
+  if (sessionHasV2HookRuns(target, parsed.sessionId)) {
+    store.unattributed[agent] = (store.unattributed[agent] ?? 0) + tokens;
+    return;
+  }
 
   if (activeSkills.length === 0) {
     store.unattributed[agent] = (store.unattributed[agent] ?? 0) + tokens;
@@ -150,6 +155,10 @@ function updateAttribution(store: AttributionStore, parsed: ParsedTranscript): v
 function appendRunsForWorkspace(target: string, parsed: ParsedTranscript, content: string): void {
   const ws = transcriptWorkspace(parsed.filePath, content);
   if (!ws || path.resolve(ws) !== path.resolve(target)) {
+    return;
+  }
+
+  if (sessionHasV2HookRuns(target, parsed.sessionId)) {
     return;
   }
 
@@ -275,7 +284,7 @@ export class AttributionCollector {
             continue;
           }
 
-          updateAttribution(store, parsed);
+          updateAttribution(store, parsed, this.target);
           appendRunsForWorkspace(this.target, parsed, content);
           state.fileMtimes[file] = mtime;
           state.processedSessions[sessionKey] = mtime;

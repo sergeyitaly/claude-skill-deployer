@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.5] - 2026-06-11
+
+### Added
+
+- **Attribution v2** — `Enable Attribution Hooks (v2)` installs a PostToolUse hook that logs each Skill/Read invoke to `runs.jsonl` (`metadata.source: skill-invoke-hook-v2`). Cost dashboard prefers hook-based attribution and skips equal-split transcript merge when v2 data exists.
+- **Copilot bootstrap** — sync writes `.github/copilot-instructions.md` index plus per-skill `.github/instructions/*.instructions.md` with frontmatter.
+- **Team branch profiles in git** — export/apply `.claude/skills-profile.json` per branch (`Export Team Branch Profile to Git`, auto-apply on branch switch).
+- **Unit tests** — vitest coverage for transcript parsers, copilot transform, and attribution display logic.
+- **Marketplace gallery** — screenshot assets for skills tree, cost dashboard, and setup wizard.
+
+### Changed
+
+- Setup wizard step 3 includes attribution hooks alongside budget/cost hooks.
+
 ## [1.0.4] - 2026-06-11
 
 ### Added

@@ -53,6 +53,7 @@ function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>):
     health.staleEqualSplit
       ? "<li>Run <b>Reset Mis-attributed Cost Data</b> (Command Palette)</li>"
       : "<li>Reset mis-attributed data — only if you see identical costs per skill</li>",
+    "<li>Run <b>Enable Attribution Hooks (v2)</b> — logs each Skill tool invoke to runs.jsonl</li>",
     "<li>Use the <b>self-learning</b> skill on real tasks (<code>metadata.invoked: true</code>)</li>",
     "<li>Work in Claude Code or Cursor for a few sessions, then reopen this dashboard</li>",
   ];
@@ -63,7 +64,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built);
+  const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
   const unattributedCost = (unattributedTokens / 1_000_000) * 9;
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
@@ -243,7 +244,7 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built);
+  const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
   const showPerSkill = health.reliable;
