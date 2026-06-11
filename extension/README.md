@@ -214,6 +214,13 @@ reports. Record runs with `metadata.invoked: true` via the `self-learning`
 skill for best accuracy. Keep `claudeSkills.optimizer.autoApply` off until
 attribution looks correct.
 
+## What this tool does NOT do
+
+- No validation of `SKILL.md` frontmatter.
+- Community benchmark upload requires you to configure endpoints (no default public server).
+- PR comments require GitHub CLI and explicit feature enable.
+- Copilot clones are instruction files, not native Copilot skills.
+
 ## Performance & compatibility
 
 See root [README.md](../README.md#performance-impact) and [CHANGELOG.md](../CHANGELOG.md).
