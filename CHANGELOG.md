@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.2] - 2026-06-11
+
+### Added
+
+- **Scheduled weekly AI usage report** in the extension (`claudeSkills.weeklyReport.*`): default Monday 9:00 local time, sends an informative email via SMTP. One-time **Configure Weekly Report Email** wizard stores a GitHub/GitLab PAT (email discovery) and SMTP credentials in VS Code Secret Storage.
+
 ## [1.0.1] - 2026-06-11
 
 ### Fixed

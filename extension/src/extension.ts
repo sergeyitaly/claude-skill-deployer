@@ -72,6 +72,12 @@ import { showOnboardingTour } from "./onboarding";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
+import {
+  configureWeeklyReportEmail,
+  deliverWeeklyReport,
+  readWeeklyReportConfig,
+  startWeeklyReportScheduler,
+} from "./weeklyReport";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -350,6 +356,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (isFeatureEnabled("communityBenchmarks")) {
       void syncCommunityBenchmarks();
     }
+    startWeeklyReportScheduler(context, getWorkspaceTarget, libraryDir, log);
   }
 
   context.subscriptions.push(
@@ -998,6 +1005,34 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const fixed = await repairIssues(target, issues);
       vscode.window.showInformationMessage(`Claude Skills: repaired ${fixed.length} issue(s).`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.configureWeeklyReportEmail", async () => {
+      const target = getWorkspaceTarget();
+      const message = await configureWeeklyReportEmail(context, target);
+      outputChannel.show(true);
+      log(`\n=== Configure weekly report email ===\n${message}`);
+      vscode.window.showInformationMessage(message.split("\n")[0] ?? message);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.sendWeeklyReport", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      outputChannel.show(true);
+      log("\n=== Send weekly AI usage report ===");
+      const result = await deliverWeeklyReport(context, target, libraryDir);
+      if (result.email.ok) {
+        log(`Email sent to ${result.email.to}`);
+        vscode.window.showInformationMessage(`Claude Skills: weekly report emailed to ${result.email.to}.`);
+      } else {
+        log(`Email failed: ${result.email.error ?? "n/a"}`);
+        vscode.window.showWarningMessage(
+          result.email.error ?? "Weekly report could not be sent. Run Configure Weekly Report Email."
+        );
+      }
     }),
 
     vscode.commands.registerCommand("claudeSkills.resetAttribution", async () => {

@@ -79,11 +79,115 @@ Or Settings → `claudeSkills.features.*`:
 - **PR cost estimate** — `Claude Skills: Estimate PR Review Cost` (needs `gh`, feature on)
 - **Commit cost hook** — post-commit line in terminal + `commit-costs.jsonl`
 
-CLI helpers:
+### Weekly AI usage report (extension)
+
+Default: **every Monday at 9:00** (local time) while Cursor/VS Code is open, the extension emails an AI usage summary to your inbox.
+
+- One-time setup: **Configure Weekly Report Email** (recommended)
+- Manual test: **Claude Skills: Send Weekly AI Usage Report**
+- Schedule settings: `claudeSkills.weeklyReport.enabled`, `dayOfWeek`, `hour`, `emailSubject`
+
+#### What credentials you need (two parts)
+
+The extension does **not** send mail through GitHub/GitLab. A git token only **looks up the inbox** linked to your account. Something else must **deliver** the email.
+
+| Credential | Purpose | Where to store |
+|---|---|---|
+| **GitHub or GitLab personal access token (PAT)** | Read your git account profile and primary email | VS Code Secret Storage via **Configure Weekly Report Email** (not `settings.json`) |
+| **SMTP username + password** | Send the weekly usage email to that inbox | Same wizard (secrets), or `claudeSkills.weeklyReport.smtp*` / `CLAUDE_SKILLS_SMTP_*` env vars |
+
+Do **not** put PATs or SMTP passwords in committed settings files. The wizard stores them in VS Code Secret Storage. For SMTP, env vars are safer than plain `settings.json` values.
+
+#### GitHub token (if `origin` is GitHub)
+
+**Token type:** [GitHub personal access token](https://github.com/settings/tokens) — **fine-grained** or **classic (legacy)**.
+
+**Minimum scopes (classic PAT):**
+
+| Scope | Why |
+|---|---|
+| `read:user` | Read your GitHub username and public profile |
+| `user:email` | Read your real inbox address (skips `*@users.noreply.github.com`) |
+
+`repo` is **not** required for weekly email reports (only identity/email lookup).
+
+**Fine-grained PAT (alternative):** create a token with **Account** permissions only:
+
+- **Email addresses** → Read
+- **Profile** → Read (or Metadata read, depending on GitHub UI)
+
+**How to insert it in the extension:**
+
+1. Open a workspace whose `git remote get-url origin` points to GitHub.
+2. Command Palette → **Claude Skills: Configure Weekly Report Email**.
+3. Choose **Paste GitHub personal access token** (or **Use existing GitHub CLI session** if you already ran `gh auth login` with `user:email`).
+4. Complete the SMTP step (Gmail app password, Microsoft 365, or company SMTP).
+5. Choose **Send test email now** to verify.
+
+**CLI alternative (no pasted PAT):** `gh auth login`, then refresh email scope if needed:
+
+```bash
+gh auth refresh -h github.com -s user,read:user
+```
+
+#### GitLab token (if `origin` is GitLab)
+
+**Token type:** [GitLab personal access token](https://gitlab.com/-/user_settings/personal_access_tokens) (or your self-hosted GitLab **User Settings → Access Tokens**).
+
+**Minimum scopes:**
+
+| Scope | Why |
+|---|---|
+| `read_user` | Read your username and email on file |
+
+`api` is broader than needed; `read_user` is enough for email discovery.
+
+**How to insert it in the extension:**
+
+1. Open a workspace whose `origin` is GitLab.
+2. Command Palette → **Claude Skills: Configure Weekly Report Email**.
+3. Choose **Paste GitLab personal access token** (or set `GITLAB_TOKEN` / `GLAB_TOKEN` in the environment and pick **Use existing GitLab CLI session**).
+4. Complete SMTP and send a test email.
+
+#### SMTP (required to actually receive the email)
+
+The git PAT **cannot** replace SMTP. Pick one:
+
+| Provider | SMTP host | Port | Password |
+|---|---|---|---|
+| Gmail | `smtp.gmail.com` | `587` | [Google App Password](https://myaccount.google.com/apppasswords) (not your login password) |
+| Microsoft 365 / Outlook | `smtp.office365.com` | `587` | Your work Microsoft account password (or app password if MFA requires it) |
+| Company / other | Your IT host | Usually `587` or `465` | From your mail admin |
+
+The wizard stores SMTP in Secret Storage. Advanced override via settings or env:
+
+```json
+"claudeSkills.weeklyReport.emailTo": "you@company.com"
+```
+
+```powershell
+$env:CLAUDE_SKILLS_SMTP_HOST = "smtp.gmail.com"
+$env:CLAUDE_SKILLS_SMTP_PORT = "587"
+$env:CLAUDE_SKILLS_SMTP_USER = "you@gmail.com"
+$env:CLAUDE_SKILLS_SMTP_PASSWORD = "your-app-password"
+$env:CLAUDE_SKILLS_REPORT_TO = "you@gmail.com"
+```
+
+#### Extension settings reference (`claudeSkills.weeklyReport.*`)
+
+| Setting | Used for token? | Notes |
+|---|---|---|
+| `emailTo` | No (recipient override) | Leave empty to use email discovered from the PAT |
+| `smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword` | No (mail delivery) | Optional if configured via wizard or env vars |
+| `enabled`, `dayOfWeek`, `hour`, `minute`, `emailSubject` | No | Schedule and subject only |
+
+There is **no** `weeklyReport.githubToken` setting — the PAT is entered once in the **Configure Weekly Report Email** command and saved to VS Code secrets.
+
+CLI helpers (automation outside the IDE):
 
 ```bash
 py scripts/send_weekly_report.py --target .
-py scripts/send_weekly_report.py --create-issue   # gh issue
+py scripts/send_weekly_report.py --email          # needs CLAUDE_SKILLS_SMTP_* env vars
 py scripts/test_skill_cost.py terraform-plan-review --write-manifest
 ```
 
@@ -126,7 +230,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.1** (`serhiivoinolovych`).
+Current extension version: **1.0.2** (`serhiivoinolovych`).
 
 ## Performance impact
 

@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -233,6 +233,18 @@
         "title": "Reset Mis-attributed Cost Data",
         "icon": "$(debug-restart)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.configureWeeklyReportEmail",
+        "title": "Configure Weekly Report Email",
+        "icon": "$(key)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.sendWeeklyReport",
+        "title": "Send Weekly AI Usage Report",
+        "icon": "$(mail)",
+        "category": "Claude Skills"
       }
     ],
     "configuration": {
@@ -437,6 +449,62 @@
           "type": "boolean",
           "default": false,
           "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only — no network upload unless you add your own exporter."
+        },
+        "claudeSkills.weeklyReport.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send a weekly AI agent usage report (requires VS Code/Cursor to be open at the scheduled time)."
+        },
+        "claudeSkills.weeklyReport.dayOfWeek": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 6,
+          "description": "Day to send the report (0=Sunday, 1=Monday, ...)."
+        },
+        "claudeSkills.weeklyReport.hour": {
+          "type": "number",
+          "default": 9,
+          "minimum": 0,
+          "maximum": 23,
+          "description": "Local hour to send the weekly report."
+        },
+        "claudeSkills.weeklyReport.minute": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 59,
+          "description": "Local minute to send the weekly report."
+        },
+        "claudeSkills.weeklyReport.emailTo": {
+          "type": "string",
+          "default": "",
+          "description": "Override email recipient. Empty = discovered via Configure Weekly Report Email (GitHub/GitLab token)."
+        },
+        "claudeSkills.weeklyReport.smtpHost": {
+          "type": "string",
+          "default": "",
+          "description": "SMTP host for direct email (or set CLAUDE_SKILLS_SMTP_HOST)."
+        },
+        "claudeSkills.weeklyReport.smtpPort": {
+          "type": "number",
+          "default": 587,
+          "description": "SMTP port (TLS)."
+        },
+        "claudeSkills.weeklyReport.smtpUser": {
+          "type": "string",
+          "default": "",
+          "description": "SMTP username (or CLAUDE_SKILLS_SMTP_USER)."
+        },
+        "claudeSkills.weeklyReport.smtpPassword": {
+          "type": "string",
+          "default": "",
+          "description": "SMTP password (or CLAUDE_SKILLS_SMTP_PASSWORD). Prefer env vars over storing secrets in settings."
+        },
+        "claudeSkills.weeklyReport.emailSubject": {
+          "type": "string",
+          "default": "Weekly AI Agent Usage Report",
+          "description": "Email subject prefix for the weekly AI usage report."
         }
       }
     },
@@ -479,6 +547,16 @@
         },
         {
           "command": "claudeSkills.showUsageStats",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.configureWeeklyReportEmail",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.sendWeeklyReport",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
         },
