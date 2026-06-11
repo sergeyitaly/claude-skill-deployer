@@ -44,23 +44,18 @@ describe("transcriptFileMatchesWorkspace", () => {
 });
 
 describe("workspaceFromTranscriptFile", () => {
-  it("decodes Windows drive letter from encoded project folders", () => {
-    const file =
-      "C:/Users/SerhiiVoinolovich/.claude/projects/c--Users-SerhiiVoinolovich-claude-skills-deployer/session.jsonl";
-    const decoded = workspaceFromTranscriptFile(file);
-    expect(decoded).toBeTruthy();
-    expect(decoded!.replace(/\\/g, "/").toLowerCase()).toMatch(/^c:\/users\/serhiivoinolovich\//);
+  it("round-trips encode and decode when folder names have no hyphens", () => {
+    const target = "/home/runner/work/myrepo";
+    const encoded = encodeWorkspacePath(target);
+    const file = `/home/runner/.claude/projects/${encoded}/session.jsonl`;
+    expect(workspaceFromTranscriptFile(file)).toBe(target);
   });
 
-  it("decodes POSIX encoded project folders on POSIX hosts", () => {
-    if (process.platform === "win32") {
-      return;
-    }
-    const encoded = "home-runner-work-claude-skill-deployer-claude-skill-deployer";
-    const file = `/home/runner/.claude/projects/${encoded}/session.jsonl`;
-    expect(workspaceFromTranscriptFile(file)).toBe(
-      "/home/runner/work/claude-skill-deployer/claude-skill-deployer"
-    );
+  it("decodes Windows drive paths without path.resolve", () => {
+    const target = "C:/Users/runner/myrepo";
+    const encoded = encodeWorkspacePath(target);
+    const file = `C:/Users/runner/.claude/projects/${encoded}/session.jsonl`;
+    expect(workspaceFromTranscriptFile(file)).toBe("C:/Users/runner/myrepo");
   });
 
   it("returns undefined for invalid paths", () => {

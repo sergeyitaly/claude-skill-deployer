@@ -42,11 +42,12 @@ export function workspaceFromTranscriptFile(filePath: string): string | undefine
   const win = encoded.match(/^([a-z])--(.+)$/i);
   if (win) {
     const drive = win[1].toUpperCase();
-    const rest = win[2].replace(/-/g, path.sep);
-    return path.resolve(`${drive}:${path.sep}${rest}`);
+    const rest = win[2].replace(/-/g, "/");
+    return `${drive}:/${rest}`;
   }
   if (encoded.includes("-")) {
-    return path.resolve(encoded.replace(/-/g, path.sep));
+    // Best-effort inverse of encode — hyphens inside folder names cannot be recovered.
+    return `/${encoded.replace(/-/g, "/")}`;
   }
   return undefined;
 }
