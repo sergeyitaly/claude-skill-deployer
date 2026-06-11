@@ -12,7 +12,7 @@ export interface ParsedTranscript {
 
 export interface TranscriptParser {
   agent: AgentId;
-  parseFile(filePath: string): ParsedTranscript | null;
+  parseFile(filePath: string, content?: string): ParsedTranscript | null;
 }
 
 const SKILL_PATH_RE = /[\\/]\.(?:claude|cursor)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/gi;
@@ -124,12 +124,14 @@ function extractSessionId(content: string, fallback: string): string {
 
 export const claudeParser: TranscriptParser = {
   agent: "claude",
-  parseFile(filePath: string): ParsedTranscript | null {
-    let content: string;
-    try {
-      content = fs.readFileSync(filePath, "utf-8");
-    } catch {
-      return null;
+  parseFile(filePath: string, provided?: string): ParsedTranscript | null {
+    let content = provided;
+    if (content === undefined) {
+      try {
+        content = fs.readFileSync(filePath, "utf-8");
+      } catch {
+        return null;
+      }
     }
     const tokens = sumClaudeUsageLines(content);
     if (tokens === 0 && content.length < 100) {
@@ -148,12 +150,14 @@ export const claudeParser: TranscriptParser = {
 
 export const cursorParser: TranscriptParser = {
   agent: "cursor",
-  parseFile(filePath: string): ParsedTranscript | null {
-    let content: string;
-    try {
-      content = fs.readFileSync(filePath, "utf-8");
-    } catch {
-      return null;
+  parseFile(filePath: string, provided?: string): ParsedTranscript | null {
+    let content = provided;
+    if (content === undefined) {
+      try {
+        content = fs.readFileSync(filePath, "utf-8");
+      } catch {
+        return null;
+      }
     }
     let tokens = 0;
     for (const line of content.split("\n")) {

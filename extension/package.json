@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -142,6 +142,18 @@
         "command": "claudeSkills.installCostControlHooks",
         "title": "Enable Cost Control Hooks (Budget + Session Size)",
         "icon": "$(shield)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installOfficialSkillsSessionHook",
+        "title": "Enable Official Skills Session Check (SessionStart)",
+        "icon": "$(cloud-download)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.checkOfficialSkillUpdates",
+        "title": "Check Official Anthropic Skill Updates",
+        "icon": "$(cloud-download)",
         "category": "Claude Skills"
       },
       {
@@ -368,6 +380,11 @@
           "default": 262144,
           "description": "Warn when SKILL.md exceeds this size (bytes)."
         },
+        "claudeSkills.officialSkillsCheckOnSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "When skills_library/ exists, install a Claude Code SessionStart hook that checks anthropics/skills for updates and prompts skill-official-updater."
+        },
         "claudeSkills.lint.maxDescriptionLength": {
           "type": "number",
           "default": 500,
@@ -412,6 +429,37 @@
           "default": 0,
           "minimum": 0,
           "description": "Weekly spend cap for predictive alerts (0 = daily budget x 7)."
+        },
+        "claudeSkills.optimizer.disableCostPerUseUsd": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "description": "Suggest disabling a skill when attributed cost per use exceeds this (USD)."
+        },
+        "claudeSkills.optimizer.disableMaxRuns": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Pair with disableCostPerUseUsd — only suggest disable when runs are below this count."
+        },
+        "claudeSkills.optimizer.agentSavingsRatio": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Suggest agent switch when alternate agent cost is below this fraction of Claude cost."
+        },
+        "claudeSkills.optimizer.unusedIdleDays": {
+          "type": "number",
+          "default": 7,
+          "minimum": 1,
+          "description": "Suggest disabling skills with no usage for at least this many days."
+        },
+        "claudeSkills.optimizer.unusedMinCostUsd": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Minimum attributed cost before idle-day unused suggestions appear."
         },
         "claudeSkills.features.budgetControls": {
           "type": "boolean",
@@ -506,6 +554,12 @@
           "default": 10,
           "minimum": 1,
           "description": "Absolute daily spend limit that triggers emergency cutoff."
+        },
+        "claudeSkills.emergency.perSkillLimitUsd": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "When cutoff triggers, disable only skills with attributed cost at or above this threshold (restores prior overrides on reset)."
         },
         "claudeSkills.benchmarks.optIn": {
           "type": "boolean",

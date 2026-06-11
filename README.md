@@ -68,17 +68,24 @@ Or Settings → `claudeSkills.features.*`:
 
 ## Cost intelligence
 
-- **Cost Intelligence Dashboard** — agent-level spend (last 14 days), per-skill breakdown when attribution is reliable, cross-agent savings, team attribution
+- **Cost Intelligence Dashboard** — agent-level spend for **this workspace** (last 14 days, transcript estimate); per-skill breakdown when attribution is reliable; cross-agent savings; team attribution; CSP-hardened webview
 - **Attribution collector** — parses session transcripts; attributes tokens only to **invoked** skills (not the full skill catalog). Sessions with no detected invocation go to `unattributed`.
-- **Stale data guard** — if many skills show the **same** attributed cost (e.g. $579.51 each), the dashboard hides per-skill rankings and disable suggestions until you reset. Agent totals from transcripts remain valid.
+- **Stale data guard** — auto-purges equal-split `transcriptSkills` on load; if many skills still share the same cost, per-skill rankings stay hidden until you run **Reset Mis-attributed Cost Data**. Workspace-scoped agent totals remain valid.
 - **Reset Mis-attributed Cost Data** — clears bad collector rows and `transcriptSkills` for re-collection (`scripts/reset_attribution.py` or `py scripts/check_cost_data.py` to diagnose)
-- **Optimization suggestions** — disable expensive low-use skills, agent-switch hints (suppressed while stale attribution is detected)
-- **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (keep `false` until attribution data looks sane)
+- **Enable Attribution Hooks (v2)** — PostToolUse hook logs explicit Skill invocations to `runs.jsonl` (strongest per-skill attribution)
+- **Optimization suggestions** — disable expensive low-use skills, agent-switch hints (thresholds: `claudeSkills.optimizer.disableCostPerUseUsd`, `disableMaxRuns`, `unusedIdleDays`, …)
+- **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (max **3 applies per 30 minutes** when auto; keep `false` until attribution looks sane)
 - **Community benchmarks** — `~/.claude/learning/community-benchmarks.json` (opt-in upload/download URLs)
-- **Emergency cutoff** — disables all workspace skills above `claudeSkills.emergency.hardLimitUsd`; reset via command
-- **Skill archival** — moves idle skills to `.claude/skills-archived/` (restore command)
+- **Emergency cutoff** — when daily spend exceeds `claudeSkills.emergency.hardLimitUsd`, disables skills over `perSkillLimitUsd` attributed cost; **Reset Emergency Cutoff** restores your prior manual overrides
+- **Skill archival** — moves idle skills to `.claude/skills-archived/` (**Restore Archived Skill**; falls back to `skills_library/` if needed)
 - **PR cost estimate** — `Claude Skills: Estimate PR Review Cost` (needs `gh`, feature on)
 - **Commit cost hook** — post-commit line in terminal + `commit-costs.jsonl`
+
+### Official Anthropic skills (repos with `skills_library/`)
+
+- **SessionStart hook** — on new Claude Code sessions, checks [anthropics/skills](https://github.com/anthropics/skills) and injects context for the `skill-official-updater` skill
+- **Check Official Anthropic Skill Updates** — manual check from Command Palette
+- Setting: `claudeSkills.officialSkillsCheckOnSession` (default on)
 
 ### Weekly AI usage report (extension)
 
@@ -246,7 +253,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.8** (`serhiivoinolovych`).
+Current extension version: **1.0.9** (`serhiivoinolovych`).
 
 ## Performance impact
 
@@ -284,11 +291,11 @@ First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL |
 | `Claude Skills: Reset Mis-attributed Cost Data` | Clear bad cost attribution after v1.0.0 collector bug |
 
-See [CHANGELOG.md](CHANGELOG.md) for v1.0.3 local skills, agent propagation, and cost dashboard stale-data fixes.
+See [CHANGELOG.md](CHANGELOG.md) for the full v1.0.x release notes (v1.0.9: workspace-scoped cost totals, official-skills session check, attribution reliability fixes).
 
 ## What this tool does NOT do
 
-- **SKILL.md lint is advisory** — sync-time checks (name, description, size) warn by default; set `claudeSkills.lint.blockSyncOnError` to hard-block.
+- **SKILL.md lint is advisory** — sync-time checks on `.claude/skills` plus Cursor/Kiro SKILL.md mirrors and Copilot `.instructions.md` existence checks; set `claudeSkills.lint.blockSyncOnError` to hard-block multi-agent sync only (hooks and branch profiles still run).
 - **Cost figures are estimates** — not Anthropic/Cursor invoices; per-skill attribution is strongest for Claude Code with Attribution v2 hooks.
 - Community benchmark upload requires you to configure endpoints (no default public server).
 - PR comments require GitHub CLI and explicit feature enable.

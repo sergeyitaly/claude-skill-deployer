@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
@@ -19,9 +19,10 @@ function gitBlameAuthor(target: string, relPath: string): { author: string; emai
     return null;
   }
   try {
-    const out = execSync(`git log -1 --format=%an|%ae|%aI -- "${relPath}"`, {
+    const out = execFileSync("git", ["log", "-1", "--format=%an|%ae|%aI", "--", relPath], {
       cwd: target,
       encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     const [author, email, date] = out.split("|");
     if (!author) {

@@ -35,16 +35,50 @@ export function migrateLegacyCostAttribution(target: string): boolean {
     return false;
   }
   try {
-    const raw = JSON.parse(fs.readFileSync(LEGACY_COST_ATTRIBUTION_PATH, "utf-8")) as { workspacePath?: string };
+    const raw = JSON.parse(fs.readFileSync(LEGACY_COST_ATTRIBUTION_PATH, "utf-8")) as Record<string, unknown> & {
+      workspacePath?: string;
+    };
     const legacyWs = raw.workspacePath;
     if (legacyWs && path.resolve(legacyWs) !== path.resolve(target)) {
       return false;
     }
     fs.mkdirSync(path.dirname(wsPath), { recursive: true });
-    fs.copyFileSync(LEGACY_COST_ATTRIBUTION_PATH, wsPath);
+    const ts = (raw.transcriptSkills ?? raw.skills) as SkillAttributionMap | undefined;
+    if (ts && detectEqualSplitCluster(ts)) {
+      raw.transcriptSkills = {};
+      delete raw.skills;
+    }
+    fs.writeFileSync(wsPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Drop equal-split transcriptSkills blobs (stale collector data). */
+export function sanitizeTranscriptSkills(skills: SkillAttributionMap): {
+  skills: SkillAttributionMap;
+  purgedStaleEqualSplit: boolean;
+} {
+  if (!detectEqualSplitCluster(skills)) {
+    return { skills, purgedStaleEqualSplit: false };
+  }
+  return { skills: {}, purgedStaleEqualSplit: true };
+}
+
+function persistPurgedTranscriptSkills(target: string): void {
+  const file = costAttributionPath(target);
+  if (!fs.existsSync(file)) {
+    return;
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, unknown>;
+    raw.transcriptSkills = {};
+    delete raw.skills;
+    raw.updatedAt = new Date().toISOString();
+    fs.writeFileSync(file, JSON.stringify(raw, null, 2) + "\n", "utf-8");
+  } catch {
+    // ignore
   }
 }
 
@@ -101,15 +135,18 @@ function attributionFromRuns(records: RunRecord[]): SkillAttributionMap {
   return map;
 }
 
-/** Agent-level totals from session transcripts (no per-skill split). */
-function agentTotalsFromTranscripts(libraryDir: string): Partial<Record<AgentId, AgentAttribution>> {
+/** Agent-level totals from session transcripts scoped to workspace when target provided. */
+function agentTotalsFromTranscripts(
+  libraryDir: string,
+  workspaceTarget?: string
+): Partial<Record<AgentId, AgentAttribution>> {
   const agents = loadAgentsManifest(libraryDir).agents;
   const totals: Partial<Record<AgentId, AgentAttribution>> = {};
   for (const [id, def] of Object.entries(agents)) {
     if (!def.supportsUsageTranscripts || def.transcriptRoots.length === 0) {
       continue;
     }
-    const summary = computeCreditUsageFromRoots(def.transcriptRoots, 14);
+    const summary = computeCreditUsageFromRoots(def.transcriptRoots, 14, workspaceTarget);
     if (summary.totalTokens === 0) {
       continue;
     }
@@ -153,7 +190,11 @@ export function buildCostAttribution(target: string, libraryDir: string): {
   migrateLegacyCostAttribution(target);
   const stored = readStoredAttributionFile(costAttributionPath(target));
   if (stored) {
-    transcriptSkills = stored.transcriptSkills;
+    const sanitized = sanitizeTranscriptSkills(stored.transcriptSkills);
+    transcriptSkills = sanitized.skills;
+    if (sanitized.purgedStaleEqualSplit) {
+      persistPurgedTranscriptSkills(target);
+    }
     base_context = { ...stored.base_context, ...base_context };
     unattributed = { ...stored.unattributed, ...unattributed };
   }
@@ -163,7 +204,7 @@ export function buildCostAttribution(target: string, libraryDir: string): {
     transcriptSkills,
     base_context,
     unattributed,
-    agentTotals: agentTotalsFromTranscripts(libraryDir),
+    agentTotals: agentTotalsFromTranscripts(libraryDir, target),
   };
 }
 
@@ -220,16 +261,28 @@ export function resolveDisplayAttribution(
     };
   }
 
+  const transcriptCluster = detectEqualSplitCluster(built.transcriptSkills);
   const merged = mergeSkillMaps(built.skills, built.transcriptSkills);
-  const cluster = detectEqualSplitCluster(merged);
-  if (!cluster) {
+  const mergedCluster = detectEqualSplitCluster(merged);
+
+  if (!mergedCluster) {
     return { attribution: merged, staleEqualSplit: false, equalSplitCluster: null, usesV2HookRuns: false };
   }
-  const runsOnlyStale = detectEqualSplitCluster(built.skills);
+
+  const runsCluster = detectEqualSplitCluster(built.skills);
+  if (transcriptCluster && !runsCluster) {
+    return {
+      attribution: built.skills,
+      staleEqualSplit: false,
+      equalSplitCluster: null,
+      usesV2HookRuns: false,
+    };
+  }
+
   return {
-    attribution: runsOnlyStale ? {} : built.skills,
+    attribution: built.skills,
     staleEqualSplit: true,
-    equalSplitCluster: cluster,
+    equalSplitCluster: mergedCluster,
     usesV2HookRuns: false,
   };
 }

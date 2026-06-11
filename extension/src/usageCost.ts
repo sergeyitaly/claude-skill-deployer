@@ -1,33 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
-interface ModelPricing {
-  input: number;
-  output: number;
-  cacheWrite: number;
-  cacheRead: number;
-}
-
-/** USD per million tokens. Approximate published Anthropic API rates -
- * used as a relative reference, not an actual bill (Pro/Max plans are
- * flat-rate). Matched against the model id by substring. Cache write is
- * 1.25x input (5-minute TTL) and cache read is 0.1x input. */
-const PRICING_TIERS: { match: string; pricing: ModelPricing }[] = [
-  { match: "opus", pricing: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } },
-  { match: "haiku", pricing: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 } },
-];
-const DEFAULT_PRICING: ModelPricing = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
-
-function pricingForModel(model: string): ModelPricing {
-  const lower = model.toLowerCase();
-  for (const tier of PRICING_TIERS) {
-    if (lower.includes(tier.match)) {
-      return tier.pricing;
-    }
-  }
-  return DEFAULT_PRICING;
-}
+import { estimateUsageCostUsd } from "./costRates";
+import { localDateKey } from "./localDate";
+import { listTranscriptFiles } from "./transcriptParsers";
+import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
 interface TokenUsage {
   inputTokens: number;
@@ -61,12 +38,14 @@ function getOrCreate(map: Map<string, TokenUsage>, key: string): TokenUsage {
 }
 
 function estimateCost(model: string, usage: TokenUsage): number {
-  const pricing = pricingForModel(model);
-  return (
-    (usage.inputTokens / 1_000_000) * pricing.input +
-    (usage.outputTokens / 1_000_000) * pricing.output +
-    (usage.cacheCreationTokens / 1_000_000) * pricing.cacheWrite +
-    (usage.cacheReadTokens / 1_000_000) * pricing.cacheRead
+  return estimateUsageCostUsd(
+    {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheCreationTokens: usage.cacheCreationTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+    },
+    model
   );
 }
 
@@ -91,25 +70,6 @@ export interface CreditUsageSummary {
 
 export function claudeProjectsDir(): string {
   return path.join(os.homedir(), ".claude", "projects");
-}
-
-function listTranscriptFiles(dir: string): string[] {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listTranscriptFiles(full));
-    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      files.push(full);
-    }
-  }
-  return files;
 }
 
 interface TranscriptLine {
@@ -169,7 +129,7 @@ function recordLine(line: string, windowStartMs: number, buckets: Buckets, sessi
     return;
   }
 
-  const date = timestamp.slice(0, 10);
+  const date = localDateKey(new Date(timestamp));
   addUsage(getOrCreate(buckets, bucketKey(date, model)), delta);
 
   if (parsed.sessionId) {
@@ -227,7 +187,7 @@ function summarizeByModel(buckets: Buckets): ModelUsage[] {
 
 /** Token and estimated cost for today (local calendar day) across all projects. */
 export function computeTodayCreditUsage(): { totalTokens: number; totalCost: number } {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   const summary = computeCreditUsage(1);
   const todayRow = summary.byDay.find((d) => d.date === today);
   if (!todayRow) {
@@ -241,7 +201,11 @@ function expandTranscriptRoot(root: string): string {
 }
 
 /** Aggregates token usage from session transcripts under the given roots. */
-export function computeCreditUsageFromRoots(roots: string[], daysBack = 14): CreditUsageSummary {
+export function computeCreditUsageFromRoots(
+  roots: string[],
+  daysBack = 14,
+  workspaceTarget?: string
+): CreditUsageSummary {
   const cutoffMs = Date.now() - (daysBack + 1) * 24 * 60 * 60 * 1000;
   const windowStartMs = Date.now() - daysBack * 24 * 60 * 60 * 1000;
 
@@ -251,6 +215,9 @@ export function computeCreditUsageFromRoots(roots: string[], daysBack = 14): Cre
   for (const root of roots) {
     const dir = expandTranscriptRoot(root);
     for (const file of listTranscriptFiles(dir)) {
+      if (workspaceTarget && !transcriptFileMatchesWorkspace(file, workspaceTarget)) {
+        continue;
+      }
       recordFile(file, cutoffMs, windowStartMs, buckets, sessionIds);
     }
   }

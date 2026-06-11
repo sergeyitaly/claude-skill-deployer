@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { directoryExists } from "./criticalFixes";
-import { ensureLearningDir } from "./usageStats";
 
 export interface RecoveryIssue {
   file?: string;
@@ -97,10 +96,6 @@ export async function repairIssues(target: string, issues: RecoveryIssue[]): Pro
     }
     if (issue.action === "create-skills-dir") {
       fs.mkdirSync(path.join(target, ".claude", "skills"), { recursive: true });
-      fixed.push(issue.message);
-    }
-    if (issue.action === "create-learning-dir") {
-      ensureLearningDir(target);
       fixed.push(issue.message);
     }
   }

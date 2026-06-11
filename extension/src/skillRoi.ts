@@ -1,5 +1,5 @@
-import { CostEstimateTier } from "./skillCost";
-import { estimateSessionCostUsd, tierForSkill } from "./skillCost";
+import { tokenCostUsd } from "./costRates";
+import { CostEstimateTier, estimateSessionCostUsd, tierForSkill } from "./skillCost";
 import { Manifest } from "./skillOps";
 import { SkillUsageStat } from "./usageStats";
 
@@ -27,7 +27,7 @@ export function skillRoiMetrics(
   const tier = tierForSkill(manifest.skills[skillName]?.cost_estimate);
   let sessionCostUsd = estimateSessionCostUsd(tier);
   if (usageStat?.totalTokens && usageStat.runs > 0) {
-    sessionCostUsd = (usageStat.totalTokens / usageStat.runs / 1_000_000) * 9;
+    sessionCostUsd = tokenCostUsd(usageStat.totalTokens / usageStat.runs);
   }
   const minutesSaved = TIME_SAVED_MINUTES[tier];
   const hourlyRate = 75;
@@ -58,8 +58,11 @@ export function compareSkillsForSort(
       return ma.sessionCostUsd - mb.sessionCostUsd;
     case "highest_roi":
       return mb.roi - ma.roi;
-    case "best_value":
-      return mb.roi / mb.sessionCostUsd - ma.roi / ma.sessionCostUsd;
+    case "best_value": {
+      const aScore = ma.sessionCostUsd > 0 ? ma.roi / ma.sessionCostUsd : 0;
+      const bScore = mb.sessionCostUsd > 0 ? mb.roi / mb.sessionCostUsd : 0;
+      return bScore - aScore;
+    }
     default:
       return a.localeCompare(b);
   }

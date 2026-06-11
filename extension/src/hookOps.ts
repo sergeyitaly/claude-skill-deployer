@@ -5,11 +5,14 @@ import { ensureLearningDir } from "./usageStats";
 const SESSION_HOOK_FILENAME = "session-size-watch.js";
 const BUDGET_HOOK_FILENAME = "budget-watch.js";
 const SKILL_INVOKE_HOOK_FILENAME = "skill-invoke-watch.js";
+const OFFICIAL_SKILLS_HOOK_FILENAME = "official-skills-watch.js";
 const HOOK_HELPER_FILENAME = "usageParse.js";
 
 const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSION_HOOK_FILENAME}"`;
 const BUDGET_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${BUDGET_HOOK_FILENAME}"`;
 const SKILL_INVOKE_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SKILL_INVOKE_HOOK_FILENAME}"`;
+const OFFICIAL_SKILLS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${OFFICIAL_SKILLS_HOOK_FILENAME}"`;
+const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
 
 export type HookInstallStatus = "installed" | "already-configured" | "updated";
 
@@ -62,6 +65,7 @@ const ALL_HOOK_FILES = [
   SESSION_HOOK_FILENAME,
   BUDGET_HOOK_FILENAME,
   SKILL_INVOKE_HOOK_FILENAME,
+  OFFICIAL_SKILLS_HOOK_FILENAME,
   HOOK_HELPER_FILENAME,
 ];
 
@@ -184,6 +188,69 @@ export function installAttributionHooks(extensionPath: string, target: string): 
     fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n", "utf-8");
     return added && !had ? "installed" : "updated";
+  }
+  return had ? "already-configured" : "updated";
+}
+
+function hasSessionStartHook(settings: Settings, filename: string): boolean {
+  const matchers = settings.hooks?.SessionStart ?? [];
+  return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
+}
+
+function ensureSessionStartHookRegistered(
+  settings: Settings,
+  matcher: string,
+  filename: string,
+  command: string
+): boolean {
+  settings.hooks = settings.hooks ?? {};
+  settings.hooks.SessionStart = settings.hooks.SessionStart ?? [];
+
+  for (const entry of settings.hooks.SessionStart) {
+    if (entry.hooks.some((h) => h.command.includes(filename))) {
+      if (entry.matcher !== matcher) {
+        entry.matcher = matcher;
+        return true;
+      }
+      return false;
+    }
+  }
+
+  settings.hooks.SessionStart.push({
+    matcher,
+    hooks: [{ type: "command", command, timeout: 20 }],
+  });
+  return true;
+}
+
+export function areOfficialSkillsHooksConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasSessionStartHook(settings, OFFICIAL_SKILLS_HOOK_FILENAME);
+  } catch {
+    return false;
+  }
+}
+
+/** SessionStart hook: check anthropics/skills and inject skill-official-updater context. */
+export function installOfficialSkillsSessionHook(extensionPath: string, target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasSessionStartHook(settings, OFFICIAL_SKILLS_HOOK_FILENAME);
+
+  copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
+  const added = ensureSessionStartHookRegistered(
+    settings,
+    OFFICIAL_SKILLS_SESSION_MATCHER,
+    OFFICIAL_SKILLS_HOOK_FILENAME,
+    OFFICIAL_SKILLS_HOOK_COMMAND
+  );
+
+  if (added) {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+    return had ? "updated" : "installed";
   }
   return had ? "already-configured" : "updated";
 }

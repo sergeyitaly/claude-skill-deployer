@@ -55,14 +55,7 @@ function loadAttribution(target: string): AttributionStore {
 
 function saveAttribution(target: string, store: AttributionStore): void {
   const attrPath = costAttributionPath(target);
-  let existing: Record<string, unknown> = {};
-  try {
-    existing = JSON.parse(fs.readFileSync(attrPath, "utf-8")) as Record<string, unknown>;
-  } catch {
-    // fresh file
-  }
   const data = {
-    ...existing,
     updatedAt: new Date().toISOString(),
     workspacePath: store.workspacePath ?? target,
     transcriptSkills: store.transcriptSkills,
@@ -281,7 +274,7 @@ export class AttributionCollector {
             continue;
           }
 
-          const parsed = parser.parseFile(file);
+          const parsed = parser.parseFile(file, content);
           if (!parsed || parsed.tokens <= 0) {
             continue;
           }

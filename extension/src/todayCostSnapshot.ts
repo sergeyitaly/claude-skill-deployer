@@ -2,12 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { BudgetConfig } from "./budgetConfig";
+import { localDateKey } from "./localDate";
 
 export const TODAY_COST_PATH = path.join(os.homedir(), ".claude", "learning", "today-cost.json");
 
 export function writeTodayCostSnapshot(costUsd: number, tokens: number): void {
   const payload = {
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateKey(),
     costUsd,
     tokens,
     updatedAt: new Date().toISOString(),
@@ -24,7 +25,7 @@ export function remainingDailyBudgetUsd(config: BudgetConfig): number | null {
   if (fs.existsSync(TODAY_COST_PATH)) {
     try {
       const data = JSON.parse(fs.readFileSync(TODAY_COST_PATH, "utf-8")) as { date?: string; costUsd?: number };
-      if (data.date === new Date().toISOString().slice(0, 10)) {
+      if (data.date === localDateKey()) {
         spent = data.costUsd ?? 0;
       }
     } catch {

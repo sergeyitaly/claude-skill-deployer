@@ -98,13 +98,23 @@ function readStore(): BranchProfilesStore {
     const parsed = JSON.parse(fs.readFileSync(BRANCH_PROFILES_PATH, "utf-8")) as BranchProfilesStore;
     return { version: 1, repos: parsed.repos ?? {} };
   } catch {
+    // Preserve the corrupt file instead of letting the next writeStore() silently
+    // overwrite it (and every other repo's saved profiles) with an empty store.
+    try {
+      fs.renameSync(BRANCH_PROFILES_PATH, `${BRANCH_PROFILES_PATH}.corrupt-${Date.now()}`);
+    } catch {
+      // best-effort
+    }
     return { version: 1, repos: {} };
   }
 }
 
 function writeStore(store: BranchProfilesStore): void {
-  fs.mkdirSync(path.dirname(BRANCH_PROFILES_PATH), { recursive: true });
-  fs.writeFileSync(BRANCH_PROFILES_PATH, JSON.stringify(store, null, 2) + "\n", "utf-8");
+  const dir = path.dirname(BRANCH_PROFILES_PATH);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.branch-profiles.json.tmp-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(tmpPath, JSON.stringify(store, null, 2) + "\n", "utf-8");
+  fs.renameSync(tmpPath, BRANCH_PROFILES_PATH);
 }
 
 function getGitApi(): GitApi | undefined {

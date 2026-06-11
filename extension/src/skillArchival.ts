@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { isFeatureEnabled } from "./featureFlags";
-import { removeSkill } from "./skillOps";
+import { copySkill, removeSkill } from "./skillOps";
+import { isValidSkillName } from "./skillLint";
 import { SkillUsageStat } from "./usageStats";
 
 export interface ArchivalRules {
@@ -67,6 +68,9 @@ export function candidatesForArchival(
 }
 
 export function archiveSkill(target: string, skillName: string, libraryDir: string): boolean {
+  if (!isValidSkillName(skillName)) {
+    return false;
+  }
   const src = path.join(target, ".claude", "skills", skillName);
   if (!fs.existsSync(src)) {
     return false;
@@ -88,17 +92,30 @@ export function archiveSkill(target: string, skillName: string, libraryDir: stri
   return true;
 }
 
-export function restoreArchivedSkill(target: string, skillName: string): boolean {
-  const candidates = [path.join(archivedRoot(target), skillName), path.join(globalArchivedRoot(), skillName)];
-  const src = candidates.find((p) => fs.existsSync(path.join(p, "SKILL.md")));
-  if (!src) {
+export function restoreArchivedSkill(target: string, skillName: string, libraryDir?: string): boolean {
+  if (!isValidSkillName(skillName)) {
     return false;
   }
   const dest = path.join(target, ".claude", "skills", skillName);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  if (fs.existsSync(dest)) {
-    fs.rmSync(dest, { recursive: true, force: true });
+  const candidates = [path.join(archivedRoot(target), skillName), path.join(globalArchivedRoot(), skillName)];
+  const src = candidates.find((p) => fs.existsSync(path.join(p, "SKILL.md")));
+
+  if (src) {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (fs.existsSync(dest)) {
+      fs.rmSync(dest, { recursive: true, force: true });
+    }
+    fs.renameSync(src, dest);
+    return true;
   }
-  fs.renameSync(src, dest);
-  return true;
+
+  if (!libraryDir) {
+    return false;
+  }
+  const sourceSkill = path.join(libraryDir, skillName, "SKILL.md");
+  if (!fs.existsSync(sourceSkill)) {
+    return false;
+  }
+  const status = copySkill(skillName, libraryDir, path.join(target, ".claude", "skills"), false, false);
+  return status === "installed" || status === "skipped-exists";
 }

@@ -5,9 +5,11 @@ import {
   areCostControlHooksConfigured,
   HookInstallStatus,
   installAttributionHooks,
+  installOfficialSkillsSessionHook,
   refreshCostControlHookScripts,
 } from "./hookOps";
-import { lintOnSync } from "./skillLint";
+import { workspaceUsesOfficialSkillUpdater } from "./officialSkillsSync";
+import { lintAgentMirrorsOnSync, lintOnSync } from "./skillLint";
 import { listInstalledSkills } from "./usageStats";
 
 export interface WorkspaceSkillSyncResult {
@@ -32,15 +34,39 @@ export function propagateWorkspaceSkillChange(
     return result;
   }
 
-  if (!lintOnSync(target, log)) {
-    return result;
-  }
-
   if (opts?.saveBranchProfile !== false) {
     saveBranchProfile(target, libraryDir);
   }
 
-  if (shouldSyncWorkspaceToAll()) {
+  if (
+    vscode.workspace.getConfiguration("claudeSkills").get<boolean>("officialSkillsCheckOnSession", true) &&
+    workspaceUsesOfficialSkillUpdater(target)
+  ) {
+    const officialStatus = installOfficialSkillsSessionHook(extensionPath, target);
+    if (officialStatus === "installed" || officialStatus === "updated") {
+      result.hooksStatus = officialStatus;
+      log(`Official skills SessionStart hook ${officialStatus}.`);
+    }
+  }
+
+  if (syncHooksOnSkillChangeEnabled() && listInstalledSkills(target).length > 0) {
+    const attrStatus = installAttributionHooks(extensionPath, target);
+    if (attrStatus === "installed" || attrStatus === "updated") {
+      result.hooksStatus = attrStatus;
+      log(`Attribution v2 hooks ${attrStatus}.`);
+    }
+
+    if (areCostControlHooksConfigured(target)) {
+      refreshCostControlHookScripts(extensionPath, target);
+      if (!result.hooksStatus) {
+        result.hooksStatus = "refreshed";
+      }
+      log("Cost control hook scripts refreshed in .claude/hooks/.");
+    }
+  }
+
+  const lintOk = lintOnSync(target, log);
+  if (lintOk && shouldSyncWorkspaceToAll()) {
     const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: opts?.forceAgentSync });
     result.agentPathsUpdated = synced.length;
     if (synced.length > 0) {
@@ -48,27 +74,7 @@ export function propagateWorkspaceSkillChange(
     }
   }
 
-  if (!syncHooksOnSkillChangeEnabled()) {
-    return result;
-  }
-
-  if (listInstalledSkills(target).length === 0) {
-    return result;
-  }
-
-  const attrStatus = installAttributionHooks(extensionPath, target);
-  if (attrStatus === "installed" || attrStatus === "updated") {
-    result.hooksStatus = attrStatus;
-    log(`Attribution v2 hooks ${attrStatus}.`);
-  }
-
-  if (areCostControlHooksConfigured(target)) {
-    refreshCostControlHookScripts(extensionPath, target);
-    if (!result.hooksStatus) {
-      result.hooksStatus = "refreshed";
-    }
-    log("Cost control hook scripts refreshed in .claude/hooks/.");
-  }
+  lintAgentMirrorsOnSync(target, libraryDir, log);
 
   return result;
 }

@@ -211,8 +211,20 @@ export function disableWorkspaceSkill(target: string, skillName: string): Worksp
 }
 
 export function loadManifest(libraryDir: string): Manifest {
-  const raw = fs.readFileSync(path.join(libraryDir, "manifest.json"), "utf-8");
-  return JSON.parse(raw) as Manifest;
+  const file = path.join(libraryDir, "manifest.json");
+  if (!fs.existsSync(file)) {
+    throw new Error(`Skill manifest not found: ${file}`);
+  }
+  try {
+    const raw = fs.readFileSync(file, "utf-8");
+    const parsed = JSON.parse(raw) as Manifest;
+    if (!parsed.skills || typeof parsed.skills !== "object") {
+      throw new Error("manifest.json missing skills map");
+    }
+    return parsed;
+  } catch (err) {
+    throw new Error(`Could not parse ${file}: ${(err as Error).message}`);
+  }
 }
 
 export function discoverBundledSkills(libraryDir: string): string[] {

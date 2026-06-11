@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { readBudgetConfig } from "./budgetConfig";
+import { localDateKey } from "./localDate";
 import { computeCreditUsage } from "./usageCost";
 
 export interface CostTrend {
@@ -67,7 +68,7 @@ export async function checkPredictiveCostAlert(): Promise<string | null> {
     return null;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   if (lastAlertDate === today) {
     return null;
   }

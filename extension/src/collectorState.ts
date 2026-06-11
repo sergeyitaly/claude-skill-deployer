@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pruneCollectorState } from "./learningPrune";
 export interface CollectorState {
   lastRun: number;
   fileMtimes: Record<string, number>;
@@ -56,5 +57,5 @@ export function readCollectorState(target: string): CollectorState {
 export function writeCollectorState(target: string, state: CollectorState): void {
   const file = collectorStatePath(target);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  fs.writeFileSync(file, JSON.stringify(pruneCollectorState(state), null, 2) + "\n", "utf-8");
 }

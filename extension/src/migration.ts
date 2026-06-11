@@ -28,28 +28,31 @@ export async function runV1Migration(
   if (context.globalState.get<boolean>(MIGRATION_KEY, false)) {
     return;
   }
-  await context.globalState.update(MIGRATION_KEY, true);
 
   if (!target) {
+    await context.globalState.update(MIGRATION_KEY, true);
     return;
   }
 
   const learningDir = path.join(target, ".claude", "learning");
   if (!fs.existsSync(learningDir)) {
+    await context.globalState.update(MIGRATION_KEY, true);
     return;
   }
 
   const backupRoot = path.join(target, ".claude", "backup-v0.7");
   if (fs.existsSync(backupRoot)) {
+    await context.globalState.update(MIGRATION_KEY, true);
     return;
   }
 
   try {
     copyDir(learningDir, path.join(backupRoot, "learning"));
+    await context.globalState.update(MIGRATION_KEY, true);
     void vscode.window.showInformationMessage(
       `Claude Skills v1.0: backed up learning data to ${backupRoot}`
     );
   } catch {
-    // non-fatal
+    // migration will retry on next activation if backup failed
   }
 }

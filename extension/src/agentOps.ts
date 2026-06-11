@@ -5,9 +5,9 @@ import * as vscode from "vscode";
 import {
   buildCopilotInstructionsFile,
   CopilotSkillEntry,
-  parseSkillFrontmatter,
   writeCopilotBootstrap,
 } from "./copilotTransform";
+import { parseSkillFrontmatter } from "./skillLint";
 import { isFeatureEnabled } from "./featureFlags";
 import {
   copySkill,
@@ -55,7 +55,18 @@ function expandHome(p: string): string {
 
 export function loadAgentsManifest(libraryDir: string): AgentsManifest {
   const file = path.join(libraryDir, "agents.json");
-  return JSON.parse(fs.readFileSync(file, "utf-8")) as AgentsManifest;
+  if (!fs.existsSync(file)) {
+    throw new Error(`agents.json not found: ${file}`);
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as AgentsManifest;
+    if (!parsed.agents || typeof parsed.agents !== "object") {
+      throw new Error("agents.json missing agents map");
+    }
+    return parsed;
+  } catch (err) {
+    throw new Error(`Could not parse ${file}: ${(err as Error).message}`);
+  }
 }
 
 export function enabledAgents(libraryDir: string): AgentId[] {
@@ -402,7 +413,7 @@ export function syncCopilotBootstrap(target: string, libraryDir: string): string
     entries.push({
       name,
       detectGlobs: manifest.skills[name]?.detect_globs ?? ["**/*"],
-      description: parseSkillFrontmatter(raw).description,
+      description: parseSkillFrontmatter(raw)?.description,
     });
   }
 
@@ -479,12 +490,12 @@ export function enabledTranscriptRoots(libraryDir: string): string[] {
   return [...roots];
 }
 
-export function computeEnabledAgentsCreditUsage(libraryDir: string, daysBack = 14) {
+export function computeEnabledAgentsCreditUsage(libraryDir: string, daysBack = 14, workspaceTarget?: string) {
   const roots = enabledTranscriptRoots(libraryDir);
   if (roots.length === 0) {
     return computeCreditUsageFromRoots([], daysBack);
   }
-  return computeCreditUsageFromRoots(roots, daysBack);
+  return computeCreditUsageFromRoots(roots, daysBack, workspaceTarget);
 }
 
 export interface AgentCreditRow {
@@ -498,7 +509,11 @@ export interface AgentCreditRow {
 }
 
 /** Per-agent token/cost estimate from each agent's transcript folders (last N days). */
-export function computePerAgentCreditUsage(libraryDir: string, daysBack = 14): AgentCreditRow[] {
+export function computePerAgentCreditUsage(
+  libraryDir: string,
+  daysBack = 14,
+  workspaceTarget?: string
+): AgentCreditRow[] {
   const manifest = loadAgentsManifest(libraryDir);
   return enabledAgents(libraryDir).map((id) => {
     const def = manifest.agents[id];
@@ -513,7 +528,7 @@ export function computePerAgentCreditUsage(libraryDir: string, daysBack = 14): A
         transcriptTracked: false,
       };
     }
-    const summary = computeCreditUsageFromRoots(def.transcriptRoots, daysBack);
+    const summary = computeCreditUsageFromRoots(def.transcriptRoots, daysBack, workspaceTarget);
     return {
       agent: id,
       displayName: def.displayName,

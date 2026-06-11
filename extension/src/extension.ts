@@ -53,7 +53,19 @@ import {
   saveBranchProfile,
   setGitApiCache,
 } from "./branchProfiles";
-import { installAttributionHooks, installCostControlHooks, installSessionWatchHook } from "./hookOps";
+import {
+  installAttributionHooks,
+  installCostControlHooks,
+  installOfficialSkillsSessionHook,
+} from "./hookOps";
+import { localDateKey } from "./localDate";
+import * as crypto from "node:crypto";
+import {
+  checkOfficialSkillUpdates,
+  formatOfficialSkillsSessionContext,
+  resolveSkillsLibraryDir,
+  workspaceUsesOfficialSkillUpdater,
+} from "./officialSkillsSync";
 import {
   applyTeamBranchProfile,
   exportTeamBranchProfile,
@@ -125,6 +137,37 @@ function log(line: string) {
   outputChannel.appendLine(line);
 }
 
+async function maybeNotifyOfficialSkillUpdates(target: string): Promise<void> {
+  if (!vscode.workspace.getConfiguration("claudeSkills").get<boolean>("officialSkillsCheckOnSession", true)) {
+    return;
+  }
+  if (!workspaceUsesOfficialSkillUpdater(target)) {
+    return;
+  }
+  const libraryDir = resolveSkillsLibraryDir(target);
+  if (!libraryDir) {
+    return;
+  }
+  try {
+    const result = await checkOfficialSkillUpdates(libraryDir);
+    if (result.unchanged || result.checkError) {
+      return;
+    }
+    const newCount = result.candidates.filter((c) => c.kind === "new").length;
+    const updatedCount = result.candidates.filter((c) => c.kind === "updated").length;
+    const choice = await vscode.window.showInformationMessage(
+      `Official Anthropic skills have updates (${newCount} new, ${updatedCount} updates).`,
+      "Check now",
+      "Dismiss"
+    );
+    if (choice === "Check now") {
+      await vscode.commands.executeCommand("claudeSkills.checkOfficialSkillUpdates");
+    }
+  } catch (err) {
+    log(`Official skills check failed: ${(err as Error).message}`);
+  }
+}
+
 function syncBranchProfileContext(target: string | undefined): void {
   const git = target ? isGitWorkspace(target) : false;
   const enabled = branchProfilesFeatureActive() && git;
@@ -162,7 +205,7 @@ function refreshCreditStatusBar(libraryDir: string) {
   const manifest = loadManifest(libraryDir);
   const config = configFromVsCodeSettings(manifest);
   const summary = computeEnabledAgentsCreditUsage(libraryDir, 1);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   const todayRow = summary.byDay.find((d) => d.date === today);
   const totalTokens = todayRow
     ? todayRow.inputTokens + todayRow.outputTokens + todayRow.cacheCreationTokens + todayRow.cacheReadTokens
@@ -341,7 +384,7 @@ export function activate(context: vscode.ExtensionContext) {
     refreshBudgetModeStatusBar(libraryDir);
     refreshWorkspaceFolderStatusBar();
     if (target) {
-      void checkEmergencyCutoff(target);
+      void checkEmergencyCutoff(target, libraryDir);
     }
   };
 
@@ -370,6 +413,7 @@ export function activate(context: vscode.ExtensionContext) {
     propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
       saveBranchProfile: false,
     });
+    void maybeNotifyOfficialSkillUpdates(initialTarget);
   }
 
   if (initialTarget) {
@@ -390,7 +434,7 @@ export function activate(context: vscode.ExtensionContext) {
           (s) => s.type === "disable" || s.type === "unused"
         );
         if (suggestions.length > 0) {
-          void applyAutoOptimizations(initialTarget, libraryDir, suggestions.slice(0, 3), { auto: true });
+          void applyAutoOptimizations(initialTarget, libraryDir, suggestions, { auto: true });
         }
         void runArchivalPass(initialTarget, libraryDir);
       }, 30 * 60 * 1000);
@@ -772,6 +816,69 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
+    vscode.commands.registerCommand("claudeSkills.installOfficialSkillsSessionHook", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      try {
+        const status = installOfficialSkillsSessionHook(context.extensionPath, target);
+        outputChannel.show(true);
+        log(`\n=== Official skills SessionStart hook -> ${target} ===`);
+        log(status);
+        vscode.window.showInformationMessage(`Claude Skills: official skills session hook ${status}.`);
+      } catch (err) {
+        recordError();
+        vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.checkOfficialSkillUpdates", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const libraryDir = resolveSkillsLibraryDir(target);
+      if (!libraryDir) {
+        vscode.window.showWarningMessage(
+          "Claude Skills: no skills_library/ found in this workspace (official updater targets the library folder)."
+        );
+        return;
+      }
+      try {
+        const result = await checkOfficialSkillUpdates(libraryDir);
+        outputChannel.show(true);
+        log(`\n=== Official Anthropic skills check -> ${libraryDir} ===`);
+        if (result.checkError) {
+          log(result.checkError);
+          vscode.window.showWarningMessage(`Claude Skills: ${result.checkError}`);
+          return;
+        }
+        if (result.unchanged) {
+          log(`Up to date (HEAD ${result.remoteSha?.slice(0, 12) ?? "unknown"}).`);
+          vscode.window.showInformationMessage("Claude Skills: official Anthropic skills are up to date.");
+          return;
+        }
+        const sessionContext = formatOfficialSkillsSessionContext(result);
+        log(sessionContext);
+        log("\nIn Claude Code, ask the agent to follow skill-official-updater to pull selected skills.");
+        installOfficialSkillsSessionHook(context.extensionPath, target);
+        vscode.window.showInformationMessage(
+          "Official skill updates available — see output. Ask Claude Code to run skill-official-updater.",
+          "Open Output"
+        ).then((sel) => {
+          if (sel === "Open Output") {
+            outputChannel.show(true);
+          }
+        });
+      } catch (err) {
+        recordError();
+        vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
+      }
+    }),
+
     vscode.commands.registerCommand("claudeSkills.cycleBudgetMode", async () => {
       const cfg = vscode.workspace.getConfiguration("claudeSkills.budget");
       const current = cfg.get<BudgetMode>("mode", "normal");
@@ -959,7 +1066,8 @@ export function activate(context: vscode.ExtensionContext) {
       const merged = { ...built.skills, ...built.transcriptSkills };
       updateLocalBenchmarks(merged);
       void uploadAnonymizedStats(merged);
-      const html = formatCostDashboardHtml(target, libraryDir);
+      const dashboardNonce = crypto.randomBytes(16).toString("base64");
+      const html = formatCostDashboardHtml(target, libraryDir, dashboardNonce);
       if (costDashboardPanel) {
         costDashboardPanel.webview.html = html;
         costDashboardPanel.reveal(vscode.ViewColumn.Active);
@@ -989,7 +1097,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (result.applied.length > 0) {
               propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
               refreshAll();
-              costDashboardPanel!.webview.html = formatCostDashboardHtml(target, libraryDir);
+              const refreshNonce = crypto.randomBytes(16).toString("base64");
+              costDashboardPanel!.webview.html = formatCostDashboardHtml(target, libraryDir, refreshNonce);
               vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
             } else {
               vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
@@ -1156,7 +1265,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const pick = await vscode.window.showQuickPick(archived, { title: "Restore archived skill" });
-      if (pick && restoreArchivedSkill(target, pick)) {
+      if (pick && restoreArchivedSkill(target, pick, libraryDir)) {
         refreshAll();
         vscode.window.showInformationMessage(`Restored skill: ${pick}`);
       }
@@ -1293,48 +1402,49 @@ export function activate(context: vscode.ExtensionContext) {
 
   const gitExt = vscode.extensions.getExtension("vscode.git");
   if (gitExt) {
+    const gitDisposables: vscode.Disposable[] = [];
+    const onRepoChange = async (repoRoot: string) => {
+      const target = getWorkspaceTarget();
+      if (!target || !target.startsWith(repoRoot)) {
+        return;
+      }
+      const teamResult = applyTeamBranchProfile(libraryDir, target);
+      if (teamResult) {
+        log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
+      }
+      await handleBranchChange(libraryDir, target, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      refreshAll();
+    };
     const subscribeGit = () => {
       try {
         const api = gitExt.exports.getAPI(1);
         for (const repo of api.repositories) {
-          repo.state.onDidChange(async () => {
-            const target = getWorkspaceTarget();
-            if (!target || !target.startsWith(repo.rootUri.fsPath)) {
-              return;
-            }
-            const teamResult = applyTeamBranchProfile(libraryDir, target);
-            if (teamResult) {
-              log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
-            }
-            await handleBranchChange(libraryDir, target, log);
-            propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
-            refreshAll();
-          });
+          gitDisposables.push(
+            repo.state.onDidChange(() => {
+              void onRepoChange(repo.rootUri.fsPath);
+            })
+          );
         }
-        api.onDidOpenRepository((repo: { state: { onDidChange: (cb: () => void) => void }; rootUri: { fsPath: string } }) => {
-          repo.state.onDidChange(async () => {
-            const target = getWorkspaceTarget();
-            if (!target || !target.startsWith(repo.rootUri.fsPath)) {
-              return;
-            }
-            const teamResult = applyTeamBranchProfile(libraryDir, target);
-            if (teamResult) {
-              log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
-            }
-            await handleBranchChange(libraryDir, target, log);
-            propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
-            refreshAll();
-          });
-        });
-      } catch {
-        // git API unavailable
+        gitDisposables.push(
+          api.onDidOpenRepository((repo: { state: { onDidChange: (cb: () => void) => vscode.Disposable }; rootUri: { fsPath: string } }) => {
+            gitDisposables.push(
+              repo.state.onDidChange(() => {
+                void onRepoChange(repo.rootUri.fsPath);
+              })
+            );
+          })
+        );
+      } catch (err) {
+        log(`Git API unavailable: ${(err as Error).message}`);
       }
     };
     const runInitialBranchSync = () => {
       try {
         setGitApiCache(gitExt.exports.getAPI(1));
-      } catch {
+      } catch (err) {
         setGitApiCache(undefined);
+        log(`Git API cache init failed: ${(err as Error).message}`);
       }
       subscribeGit();
       const target = getWorkspaceTarget();
@@ -1355,8 +1465,11 @@ export function activate(context: vscode.ExtensionContext) {
     if (gitExt.isActive) {
       runInitialBranchSync();
     } else {
-      gitExt.activate().then(runInitialBranchSync);
+      void Promise.resolve(gitExt.activate()).then(runInitialBranchSync).catch((err: Error) => {
+        log(`Git extension activation failed: ${err.message}`);
+      });
     }
+    context.subscriptions.push({ dispose: () => gitDisposables.forEach((d) => d.dispose()) });
   }
 }
 

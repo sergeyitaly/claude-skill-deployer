@@ -9,6 +9,7 @@ const required = [
   "out/extension.js",
   "resources/hooks/budget-watch.js",
   "resources/hooks/session-size-watch.js",
+  "resources/hooks/official-skills-watch.js",
 ];
 
 let failed = 0;

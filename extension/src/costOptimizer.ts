@@ -1,3 +1,4 @@
+import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
 import { assessAttributionHealth } from "./attributionHealth";
 import {
@@ -13,6 +14,25 @@ import { loadManifest, Manifest } from "./skillOps";
 import { computeUsageStats, readEnrichedRuns, SkillUsageStat } from "./usageStats";
 
 export type OptimizationType = "disable" | "switch_agent" | "cache" | "unused";
+
+export interface OptimizerThresholds {
+  disableCostPerUseUsd: number;
+  disableMaxRuns: number;
+  agentSavingsRatio: number;
+  unusedIdleDays: number;
+  unusedMinCostUsd: number;
+}
+
+export function optimizerThresholds(): OptimizerThresholds {
+  const cfg = vscode.workspace.getConfiguration("claudeSkills.optimizer");
+  return {
+    disableCostPerUseUsd: cfg.get<number>("disableCostPerUseUsd", 1.0),
+    disableMaxRuns: cfg.get<number>("disableMaxRuns", 5),
+    agentSavingsRatio: cfg.get<number>("agentSavingsRatio", 0.7),
+    unusedIdleDays: cfg.get<number>("unusedIdleDays", 7),
+    unusedMinCostUsd: cfg.get<number>("unusedMinCostUsd", 0.5),
+  };
+}
 
 export interface OptimizationSuggestion {
   type: OptimizationType;
@@ -51,6 +71,7 @@ export function generateOptimizationSuggestions(
   const { attribution } = resolveDisplayAttribution(built, target);
   const usageStats = computeUsageStats(target, m);
   const suggestions: OptimizationSuggestion[] = [];
+  const thresholds = optimizerThresholds();
 
   updateCostProfileFromAttribution(target, libraryDir, attribution, usageStats);
 
@@ -68,7 +89,7 @@ export function generateOptimizationSuggestions(
     const runs = Math.max(1, usageCount(skill, usageStats));
     const costPerUse = totalCost / runs;
 
-    if (costPerUse > 1.0 && runs < 5) {
+    if (costPerUse > thresholds.disableCostPerUseUsd && runs < thresholds.disableMaxRuns) {
       suggestions.push({
         type: "disable",
         skill,
@@ -84,7 +105,7 @@ export function generateOptimizationSuggestions(
     if (claude && cursor && claude.sessions > 0 && cursor.sessions > 0) {
       const claudePer = claude.cost / claude.sessions;
       const cursorPer = cursor.cost / cursor.sessions;
-      if (cursorPer < claudePer * 0.7) {
+      if (cursorPer < claudePer * thresholds.agentSavingsRatio) {
         const savings = claudePer - cursorPer;
         suggestions.push({
           type: "switch_agent",
@@ -105,7 +126,7 @@ export function generateOptimizationSuggestions(
         const cheap = agentData[cheapest];
         if (cheap && cheap.sessions > 0) {
           const cheapPer = cheap.cost / cheap.sessions;
-          if (cheapPer < claudePer * 0.7) {
+          if (cheapPer < claudePer * thresholds.agentSavingsRatio) {
             suggestions.push({
               type: "switch_agent",
               skill,
@@ -122,7 +143,7 @@ export function generateOptimizationSuggestions(
     }
 
     const idleDays = daysSinceLastUse(skill, usageStats);
-    if (idleDays !== null && idleDays >= 7 && totalCost > 0.5) {
+    if (idleDays !== null && idleDays >= thresholds.unusedIdleDays && totalCost > thresholds.unusedMinCostUsd) {
       suggestions.push({
         type: "unused",
         skill,

@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.0.9] - 2026-06-11
+
+### Added
+
+- **Official skills session check** — `SessionStart` hook (`official-skills-watch.js`) when `skills_library/` exists; compares `anthropics/skills` HEAD and prompts `skill-official-updater`. Commands: **Check Official Anthropic Skill Updates**, **Enable Official Skills Session Check**. Setting: `claudeSkills.officialSkillsCheckOnSession` (default on).
+- **Optimizer thresholds** — `claudeSkills.optimizer.disableCostPerUseUsd`, `disableMaxRuns`, `agentSavingsRatio`, `unusedIdleDays`, `unusedMinCostUsd`.
+- **Emergency per-skill limit** — `claudeSkills.emergency.perSkillLimitUsd` (default $3).
+
+### Fixed
+
+- **Stale $579.51 equal-split warning** — auto-purges bad `transcriptSkills` on load; banner suppressed when only stale transcript data (not runs) caused the cluster; stale cluster no longer returns empty per-skill map.
+- **Agent totals inflated** — Claude/Cursor spend scoped to **this workspace folder** (encoded project path under `~/.claude/projects`).
+- Legacy attribution migration strips equal-split `transcriptSkills` before copying to per-workspace file.
+- **skillLint** — always lint Cursor/Kiro/Copilot mirrors; lint blocks multi-agent sync only (hooks and branch profiles still run).
+- **emergencyCutoff** — disables over-threshold skills (not all skills); reset restores prior `skillOverrides`.
+- **autoOptimizer** — max 3 auto-applies per 30 minutes.
+- **skillArchival** — sanitize skill names; restore from archive or `skills_library` source.
+- **Shell safety** — `prCostEstimate`, `teamCostSharing`, `weeklyReport` use `execFileSync`; scrubbed SMTP error text; scheduled send failures surface in UI.
+- **Local “today”** — `usageCost`, `todayCostSnapshot`, `costPredictor` use local calendar date (not UTC midnight).
+- **Unbounded growth** — prune collector state maps, `runs.jsonl`, and reset backup files.
+- **attributionCollector** — single transcript read per file.
+- **v2TokenEnrichment** — structured `sessionId` matching (no substring false positives).
+- **costDashboard** — CSP nonce on webview scripts.
+- **extension.ts** — dispose git listeners; log previously swallowed errors.
+- **migration** — mark complete only after backup succeeds.
+- **skillOps / agentOps** — guarded `manifest.json` / `agents.json` parse.
+- **costRates** — single pricing source for usage estimates.
+- **skillRoi** — zero-guard in `best_value` sort.
+- **copilotTransform** — shared frontmatter parser + YAML escaping.
+- Dead code removed: unused `isGitRepo`, unreachable `create-learning-dir` repair branch.
+
 ## [1.0.8] - 2026-06-11
 
 ### Fixed

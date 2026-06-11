@@ -69,7 +69,7 @@ describe("assessAttributionHealth", () => {
     expect(health.reliable).toBe(true);
   });
 
-  it("detects stale equal-split in stored attribution", () => {
+  it("auto-purges stale equal-split transcriptSkills on read", () => {
     const target = makeWorkspace();
     workspaces.push(target);
     fs.mkdirSync(path.dirname(costAttributionPath(target)), { recursive: true });
@@ -87,7 +87,10 @@ describe("assessAttributionHealth", () => {
     );
 
     const health = assessAttributionHealth(target, resolvedLibraryDir);
-    expect(health.staleEqualSplit).toBe(true);
-    expect(health.reliable).toBe(false);
+    expect(health.staleEqualSplit).toBe(false);
+    const stored = JSON.parse(fs.readFileSync(costAttributionPath(target), "utf-8")) as {
+      transcriptSkills?: Record<string, unknown>;
+    };
+    expect(stored.transcriptSkills).toEqual({});
   });
 });

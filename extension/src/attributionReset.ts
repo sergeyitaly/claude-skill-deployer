@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribution";
 import { collectorStatePath, LEGACY_COLLECTOR_STATE_PATH } from "./collectorState";
+import { pruneBackupFiles, pruneRunsJsonl } from "./learningPrune";
 const RUNS_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
 
 export interface ResetResult {
@@ -34,6 +35,7 @@ export function resetMisattributedData(target: string): ResetResult {
   };
 
   const runsFile = path.join(target, RUNS_RELATIVE);
+  const learningDir = path.dirname(runsFile);
   if (fs.existsSync(runsFile)) {
     const backup = `${runsFile}.pre-reset-${Date.now()}.bak`;
     fs.copyFileSync(runsFile, backup);
@@ -89,6 +91,10 @@ export function resetMisattributedData(target: string): ResetResult {
     fs.copyFileSync(LEGACY_COLLECTOR_STATE_PATH, backup);
     fs.writeFileSync(LEGACY_COLLECTOR_STATE_PATH, JSON.stringify(resetState, null, 2) + "\n", "utf-8");
   }
+
+  pruneRunsJsonl(runsFile);
+  pruneBackupFiles(learningDir, "pre-reset-");
+  pruneBackupFiles(learningDir, ".bak-");
 
   return result;
 }

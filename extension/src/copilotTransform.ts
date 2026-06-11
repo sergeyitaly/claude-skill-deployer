@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { parseSkillFrontmatter } from "./skillLint";
 
 export interface CopilotSkillEntry {
   name: string;
@@ -8,25 +9,21 @@ export interface CopilotSkillEntry {
 
 /** Strip YAML frontmatter and return body markdown. */
 export function skillBodyWithoutFrontmatter(raw: string): string {
+  const fm = parseSkillFrontmatter(raw);
+  if (!fm) {
+    return raw.trim();
+  }
   const match = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
   return match ? raw.slice(match[0].length).trim() : raw.trim();
 }
 
-export function parseSkillFrontmatter(raw: string): { description?: string } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) {
-    return {};
-  }
-  const block = match[1];
-  const desc = block.match(/^description:\s*(.+)$/m);
-  if (!desc) {
-    return {};
-  }
-  let value = desc[1].trim();
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    value = value.slice(1, -1);
-  }
-  return { description: value };
+export function parseSkillFrontmatterMeta(raw: string): { description?: string } {
+  const fm = parseSkillFrontmatter(raw);
+  return fm?.description ? { description: fm.description } : {};
+}
+
+function escapeYamlString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function formatApplyToYaml(globs: string[]): string {
@@ -48,11 +45,11 @@ export function buildCopilotInstructionsFile(
 ): string {
   const raw = fs.readFileSync(skillMdPath, "utf-8");
   const body = skillBodyWithoutFrontmatter(raw);
-  const { description } = parseSkillFrontmatter(raw);
+  const { description } = parseSkillFrontmatterMeta(raw);
   const applyTo = detectGlobs.length > 0 ? detectGlobs : ["**/*"];
   const lines = ["---"];
   if (description) {
-    lines.push(`name: "${skillName}"`, `description: "${description.replace(/"/g, '\\"')}"`);
+    lines.push(`name: "${escapeYamlString(skillName)}"`, `description: "${escapeYamlString(description)}"`);
   }
   lines.push(formatApplyToYaml(applyTo), "---", "", `# ${skillName}`, "", body, "");
   return lines.join("\n");

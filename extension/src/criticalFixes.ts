@@ -20,10 +20,6 @@ export function detectGitRepository(context: vscode.ExtensionContext, target?: s
   return isGit;
 }
 
-export function isGitRepo(context: vscode.ExtensionContext): boolean {
-  return context.globalState.get<boolean>("claudeSkills.isGitRepo", false);
-}
-
 /** Friendly first-run prompt when ~/.claude/skills/ is missing. */
 export async function checkFirstTimeGlobalSetup(context: vscode.ExtensionContext): Promise<void> {
   const globalPath = globalSkillsDir();

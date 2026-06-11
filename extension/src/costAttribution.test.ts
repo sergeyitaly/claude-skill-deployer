@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectEqualSplitCluster, resolveDisplayAttribution } from "./costAttribution";
+import {
+  detectEqualSplitCluster,
+  resolveDisplayAttribution,
+  sanitizeTranscriptSkills,
+} from "./costAttribution";
 
 describe("detectEqualSplitCluster", () => {
   it("flags three skills with identical cost", () => {
@@ -20,8 +24,21 @@ describe("detectEqualSplitCluster", () => {
   });
 });
 
+describe("sanitizeTranscriptSkills", () => {
+  it("purges equal-split transcript blob", () => {
+    const stale = {
+      a: { claude: { tokens: 1, cost: 579.51, sessions: 1 } },
+      b: { claude: { tokens: 1, cost: 579.51, sessions: 1 } },
+      c: { claude: { tokens: 1, cost: 579.51, sessions: 1 } },
+    };
+    const { skills, purgedStaleEqualSplit } = sanitizeTranscriptSkills(stale);
+    expect(purgedStaleEqualSplit).toBe(true);
+    expect(Object.keys(skills)).toHaveLength(0);
+  });
+});
+
 describe("resolveDisplayAttribution", () => {
-  it("hides transcript merge when equal-split detected", () => {
+  it("ignores stale transcript-only equal split when runs are clean", () => {
     const built = {
       skills: { real: { claude: { tokens: 10, cost: 0.5, sessions: 1 } } },
       transcriptSkills: {
@@ -31,7 +48,7 @@ describe("resolveDisplayAttribution", () => {
       },
     };
     const { staleEqualSplit, attribution } = resolveDisplayAttribution(built);
-    expect(staleEqualSplit).toBe(true);
+    expect(staleEqualSplit).toBe(false);
     expect(Object.keys(attribution)).toContain("real");
     expect(Object.keys(attribution)).not.toContain("fake1");
   });

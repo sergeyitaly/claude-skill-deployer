@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
+import { AgentId, enabledAgents, loadAgentsManifest } from "./agentOps";
 
 export interface SkillLintIssue {
   severity: "error" | "warning";
@@ -14,7 +16,15 @@ export interface SkillLintResult {
   ok: boolean;
 }
 
-const SKILL_NAME_RE = /^[a-z][a-z0-9-]{2,63}$/;
+export const SKILL_NAME_RE = /^[a-z][a-z0-9-]{2,63}$/;
+
+export function isValidSkillName(name: string): boolean {
+  return SKILL_NAME_RE.test(name);
+}
+
+export function parseSkillFrontmatter(raw: string): Record<string, string> | null {
+  return parseFrontmatterBlock(raw);
+}
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
 
 function maxSkillBytes(): number {
@@ -159,14 +169,96 @@ export function lintWorkspaceSkills(target: string): SkillLintResult[] {
   return results;
 }
 
+export interface AgentMirrorLintResult extends SkillLintResult {
+  agent: AgentId;
+}
+
+function lintSkillMdMirror(dir: string, skill: string, agent: AgentId): AgentMirrorLintResult | undefined {
+  const skillMd = path.join(dir, skill, "SKILL.md");
+  if (!fs.existsSync(skillMd)) {
+    return undefined;
+  }
+  return { ...lintSkillFile(skill, skillMd), agent };
+}
+
+function lintCopilotInstructionsMirror(dir: string, skill: string, agent: AgentId): AgentMirrorLintResult {
+  const file = path.join(dir, `${skill}.instructions.md`);
+  const issues: SkillLintIssue[] = [];
+  if (!fs.existsSync(file)) {
+    issues.push({
+      severity: "warning",
+      code: "missing-mirror",
+      message: `Copilot instructions mirror missing: ${file}`,
+    });
+  } else if (fs.readFileSync(file, "utf-8").trim().length === 0) {
+    issues.push({
+      severity: "warning",
+      code: "empty-mirror",
+      message: `Copilot instructions mirror is empty: ${file}`,
+    });
+  }
+  return { skill, filePath: file, issues, agent, ok: !issues.some((i) => i.severity === "error") };
+}
+
+function lintAgentMirrorsForDef(
+  target: string,
+  agentId: AgentId,
+  def: { format: string; workspaceDir: string; supportsWorkspace: boolean },
+  skills: string[]
+): AgentMirrorLintResult[] {
+  if (!def.supportsWorkspace) {
+    return [];
+  }
+  const dir = path.join(target, def.workspaceDir);
+  if (def.format === "skill-md") {
+    return skills
+      .map((skill) => lintSkillMdMirror(dir, skill, agentId))
+      .filter((r): r is AgentMirrorLintResult => r !== undefined);
+  }
+  if (def.format === "copilot-instructions") {
+    return skills.map((skill) => lintCopilotInstructionsMirror(dir, skill, agentId));
+  }
+  return [];
+}
+
+/**
+ * Lint skill mirrors copied to other agents' workspace dirs:
+ * - "skill-md" agents (Cursor, Kiro) get the same SKILL.md checks as the Claude source of truth.
+ * - "copilot-instructions" mirrors are transformed files; checked for existence/non-empty only.
+ */
+export function lintAgentMirrors(target: string, libraryDir: string, skills: string[]): AgentMirrorLintResult[] {
+  let manifest;
+  try {
+    manifest = loadAgentsManifest(libraryDir);
+  } catch {
+    return [];
+  }
+
+  const results: AgentMirrorLintResult[] = [];
+  for (const agentId of enabledAgents(libraryDir)) {
+    if (agentId === "claude") {
+      continue;
+    }
+    const def = manifest.agents[agentId];
+    if (!def) {
+      continue;
+    }
+    results.push(...lintAgentMirrorsForDef(target, agentId, def, skills));
+  }
+
+  return results;
+}
+
 export function formatLintReport(results: SkillLintResult[]): string[] {
   const lines: string[] = [];
   for (const r of results) {
     if (r.issues.length === 0) {
       continue;
     }
+    const agent = (r as AgentMirrorLintResult).agent;
+    const label = agent ? `${r.skill} (${agent})` : r.skill;
     for (const issue of r.issues) {
-      lines.push(`[${issue.severity}] ${r.skill}: ${issue.message}`);
+      lines.push(`[${issue.severity}] ${label}: ${issue.message}`);
     }
   }
   return lines;
@@ -189,4 +281,19 @@ export function lintOnSync(target: string, log: (line: string) => void): boolean
     return false;
   }
   return true;
+}
+
+/** Lint skill mirrors copied to Cursor/Kiro/Copilot after multi-agent sync. Logs only — never blocks. */
+export function lintAgentMirrorsOnSync(target: string, libraryDir: string, log: (line: string) => void): void {
+  if (!vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("enabled", true)) {
+    return;
+  }
+  const skills = lintWorkspaceSkills(target).map((r) => r.skill);
+  if (skills.length === 0) {
+    return;
+  }
+  const results = lintAgentMirrors(target, libraryDir, skills);
+  for (const line of formatLintReport(results)) {
+    log(`SKILL lint: ${line}`);
+  }
 }

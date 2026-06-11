@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as vscode from "vscode";
 import { isFeatureEnabled } from "./featureFlags";
 import { buildCostAttribution, SkillAttributionMap } from "./costAttribution";
@@ -12,7 +12,7 @@ export interface PRSkillEstimate {
 
 function ghAvailable(): boolean {
   try {
-    execSync("gh --version", { encoding: "utf-8" });
+    execFileSync("gh", ["--version"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
     return true;
   } catch {
     return false;
@@ -20,10 +20,11 @@ function ghAvailable(): boolean {
 }
 
 function prChangedFiles(repoRoot: string, prNumber: number): string[] {
-  const out = execSync(`gh pr view ${prNumber} --json files --jq ".files[].path"`, {
-    cwd: repoRoot,
-    encoding: "utf-8",
-  });
+  const out = execFileSync(
+    "gh",
+    ["pr", "view", String(prNumber), "--json", "files", "--jq", ".files[].path"],
+    { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
+  );
   return out.split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
@@ -104,7 +105,11 @@ export async function postPRComment(target: string, prNumber: number, body: stri
     return false;
   }
   try {
-    execSync(`gh pr comment ${prNumber} --body ${JSON.stringify(body)}`, { cwd: target, encoding: "utf-8" });
+    execFileSync("gh", ["pr", "comment", String(prNumber), "--body", body], {
+      cwd: target,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     return true;
   } catch {
     return false;

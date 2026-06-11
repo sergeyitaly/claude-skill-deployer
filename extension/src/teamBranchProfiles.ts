@@ -50,8 +50,11 @@ export function loadTeamSkillsProfile(target: string): TeamSkillsProfileFile | u
 
 export function saveTeamSkillsProfile(target: string, profile: TeamSkillsProfileFile): string {
   const file = teamProfileAbsolutePath(target);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(profile, null, 2) + "\n", "utf-8");
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.skills-profile.json.tmp-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(tmpPath, JSON.stringify(profile, null, 2) + "\n", "utf-8");
+  fs.renameSync(tmpPath, file);
   return file;
 }
 

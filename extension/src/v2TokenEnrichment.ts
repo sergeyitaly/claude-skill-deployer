@@ -129,7 +129,15 @@ export function buildToolUseTokenIndex(content: string): Map<string, number> {
 }
 
 function transcriptMatchesSession(content: string, sessionId: string): boolean {
-  return content.includes(sessionId);
+  if (!sessionId || sessionId.length < 8) {
+    return false;
+  }
+  const escaped = sessionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`"sessionId"\\s*:\\s*"${escaped}"`),
+    new RegExp(`"session_id"\\s*:\\s*"${escaped}"`),
+  ];
+  return patterns.some((re) => re.test(content));
 }
 
 function mergeIndexes(into: Map<string, number>, from: Map<string, number>): void {

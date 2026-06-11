@@ -39,6 +39,14 @@ explicit user decision.
 
 ## 1. Cheap check (every session)
 
+**Automation:** When the Claude Skills extension is active and this workspace
+has `skills_library/`, it installs a Claude Code `SessionStart` hook
+(`official-skills-watch.js`) that runs the check below on `startup`,
+`resume`, and `clear`. If updates exist, the hook injects context telling
+you to read this skill and summarize candidates for the user.
+
+Manual / fallback (same logic):
+
 ```sh
 git ls-remote https://github.com/anthropics/skills.git HEAD
 ```
@@ -46,6 +54,10 @@ git ls-remote https://github.com/anthropics/skills.git HEAD
 Compare the returned SHA to `repoSha` in the state file (treat a missing
 file as "no state yet"). If unchanged, say nothing further - this step
 should be silent and near-instant.
+
+VS Code: **Claude Skills: Check Official Anthropic Skill Updates** runs the
+same check from the Command Palette. **Enable Official Skills Session Check**
+re-installs the SessionStart hook if needed.
 
 ## 2. When the repo SHA has changed (or no state file yet)
 

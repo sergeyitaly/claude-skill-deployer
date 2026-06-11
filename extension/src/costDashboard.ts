@@ -19,7 +19,7 @@ import { assessAttributionHealth } from "./attributionHealth";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
-import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT } from "./costRates";
+import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
@@ -62,16 +62,20 @@ function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>):
   return `<div class="panel"><h2>Per-skill data setup</h2><p>Agent totals above are valid. Per-skill breakdown needs clean attribution:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
 }
 
-export function formatCostDashboardHtml(target: string, libraryDir: string): string {
+export function formatCostDashboardHtml(target: string, libraryDir: string, scriptNonce?: string): string {
+  const nonce = scriptNonce ?? "";
+  const cspMeta = nonce
+    ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">`
+    : "";
   enrichV2HookRunTokens(target, libraryDir);
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
-  const unattributedCost = (unattributedTokens / 1_000_000) * 9;
-  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
-  const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
+  const unattributedCost = tokenCostUsd(unattributedTokens);
+  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
+  const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);
   const agentCostTotal = agentUsage.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxAgentCost = Math.max(...agentUsage.map((r) => r.cost), 1);
   const showPerSkill = health.reliable;
@@ -147,6 +151,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+${cspMeta}
 <style>
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 20px; max-width: 900px; }
   h1 { font-size: 1.25em; margin: 0 0 4px; }
@@ -188,7 +193,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 
   <div class="panel">
     <div class="summary-line">
-      <span class="metric"><b>Est. last 14 days (tracked agents):</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
+      <span class="metric"><b>Est. last 14 days (this workspace):</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
     </div>
     <div class="metric"><b>Trend:</b> ${escapeHtml(trendLabel)}</div>
     ${profile ? `<div class="metric"><b>Profile:</b> ~${formatCompactUsd(profile.typical_monthly_cost)}/mo typical <span class="agent-id">(from skill attribution — may be inflated)</span></div>` : ""}
@@ -196,7 +201,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 
   <div class="panel">
     <h2>Usage by AI agent (last 14 days)</h2>
-    <p class="note" style="margin-top:0"><b>Claude + Cursor:</b> spend estimated from session transcripts. <b>Kiro + Copilot:</b> skills deploy only — spend not measured. Not an API invoice.</p>
+    <p class="note" style="margin-top:0"><b>Claude + Cursor:</b> spend from session transcripts for <i>this workspace folder only</i> (not all projects on your machine). <b>Kiro + Copilot:</b> deploy only. Not an API invoice.</p>
     ${agentRows}
   </div>
 
@@ -241,7 +246,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   </div>
   <div class="note">Estimates from transcripts and runs.jsonl — not an actual API bill.</div>
 
-  <script>
+  <script${nonce ? ` nonce="${nonce}"` : ""}>
     const vscode = acquireVsCodeApi();
     function applyOpts() { vscode.postMessage({ command: "applyOptimizations" }); }
     function applyOne(skill, type) { vscode.postMessage({ command: "applySuggestion", skill, type }); }
@@ -257,8 +262,8 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
-  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
-  const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
+  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
+  const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);
   const showPerSkill = health.reliable;
   const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
   const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];

@@ -6,6 +6,8 @@ import { getCurrentBranch, saveBranchProfile } from "./branchProfiles";
 import { generateOptimizationSuggestions, OptimizationSuggestion, OptimizationType } from "./costOptimizer";
 import { isFeatureEnabled } from "./featureFlags";
 import { archiveSkill, archivalRules, candidatesForArchival } from "./skillArchival";
+import { autoApplySlotsRemaining, recordAutoApplies } from "./autoOptimizerRateLimit";
+import { tokenCostUsd } from "./costRates";
 import { setSkillOverride, loadManifest } from "./skillOps";
 import { computeUsageStats } from "./usageStats";
 
@@ -71,6 +73,14 @@ export async function applyOptimizationSuggestions(
     return result;
   }
 
+  if (auto) {
+    const slots = autoApplySlotsRemaining(target);
+    if (slots <= 0) {
+      return result;
+    }
+    suggestions = suggestions.slice(0, slots);
+  }
+
   if (!auto && !directApply && suggestions.length > 0) {
     const pick = await vscode.window.showQuickPick(
       suggestions.slice(0, 10).map((s) => ({
@@ -132,6 +142,10 @@ export async function applyOptimizationSuggestions(
     }
   }
 
+  if (auto && result.applied.length > 0) {
+    recordAutoApplies(target, result.applied.length);
+  }
+
   return result;
 }
 
@@ -159,7 +173,7 @@ export async function runArchivalPass(target: string, libraryDir: string): Promi
   const costPerUse = new Map<string, number>();
   for (const s of stats) {
     if (s.runs > 0 && s.totalTokens) {
-      costPerUse.set(s.name, (s.totalTokens / s.runs / 1_000_000) * 9);
+      costPerUse.set(s.name, tokenCostUsd(s.totalTokens / s.runs));
     }
   }
   const candidates = candidatesForArchival(stats, costPerUse);

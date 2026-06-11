@@ -151,3 +151,5 @@ export function appendSkillRun(
   fs.appendFileSync(file, JSON.stringify(record) + "\n", "utf-8");
   return record;
 }
+
+export { pruneRunsJsonl } from "./learningPrune";

@@ -18,7 +18,7 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
   const v2HookRuns = countV2HookRuns(target);
   const { staleEqualSplit, attribution } = resolveDisplayAttribution(built, target);
   const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
-  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
+  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const highUnattributedRatio =
     v2HookRuns === 0 && credit.totalTokens > 0 && unattributedTokens / credit.totalTokens > 0.3;
   const noPerSkillData = topExpensiveSkills(attribution, 1).length === 0;

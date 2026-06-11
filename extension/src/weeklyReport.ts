@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import * as net from "node:net";
 import * as tls from "node:tls";
 import * as vscode from "vscode";
@@ -108,13 +108,25 @@ export async function clearWeeklyReportSecrets(context: vscode.ExtensionContext)
   }
 }
 
-function ghExec(args: string, cwd: string): string {
-  return execSync(`gh ${args}`, {
-    cwd,
-    encoding: "utf-8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 30_000,
-  }).trim();
+function ghExec(args: string[], cwd: string): string {
+  try {
+    return execFileSync("gh", args, {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 30_000,
+    }).trim();
+  } catch {
+    throw new Error("GitHub CLI command failed");
+  }
+}
+
+function safeDeliveryError(err: unknown): string {
+  const msg = (err as Error).message ?? "delivery failed";
+  if (/password|secret|token|smtp|auth/i.test(msg)) {
+    return "email delivery failed (check SMTP settings)";
+  }
+  return msg.length > 120 ? `${msg.slice(0, 120)}…` : msg;
 }
 
 function gitConfigEmail(cwd: string): string | undefined {
@@ -137,7 +149,7 @@ export function isNoreplyEmail(email: string): boolean {
 
 export function ghPrimaryEmail(cwd: string): string | undefined {
   try {
-    const emails = JSON.parse(ghExec("api user/emails", cwd)) as { email: string; primary?: boolean }[];
+    const emails = JSON.parse(ghExec(["api", "user/emails"], cwd)) as { email: string; primary?: boolean }[];
     const primary = emails.find((e) => e.primary)?.email ?? emails[0]?.email;
     if (primary && !isNoreplyEmail(primary)) {
       return primary;
@@ -146,7 +158,7 @@ export function ghPrimaryEmail(cwd: string): string | undefined {
     // needs: gh auth refresh -h github.com -s user,read:user
   }
   try {
-    const email = ghExec("api user -q .email", cwd);
+    const email = ghExec(["api", "user", "-q", ".email"], cwd);
     if (email && !isNoreplyEmail(email)) {
       return email;
     }
@@ -447,7 +459,7 @@ export async function sendWeeklyReportEmail(
     await sendSmtpEmail(config.smtpHost, config.smtpPort, config.smtpUser, config.smtpPassword, to, subject, body);
     return { ok: true, to };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: safeDeliveryError(err) };
   }
 }
 
@@ -674,7 +686,9 @@ export async function runScheduledWeeklyReport(
       `Claude Skills: weekly AI usage report emailed to ${result.email.to}.`
     );
   } else {
-    log(`Weekly report not sent: ${result.email.error ?? "delivery failed"}`);
+    const reason = result.email.error ?? "delivery failed";
+    log(`Weekly report not sent: ${reason}`);
+    void vscode.window.showWarningMessage(`Claude Skills: weekly report not sent — ${reason}`);
   }
 }
 
