@@ -8,9 +8,11 @@ import {
   listSkillStatuses,
   loadManifest,
   removeSkill,
+  setSkillOverride,
 } from "./skillOps";
 import { SkillItem, SkillsProvider } from "./skillsProvider";
 import { computeSuggestedSkills, computeUsageStats, ensureLearningDir, formatUsageReport, formatUsageReportHtml } from "./usageStats";
+import { computeCreditUsage } from "./usageCost";
 import { installSessionWatchHook } from "./hookOps";
 
 let outputChannel: vscode.OutputChannel;
@@ -99,6 +101,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (state === vscode.TreeItemCheckboxState.Checked) {
           const sourceRoot = item.status.availableInGlobal ? globalSkillsDir() : libraryDir;
           const status = copySkill(name, sourceRoot, destRoot, false, false);
+          ensureLearningDir(target);
           log(`${name}: enabled for workspace (${status})`);
         } else {
           const removed = removeSkill(destRoot, name);
@@ -247,6 +250,26 @@ export function activate(context: vscode.ExtensionContext) {
       refreshAll();
     }),
 
+    vscode.commands.registerCommand("claudeSkills.disableSkillLocally", async (item?: SkillItem) => {
+      const target = getWorkspaceTarget();
+      if (!target || !item) {
+        return;
+      }
+      setSkillOverride(target, item.status.name, "off");
+      log(`${item.status.name}: disabled locally (.claude/settings.local.json) - shared .claude/skills/ unchanged`);
+      refreshAll();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.enableSkillLocally", async (item?: SkillItem) => {
+      const target = getWorkspaceTarget();
+      if (!target || !item) {
+        return;
+      }
+      setSkillOverride(target, item.status.name, undefined);
+      log(`${item.status.name}: re-enabled locally (removed override from .claude/settings.local.json)`);
+      refreshAll();
+    }),
+
     vscode.commands.registerCommand("claudeSkills.openSkill", async (item?: SkillItem) => {
       if (!item) {
         return;
@@ -263,15 +286,17 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
         return;
       }
+      ensureLearningDir(target);
       const manifest = loadManifest(libraryDir);
       const stats = computeUsageStats(target, manifest);
       const suggested = computeSuggestedSkills(target, manifest);
+      const creditUsage = computeCreditUsage();
 
       outputChannel.show(true);
       log(`\n=== Skill usage report for ${target} ===`);
-      log(formatUsageReport(stats, suggested, target));
+      log(formatUsageReport(stats, suggested, target, creditUsage));
 
-      const html = formatUsageReportHtml(stats, suggested, target);
+      const html = formatUsageReportHtml(stats, suggested, target, creditUsage);
       if (usagePanel) {
         usagePanel.webview.html = html;
         usagePanel.reveal(vscode.ViewColumn.Active);

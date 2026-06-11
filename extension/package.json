@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect a project's stack and manage Claude Code skills from a personal global skill library.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -85,6 +85,18 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.disableSkillLocally",
+        "title": "Disable Skill Locally (this workspace only)",
+        "icon": "$(eye-closed)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.enableSkillLocally",
+        "title": "Enable Skill Locally",
+        "icon": "$(eye)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.showUsageStats",
         "title": "Show Skill Usage Report",
         "icon": "$(graph)",
@@ -138,7 +150,17 @@
       "view/item/context": [
         {
           "command": "claudeSkills.installSkillToWorkspace",
-          "when": "view == claudeSkillsView && viewItem =~ /^skill-(available|unavailable)$/",
+          "when": "view == claudeSkillsView && viewItem =~ /^skill-(available|unavailable)/",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSkills.disableSkillLocally",
+          "when": "view == claudeSkillsView && viewItem =~ /-local-on$/",
+          "group": "inline"
+        },
+        {
+          "command": "claudeSkills.enableSkillLocally",
+          "when": "view == claudeSkillsView && viewItem =~ /-local-off$/",
           "group": "inline"
         },
         {

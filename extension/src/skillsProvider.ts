@@ -27,13 +27,34 @@ export class SkillItem extends vscode.TreeItem {
   }
 
   private static buildContextValue(status: SkillStatus): string {
+    let base: string;
     if (!status.inLibrary) {
-      return "skill-project-local";
+      base = "skill-project-local";
+    } else if (status.availableInGlobal) {
+      base = "skill-available";
+    } else {
+      base = "skill-unavailable";
     }
-    if (status.availableInGlobal) {
-      return "skill-available";
+    // Local on/off toggle only makes sense for skills present in the
+    // (shared, git-tracked) <workspace>/.claude/skills/ - suffix drives the
+    // inline enable/disable command's "when" clause.
+    if (status.installedInWorkspace) {
+      return `${base}-local-${status.localOverride === "off" ? "off" : "on"}`;
     }
-    return "skill-unavailable";
+    return base;
+  }
+
+  private static localOverrideLabel(status: SkillStatus): string | undefined {
+    switch (status.localOverride) {
+      case "off":
+        return "disabled locally";
+      case "name-only":
+        return "name-only locally";
+      case "user-invocable-only":
+        return "user-invocable-only locally";
+      default:
+        return undefined;
+    }
   }
 
   private static buildDescription(status: SkillStatus): string {
@@ -50,6 +71,10 @@ export class SkillItem extends vscode.TreeItem {
     }
     if (!status.inLibrary) {
       parts.push("project-only");
+    }
+    const overrideLabel = SkillItem.localOverrideLabel(status);
+    if (overrideLabel) {
+      parts.push(overrideLabel);
     }
     return parts.join(" • ");
   }
@@ -69,10 +94,20 @@ export class SkillItem extends vscode.TreeItem {
     }
     md.appendMarkdown(`Installed in workspace: ${status.installedInWorkspace ? "yes" : "no"}\n\n`);
     md.appendMarkdown(`In ~/.claude/skills: ${status.availableInGlobal ? "yes" : "no"}`);
+    if (status.installedInWorkspace) {
+      const overrideValue = status.localOverride ?? "on";
+      md.appendMarkdown(
+        `\n\nLocal override (.claude/settings.local.json, personal/gitignored): \`${overrideValue}\`\n\n` +
+          `Toggling this does not change the shared \`.claude/skills/${status.name}/\` files.`
+      );
+    }
     return md;
   }
 
   private static buildIcon(status: SkillStatus): vscode.ThemeIcon {
+    if (status.installedInWorkspace && status.localOverride === "off") {
+      return new vscode.ThemeIcon("eye-closed", new vscode.ThemeColor("disabledForeground"));
+    }
     if (status.installedInWorkspace) {
       return new vscode.ThemeIcon("check", new vscode.ThemeColor("charts.green"));
     }

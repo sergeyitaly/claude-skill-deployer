@@ -30,6 +30,88 @@ export function globalSkillsDir(): string {
   return path.join(os.homedir(), ".claude", "skills");
 }
 
+/** Per-skill override values supported by Claude Code's `skillOverrides`
+ * settings key (settings.local.json). */
+export type SkillOverrideValue = "on" | "off" | "name-only" | "user-invocable-only";
+
+function settingsLocalPath(target: string): string {
+  return path.join(target, ".claude", "settings.local.json");
+}
+
+interface LocalSettings {
+  skillOverrides?: Record<string, SkillOverrideValue>;
+  [key: string]: unknown;
+}
+
+function readLocalSettings(target: string): LocalSettings {
+  const file = settingsLocalPath(target);
+  if (!fs.existsSync(file)) {
+    return {};
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8")) as LocalSettings;
+  } catch {
+    return {};
+  }
+}
+
+/** Reads `skillOverrides` from <target>/.claude/settings.local.json (a
+ * personal, gitignored-by-default file) - {} if none are set. */
+export function readSkillOverrides(target: string): Record<string, SkillOverrideValue> {
+  return readLocalSettings(target).skillOverrides ?? {};
+}
+
+/** Ensures `<target>/.claude/settings.local.json` won't be picked up by `git
+ * add`/`git status`, without editing the shared (and possibly git-tracked)
+ * `.gitignore`. If the project's own ignore rules don't already cover it,
+ * appends an entry to the local-only `.git/info/exclude`. No-op if `target`
+ * isn't a git repo (no `.git` directory) or the entry is already present. */
+function ensureSettingsLocalIgnored(target: string): void {
+  const gitDir = path.join(target, ".git");
+  if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) {
+    return;
+  }
+  const excludePath = path.join(gitDir, "info", "exclude");
+  const entry = ".claude/settings.local.json";
+  let existing = "";
+  try {
+    existing = fs.readFileSync(excludePath, "utf-8");
+  } catch {
+    existing = "";
+  }
+  if (existing.split(/\r?\n/).some((line) => line.trim() === entry)) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  fs.appendFileSync(excludePath, `${prefix}${entry}\n`, "utf-8");
+}
+
+/** Sets or clears a personal per-skill override in
+ * <target>/.claude/settings.local.json without touching the shared
+ * <target>/.claude/skills/<name>/ directory - lets a teammate turn a skill
+ * off for themselves without that removal being visible to (or merged into)
+ * the rest of the team. Pass `undefined` to remove the override (revert to
+ * the project default, "on"). */
+export function setSkillOverride(target: string, skillName: string, value: SkillOverrideValue | undefined): void {
+  const file = settingsLocalPath(target);
+  const settings = readLocalSettings(target);
+  const overrides: Record<string, SkillOverrideValue> = { ...settings.skillOverrides };
+  if (value === undefined) {
+    delete overrides[skillName];
+  } else {
+    overrides[skillName] = value;
+  }
+  if (Object.keys(overrides).length > 0) {
+    settings.skillOverrides = overrides;
+  } else {
+    delete settings.skillOverrides;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  ensureSettingsLocalIgnored(target);
+}
+
 export function loadManifest(libraryDir: string): Manifest {
   const raw = fs.readFileSync(path.join(libraryDir, "manifest.json"), "utf-8");
   return JSON.parse(raw) as Manifest;
@@ -238,6 +320,10 @@ export interface SkillStatus {
   /** False for skills found in <workspace>/.claude/skills/ that aren't part
    * of the bundled library (project-specific or installed from elsewhere). */
   inLibrary: boolean;
+  /** Personal `skillOverrides` entry from .claude/settings.local.json, if
+   * any - independent of whether the skill files are present in the
+   * (shared, git-tracked) <target>/.claude/skills/ directory. */
+  localOverride?: SkillOverrideValue;
 }
 
 /** Best-effort extraction of the `description:` field from a SKILL.md's
@@ -259,7 +345,7 @@ function extractFrontmatterDescription(skillMdPath: string): string | undefined 
 /** Skills present in <target>/.claude/skills/ that aren't part of the
  * bundled manifest - e.g. project-specific skills, or skills installed from
  * elsewhere before this extension was added to the project. */
-function listProjectOnlySkills(target: string, manifest: Manifest): SkillStatus[] {
+function listProjectOnlySkills(target: string, manifest: Manifest, overrides: Record<string, SkillOverrideValue>): SkillStatus[] {
   const skillsDir = path.join(target, ".claude", "skills");
   if (!fs.existsSync(skillsDir)) {
     return [];
@@ -284,6 +370,7 @@ function listProjectOnlySkills(target: string, manifest: Manifest): SkillStatus[
         availableInGlobal: fs.existsSync(path.join(globalDir, name, "SKILL.md")),
         bundledPath: skillMdPath,
         inLibrary: false,
+        localOverride: overrides[name],
       };
     });
 }
@@ -298,6 +385,7 @@ export function listSkillStatuses(
   const manifest = loadManifest(libraryDir);
   const detected = target ? detectRelevantSkills(target, manifest) : {};
   const globalDir = globalSkillsDir();
+  const overrides = target ? readSkillOverrides(target) : {};
 
   const librarySkills = Object.entries(manifest.skills).map(([name, rule]) => {
     const matched = detected[name] ?? [];
@@ -315,9 +403,10 @@ export function listSkillStatuses(
       availableInGlobal,
       bundledPath: path.join(libraryDir, name, "SKILL.md"),
       inLibrary: true,
+      localOverride: overrides[name],
     };
   });
 
-  const projectOnlySkills = target ? listProjectOnlySkills(target, manifest) : [];
+  const projectOnlySkills = target ? listProjectOnlySkills(target, manifest, overrides) : [];
   return [...librarySkills, ...projectOnlySkills];
 }

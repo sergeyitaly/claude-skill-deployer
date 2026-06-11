@@ -111,6 +111,7 @@ instead:
 | `skill-usage-insights` | Skill usage and KPI report from `.claude/learning/runs.jsonl` — what to keep, fix, add, or remove |
 | `drawio-diagrams` | Create/edit architecture diagrams as `.drawio` files via the draw.io MCP server, including Azure diagrams using the official Azure icon set |
 | `vscode-extension-publishing` | Build, package, and publish a VS Code extension via `@vscode/vsce` — manifest fields, `.vscodeignore`, Extension Development Host testing, version bumps, publisher/PAT setup, common publish errors |
+| `skill-official-updater` | Check `github.com/anthropics/skills` for new/updated official Anthropic skills and offer to add or update them in `skills_library/` |
 
 ## What this tool does NOT do
 

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectRelevantSkills, Manifest } from "./skillOps";
+import { CreditUsageSummary } from "./usageCost";
 
 export interface RunRecord {
   ts: string;
@@ -11,6 +12,7 @@ export interface RunRecord {
   error?: string;
   hint?: string;
   note?: string;
+  tokens?: number;
 }
 
 export type UsageRating = "active" | "needs-attention" | "low-usage" | "unused";
@@ -24,6 +26,7 @@ export interface SkillUsageStat {
   avgDuration: number | null;
   lastUsed: string | null;
   daysSinceLastUse: number | null;
+  totalTokens: number | null;
   rating: UsageRating;
 }
 
@@ -102,6 +105,34 @@ function rate(stat: Omit<SkillUsageStat, "rating">): SkillUsageStat {
   return { ...stat, rating };
 }
 
+function lastUsedInfo(recs: RunRecord[], now: number): { lastUsed: string | null; daysSinceLastUse: number | null } {
+  let lastUsed: string | null = null;
+  for (const r of recs) {
+    if (!lastUsed || new Date(r.ts).getTime() > new Date(lastUsed).getTime()) {
+      lastUsed = r.ts;
+    }
+  }
+  const daysSinceLastUse = lastUsed ? Math.floor((now - new Date(lastUsed).getTime()) / (1000 * 60 * 60 * 24)) : null;
+  return { lastUsed, daysSinceLastUse };
+}
+
+function statForSkill(name: string, recs: RunRecord[], now: number): SkillUsageStat {
+  const runs = recs.length;
+  const successCount = recs.filter((r) => r.rc === 0).length;
+  const failureCount = runs - successCount;
+  const successRate = runs > 0 ? (successCount / runs) * 100 : null;
+
+  const durations = recs.map((r) => r.duration).filter((d): d is number => typeof d === "number");
+  const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
+
+  const tokenVals = recs.map((r) => r.tokens).filter((t): t is number => typeof t === "number");
+  const totalTokens = tokenVals.length > 0 ? tokenVals.reduce((a, b) => a + b, 0) : null;
+
+  const { lastUsed, daysSinceLastUse } = lastUsedInfo(recs, now);
+
+  return rate({ name, runs, successCount, failureCount, successRate, avgDuration, lastUsed, daysSinceLastUse, totalTokens });
+}
+
 /** Aggregates .claude/learning/runs.jsonl entries per known skill (manifest
  * keys), plus any installed skill with zero matching records ("unused"). */
 export function computeUsageStats(target: string, manifest: Manifest): SkillUsageStat[] {
@@ -122,32 +153,7 @@ export function computeUsageStats(target: string, manifest: Manifest): SkillUsag
   const names = new Set<string>([...installed, ...byName.keys()]);
   const now = Date.now();
 
-  const stats: SkillUsageStat[] = [];
-  for (const name of names) {
-    const recs = byName.get(name) ?? [];
-    const runs = recs.length;
-    const successCount = recs.filter((r) => r.rc === 0).length;
-    const failureCount = runs - successCount;
-    const successRate = runs > 0 ? (successCount / runs) * 100 : null;
-    const durations = recs.map((r) => r.duration).filter((d): d is number => typeof d === "number");
-    const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
-
-    let lastUsed: string | null = null;
-    let daysSinceLastUse: number | null = null;
-    for (const r of recs) {
-      if (!lastUsed || new Date(r.ts).getTime() > new Date(lastUsed).getTime()) {
-        lastUsed = r.ts;
-      }
-    }
-    if (lastUsed) {
-      daysSinceLastUse = Math.floor((now - new Date(lastUsed).getTime()) / (1000 * 60 * 60 * 24));
-    }
-
-    stats.push(
-      rate({ name, runs, successCount, failureCount, successRate, avgDuration, lastUsed, daysSinceLastUse })
-    );
-  }
-
+  const stats = [...names].map((name) => statForSkill(name, byName.get(name) ?? [], now));
   stats.sort((a, b) => b.runs - a.runs || a.name.localeCompare(b.name));
   return stats;
 }
@@ -175,6 +181,27 @@ function formatRecency(days: number | null): string {
     return "today";
   }
   return days === 1 ? "1d ago" : `${days}d ago`;
+}
+
+/** Compact token count, e.g. 1234 -> "1.2k", 1500000 -> "1.5M". */
+export function formatTokenCount(n: number | null): string {
+  if (n === null) {
+    return "-";
+  }
+  if (n >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(1)}M`;
+  }
+  if (n >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}k`;
+  }
+  return `${n}`;
+}
+
+function formatCost(usd: number): string {
+  if (usd < 0.01 && usd > 0) {
+    return "<$0.01";
+  }
+  return `$${usd.toFixed(2)}`;
 }
 
 const RATING_LABEL: Record<UsageRating, string> = {
@@ -254,21 +281,71 @@ function detailTableLines(stats: SkillUsageStat[]): string[] {
   if (stats.length === 0) {
     return [];
   }
-  const lines = ["## Per-skill detail", "", "| Skill | Runs | Success | Last used | Rating |", "|---|---|---|---|---|"];
+  const lines = [
+    "## Per-skill detail",
+    "",
+    "| Skill | Runs | Success | Tokens | Last used | Rating |",
+    "|---|---|---|---|---|---|",
+  ];
   for (const s of stats) {
     const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
-    lines.push(`| ${s.name} | ${s.runs} | ${successPct} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} |`);
+    lines.push(
+      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} |`
+    );
   }
   return lines;
 }
 
-export function formatUsageReport(stats: SkillUsageStat[], suggested: SuggestedSkill[], target: string): string {
+function tokenSum(usage: { inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number }): number {
+  return usage.inputTokens + usage.outputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
+}
+
+function creditUsageLines(creditUsage: CreditUsageSummary): string[] {
+  const lines = [`## Claude Credits Usage (last ${creditUsage.daysBack} days, all projects)`, ""];
+
+  if (creditUsage.totalTokens === 0) {
+    lines.push("No recorded Claude Code activity in this window.", "");
+    return lines;
+  }
+
+  lines.push(
+    `${formatTokenCount(creditUsage.totalTokens)} tokens, ~${formatCost(creditUsage.totalCost)} estimated, across ${creditUsage.sessionCount} session(s).`,
+    "",
+    "| Model | Input | Output | Cache write | Cache read | Tokens | Est. cost |",
+    "|---|---|---|---|---|---|---|"
+  );
+  for (const m of creditUsage.byModel) {
+    lines.push(
+      `| ${m.model} | ${formatTokenCount(m.inputTokens)} | ${formatTokenCount(m.outputTokens)} | ${formatTokenCount(m.cacheCreationTokens)} | ${formatTokenCount(m.cacheReadTokens)} | ${formatTokenCount(tokenSum(m))} | ${formatCost(m.cost)} |`
+    );
+  }
+
+  lines.push("", "| Date | Tokens | Est. cost |", "|---|---|---|");
+  for (const d of creditUsage.byDay) {
+    lines.push(`| ${d.date} | ${formatTokenCount(tokenSum(d))} | ${formatCost(d.cost)} |`);
+  }
+
+  lines.push(
+    "",
+    "Estimated cost is based on published per-model API pricing for reference - it is not an actual bill (Pro/Max plans are flat-rate).",
+    ""
+  );
+  return lines;
+}
+
+export function formatUsageReport(
+  stats: SkillUsageStat[],
+  suggested: SuggestedSkill[],
+  target: string,
+  creditUsage: CreditUsageSummary
+): string {
   if (stats.length === 0 && suggested.length === 0) {
     return [
       "# Claude Skills Usage Report",
       "",
       `Workspace: \`${target}\``,
       "",
+      ...creditUsageLines(creditUsage),
       "No installed skills, no recorded skill runs, and no relevant skills detected for this workspace.",
     ].join("\n");
   }
@@ -281,6 +358,7 @@ export function formatUsageReport(stats: SkillUsageStat[], suggested: SuggestedS
     "",
     summaryLine(stats, suggested, counts),
     "",
+    ...creditUsageLines(creditUsage),
     ...misusedLines(stats),
     ...suggestedLines(suggested),
     ...removalLines(stats),
@@ -371,27 +449,81 @@ function htmlDetailTable(stats: SkillUsageStat[]): string {
           <td>${escapeHtml(s.name)}</td>
           <td class="num">${s.runs}</td>
           <td class="num">${successPct}</td>
+          <td class="num">${formatTokenCount(s.totalTokens)}</td>
           <td>${formatRecency(s.daysSinceLastUse)}</td>
           <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
         </tr>`;
     })
     .join("\n");
   return `<table>
-      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Last used</th><th>Rating</th></tr></thead>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>Last used</th><th>Rating</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
 
+function htmlCreditUsageSection(creditUsage: CreditUsageSummary): string {
+  const title = `Claude Credits Usage (last ${creditUsage.daysBack} days, all projects)`;
+  if (creditUsage.totalTokens === 0) {
+    return `<div class="section"><h2>${title}</h2><p>No recorded Claude Code activity in this window.</p></div>`;
+  }
+
+  const modelRows = creditUsage.byModel
+    .map(
+      (m) => `<tr>
+          <td>${escapeHtml(m.model)}</td>
+          <td class="num">${formatTokenCount(m.inputTokens)}</td>
+          <td class="num">${formatTokenCount(m.outputTokens)}</td>
+          <td class="num">${formatTokenCount(m.cacheCreationTokens)}</td>
+          <td class="num">${formatTokenCount(m.cacheReadTokens)}</td>
+          <td class="num">${formatTokenCount(tokenSum(m))}</td>
+          <td class="num">${formatCost(m.cost)}</td>
+        </tr>`
+    )
+    .join("\n");
+
+  const dayRows = creditUsage.byDay
+    .map(
+      (d) => `<tr>
+          <td>${d.date}</td>
+          <td class="num">${formatTokenCount(tokenSum(d))}</td>
+          <td class="num">${formatCost(d.cost)}</td>
+        </tr>`
+    )
+    .join("\n");
+
+  return `<div class="section">
+    <h2>${title}</h2>
+    <p>${formatTokenCount(creditUsage.totalTokens)} tokens, ~${formatCost(creditUsage.totalCost)} estimated, across ${creditUsage.sessionCount} session(s).</p>
+    <table>
+      <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>Tokens</th><th>Est. cost</th></tr></thead>
+      <tbody>${modelRows}</tbody>
+    </table>
+    <table>
+      <thead><tr><th>Date</th><th>Tokens</th><th>Est. cost</th></tr></thead>
+      <tbody>${dayRows}</tbody>
+    </table>
+    <div class="note">Estimated cost is based on published per-model API pricing for reference - it is not an actual bill (Pro/Max plans are flat-rate).</div>
+  </div>`;
+}
+
 /** Renders the usage report as a styled HTML page for a webview panel. */
-export function formatUsageReportHtml(stats: SkillUsageStat[], suggested: SuggestedSkill[], target: string): string {
+export function formatUsageReportHtml(
+  stats: SkillUsageStat[],
+  suggested: SuggestedSkill[],
+  target: string,
+  creditUsage: CreditUsageSummary
+): string {
   const counts = tallyRatings(stats);
 
   let body: string;
   if (stats.length === 0 && suggested.length === 0) {
-    body =
-      "<p>No installed skills, no recorded skill runs, and no relevant skills detected for this workspace.</p>";
+    body = [
+      htmlCreditUsageSection(creditUsage),
+      "<p>No installed skills, no recorded skill runs, and no relevant skills detected for this workspace.</p>",
+    ].join("\n");
   } else {
     body = [
+      htmlCreditUsageSection(creditUsage),
       htmlMisusedSection(stats),
       htmlSuggestedSection(suggested),
       htmlRemovalSection(stats),

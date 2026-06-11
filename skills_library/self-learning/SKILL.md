@@ -27,18 +27,19 @@ first use):
   runs.jsonl              append-only log of recorded outcomes (gitignore this)
   patterns.md             auto-generated report (gitignore this)
   session-learnings.md    human/agent-curated decisions and fixes (commit this)
+  knowledge-cache.md      cached answers to repeated questions (commit this)
 ```
 
 Add `.claude/learning/runs.jsonl` and `.claude/learning/patterns.md` to
 `.gitignore` if not already ignored — they're machine-local history.
-`session-learnings.md` should be committed: it's the durable, reviewable
-output.
+`session-learnings.md` and `knowledge-cache.md` should be committed: they're
+durable, reviewable output.
 
 ## Run record schema (one JSON object per line in runs.jsonl)
 
 ```json
 {"ts": "2026-06-11T14:32:00", "skill": "terraform", "action": "validate",
- "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": ""}
+ "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345}
 ```
 
 - `skill`/`action`: a short identifier for what was run (e.g. skill name +
@@ -49,8 +50,73 @@ output.
 - `hint`: a short fix description if one is known (see "Deriving hints"
   below); empty if none.
 - `note`: optional free-text context.
+- `tokens`: optional total token count (input + output + cache write + cache
+  read) attributable to this run — see "Recording token usage" below. Omit
+  if it can't be determined.
 
-## 1. Before running something that might be flaky or previously failed
+### Recording token usage (optional)
+
+If it can be determined cheaply, record the tokens used by the current run:
+
+1. Find the current session's transcript: the most recently modified
+   `*.jsonl` file directly under `~/.claude/projects/<encoded-cwd>/` (NOT the
+   `subagents/` subfolder), where `<encoded-cwd>` is the project's working
+   directory with `:`, `\`, and `/` replaced by `-`.
+2. Sum `input_tokens + output_tokens + cache_creation_input_tokens +
+   cache_read_input_tokens` from `message.usage` across assistant-message
+   lines timestamped after the previous recorded run for this skill (or
+   session start, if there is no previous run).
+3. Include that sum as `tokens` in the new record.
+
+This is best-effort: if the transcript file can't be located or parsed,
+omit `tokens` entirely rather than guessing.
+
+## 1. Before answering a question you might have already answered (knowledge cache)
+
+Many requests repeat across sessions, often worded slightly differently:
+"where is X configured", "how does Y work", "what does this skill check
+for", "what's our pricing table". Re-deriving these from scratch each time —
+multiple greps/reads, or spawning an agent — burns tokens for an answer
+that hasn't changed.
+
+**Before** doing non-trivial exploration to answer an informational/
+explanatory question, scan `.claude/learning/knowledge-cache.md` for an
+entry whose topic overlaps with the current question (keyword match on the
+nouns/identifiers in both).
+
+If a matching entry exists:
+- Quick staleness check: do the listed `Sources` still exist, and does their
+  content/mtime look unchanged since `Last verified`? A `Glob`/mtime check
+  or a single `git log -1 --format=%ct -- <sources>` is enough — far
+  cheaper than redoing the original exploration.
+- If still fresh: answer directly from the cached entry (citing its
+  `Sources`), bump `Hits` and `Last asked`, and skip the exploration.
+- If stale or the sources no longer fit: redo the exploration normally, then
+  update the entry as below.
+
+If nothing matches, answer normally.
+
+**After** answering a non-trivial informational/explanatory question (the
+kind someone might plausibly ask again in similar words), append or update
+an entry in `.claude/learning/knowledge-cache.md`:
+
+```markdown
+### Q-NN — <short topic, e.g. "where is the pricing table defined">
+**Answer:** <concise answer - 1-5 sentences>
+**Sources:** path/to/file.ts:42, path/to/other.ts
+**Last verified:** 2026-06-11
+**Last asked:** 2026-06-11
+**Hits:** 1
+```
+
+Number sequentially (`Q-01`, `Q-02`, ...) like the `S-`/`E-` entries in
+`session-learnings.md`. On a repeat hit, increment `Hits` and refresh
+`Last verified` rather than adding a duplicate entry. Don't cache answers to
+one-off or highly context-specific questions (e.g. "why did this specific
+test just fail") — only cache things likely to be asked again in roughly the
+same form.
+
+## 2. Before running something that might be flaky or previously failed
 
 Before re-running a command/skill, check `.claude/learning/runs.jsonl` (most
 recent matching `skill`+`action`, scan backwards) and `session-learnings.md`
@@ -64,7 +130,7 @@ for a recorded hint. If found, surface it first:
 Then proceed — the hint informs the approach, it doesn't replace doing the
 work.
 
-## 2. After running something non-trivial
+## 3. After running something non-trivial
 
 Append a record to `runs.jsonl` with the outcome. Then regenerate
 `patterns.md` (see structure below) by aggregating all records:
@@ -77,7 +143,7 @@ Append a record to `runs.jsonl` with the outcome. Then regenerate
 - **Recent runs** — last ~20 records as a table (timestamp, skill, action,
   rc, duration, error).
 
-## 3. Deriving hints for new failures
+## 4. Deriving hints for new failures
 
 When recording a failure with no existing hint, check the error text against
 fix patterns already written in `session-learnings.md` (keyword match against
@@ -85,7 +151,7 @@ the "What happened"/"Pattern" text of existing `E-NN` entries). If one
 matches, reuse its fix as the `hint`. If nothing matches, leave `hint` empty
 — a human or a later session can add one via "manual learning" below.
 
-## 4. Manual learning entries
+## 5. Manual learning entries
 
 When the user states a decision, a fix, or "we learned X", append a
 structured entry to `session-learnings.md` rather than just replying in
@@ -100,7 +166,7 @@ into context at the start of any session on this project).
 Number sequentially per category (`S-01`, `S-02`, ... / `E-01`, `E-02`, ...)
 by scanning existing headers for the highest number used.
 
-## 5. Reporting
+## 6. Reporting
 
 On request ("what failed before", "learning status", "what have we
 learned"):
@@ -108,11 +174,16 @@ learned"):
   failures with fixes).
 - Summarize `session-learnings.md` (counts of S-/E- entries, most recent
   few).
+- Summarize `knowledge-cache.md` if it exists (number of cached Q&A entries,
+  the most-hit topics by `Hits`, and any entries flagged stale during this
+  session) — this is the running record of what's being saved by reuse.
 - If `.claude/learning/` doesn't exist yet, say so — there's no history yet,
   not an error.
 
-## 6. Clearing history
+## 7. Clearing history
 
 Only clear `runs.jsonl`/`patterns.md` (machine history) on explicit user
-request — never clear `session-learnings.md` without explicit confirmation,
-since it's curated and reviewable.
+request — never clear `session-learnings.md` or `knowledge-cache.md` without
+explicit confirmation, since both are curated and reviewable. For
+`knowledge-cache.md`, removing individual stale/wrong entries on request is
+fine; clearing the whole file is the same as clearing `session-learnings.md`.
