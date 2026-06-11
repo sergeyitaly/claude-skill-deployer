@@ -147,6 +147,19 @@ Workspace" button since there's no library copy to (re)install from.
 
 All results are logged to the **"Claude Skills"** output channel.
 
+## Onboarding & recovery (v1.0.0)
+
+| Command | Purpose |
+|---|---|
+| `Claude Skills: Start Onboarding Tour` | Guided setup (library → detect → budget → dashboard) |
+| `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL, create missing dirs |
+
+First activation prompts **Get Started** if `~/.claude/skills/` is empty.
+
+## Performance & compatibility
+
+See root [README.md](../README.md#performance-impact) and [CHANGELOG.md](../CHANGELOG.md).
+
 ## Development
 
 ```powershell

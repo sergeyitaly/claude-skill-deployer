@@ -12,6 +12,8 @@ const COLLECTION_INTERVAL_MS = 5 * 60 * 1000;
 export interface CollectorState {
   lastRun: number;
   fileMtimes: Record<string, number>;
+  /** sessionId|filePath -> mtime when runs.jsonl row was written (prevents double count). */
+  processedSessions?: Record<string, number>;
 }
 
 export interface AttributionStore {
@@ -33,7 +35,7 @@ function readCollectorState(): CollectorState {
   try {
     return JSON.parse(fs.readFileSync(COLLECTOR_STATE_PATH, "utf-8")) as CollectorState;
   } catch {
-    return { lastRun: 0, fileMtimes: {} };
+    return { lastRun: 0, fileMtimes: {}, processedSessions: {} };
   }
 }
 
@@ -249,9 +251,17 @@ export class AttributionCollector {
             continue;
           }
 
+          state.processedSessions = state.processedSessions ?? {};
+          const sessionKey = `${parsed.sessionId}|${file}`;
+          const alreadyProcessed = state.processedSessions[sessionKey] === mtime;
+          if (alreadyProcessed) {
+            continue;
+          }
+
           updateAttribution(store, parsed);
           appendRunsForWorkspace(this.target, parsed, content);
           state.fileMtimes[file] = mtime;
+          state.processedSessions[sessionKey] = mtime;
           processed += 1;
         }
       }

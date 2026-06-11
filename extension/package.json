@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "0.7.1",
+  "version": "1.0.0",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -215,6 +215,18 @@
         "title": "Restore Archived Skill",
         "icon": "$(history)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.startOnboarding",
+        "title": "Start Onboarding Tour",
+        "icon": "$(rocket)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.repairData",
+        "title": "Repair Claude Skills Data",
+        "icon": "$(wrench)",
+        "category": "Claude Skills"
       }
     ],
     "configuration": {
@@ -414,6 +426,11 @@
           "type": "string",
           "default": "",
           "description": "Optional HTTPS endpoint to download community benchmarks weekly."
+        },
+        "claudeSkills.telemetry.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only — no network upload unless you add your own exporter."
         }
       }
     },

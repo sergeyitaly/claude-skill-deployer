@@ -110,7 +110,37 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **0.7.1** (`serhiivoinolovych`).
+Current extension version: **1.0.0** (`serhiivoinolovych`).
+
+## Performance impact
+
+- **CPU**: under 1% idle; 2–5% during attribution collection (5-minute intervals)
+- **Memory**: ~50 MB baseline; +20 MB when the dashboard WebView is open
+- **Disk**: ~500 KB per project for `runs.jsonl`; ~100 KB for attribution data
+- **Startup**: under 200 ms added to VS Code activation
+
+Tuned for workspaces with fewer than 100 skills and fewer than 10K transcript lines.
+
+## Compatibility
+
+| Component | Version |
+|---|---|
+| VS Code | 1.85+ |
+| Claude Code | 0.2+ |
+| Node.js | 18+ (for hooks) |
+| OS | Windows 10+, macOS 11+, Linux (glibc 2.28+) |
+
+Git integration is optional (branch profiles, team attribution). GitHub CLI is optional (PR cost estimates).
+
+## Pre-publish validation
+
+```bash
+node scripts/validate-release.mjs
+```
+
+## v1.0.0 onboarding
+
+First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 learning data to `.claude/backup-v0.7/`. See [CHANGELOG.md](CHANGELOG.md).
 
 ## What this tool does NOT do
 

@@ -53,6 +53,15 @@ import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills, restoreArchivedSkill } from "./skillArchival";
 import { estimateAndCommentPR } from "./prCostEstimate";
 import { SkillSortMode } from "./skillRoi";
+import {
+  checkFirstTimeGlobalSetup,
+  detectGitRepository,
+  promptGetStarted,
+} from "./criticalFixes";
+import { showOnboardingTour } from "./onboarding";
+import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
+import { recordActivation, recordFeatureUse } from "./analytics";
+import { runV1Migration } from "./migration";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -262,9 +271,20 @@ export function activate(context: vscode.ExtensionContext) {
 
   applyBudgetSettings(libraryDir, false);
   const initialTarget = getWorkspaceTarget();
-  if (isFeatureEnabled("branchProfiles")) {
-    initBranchTracking(initialTarget);
-  }
+
+  void (async () => {
+    recordActivation();
+    await runV1Migration(context, initialTarget);
+    const isGit = detectGitRepository(context, initialTarget);
+    if (isFeatureEnabled("branchProfiles") && isGit) {
+      initBranchTracking(initialTarget);
+    }
+    await checkFirstTimeGlobalSetup(context);
+    const recovery = new ErrorRecovery();
+    await recovery.repairCommonIssues(initialTarget);
+    await promptGetStarted(context);
+  })();
+
   refreshAll();
 
   if (initialTarget) {
@@ -689,6 +709,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand("claudeSkills.showCostDashboard", async () => {
+      recordFeatureUse("costDashboard");
       if (!isFeatureEnabled("costIntelligence")) {
         vscode.window.showWarningMessage("Claude Skills: cost intelligence is disabled (claudeSkills.features.costIntelligence).");
         return;
@@ -878,6 +899,26 @@ export function activate(context: vscode.ExtensionContext) {
         refreshAll();
         vscode.window.showInformationMessage(`Restored skill: ${pick}`);
       }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.startOnboarding", async () => {
+      recordFeatureUse("onboarding");
+      await showOnboardingTour(context);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.repairData", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const issues = scanForIssues(target);
+      if (issues.length === 0) {
+        vscode.window.showInformationMessage("Claude Skills: no data issues detected.");
+        return;
+      }
+      const fixed = await repairIssues(target, issues);
+      vscode.window.showInformationMessage(`Claude Skills: repaired ${fixed.length} issue(s).`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.installCommitCostHook", async () => {

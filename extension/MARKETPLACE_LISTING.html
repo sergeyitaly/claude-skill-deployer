@@ -1,0 +1,106 @@
+<!--
+  VS Code Marketplace listing HTML (paste into publisher portal or adapt for GitHub).
+  Note: Marketplace README is Markdown-only in the .vsix; use this as the source
+  for manual listing edits or a project wiki page.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Claude Skills Manager — Marketplace Listing</title>
+</head>
+<body>
+
+<h1>Claude Skills Manager</h1>
+
+<p>
+  <a href="https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer">
+    <img src="https://img.shields.io/visual-studio-marketplace/v/serhiivoinolovych.claude-skill-deployer?label=Marketplace&color=007ACC" alt="Marketplace version">
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer">
+    <img src="https://img.shields.io/visual-studio-marketplace/d/serhiivoinolovych.claude-skill-deployer?label=Installs&color=5c6bc0" alt="Installs">
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer">
+    <img src="https://img.shields.io/visual-studio-marketplace/r/serhiivoinolovych.claude-skill-deployer?label=Rating&color=ffb300" alt="Rating">
+  </a>
+  <img src="https://img.shields.io/badge/VS%20Code-1.85%2B-007ACC?logo=visualstudiocode&logoColor=white" alt="VS Code">
+  <img src="https://img.shields.io/badge/version-1.0.0-success" alt="Version">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+  <img src="https://img.shields.io/badge/Claude%20Code-supported-ff6b35" alt="Claude Code">
+  <img src="https://img.shields.io/badge/Cursor-supported-000000" alt="Cursor">
+</p>
+
+<p><strong>Detect your project stack, deploy the right AI agent skills, and control Claude credit spend — from one VS Code sidebar.</strong></p>
+
+<h2>Why install this?</h2>
+<ul>
+  <li><strong>Stop guessing which skills to enable</strong> — auto-detect from your repo (Terraform, Azure, GitLab CI, ADX, and more).</li>
+  <li><strong>See where credits go</strong> — Cost Intelligence Dashboard with per-skill attribution across Claude and Cursor.</li>
+  <li><strong>Set a daily budget</strong> — warn at 80%, auto-disable expensive skills, optional emergency cutoff.</li>
+  <li><strong>One library, four agents</strong> — Claude Code, Cursor, Kiro, and GitHub Copilot from the same manifest.</li>
+</ul>
+
+<h2>v1.0.0 highlights</h2>
+<table border="0" cellpadding="8">
+  <tr>
+    <td><strong>Cost Intelligence</strong></td>
+    <td>Budget tracking, predictive alerts, optimization suggestions, ASCII session breakdown</td>
+  </tr>
+  <tr>
+    <td><strong>Team sync</strong></td>
+    <td>Git author attribution on shared <code>.claude/skills/</code>, per-branch profiles</td>
+  </tr>
+  <tr>
+    <td><strong>Developer UX</strong></td>
+    <td>Onboarding tour, error recovery, feature toggles, ROI-based skill sorting</td>
+  </tr>
+  <tr>
+    <td><strong>CLI parity</strong></td>
+    <td><code>generate_skills.py</code> for CI/scripts — same library, no VS Code required</td>
+  </tr>
+</table>
+
+<h2>Quick start (2 minutes)</h2>
+<ol>
+  <li>Open a workspace folder.</li>
+  <li>Activity bar → <strong>Claude Skills</strong> → <em>Install Skill Library to ~/.claude/skills</em>.</li>
+  <li>Run <em>Install Relevant Skills for Workspace</em> (or accept the onboarding tour).</li>
+  <li>Optional: <em>Enable Cost Control Hooks</em> and open <em>Cost Intelligence Dashboard</em>.</li>
+</ol>
+
+<h2>Feature toggles</h2>
+<p>Disable anything you do not need — <strong>Command Palette → Claude Skills: Manage Feature Toggles</strong></p>
+<ul>
+  <li>Budget controls, branch profiles, multi-agent sync</li>
+  <li>Attribution collector, auto-optimizer, emergency cutoff</li>
+  <li>Community benchmarks (opt-in), PR cost estimates (optional)</li>
+</ul>
+
+<h2>Bundled skill library (17 skills)</h2>
+<p>Terraform review, Azure RBAC diagnostics, ADX schema check, CI pipeline debug/preflight, GitLab pipeline ops, AIDLC tracker/doc writer, self-learning, skill usage insights, draw.io diagrams, cross-platform scripting, and more.</p>
+
+<h2>Performance</h2>
+<ul>
+  <li>&lt;1% CPU idle · ~50 MB memory baseline</li>
+  <li>&lt;200 ms startup overhead</li>
+  <li>Optimized for &lt;100 skills and &lt;10K transcript lines</li>
+</ul>
+
+<h2>Compatibility</h2>
+<ul>
+  <li>VS Code 1.85+ · Claude Code 0.2+ · Node.js 18+ (hooks)</li>
+  <li>Windows 10+, macOS 11+, Linux (glibc 2.28+)</li>
+  <li>Git optional (branch profiles) · GitHub CLI optional (PR estimates)</li>
+</ul>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://github.com/sergeyitaly/claude-skill-deployer">GitHub repository</a></li>
+  <li><a href="https://github.com/sergeyitaly/claude-skill-deployer/blob/main/CHANGELOG.md">Changelog</a></li>
+  <li><a href="https://github.com/sergeyitaly/claude-skill-deployer/issues">Issues &amp; feedback</a></li>
+</ul>
+
+<p><em>Estimated costs are from session transcripts — not an actual Anthropic bill. Pro/Max plans are flat-rate.</em></p>
+
+</body>
+</html>
