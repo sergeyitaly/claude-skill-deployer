@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect a project's stack and manage Claude Code skills from a personal global skill library.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -17,7 +17,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onStartupFinished"
   ],
