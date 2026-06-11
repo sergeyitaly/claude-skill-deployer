@@ -1,5 +1,10 @@
 import { AgentId } from "./agentOps";
-import { buildCostAttribution, SkillAttributionMap } from "./costAttribution";
+import {
+  buildCostAttribution,
+  formatEqualSplitWarning,
+  resolveDisplayAttribution,
+  SkillAttributionMap,
+} from "./costAttribution";
 import {
   crossAgentSavingsSummary,
   generateOptimizationSuggestions,
@@ -13,25 +18,9 @@ import { listArchivedSkills } from "./skillArchival";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
 import { formatCompactUsd } from "./skillCost";
-import { computeEnabledAgentsCreditUsage } from "./agentOps";
+import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
 import { loadManifest } from "./skillOps";
-
-function mergeAttribution(skills: SkillAttributionMap, transcriptSkills: SkillAttributionMap): SkillAttributionMap {
-  const out: SkillAttributionMap = { ...skills };
-  for (const [skill, agents] of Object.entries(transcriptSkills)) {
-    const existing = out[skill] ?? {};
-    for (const [agent, stats] of Object.entries(agents)) {
-      const bucket = existing[agent as AgentId] ?? { tokens: 0, cost: 0, sessions: 0 };
-      bucket.tokens += stats.tokens;
-      bucket.cost += stats.cost;
-      bucket.sessions += stats.sessions;
-      existing[agent as AgentId] = bucket;
-    }
-    out[skill] = existing;
-  }
-  return out;
-}
 
 function escapeHtml(v: string): string {
   return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -61,22 +50,46 @@ function hintForSkill(skill: string, suggestions: OptimizationSuggestion[], usag
 export function formatCostDashboardHtml(target: string, libraryDir: string): string {
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
-  const attribution = mergeAttribution(built.skills, built.transcriptSkills);
+  const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built);
   const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
   const unattributedCost = (unattributedTokens / 1_000_000) * 9;
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
-  const suggestions = generateOptimizationSuggestions(target, libraryDir, manifest);
-  const top = topExpensiveSkills(attribution, 5);
+  const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
+  const agentCostTotal = agentUsage.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
+  const maxAgentCost = Math.max(...agentUsage.map((r) => r.cost), 1);
+  const suggestions = staleEqualSplit ? [] : generateOptimizationSuggestions(target, libraryDir, manifest);
+  const top = staleEqualSplit ? [] : topExpensiveSkills(attribution, 5);
   const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxTop = top[0]?.cost ?? 1;
-  const savings = crossAgentSavingsSummary(attribution);
+  const savings = staleEqualSplit
+    ? { realizedUsd: 0, potentialUsd: 0, cursorSkills: 0 }
+    : crossAgentSavingsSummary(attribution);
   const trend = calculateTrend();
-  const profile = loadCostProfile(target, libraryDir);
+  const profile = staleEqualSplit ? undefined : loadCostProfile(target, libraryDir);
   const usageStats = computeUsageStats(target, manifest);
-  const teamLines = isFeatureEnabled("teamCostSharing")
-    ? attributeCostToAuthors(target, attribution)
-    : [];
+  const teamLines =
+    staleEqualSplit || !isFeatureEnabled("teamCostSharing")
+      ? []
+      : attributeCostToAuthors(target, attribution);
   const archived = isFeatureEnabled("skillArchival") ? listArchivedSkills(target) : [];
+  const equalSplitWarn = equalSplitCluster ? formatEqualSplitWarning(equalSplitCluster, true) : null;
+
+  const agentRows = agentUsage
+    .map((row) => {
+      const pct = agentCostTotal > 0 && row.cost > 0 ? Math.round((row.cost / agentCostTotal) * 100) : 0;
+      const detail = !row.transcriptTracked
+        ? "No session transcripts — spend not measured for this agent"
+        : row.tokens === 0
+          ? "No usage logged in the last 14 days"
+          : `${formatTokenCount(row.tokens)} tokens · ${row.sessions} session(s)`;
+      return `<div class="skill-row">
+        <div class="skill-head"><b>${escapeHtml(row.displayName)}</b> <span class="agent-id">(${escapeHtml(row.agent)})</span>
+          <span class="cost">${row.cost > 0 ? `${formatCompactUsd(row.cost)}${pct ? ` (${pct}%)` : ""}` : "—"}</span>
+          ${row.cost > 0 ? `<span class="bar">${bar(row.cost, maxAgentCost)}</span>` : ""}</div>
+        <div class="hint">${escapeHtml(detail)}</div>
+      </div>`;
+    })
+    .join("");
 
   const topRows = top
     .map((row, i) => {
@@ -132,6 +145,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   .metric { display: inline-block; margin-right: 16px; }
   .note { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 10px; }
   .warn { background: var(--vscode-inputValidation-warningBackground); border: 1px solid var(--vscode-inputValidation-warningBorder); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.9em; }
+  .agent-id { color: var(--vscode-descriptionForeground); font-size: 0.85em; font-weight: normal; }
 </style>
 </head>
 <body>
@@ -139,33 +153,53 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code></div>
 
   ${
-    unattributedTokens > 0
-      ? `<div class="warn"><b>Attribution warning:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}) could not be assigned to a specific invoked skill. Run <b>Reset Mis-attributed Cost Data</b> if you see equal splits across many skills, then use self-learning to record runs with <code>invoked: true</code>.</div>`
-      : ""
+    equalSplitWarn
+      ? `<div class="warn"><b>Per-skill costs unreliable:</b> ${equalSplitWarn}</div>`
+      : unattributedTokens > 0
+        ? `<div class="warn"><b>Attribution warning:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}) could not be assigned to a specific invoked skill. Run <b>Reset Mis-attributed Cost Data</b>, then use self-learning to record runs with <code>invoked: true</code>.</div>`
+        : ""
   }
 
   <div class="panel">
     <div class="summary-line">
-      <span class="metric"><b>Last 14 days:</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
+      <span class="metric"><b>Last 14 days (all tracked agents):</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
     </div>
     <div class="metric"><b>Trend:</b> ${escapeHtml(trendLabel)}</div>
-    ${profile ? `<div class="metric"><b>Profile:</b> ~${formatCompactUsd(profile.typical_monthly_cost)}/mo typical</div>` : ""}
+    ${profile ? `<div class="metric"><b>Profile:</b> ~${formatCompactUsd(profile.typical_monthly_cost)}/mo typical <span class="agent-id">(from skill attribution — may be inflated)</span></div>` : ""}
+  </div>
+
+  <div class="panel">
+    <h2>Usage by AI agent (last 14 days)</h2>
+    <p class="note" style="margin-top:0">Estimated from session transcripts per agent — not an API invoice. Kiro/Copilot have no transcript roots yet.</p>
+    ${agentRows}
   </div>
 
   <div class="panel">
     <h2>Top expensive skills</h2>
-    ${topRows || "<p>No per-skill cost data yet.</p>"}
+    ${
+      staleEqualSplit
+        ? "<p>Per-skill breakdown hidden until you run <b>Reset Mis-attributed Cost Data</b>. Agent totals above are still valid (from session transcripts).</p>"
+        : topRows || "<p>No per-skill cost data yet.</p>"
+    }
   </div>
 
-  <div class="panel">
+  ${
+    staleEqualSplit
+      ? ""
+      : `<div class="panel">
     <h2>Cross-agent savings</h2>
     <p>Using Cursor for ${savings.cursorSkills} skill(s) saved ~${formatCompactUsd(savings.realizedUsd)}</p>
     <p>Potential additional savings: ~${formatCompactUsd(savings.potentialUsd)}</p>
-  </div>
+  </div>`
+  }
 
   <div class="panel">
     <h2>Optimization opportunities</h2>
-    <ul>${optRows || "<li>No suggestions yet — collect more runs/transcript data.</li>"}</ul>
+    <ul>${
+      staleEqualSplit
+        ? "<li>Reset mis-attributed cost data, then reopen this dashboard for reliable disable/switch suggestions.</li>"
+        : optRows || "<li>No suggestions yet — collect more runs/transcript data.</li>"
+    }</ul>
   </div>
 
   ${teamLines.length > 0 ? `<div class="panel"><h2>Team skill attribution</h2><ul>${teamLines.map((t) => `<li><b>${escapeHtml(t.skill)}</b>: ${escapeHtml(t.line)}</li>`).join("")}</ul></div>` : ""}
@@ -192,13 +226,16 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 export function formatCostDashboardText(target: string, libraryDir: string): string {
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
-  const attribution = mergeAttribution(built.skills, built.transcriptSkills);
+  const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
-  const suggestions = generateOptimizationSuggestions(target, libraryDir, manifest);
-  const top = topExpensiveSkills(attribution, 5);
+  const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
+  const suggestions = staleEqualSplit ? [] : generateOptimizationSuggestions(target, libraryDir, manifest);
+  const top = staleEqualSplit ? [] : topExpensiveSkills(attribution, 5);
   const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxTop = top[0]?.cost ?? 1;
-  const savings = crossAgentSavingsSummary(attribution);
+  const savings = staleEqualSplit
+    ? { realizedUsd: 0, potentialUsd: 0, cursorSkills: 0 }
+    : crossAgentSavingsSummary(attribution);
 
   const lines = [
     "╔══════════════════════════════════════════════════════════════╗",
@@ -206,28 +243,51 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
     "╠══════════════════════════════════════════════════════════════╣",
     "",
     `  Last 14 days: ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)}`,
-    "",
-    "  Top expensive skills:",
   ];
 
-  top.forEach((row, i) => {
-    const pct = totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
-    const hint = suggestions.find((s) => s.skill === row.skill);
+  if (staleEqualSplit && equalSplitCluster) {
     lines.push(
-      `  ${i + 1}. ${row.skill.padEnd(24)} ${formatCompactUsd(row.cost).padStart(8)} (${pct}%)  ${bar(row.cost, maxTop)}`
+      "",
+      "  *** PER-SKILL COSTS UNRELIABLE ***",
+      `  ${formatEqualSplitWarning(equalSplitCluster)}`,
+      "  Agent totals below are still valid (from session transcripts)."
     );
-    if (hint) {
-      lines.push(`     └─ ${hint.action}`);
-    }
-  });
+  }
 
-  lines.push(
-    "",
-    "  Cross-agent savings:",
-    `     Using Cursor for ${savings.cursorSkills} skills saved ${formatCompactUsd(savings.realizedUsd)}`,
-    `     Potential additional savings: ${formatCompactUsd(savings.potentialUsd)}`,
-    "",
-    "╚══════════════════════════════════════════════════════════════╝"
-  );
+  lines.push("", "  Usage by AI agent (last 14 days, transcript estimate):");
+
+  for (const row of agentUsage) {
+    const spend =
+      row.cost > 0
+        ? `${formatCompactUsd(row.cost)} | ${formatTokenCount(row.tokens)} | ${row.sessions} sessions`
+        : row.transcriptTracked
+          ? "no usage logged"
+          : "not tracked (no transcripts)";
+    lines.push(`    ${row.displayName} (${row.agent}): ${spend}`);
+  }
+
+  if (staleEqualSplit) {
+    lines.push("", "  Top expensive skills: (hidden — run Reset Mis-attributed Cost Data)");
+  } else {
+    lines.push("", "  Top expensive skills:");
+    top.forEach((row, i) => {
+      const pct = totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
+      const hint = suggestions.find((s) => s.skill === row.skill);
+      lines.push(
+        `  ${i + 1}. ${row.skill.padEnd(24)} ${formatCompactUsd(row.cost).padStart(8)} (${pct}%)  ${bar(row.cost, maxTop)}`
+      );
+      if (hint) {
+        lines.push(`     └─ ${hint.action}`);
+      }
+    });
+    lines.push(
+      "",
+      "  Cross-agent savings:",
+      `     Using Cursor for ${savings.cursorSkills} skills saved ${formatCompactUsd(savings.realizedUsd)}`,
+      `     Potential additional savings: ${formatCompactUsd(savings.potentialUsd)}`
+    );
+  }
+
+  lines.push("", "╚══════════════════════════════════════════════════════════════╝");
   return lines.join("\n");
 }

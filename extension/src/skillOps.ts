@@ -1,6 +1,8 @@
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as vscode from "vscode";
 
 import { CostEstimateTier } from "./skillCost";
 
@@ -65,30 +67,85 @@ export function readSkillOverrides(target: string): Record<string, SkillOverride
   return readLocalSettings(target).skillOverrides ?? {};
 }
 
-/** Ensures `<target>/.claude/settings.local.json` won't be picked up by `git
- * add`/`git status`, without editing the shared (and possibly git-tracked)
- * `.gitignore`. If the project's own ignore rules don't already cover it,
- * appends an entry to the local-only `.git/info/exclude`. No-op if `target`
- * isn't a git repo (no `.git` directory) or the entry is already present. */
-function ensureSettingsLocalIgnored(target: string): void {
+/** Appends a path to `.git/info/exclude` (personal, never committed). */
+export function ensureGitExcludeEntry(target: string, entry: string): void {
   const gitDir = path.join(target, ".git");
   if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) {
     return;
   }
+  const normalized = entry.replace(/\\/g, "/");
   const excludePath = path.join(gitDir, "info", "exclude");
-  const entry = ".claude/settings.local.json";
   let existing = "";
   try {
     existing = fs.readFileSync(excludePath, "utf-8");
   } catch {
     existing = "";
   }
-  if (existing.split(/\r?\n/).some((line) => line.trim() === entry)) {
+  if (existing.split(/\r?\n/).some((line) => line.trim() === normalized)) {
     return;
   }
   fs.mkdirSync(path.dirname(excludePath), { recursive: true });
   const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-  fs.appendFileSync(excludePath, `${prefix}${entry}\n`, "utf-8");
+  fs.appendFileSync(excludePath, `${prefix}${normalized}\n`, "utf-8");
+}
+
+/** Ensures `<target>/.claude/settings.local.json` won't be picked up by `git
+ * add`/`git status`, without editing the shared (and possibly git-tracked)
+ * `.gitignore`. If the project's own ignore rules don't already cover it,
+ * appends an entry to the local-only `.git/info/exclude`. No-op if `target`
+ * isn't a git repo (no `.git` directory) or the entry is already present. */
+function ensureSettingsLocalIgnored(target: string): void {
+  ensureGitExcludeEntry(target, ".claude/settings.local.json");
+}
+
+/** True when skill files are committed on the current branch HEAD. */
+export function isSkillCommittedOnBranch(target: string, skillName: string): boolean {
+  try {
+    const rel = `.claude/skills/${skillName}`;
+    const out = execSync(`git ls-tree -r HEAD --name-only -- "${rel}"`, {
+      cwd: target,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    }).trim();
+    return out.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Mark a workspace skill directory as personal-only (not for git commit). */
+export function markSkillAsPersonalLocal(target: string, skillName: string): void {
+  ensureGitExcludeEntry(target, `.claude/skills/${skillName}/`);
+}
+
+export function preferLocalSkillOverrides(): boolean {
+  return vscode.workspace
+    .getConfiguration("claudeSkills")
+    .get<boolean>("preferLocalSkillOverrides", true);
+}
+
+/** Installed in workspace and not personally disabled via skillOverrides. */
+export function isSkillEffectivelyEnabled(
+  installedInWorkspace: boolean,
+  localOverride?: SkillOverrideValue
+): boolean {
+  return installedInWorkspace && localOverride !== "off";
+}
+
+/** Names of skills enabled for this user (present and not overridden off). */
+export function listEffectiveEnabledSkills(target: string): string[] {
+  const skillsDir = path.join(target, ".claude", "skills");
+  if (!fs.existsSync(skillsDir)) {
+    return [];
+  }
+  const overrides = readSkillOverrides(target);
+  return fs
+    .readdirSync(skillsDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && fs.existsSync(path.join(skillsDir, e.name, "SKILL.md")))
+    .map((e) => e.name)
+    .filter((name) => overrides[name] !== "off")
+    .sort();
 }
 
 /** Sets or clears a personal per-skill override in
@@ -114,6 +171,43 @@ export function setSkillOverride(target: string, skillName: string, value: Skill
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf-8");
   ensureSettingsLocalIgnored(target);
+}
+
+export type WorkspaceSkillToggleAction = "installed" | "local-on" | "local-off" | "removed" | "noop";
+
+/** Enable a skill for this user: install if needed, clear local off override, git-exclude personal adds. */
+export function enableWorkspaceSkill(
+  target: string,
+  skillName: string,
+  sourceRoot: string
+): WorkspaceSkillToggleAction {
+  const destRoot = path.join(target, ".claude", "skills");
+  const committedBefore = isSkillCommittedOnBranch(target, skillName);
+  const status = copySkill(skillName, sourceRoot, destRoot, false, false);
+  setSkillOverride(target, skillName, undefined);
+  if (!committedBefore && !isSkillCommittedOnBranch(target, skillName)) {
+    markSkillAsPersonalLocal(target, skillName);
+  }
+  if (status === "installed" || status === "would-install") {
+    return "installed";
+  }
+  return "local-on";
+}
+
+/** Disable for this user: local override when skill is on the branch; remove personal-only installs. */
+export function disableWorkspaceSkill(target: string, skillName: string): WorkspaceSkillToggleAction {
+  const destRoot = path.join(target, ".claude", "skills");
+  const skillMd = path.join(destRoot, skillName, "SKILL.md");
+  if (!fs.existsSync(skillMd)) {
+    return "noop";
+  }
+  if (preferLocalSkillOverrides() && isSkillCommittedOnBranch(target, skillName)) {
+    setSkillOverride(target, skillName, "off");
+    return "local-off";
+  }
+  const removed = removeSkill(destRoot, skillName);
+  setSkillOverride(target, skillName, undefined);
+  return removed ? "removed" : "noop";
 }
 
 export function loadManifest(libraryDir: string): Manifest {

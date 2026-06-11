@@ -117,6 +117,57 @@ export function buildCostAttribution(target: string, libraryDir: string): {
   };
 }
 
+/** Multiple skills with identical cost usually means session tokens were split equally (stale collector data). */
+export function detectEqualSplitCluster(
+  attribution: SkillAttributionMap
+): { count: number; cost: number } | null {
+  const clusters = new Map<number, number>();
+  for (const agents of Object.values(attribution)) {
+    const cost = Object.values(agents).reduce((s, a) => s + (a?.cost ?? 0), 0);
+    if (cost <= 0) {
+      continue;
+    }
+    const key = Math.round(cost * 100);
+    clusters.set(key, (clusters.get(key) ?? 0) + 1);
+  }
+  let worst: { count: number; cost: number } | null = null;
+  for (const [key, count] of clusters) {
+    if (count >= 3 && (!worst || count > worst.count)) {
+      worst = { count, cost: key / 100 };
+    }
+  }
+  return worst;
+}
+
+export function formatEqualSplitWarning(cluster: { count: number; cost: number }, html = false): string {
+  const costLabel = `$${cluster.cost.toFixed(2)}`;
+  const reset = html ? "<b>Reset Mis-attributed Cost Data</b>" : "Reset Mis-attributed Cost Data";
+  return (
+    `${cluster.count} skills share the same attributed cost (${costLabel}) — session tokens were likely split equally across skills that were not actually invoked. Run ${reset} and reopen this dashboard.`
+  );
+}
+
+export function resolveDisplayAttribution(built: {
+  skills: SkillAttributionMap;
+  transcriptSkills: SkillAttributionMap;
+}): {
+  attribution: SkillAttributionMap;
+  staleEqualSplit: boolean;
+  equalSplitCluster: { count: number; cost: number } | null;
+} {
+  const merged = mergeSkillMaps(built.skills, built.transcriptSkills);
+  const cluster = detectEqualSplitCluster(merged);
+  if (!cluster) {
+    return { attribution: merged, staleEqualSplit: false, equalSplitCluster: null };
+  }
+  const runsOnlyStale = detectEqualSplitCluster(built.skills);
+  return {
+    attribution: runsOnlyStale ? {} : built.skills,
+    staleEqualSplit: true,
+    equalSplitCluster: cluster,
+  };
+}
+
 function mergeSkillMaps(a: SkillAttributionMap, b: SkillAttributionMap): SkillAttributionMap {
   const out: SkillAttributionMap = { ...a };
   for (const [skill, agents] of Object.entries(b)) {

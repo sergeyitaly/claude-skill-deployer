@@ -4,17 +4,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import {
-  installSkillToAllWorkspaceAgents,
-  removeSkillFromAllWorkspaceAgents,
-  shouldSyncWorkspaceToAll,
-} from "./agentOps";
 import { tierForSkill, estimateSessionCostUsd, formatCompactUsd } from "./skillCost";
 import {
   copySkill,
   globalSkillsDir,
+  isSkillCommittedOnBranch,
+  listEffectiveEnabledSkills,
   loadManifest,
   Manifest,
+  markSkillAsPersonalLocal,
   readSkillOverrides,
   removeSkill,
   setSkillOverride,
@@ -31,7 +29,7 @@ export interface BranchForecast {
 
 export interface BranchSkillProfile {
   branch: string;
-  /** Skill directories present in <workspace>/.claude/skills/ when saved. */
+  /** Skills enabled for this user on this branch (excludes skillOverrides "off"). */
   skills: string[];
   forecast?: BranchForecast;
   /** Personal overrides from settings.local.json at save time. */
@@ -258,7 +256,7 @@ export function captureBranchProfile(target: string, libraryDir?: string): Branc
     return undefined;
   }
 
-  const skills = listInstalledSkills(target);
+  const skills = listEffectiveEnabledSkills(target);
   const profile: BranchSkillProfile = {
     branch,
     skills,
@@ -346,30 +344,39 @@ export function applyBranchProfile(
     if (status === "installed" || status === "skipped-exists") {
       result.installed.push(skill);
       installed.add(skill);
-      if (shouldSyncWorkspaceToAll()) {
-        installSkillToAllWorkspaceAgents(libraryDir, target, skill, sourceRoot, false, false);
+      if (!isSkillCommittedOnBranch(target, skill)) {
+        markSkillAsPersonalLocal(target, skill);
       }
     } else {
       result.skipped.push(skill);
     }
   }
 
-  if (removeExtra) {
-    for (const skill of [...installed]) {
-      if (!desired.has(skill)) {
-        const removed = removeSkill(destRoot, skill);
-        if (removed) {
-          result.removed.push(skill);
-        }
-        if (shouldSyncWorkspaceToAll()) {
-          removeSkillFromAllWorkspaceAgents(libraryDir, target, skill);
-        }
+  const currentOverrides = readSkillOverrides(target);
+  const profileOverrides = profile.skillOverrides ?? {};
+
+  for (const skill of [...installed]) {
+    if (desired.has(skill)) {
+      if (currentOverrides[skill] === "off") {
+        setSkillOverride(target, skill, undefined);
+        result.overridesApplied++;
+      }
+      continue;
+    }
+    if (isSkillCommittedOnBranch(target, skill)) {
+      if (currentOverrides[skill] !== "off") {
+        setSkillOverride(target, skill, "off");
+        result.overridesApplied++;
+      }
+      continue;
+    }
+    if (removeExtra) {
+      const removed = removeSkill(destRoot, skill);
+      if (removed) {
+        result.removed.push(skill);
       }
     }
   }
-
-  const currentOverrides = readSkillOverrides(target);
-  const profileOverrides = profile.skillOverrides ?? {};
 
   for (const [skill, value] of Object.entries(profileOverrides)) {
     if (currentOverrides[skill] !== value) {

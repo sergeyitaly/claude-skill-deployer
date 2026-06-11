@@ -10,11 +10,11 @@ import {
   detectRelevantSkills,
   globalSkillsDir,
   InstallResult,
+  listEffectiveEnabledSkills,
   loadManifest,
   Manifest,
   removeSkill,
 } from "./skillOps";
-import { listInstalledSkills } from "./usageStats";
 import { computeCreditUsageFromRoots } from "./usageCost";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
@@ -59,6 +59,7 @@ export function enabledAgents(libraryDir: string): AgentId[] {
     "claude",
     "cursor",
     "kiro",
+    "copilot",
   ]);
   return configured.filter((id) => id in manifest.agents);
 }
@@ -280,9 +281,51 @@ export function removeSkillFromAllWorkspaceAgents(
   return out;
 }
 
+function listSkillMdSkillsInDir(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, "SKILL.md")))
+    .map((e) => e.name);
+}
+
+function listCopilotInstructionsInDir(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".instructions.md"))
+    .map((e) => e.name.replace(/\.instructions\.md$/, ""));
+}
+
+function listAgentWorkspaceSkills(target: string, agent: AgentDefinition): string[] {
+  const destRoot = workspaceDirFor(target, agent);
+  return agent.format === "skill-md" ? listSkillMdSkillsInDir(destRoot) : listCopilotInstructionsInDir(destRoot);
+}
+
+function resolveWorkspaceSkillSource(
+  target: string,
+  libraryDir: string,
+  skillName: string,
+  claudeDir: string,
+  globalDir: string
+): string {
+  if (fs.existsSync(path.join(claudeDir, skillName, "SKILL.md"))) {
+    return claudeDir;
+  }
+  if (fs.existsSync(path.join(globalDir, skillName, "SKILL.md"))) {
+    return globalDir;
+  }
+  return libraryDir;
+}
+
 /**
- * Reconcile other agent paths from the Claude workspace skill set
- * (.claude/skills is the git-tracked source of truth).
+ * Mirror the user's effective workspace skill set to Cursor, Kiro, Copilot, etc.
+ * Uses skills enabled for you (.claude/skills minus skillOverrides "off").
+ * .claude/skills remains the file source of truth; other agents receive copies.
  */
 export function syncWorkspaceSkillsToAllAgents(
   libraryDir: string,
@@ -295,20 +338,34 @@ export function syncWorkspaceSkillsToAllAgents(
   const force = opts?.force ?? false;
   const globalDir = globalSkillsDir();
   const claudeDir = path.join(target, ".claude", "skills");
+  const effective = new Set(listEffectiveEnabledSkills(target));
+  const agentsManifest = loadAgentsManifest(libraryDir);
   const results: AgentInstallResult[] = [];
 
-  for (const skillName of listInstalledSkills(target)) {
-    const sourceRoot = fs.existsSync(path.join(claudeDir, skillName, "SKILL.md"))
-      ? claudeDir
-      : fs.existsSync(path.join(globalDir, skillName, "SKILL.md"))
-        ? globalDir
-        : libraryDir;
-    for (const r of installSkillToAllWorkspaceAgents(libraryDir, target, skillName, sourceRoot, force, false)) {
-      if (r.agent === "claude") {
-        continue;
+  for (const agentId of enabledAgents(libraryDir)) {
+    if (agentId === "claude") {
+      continue;
+    }
+    const agent = agentsManifest.agents[agentId];
+    if (!agent.supportsWorkspace) {
+      continue;
+    }
+    const destRoot = workspaceDirFor(target, agent);
+
+    for (const skillName of listAgentWorkspaceSkills(target, agent)) {
+      if (!effective.has(skillName)) {
+        removeSkillFromAgent(agent, destRoot, skillName);
       }
-      if (r.status === "installed" || r.status === "written" || r.status === "skipped-exists") {
-        results.push(r);
+    }
+
+    for (const skillName of effective) {
+      const sourceRoot = resolveWorkspaceSkillSource(target, libraryDir, skillName, claudeDir, globalDir);
+      for (const r of installSkillToAllWorkspaceAgents(libraryDir, target, skillName, sourceRoot, force, false, [
+        agentId,
+      ])) {
+        if (r.status === "installed" || r.status === "written" || r.status === "skipped-exists") {
+          results.push(r);
+        }
       }
     }
   }
@@ -388,6 +445,44 @@ export function computeEnabledAgentsCreditUsage(libraryDir: string, daysBack = 1
     return computeCreditUsageFromRoots([], daysBack);
   }
   return computeCreditUsageFromRoots(roots, daysBack);
+}
+
+export interface AgentCreditRow {
+  agent: AgentId;
+  displayName: string;
+  tokens: number;
+  cost: number;
+  sessions: number;
+  /** False when the agent has no session transcript roots (e.g. Copilot). */
+  transcriptTracked: boolean;
+}
+
+/** Per-agent token/cost estimate from each agent's transcript folders (last N days). */
+export function computePerAgentCreditUsage(libraryDir: string, daysBack = 14): AgentCreditRow[] {
+  const manifest = loadAgentsManifest(libraryDir);
+  return enabledAgents(libraryDir).map((id) => {
+    const def = manifest.agents[id];
+    const tracked = Boolean(def.supportsUsageTranscripts && def.transcriptRoots.length > 0);
+    if (!tracked) {
+      return {
+        agent: id,
+        displayName: def.displayName,
+        tokens: 0,
+        cost: 0,
+        sessions: 0,
+        transcriptTracked: false,
+      };
+    }
+    const summary = computeCreditUsageFromRoots(def.transcriptRoots, daysBack);
+    return {
+      agent: id,
+      displayName: def.displayName,
+      tokens: summary.totalTokens,
+      cost: summary.totalCost,
+      sessions: summary.sessionCount,
+      transcriptTracked: true,
+    };
+  });
 }
 
 export function agentCapabilityLines(libraryDir: string): string[] {

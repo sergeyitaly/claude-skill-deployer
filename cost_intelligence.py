@@ -18,6 +18,21 @@ def _skill_total_cost(agent_data: dict) -> float:
     return sum((a or {}).get("cost", 0) for a in agent_data.values())
 
 
+def _detect_equal_split_cluster(attribution: dict[str, dict]) -> tuple[int, float] | None:
+    clusters: dict[int, int] = {}
+    for agents in attribution.values():
+        total = _skill_total_cost(agents)
+        if total <= 0:
+            continue
+        key = round(total * 100)
+        clusters[key] = clusters.get(key, 0) + 1
+    worst: tuple[int, float] | None = None
+    for key, count in clusters.items():
+        if count >= 3 and (worst is None or count > worst[0]):
+            worst = (count, key / 100)
+    return worst
+
+
 def _merge_attribution(data: dict) -> dict[str, dict]:
     merged: dict[str, dict] = {}
     for key in ("skills", "transcriptSkills"):
@@ -41,6 +56,11 @@ def load_cost_attribution() -> dict:
         return {"skills": {}, "total_cost": 0.0, "top_skill": None}
 
     merged = _merge_attribution(data)
+    stale = _detect_equal_split_cluster(merged) is not None
+    if stale:
+        merged = data.get("skills") or {}
+        if _detect_equal_split_cluster(merged) is not None:
+            merged = {}
     totals = sorted(
         ((skill, _skill_total_cost(agents)) for skill, agents in merged.items()),
         key=lambda x: x[1],
@@ -53,6 +73,7 @@ def load_cost_attribution() -> dict:
         "total_cost": total_cost,
         "top_skill": top_skill,
         "base_context": data.get("base_context", {}),
+        "stale_equal_split": stale,
     }
 
 
@@ -75,6 +96,8 @@ def _usage_counts(target: Path) -> dict[str, int]:
 
 
 def generate_suggestions(attribution: dict, target: Path) -> list[dict]:
+    if attribution.get("stale_equal_split"):
+        return []
     suggestions: list[dict] = []
     usage = _usage_counts(target)
     skills = attribution.get("skills") or {}
@@ -164,11 +187,17 @@ def print_cost_report(target: Path) -> int:
     suggestions = generate_suggestions(attr, target)
 
     print("\nCost Intelligence Report")
+    if attr.get("stale_equal_split"):
+        print("WARNING: Per-skill costs unreliable (equal-split mis-attribution).")
+        print("Run: Command Palette -> Claude Skills: Reset Mis-attributed Cost Data")
+        print("Per-skill totals hidden until reset.\n")
     print(f"Attributed total: {format_usd(attr['total_cost'])}")
-    if attr.get("top_skill"):
+    if attr.get("top_skill") and not attr.get("stale_equal_split"):
         print(f"Most expensive: {attr['top_skill']}")
 
-    if suggestions:
+    if attr.get("stale_equal_split"):
+        print("\nNo per-skill optimizations until attribution is reset.")
+    elif suggestions:
         print("\nOptimizations:")
         for s in suggestions[:5]:
             print(f"  - {s['description']}")

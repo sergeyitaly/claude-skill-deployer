@@ -68,10 +68,11 @@ Or Settings → `claudeSkills.features.*`:
 
 ## Cost intelligence
 
-- **Cost Intelligence Dashboard** — top expensive skills, cross-agent savings, team attribution
+- **Cost Intelligence Dashboard** — agent-level spend (last 14 days), per-skill breakdown when attribution is reliable, cross-agent savings, team attribution
 - **Attribution collector** — parses session transcripts; attributes tokens only to **invoked** skills (not the full skill catalog). Sessions with no detected invocation go to `unattributed`.
-- **Reset Mis-attributed Cost Data** — clears bad collector rows and `transcriptSkills` for re-collection (`scripts/reset_attribution.py` CLI equivalent)
-- **Optimization suggestions** — disable expensive low-use skills, agent-switch hints
+- **Stale data guard** — if many skills show the **same** attributed cost (e.g. $579.51 each), the dashboard hides per-skill rankings and disable suggestions until you reset. Agent totals from transcripts remain valid.
+- **Reset Mis-attributed Cost Data** — clears bad collector rows and `transcriptSkills` for re-collection (`scripts/reset_attribution.py` or `py scripts/check_cost_data.py` to diagnose)
+- **Optimization suggestions** — disable expensive low-use skills, agent-switch hints (suppressed while stale attribution is detected)
 - **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (keep `false` until attribution data looks sane)
 - **Community benchmarks** — `~/.claude/learning/community-benchmarks.json` (opt-in upload/download URLs)
 - **Emergency cutoff** — disables all workspace skills above `claudeSkills.emergency.hardLimitUsd`; reset via command
@@ -197,16 +198,30 @@ See `skills_library/agents.json`.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro` | Which agents receive clones |
+| `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro`, `copilot` | Which agents receive clones |
 | `claudeSkills.agents.syncWorkspaceToAll` | `true` | Workspace installs fan out to all enabled paths (requires `multiAgent` feature) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Global library install fans out to all enabled agents |
+| `claudeSkills.agents.syncHooksOnSkillChange` | `true` | After any workspace skill change, install or refresh cost-control hooks when `budgetControls` is on (or hooks already exist) |
 
-Checkbox install/remove, branch profile apply, and changes under `.claude/skills/` also sync to other agents when `syncWorkspaceToAll` is on.
+Adding, removing, or editing skills under `.claude/skills/` automatically propagates to Cursor, Kiro, and Copilot paths when `syncWorkspaceToAll` is on. The same path runs on checkbox toggles, branch profile apply, generate/install commands, and file watchers (create, change, delete). With `syncHooksOnSkillChange` (default on), cost-control hook scripts in `.claude/hooks/` are refreshed when skills change.
 
-## Per-branch skill profiles
+**Local-only skills:** unchecking a branch-committed skill disables it for you via `.claude/settings.local.json` (`skillOverrides`) without deleting shared files. Checking a skill not on the branch installs it as personal-only (`.git/info/exclude`). Other agents mirror your **effective** enabled set, not the raw folder listing.
+
+## Per-branch skill profiles & local-only skills
 
 `~/.claude/learning/branch-profiles.json` — personal layouts per git branch.
 Committed `.claude/skills/` remains team source of truth.
+
+**Your personal skill set (not the same as the branch):**
+
+| Action | What happens | Git impact |
+|---|---|---|
+| Uncheck skill **on the branch** | `skillOverrides: { "skill": "off" }` in `.claude/settings.local.json` | None |
+| Check skill **not on the branch** | Installed under `.claude/skills/` + listed in `.git/info/exclude` | None (personal-only) |
+| Uncheck **personal-only** skill | Directory removed from your workspace | None |
+| Branch switch | Saved profile restores your effective set (overrides + personal adds) | None |
+
+Setting: `claudeSkills.preferLocalSkillOverrides` (default `true`).
 
 - **Branch profiles** section at the top of the Skills tree (current branch + saved profiles)
 - Toolbar icons: show / save / apply branch profile (git repos only)
@@ -230,7 +245,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.2** (`serhiivoinolovych`).
+Current extension version: **1.0.3** (`serhiivoinolovych`).
 
 ## Performance impact
 
@@ -268,7 +283,7 @@ First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL |
 | `Claude Skills: Reset Mis-attributed Cost Data` | Clear bad cost attribution after v1.0.0 collector bug |
 
-See [CHANGELOG.md](CHANGELOG.md) for v1.0.1 attribution, branch-profile, and multi-agent sync fixes.
+See [CHANGELOG.md](CHANGELOG.md) for v1.0.3 local skills, agent propagation, and cost dashboard stale-data fixes.
 
 ## What this tool does NOT do
 

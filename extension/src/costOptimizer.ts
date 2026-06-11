@@ -3,6 +3,7 @@ import {
   AgentAttribution,
   buildCostAttribution,
   cheapestAgentForSkill,
+  resolveDisplayAttribution,
   SkillAttributionMap,
 } from "./costAttribution";
 import { getProfileTip, updateCostProfileFromAttribution } from "./costProfiles";
@@ -21,22 +22,6 @@ export interface OptimizationSuggestion {
   from?: AgentId;
   to?: AgentId;
   priority: number;
-}
-
-function mergeAttribution(skills: SkillAttributionMap, transcriptSkills: SkillAttributionMap): SkillAttributionMap {
-  const out: SkillAttributionMap = { ...skills };
-  for (const [skill, agents] of Object.entries(transcriptSkills)) {
-    const existing = out[skill] ?? {};
-    for (const [agent, stats] of Object.entries(agents) as [AgentId, AgentAttribution][]) {
-      const bucket = existing[agent] ?? { tokens: 0, cost: 0, sessions: 0 };
-      bucket.tokens += stats.tokens;
-      bucket.cost += stats.cost;
-      bucket.sessions += stats.sessions;
-      existing[agent] = bucket;
-    }
-    out[skill] = existing;
-  }
-  return out;
 }
 
 function skillTotalCost(data: Partial<Record<AgentId, AgentAttribution>>): number {
@@ -58,7 +43,10 @@ export function generateOptimizationSuggestions(
 ): OptimizationSuggestion[] {
   const m = manifest ?? loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
-  const attribution = mergeAttribution(built.skills, built.transcriptSkills);
+  const { attribution, staleEqualSplit } = resolveDisplayAttribution(built);
+  if (staleEqualSplit) {
+    return [];
+  }
   const usageStats = computeUsageStats(target, m);
   const suggestions: OptimizationSuggestion[] = [];
 
@@ -158,7 +146,18 @@ export function generateOptimizationSuggestions(
   return suggestions.sort((a, b) => b.priority - a.priority || (b.savings ?? 0) - (a.savings ?? 0));
 }
 
-export function formatSuggestionsReport(suggestions: OptimizationSuggestion[]): string[] {
+export function formatSuggestionsReport(
+  suggestions: OptimizationSuggestion[],
+  opts?: { staleEqualSplit?: boolean }
+): string[] {
+  if (opts?.staleEqualSplit) {
+    return [
+      "## Cost optimization suggestions",
+      "",
+      "Per-skill attribution is stale (equal-split mis-attribution). Run **Reset Mis-attributed Cost Data**, then reopen the dashboard.",
+      "",
+    ];
+  }
   if (suggestions.length === 0) {
     return ["No optimization suggestions yet — need more attribution data in runs.jsonl / transcripts.", ""];
   }

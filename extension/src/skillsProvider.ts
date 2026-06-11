@@ -7,7 +7,7 @@ import {
   isGitWorkspace,
   listRepoBranchProfiles,
 } from "./branchProfiles";
-import { listSkillStatuses, loadManifest, SkillStatus } from "./skillOps";
+import { isSkillEffectivelyEnabled, listSkillStatuses, loadManifest, SkillStatus } from "./skillOps";
 import { isFeatureEnabled } from "./featureFlags";
 import { compareSkillsForSort, formatRoiDescription, skillRoiMetrics, SkillSortMode } from "./skillRoi";
 import { computeUsageStats } from "./usageStats";
@@ -53,8 +53,8 @@ export class SkillItem extends vscode.TreeItem {
     this.tooltip = SkillItem.buildTooltip(status);
     this.iconPath = SkillItem.buildIcon(status);
 
-    // Checkbox = "enabled for this workspace" (installed in <workspace>/.claude/skills/).
-    this.checkboxState = status.installedInWorkspace
+    // Checkbox = enabled for you: installed and not personally disabled (skillOverrides off).
+    this.checkboxState = isSkillEffectivelyEnabled(status.installedInWorkspace, status.localOverride)
       ? vscode.TreeItemCheckboxState.Checked
       : vscode.TreeItemCheckboxState.Unchecked;
 
@@ -137,13 +137,20 @@ export class SkillItem extends vscode.TreeItem {
     if (status.matchedGlobs.length > 0) {
       md.appendMarkdown(`Matched in workspace: \`${status.matchedGlobs.join("`, `")}\`\n\n`);
     }
-    md.appendMarkdown(`Installed in workspace: ${status.installedInWorkspace ? "yes" : "no"}\n\n`);
+    const effective = isSkillEffectivelyEnabled(status.installedInWorkspace, status.localOverride);
+    md.appendMarkdown(`Enabled for you: ${effective ? "yes" : "no"}\n\n`);
+    md.appendMarkdown(`Files in workspace .claude/skills/: ${status.installedInWorkspace ? "yes" : "no"}\n\n`);
     md.appendMarkdown(`In ~/.claude/skills: ${status.availableInGlobal ? "yes" : "no"}`);
     if (status.installedInWorkspace) {
       const overrideValue = status.localOverride ?? "on";
       md.appendMarkdown(
         `\n\nLocal override (.claude/settings.local.json, personal/gitignored): \`${overrideValue}\`\n\n` +
-          `Toggling this does not change the shared \`.claude/skills/${status.name}/\` files.`
+          `Unchecking a branch-committed skill turns it off locally without deleting shared files. ` +
+          `Unchecking a personal-only skill removes \`.claude/skills/${status.name}/\` from your machine.`
+      );
+    } else if (!effective && status.localOverride === "off") {
+      md.appendMarkdown(
+        `\n\nDisabled locally via skillOverrides — files may still exist on the branch for teammates.`
       );
     }
     return md;

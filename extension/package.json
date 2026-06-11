@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -157,6 +157,12 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.syncWorkspaceToAgents",
+        "title": "Sync Workspace Skills to All Agents",
+        "icon": "$(sync)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.showCostDashboard",
         "title": "Show Cost Intelligence Dashboard",
         "icon": "$(dashboard)",
@@ -304,7 +310,12 @@
         "claudeSkills.branchProfiles.removeExtraOnApply": {
           "type": "boolean",
           "default": false,
-          "description": "When applying a branch profile, also remove workspace skills not listed in the profile. Default false keeps git-checkout removals only additive."
+          "description": "When applying a branch profile, remove personal-only skills (not on the branch) that are not in the profile. Branch-committed skills are disabled via skillOverrides instead of deleted."
+        },
+        "claudeSkills.preferLocalSkillOverrides": {
+          "type": "boolean",
+          "default": true,
+          "description": "When unchecking a skill committed on the current branch, disable it locally via .claude/settings.local.json instead of deleting .claude/skills/ (no git diff)."
         },
         "claudeSkills.agents.enabled": {
           "type": "array",
@@ -312,8 +323,8 @@
             "type": "string",
             "enum": ["claude", "cursor", "kiro", "copilot"]
           },
-          "default": ["claude", "cursor", "kiro"],
-          "description": "AI agents that receive skill clones from this library (see skills_library/agents.json)."
+          "default": ["claude", "cursor", "kiro", "copilot"],
+          "description": "AI agents that receive skill clones from this library (see skills_library/agents.json). Includes copilot (.github/instructions)."
         },
         "claudeSkills.agents.syncGlobalToAll": {
           "type": "boolean",
@@ -324,6 +335,11 @@
           "type": "boolean",
           "default": true,
           "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions). Requires claudeSkills.features.multiAgent."
+        },
+        "claudeSkills.agents.syncHooksOnSkillChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "When workspace skills change, install or refresh cost-control hooks in .claude/hooks/ (if budgetControls is on or hooks are already configured)."
         },
         "claudeSkills.optimizer.autoApply": {
           "type": "boolean",
@@ -542,6 +558,11 @@
         },
         {
           "command": "claudeSkills.showAgentCapabilities",
+          "when": "view == claudeSkillsView",
+          "group": "2_global"
+        },
+        {
+          "command": "claudeSkills.syncWorkspaceToAgents",
           "when": "view == claudeSkillsView",
           "group": "2_global"
         },

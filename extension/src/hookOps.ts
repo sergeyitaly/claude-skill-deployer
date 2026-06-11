@@ -42,6 +42,15 @@ function readSettings(file: string): Settings {
   }
 }
 
+export function areCostControlHooksConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasHook(settings, SESSION_HOOK_FILENAME) && hasHook(settings, BUDGET_HOOK_FILENAME);
+  } catch {
+    return false;
+  }
+}
+
 function hasHook(settings: Settings, filename: string): boolean {
   const matchers = settings.hooks?.UserPromptSubmit ?? [];
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
@@ -101,4 +110,9 @@ export function installCostControlHooks(extensionPath: string, target: string): 
 /** @deprecated Use installCostControlHooks */
 export function installSessionWatchHook(extensionPath: string, target: string): HookInstallStatus {
   return installCostControlHooks(extensionPath, target);
+}
+
+/** Copy latest hook scripts into the workspace without changing settings.json. */
+export function refreshCostControlHookScripts(extensionPath: string, target: string): void {
+  copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
 }

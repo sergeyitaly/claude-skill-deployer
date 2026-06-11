@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.3] - 2026-06-11
+
+### Added
+
+- **Workspace skill propagation** (`propagateWorkspaceSkillChange`): any change under `.claude/skills/` mirrors to Cursor, Kiro, and Copilot; optionally refreshes cost-control hooks (`claudeSkills.agents.syncHooksOnSkillChange`).
+- **Local-only skill toggles**: disable branch skills via `skillOverrides` in `.claude/settings.local.json`; personal-only installs use `.git/info/exclude`.
+- **Per-agent spend panel** on Cost Intelligence Dashboard (transcript-based, last 14 days).
+- `scripts/check_cost_data.py` — diagnose inflated equal-split attribution vs real transcript totals.
+
+### Fixed
+
+- **Cost dashboard stale attribution**: detects equal-split mis-attribution (many skills at identical cost) and hides per-skill rankings, cross-agent savings, and disable suggestions until **Reset Mis-attributed Cost Data** is run. Agent-level totals remain accurate.
+- Text/export cost reports show the same warning instead of bogus $579.51 disable hints.
+- Multi-agent sync uses **effective** enabled skills (respects local overrides).
+
 ## [1.0.2] - 2026-06-11
 
 ### Added

@@ -8,7 +8,9 @@ import {
   installLibraryToGlobal,
   listSkillStatuses,
   loadManifest,
-  removeSkill,
+  disableWorkspaceSkill,
+  enableWorkspaceSkill,
+  isSkillCommittedOnBranch,
   setSkillOverride,
 } from "./skillOps";
 import { SkillItem, SkillsProvider } from "./skillsProvider";
@@ -24,9 +26,14 @@ import {
   removeSkillFromAllWorkspaceAgents,
   shouldSyncGlobalToAll,
   shouldSyncWorkspaceToAll,
-  syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
-import { buildCostAttribution, formatAttributionReport, persistCostAttribution } from "./costAttribution";
+import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
+import {
+  buildCostAttribution,
+  formatAttributionReport,
+  persistCostAttribution,
+  resolveDisplayAttribution,
+} from "./costAttribution";
 import { getOptimalAgent, formatRoutingSuggestion } from "./costRouter";
 import { budgetProgressBar, remainingDailyBudgetUsd, writeTodayCostSnapshot } from "./todayCostSnapshot";
 import { computeCreditUsage } from "./usageCost";
@@ -100,13 +107,6 @@ function getWorkspaceTarget(): string | undefined {
 
 function log(line: string) {
   outputChannel.appendLine(line);
-}
-
-function persistBranchProfile(target: string | undefined, libraryDir: string): void {
-  if (!target) {
-    return;
-  }
-  saveBranchProfile(target, libraryDir);
 }
 
 function syncBranchProfileContext(target: string | undefined): void {
@@ -258,27 +258,28 @@ export function activate(context: vscode.ExtensionContext) {
         const sourceRoot = item.status.availableInGlobal ? globalSkillsDir() : libraryDir;
         if (state === vscode.TreeItemCheckboxState.Checked) {
           ensureLearningDir(target);
-          if (shouldSyncWorkspaceToAll()) {
-            const results = installSkillToAllWorkspaceAgents(libraryDir, target, name, sourceRoot, false, false);
-            const installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
-            log(`${name}: enabled for workspace across ${installed} agent path(s)`);
-          } else {
-            const destRoot = path.join(target, ".claude", "skills");
-            const status = copySkill(name, sourceRoot, destRoot, false, false);
-            log(`${name}: enabled for workspace (${status})`);
+          const action = enableWorkspaceSkill(target, name, sourceRoot);
+          if (action === "local-on") {
+            log(`${name}: re-enabled locally (skillOverrides cleared, shared files unchanged)`);
+          } else if (action === "installed") {
+            log(
+              `${name}: enabled for you${isSkillCommittedOnBranch(target, name) ? "" : " (personal-only — added to .git/info/exclude)"}`
+            );
           }
         } else {
-          if (shouldSyncWorkspaceToAll()) {
-            const removed = removeSkillFromAllWorkspaceAgents(libraryDir, target, name).filter((r) => r.removed).length;
-            log(`${name}: disabled for workspace across ${removed} agent path(s)`);
+          const action = disableWorkspaceSkill(target, name);
+          if (action === "local-off") {
+            log(`${name}: disabled locally (.claude/settings.local.json) — branch .claude/skills/ unchanged`);
+          } else if (action === "removed") {
+            log(`${name}: removed personal-only install from workspace`);
           } else {
-            const destRoot = path.join(target, ".claude", "skills");
-            const removed = removeSkill(destRoot, name);
-            log(`${name}: disabled for workspace${removed ? "" : " (was not installed)"}`);
+            log(`${name}: already disabled`);
           }
         }
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          saveBranchProfile: true,
+        });
       }
-      persistBranchProfile(target, libraryDir);
       refreshAll();
     })
   );
@@ -326,6 +327,12 @@ export function activate(context: vscode.ExtensionContext) {
   })();
 
   refreshAll();
+
+  if (initialTarget) {
+    propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
+      saveBranchProfile: false,
+    });
+  }
 
   if (initialTarget) {
     if (isFeatureEnabled("attributionCollector")) {
@@ -446,7 +453,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${installed} skill(s) for this workspace -- see "Claude Skills" output for details.`
       );
-      persistBranchProfile(target, libraryDir);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     }),
 
@@ -479,7 +486,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${installed} skill(s) (full library) -- see "Claude Skills" output for details.`
       );
-      persistBranchProfile(target, libraryDir);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     }),
 
@@ -566,7 +573,7 @@ export function activate(context: vscode.ExtensionContext) {
         log(`${skillName}: ${status} (from ${sourceRoot})`);
         vscode.window.showInformationMessage(`Claude Skills: ${skillName} -> ${status}`);
       }
-      persistBranchProfile(target, libraryDir);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     }),
 
@@ -577,7 +584,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       setSkillOverride(target, item.status.name, "off");
       log(`${item.status.name}: disabled locally (.claude/settings.local.json) - shared .claude/skills/ unchanged`);
-      persistBranchProfile(target, libraryDir);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     }),
 
@@ -589,7 +596,7 @@ export function activate(context: vscode.ExtensionContext) {
       setSkillOverride(target, item.status.name, undefined);
       clearBudgetTrackingForSkill(target, item.status.name);
       log(`${item.status.name}: re-enabled locally (removed override from .claude/settings.local.json)`);
-      persistBranchProfile(target, libraryDir);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     }),
 
@@ -754,7 +761,7 @@ export function activate(context: vscode.ExtensionContext) {
       log(`Installed: ${result.installed.join(", ") || "(none)"}`);
       log(`Removed: ${result.removed.join(", ") || "(none)"}`);
       log(`Overrides applied: ${result.overridesApplied}`);
-      persistBranchProfile(target, libraryDir);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
       vscode.window.showInformationMessage(
         `Claude Skills: applied "${branch}" profile (+${result.installed.length}, -${result.removed.length}).`
@@ -767,6 +774,30 @@ export function activate(context: vscode.ExtensionContext) {
       log(agentCapabilityLines(libraryDir).join("\n"));
       log("\nConfigure via Settings -> claudeSkills.agents.enabled");
       log("Agent paths defined in skills_library/agents.json");
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.syncWorkspaceToAgents", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      if (!shouldSyncWorkspaceToAll()) {
+        vscode.window.showWarningMessage(
+          "Claude Skills: enable claudeSkills.features.multiAgent and claudeSkills.agents.syncWorkspaceToAll."
+        );
+        return;
+      }
+      outputChannel.show(true);
+      log("\n=== Sync workspace skills to all enabled agents ===");
+      const { agentPathsUpdated } = propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        forceAgentSync: true,
+        saveBranchProfile: false,
+      });
+      vscode.window.showInformationMessage(
+        `Claude Skills: synced workspace skills to ${agentPathsUpdated} agent path(s) — see output.`
+      );
+      refreshAll();
     }),
 
     vscode.commands.registerCommand("claudeSkills.showBranchProfiles", async () => {
@@ -892,10 +923,12 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
+      const built = buildCostAttribution(target, libraryDir);
+      const { staleEqualSplit } = resolveDisplayAttribution(built);
       const text = [
         formatCostDashboardText(target, libraryDir),
         "",
-        ...formatSuggestionsReport(generateOptimizationSuggestions(target, libraryDir)),
+        ...formatSuggestionsReport(generateOptimizationSuggestions(target, libraryDir), { staleEqualSplit }),
       ].join("\n");
       const uri = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(path.join(target, "claude-skills-cost-report.txt")),
@@ -1078,20 +1111,23 @@ export function activate(context: vscode.ExtensionContext) {
   watcher.onDidDelete(() => refreshAll());
   context.subscriptions.push(watcher);
 
-  const skillsWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/skills/**");
-  const debouncedSave = debounce(() => {
+  const debouncedAgentSync = debounce(() => {
     const target = getWorkspaceTarget();
-    persistBranchProfile(target, libraryDir);
     if (target) {
-      const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
-      if (synced.length > 0) {
-        log(`Synced ${synced.length} skill(s) from .claude/skills to other enabled agents.`);
-      }
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
     }
   }, 1500);
-  skillsWatcher.onDidCreate(debouncedSave);
-  skillsWatcher.onDidDelete(debouncedSave);
+
+  const skillsWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/skills/**");
+  skillsWatcher.onDidCreate(debouncedAgentSync);
+  skillsWatcher.onDidDelete(debouncedAgentSync);
+  skillsWatcher.onDidChange(debouncedAgentSync);
   context.subscriptions.push(skillsWatcher);
+
+  const localSettingsWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/settings.local.json");
+  localSettingsWatcher.onDidChange(debouncedAgentSync);
+  localSettingsWatcher.onDidCreate(debouncedAgentSync);
+  context.subscriptions.push(localSettingsWatcher);
 
   const gitExt = vscode.extensions.getExtension("vscode.git");
   if (gitExt) {
@@ -1105,6 +1141,7 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
             await handleBranchChange(libraryDir, target, log);
+            propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
             refreshAll();
           });
         }
@@ -1115,6 +1152,7 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
             await handleBranchChange(libraryDir, target, log);
+            propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
             refreshAll();
           });
         });
@@ -1132,7 +1170,12 @@ export function activate(context: vscode.ExtensionContext) {
       const target = getWorkspaceTarget();
       syncBranchProfileContext(target);
       if (target) {
-        void handleBranchChange(libraryDir, target, log);
+        void (async () => {
+          await handleBranchChange(libraryDir, target, log);
+          propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+            saveBranchProfile: false,
+          });
+        })();
       }
     };
     if (gitExt.isActive) {
