@@ -1,11 +1,9 @@
 import * as vscode from "vscode";
 import { saveBranchProfile } from "./branchProfiles";
 import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
-import { isFeatureEnabled } from "./featureFlags";
 import {
   areCostControlHooksConfigured,
   HookInstallStatus,
-  installCostControlHooks,
   refreshCostControlHookScripts,
 } from "./hookOps";
 import { listInstalledSkills } from "./usageStats";
@@ -52,18 +50,7 @@ export function propagateWorkspaceSkillChange(
     return result;
   }
 
-  if (isFeatureEnabled("budgetControls")) {
-    result.hooksStatus = installCostControlHooks(extensionPath, target);
-    if (result.hooksStatus === "installed") {
-      log("Cost control hooks installed for this workspace (budget feature on).");
-    } else if (result.hooksStatus === "updated") {
-      log("Cost control hooks updated in .claude/settings.json.");
-    } else {
-      log("Cost control hook scripts refreshed in .claude/hooks/.");
-    }
-    return result;
-  }
-
+  // Only refresh hook scripts when user already enabled hooks — never auto-install on skill toggle.
   if (areCostControlHooksConfigured(target)) {
     refreshCostControlHookScripts(extensionPath, target);
     result.hooksStatus = "refreshed";

@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -224,8 +224,14 @@
       },
       {
         "command": "claudeSkills.startOnboarding",
-        "title": "Start Onboarding Tour",
+        "title": "Open Setup Wizard",
         "icon": "$(rocket)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.startOnboardingTour",
+        "title": "Start Onboarding Tour (step prompts)",
+        "icon": "$(list-ordered)",
         "category": "Claude Skills"
       },
       {
@@ -339,7 +345,7 @@
         "claudeSkills.agents.syncHooksOnSkillChange": {
           "type": "boolean",
           "default": true,
-          "description": "When workspace skills change, install or refresh cost-control hooks in .claude/hooks/ (if budgetControls is on or hooks are already configured)."
+          "description": "When workspace skills change, refresh cost-control hook scripts in .claude/hooks/ only if hooks were already enabled (never auto-install on checkbox toggle)."
         },
         "claudeSkills.optimizer.autoApply": {
           "type": "boolean",
@@ -379,8 +385,8 @@
         },
         "claudeSkills.features.autoOptimizer": {
           "type": "boolean",
-          "default": true,
-          "description": "Auto-apply safe optimizations when claudeSkills.optimizer.autoApply is on."
+          "default": false,
+          "description": "Enable the auto-optimizer timer (off by default; turn on only after attribution looks reliable)."
         },
         "claudeSkills.features.predictiveAlerts": {
           "type": "boolean",
@@ -468,8 +474,8 @@
         },
         "claudeSkills.weeklyReport.enabled": {
           "type": "boolean",
-          "default": true,
-          "description": "Send a weekly AI agent usage report (requires VS Code/Cursor to be open at the scheduled time)."
+          "default": false,
+          "description": "Send a weekly AI agent usage report (off until you run Configure Weekly Report Email; requires VS Code open at scheduled time)."
         },
         "claudeSkills.weeklyReport.dayOfWeek": {
           "type": "number",

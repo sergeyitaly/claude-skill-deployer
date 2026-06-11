@@ -27,9 +27,9 @@ const STEPS: OnboardingStep[] = [
     detail: "Settings -> Claude Skills -> Budget",
   },
   {
-    message: "Step 4: Explore the Cost Intelligence Dashboard.",
+    message: "Step 4 (optional): Cost Intelligence Dashboard — needs a few sessions of data.",
     command: "claudeSkills.showCostDashboard",
-    detail: "Top expensive skills, savings opportunities, team attribution.",
+    detail: "Agent spend first; per-skill breakdown after runs/transcripts accumulate.",
   },
   {
     message: "Optional: Enable cost control hooks for session-size and budget warnings.",
@@ -61,7 +61,10 @@ export async function showOnboardingTour(context: vscode.ExtensionContext): Prom
     );
 
     if (choice === "Skip tour") {
-      break;
+      void vscode.window.showInformationMessage(
+        "Setup not marked complete. Run Claude Skills: Start Onboarding Tour anytime."
+      );
+      return;
     }
     if (choice === "Finish") {
       break;
@@ -74,6 +77,14 @@ export async function showOnboardingTour(context: vscode.ExtensionContext): Prom
     }
   }
 
-  await context.globalState.update("claudeSkills.onboardingTourCompleted", true);
-  vscode.window.showInformationMessage("Claude Skills onboarding complete. Open the activity bar view anytime.");
+  const confirm = await vscode.window.showInformationMessage(
+    "Mark onboarding as complete?",
+    "Yes",
+    "Not yet"
+  );
+  if (confirm === "Yes") {
+    await context.globalState.update("claudeSkills.onboardingTourCompleted", true);
+    await context.globalState.update("claudeSkills.hasRunBefore", true);
+    vscode.window.showInformationMessage("Claude Skills onboarding complete. Open the activity bar view anytime.");
+  }
 }

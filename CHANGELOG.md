@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.4] - 2026-06-11
+
+### Added
+
+- **Setup wizard** WebView (`Open Setup Wizard`) with verified global + workspace install steps before optional cost features.
+- **Attribution health gate** (`assessAttributionHealth`) — blocks optimizer and hides per-skill dashboard sections until data is reliable.
+- Dashboard **per-skill setup checklist** when attribution is incomplete.
+
+### Fixed
+
+- Onboarding no longer marks complete on Skip/Later; tour requires explicit confirmation.
+- Skill checkbox no longer auto-installs cost hooks — only refreshes scripts if hooks were already enabled.
+- ROI/cost labels prefixed with **Est.**; cross-agent “potential” savings relabeled as speculative heuristic.
+- Community benchmark lines hidden until benchmark URLs are configured.
+- Weekly report and auto-optimizer feature **off by default**.
+- Release smoke-test/validate scripts no longer pin a hardcoded version.
+
+### Changed
+
+- File watcher narrowed to manifest-relevant paths (removed `**/*`).
+- `Start Onboarding Tour` kept as separate step-prompt command.
+
 ## [1.0.3] - 2026-06-11
 
 ### Added

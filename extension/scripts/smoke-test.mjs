@@ -21,12 +21,12 @@ for (const rel of required) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf-8"));
-if (pkg.version !== "1.0.0") {
-  console.error(`Expected version 1.0.0, got ${pkg.version}`);
+if (!/^\d+\.\d+\.\d+$/.test(pkg.version ?? "")) {
+  console.error(`Invalid semver in package.json: ${pkg.version}`);
   failed += 1;
 }
 
 if (failed > 0) {
   process.exit(1);
 }
-console.log("Smoke tests passed.");
+console.log(`Smoke tests passed (v${pkg.version}).`);

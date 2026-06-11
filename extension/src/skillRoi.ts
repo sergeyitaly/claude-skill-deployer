@@ -38,7 +38,7 @@ export function skillRoiMetrics(
 
 export function formatRoiDescription(metrics: SkillRoiMetrics, highlight = false): string {
   const star = highlight && metrics.roi >= 30 ? " *" : "";
-  return `$${metrics.sessionCostUsd.toFixed(2)}/session | saves ~${metrics.minutesSaved} min | ROI: ${metrics.roi}x${star}`;
+  return `Est. $${metrics.sessionCostUsd.toFixed(2)}/session | ~${metrics.minutesSaved} min saved (heuristic) | ROI: ${metrics.roi}x${star}`;
 }
 
 export function compareSkillsForSort(

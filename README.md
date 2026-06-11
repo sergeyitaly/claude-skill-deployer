@@ -245,7 +245,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.3** (`serhiivoinolovych`).
+Current extension version: **1.0.4** (`serhiivoinolovych`).
 
 ## Performance impact
 

@@ -183,11 +183,22 @@ export async function uploadAnonymizedStats(attribution: SkillAttributionMap): P
   });
 }
 
+export function hasConfiguredBenchmarkSource(): boolean {
+  const cfg = vscode.workspace.getConfiguration("claudeSkills.benchmarks");
+  const downloadUrl = (cfg.get<string>("downloadUrl") ?? "").trim();
+  const uploadUrl = (cfg.get<string>("uploadUrl") ?? "").trim();
+  const store = readStore();
+  return Boolean(downloadUrl || uploadUrl || store.lastSync);
+}
+
 export function formatBenchmarkLine(skill: string): string | undefined {
+  if (!isFeatureEnabled("communityBenchmarks") || !hasConfiguredBenchmarkSource()) {
+    return undefined;
+  }
   const row = readStore().skills[skill];
   if (!row) {
     return undefined;
   }
   const cmp = row.percentile > 55 ? "above avg" : row.percentile < 45 ? "below avg" : "near avg";
-  return `bench: $${row.your_avg_cost.toFixed(2)} vs $${row.community_avg.toFixed(2)} community (${cmp})`;
+  return `bench (est.): $${row.your_avg_cost.toFixed(2)} vs $${row.community_avg.toFixed(2)} community (${cmp})`;
 }

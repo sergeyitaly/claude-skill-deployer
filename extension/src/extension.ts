@@ -76,8 +76,10 @@ import {
   promptGetStarted,
 } from "./criticalFixes";
 import { showOnboardingTour } from "./onboarding";
+import { showOnboardingWizard } from "./onboardingWizard";
+import { assessAttributionHealth } from "./attributionHealth";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
-import { recordActivation, recordFeatureUse } from "./analytics";
+import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
 import {
   configureWeeklyReportEmail,
@@ -164,7 +166,7 @@ function refreshCreditStatusBar(libraryDir: string) {
       config.dailyBudgetUsd > 0 && pct !== null
         ? ` | ${budgetProgressBar(pct)} ${Math.round(pct)}% of ${formatCompactUsd(config.dailyBudgetUsd)}`
         : "";
-    creditStatusBarItem.text = `$(credit-card) ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}${budgetSuffix}`;
+    creditStatusBarItem.text = `$(credit-card) Est. ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}${budgetSuffix}`;
     const remaining = remainingDailyBudgetUsd(config);
     creditStatusBarItem.tooltip =
       `Estimated usage today: ${formatTokenCount(totalTokens)} tokens (~${formatCompactUsd(totalCost)}).` +
@@ -343,6 +345,9 @@ export function activate(context: vscode.ExtensionContext) {
     if (isFeatureEnabled("autoOptimizer")) {
       const autoOptTimer = setInterval(() => {
         if (!isAutoOptimizeEnabled()) {
+          return;
+        }
+        if (!assessAttributionHealth(initialTarget, libraryDir).reliable) {
           return;
         }
         const suggestions = generateOptimizationSuggestions(initialTarget, libraryDir).filter(
@@ -699,6 +704,7 @@ export function activate(context: vscode.ExtensionContext) {
           vscode.window.showInformationMessage("Claude Skills: cost control hooks were already enabled (files refreshed).");
         }
       } catch (err) {
+        recordError();
         vscode.window.showWarningMessage(`Claude Skills: could not enable cost control hooks - ${(err as Error).message}`);
       }
     }),
@@ -904,6 +910,11 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
         return;
       }
+      const health = assessAttributionHealth(target, libraryDir);
+      if (!health.reliable) {
+        vscode.window.showWarningMessage(`Claude Skills: ${health.summary}`);
+        return;
+      }
       const suggestions = generateOptimizationSuggestions(target, libraryDir);
       const result = await applyOptimizationSuggestions(target, libraryDir, suggestions);
       outputChannel.show(true);
@@ -923,12 +934,15 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
-      const built = buildCostAttribution(target, libraryDir);
-      const { staleEqualSplit } = resolveDisplayAttribution(built);
+      const health = assessAttributionHealth(target, libraryDir);
       const text = [
         formatCostDashboardText(target, libraryDir),
         "",
-        ...formatSuggestionsReport(generateOptimizationSuggestions(target, libraryDir), { staleEqualSplit }),
+        ...formatSuggestionsReport(generateOptimizationSuggestions(target, libraryDir), {
+          attributionSummary: health.reliable
+            ? undefined
+            : `Per-skill attribution not reliable yet: ${health.summary}`,
+        }),
       ].join("\n");
       const uri = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(path.join(target, "claude-skills-cost-report.txt")),
@@ -1022,6 +1036,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("claudeSkills.startOnboarding", async () => {
       recordFeatureUse("onboarding");
+      await showOnboardingWizard(context, libraryDir, getWorkspaceTarget, refreshAll);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.startOnboardingTour", async () => {
+      recordFeatureUse("onboarding");
       await showOnboardingTour(context);
     }),
 
@@ -1105,11 +1124,26 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Re-evaluate detection/status when files change in the workspace.
-  const watcher = vscode.workspace.createFileSystemWatcher("**/*");
-  watcher.onDidCreate(() => refreshAll());
-  watcher.onDidDelete(() => refreshAll());
-  context.subscriptions.push(watcher);
+  const detectionWatchGlobs = [
+    "**/.gitlab-ci.yml",
+    "**/.github/workflows/**",
+    "**/*.tf",
+    "**/*.tfvars",
+    "**/package.json",
+    "**/pyproject.toml",
+    "**/requirements.txt",
+    "**/*.kql",
+    "**/aidlc-state.md",
+    "**/terraform/**",
+  ];
+  const debouncedRefresh = debounce(() => refreshAll(), 2000);
+  for (const glob of detectionWatchGlobs) {
+    const w = vscode.workspace.createFileSystemWatcher(glob);
+    w.onDidCreate(debouncedRefresh);
+    w.onDidDelete(debouncedRefresh);
+    w.onDidChange(debouncedRefresh);
+    context.subscriptions.push(w);
+  }
 
   const debouncedAgentSync = debounce(() => {
     const target = getWorkspaceTarget();

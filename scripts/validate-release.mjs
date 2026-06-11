@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Cross-platform pre-publish validation for v1.0.0.
+ * Cross-platform pre-publish validation.
  * Run from repo root: node scripts/validate-release.mjs
  */
 import { execSync } from "node:child_process";
@@ -16,16 +16,17 @@ function fail(msg) {
   process.exit(1);
 }
 
-console.log("Validating v1.0.0 release...");
-
 const pkg = JSON.parse(fs.readFileSync(path.join(extDir, "package.json"), "utf-8"));
-if (pkg.version !== "1.0.0") {
-  fail(`extension/package.json version is ${pkg.version}, expected 1.0.0`);
+const version = pkg.version;
+if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) {
+  fail(`extension/package.json has invalid version: ${version}`);
 }
 
+console.log(`Validating release v${version}...`);
+
 const changelog = fs.readFileSync(path.join(repoRoot, "CHANGELOG.md"), "utf-8");
-if (!changelog.includes("## [1.0.0]")) {
-  fail("CHANGELOG.md missing [1.0.0] section");
+if (!changelog.includes(`## [${version}]`)) {
+  fail(`CHANGELOG.md missing [${version}] section`);
 }
 
 try {
@@ -63,4 +64,4 @@ if (vsixGlob.length > 0) {
   }
 }
 
-console.log("Ready for publish (review warnings above).");
+console.log(`Ready for publish v${version} (review warnings above).`);

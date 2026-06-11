@@ -1,4 +1,5 @@
 import { AgentId } from "./agentOps";
+import { assessAttributionHealth } from "./attributionHealth";
 import {
   AgentAttribution,
   buildCostAttribution,
@@ -43,10 +44,11 @@ export function generateOptimizationSuggestions(
 ): OptimizationSuggestion[] {
   const m = manifest ?? loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
-  const { attribution, staleEqualSplit } = resolveDisplayAttribution(built);
-  if (staleEqualSplit) {
+  const health = assessAttributionHealth(target, libraryDir);
+  if (!health.reliable) {
     return [];
   }
+  const { attribution } = resolveDisplayAttribution(built);
   const usageStats = computeUsageStats(target, m);
   const suggestions: OptimizationSuggestion[] = [];
 
@@ -90,7 +92,7 @@ export function generateOptimizationSuggestions(
           from: "claude",
           to: "cursor",
           reason: `Cursor ~$${cursorPer.toFixed(2)}/run vs Claude ~$${claudePer.toFixed(2)}/run`,
-          action: `Use Cursor instead of Claude for "${skill}" (save ~$${savings.toFixed(2)}/run)`,
+          action: `Prefer Cursor for "${skill}" (stores preference only; save ~$${savings.toFixed(2)}/run est.)`,
           savings,
           priority: 80,
         });
@@ -148,15 +150,10 @@ export function generateOptimizationSuggestions(
 
 export function formatSuggestionsReport(
   suggestions: OptimizationSuggestion[],
-  opts?: { staleEqualSplit?: boolean }
+  opts?: { attributionSummary?: string }
 ): string[] {
-  if (opts?.staleEqualSplit) {
-    return [
-      "## Cost optimization suggestions",
-      "",
-      "Per-skill attribution is stale (equal-split mis-attribution). Run **Reset Mis-attributed Cost Data**, then reopen the dashboard.",
-      "",
-    ];
+  if (opts?.attributionSummary) {
+    return ["## Cost optimization suggestions", "", opts.attributionSummary, ""];
   }
   if (suggestions.length === 0) {
     return ["No optimization suggestions yet — need more attribution data in runs.jsonl / transcripts.", ""];
@@ -172,7 +169,8 @@ export function formatSuggestionsReport(
 
 export function crossAgentSavingsSummary(attribution: SkillAttributionMap): {
   realizedUsd: number;
-  potentialUsd: number;
+  /** Speculative heuristic — not measured savings. */
+  speculativeUsd: number;
   cursorSkills: number;
 } {
   let realized = 0;
@@ -198,7 +196,7 @@ export function crossAgentSavingsSummary(attribution: SkillAttributionMap): {
     }
   }
 
-  return { realizedUsd: realized, potentialUsd: potential, cursorSkills };
+  return { realizedUsd: realized, speculativeUsd: potential, cursorSkills };
 }
 
 const DASHBOARD_EXCLUDE = new Set(["unattributed", "base_context"]);

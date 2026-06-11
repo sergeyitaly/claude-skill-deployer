@@ -33,7 +33,6 @@ export async function checkFirstTimeGlobalSetup(context: vscode.ExtensionContext
   if (context.globalState.get<boolean>(GLOBAL_SETUP_PROMPTED, false)) {
     return;
   }
-  void context.globalState.update(GLOBAL_SETUP_PROMPTED, true);
 
   const choice = await vscode.window.showInformationMessage(
     "Welcome to Claude Skills Manager! Install the skill library to ~/.claude/skills to get started.",
@@ -41,7 +40,10 @@ export async function checkFirstTimeGlobalSetup(context: vscode.ExtensionContext
     "Later"
   );
   if (choice === "Install Now") {
+    void context.globalState.update(GLOBAL_SETUP_PROMPTED, true);
     await vscode.commands.executeCommand("claudeSkills.installLibraryToGlobal");
+  } else if (choice === "Later") {
+    void context.globalState.update(GLOBAL_SETUP_PROMPTED, true);
   }
 }
 
@@ -50,10 +52,9 @@ export async function promptGetStarted(context: vscode.ExtensionContext): Promis
   if (context.globalState.get<boolean>("claudeSkills.hasRunBefore", false)) {
     return;
   }
-  void context.globalState.update("claudeSkills.hasRunBefore", true);
 
   const choice = await vscode.window.showInformationMessage(
-    "Ready to save on Claude credits? Complete a quick setup tour.",
+    "Install the right AI skills for this repo? Open the setup wizard (2 minutes).",
     "Get Started",
     "Later"
   );

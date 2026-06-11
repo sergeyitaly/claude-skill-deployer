@@ -199,7 +199,8 @@ All results are logged to the **"Claude Skills"** output channel.
 
 | Command | Purpose |
 |---|---|
-| `Claude Skills: Start Onboarding Tour` | Guided setup (library → detect → budget → dashboard) |
+| `Claude Skills: Open Setup Wizard` | WebView checklist: verify global + workspace install, then optional cost features |
+| `Claude Skills: Start Onboarding Tour (step prompts)` | Legacy step-by-step toast tour |
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL, create missing dirs |
 | `Claude Skills: Reset Mis-attributed Cost Data` | Fix inflated per-skill costs from pre-1.0.1 equal-split attribution |
 

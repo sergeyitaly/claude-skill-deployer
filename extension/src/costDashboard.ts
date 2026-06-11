@@ -15,6 +15,7 @@ import { calculateTrend } from "./costPredictor";
 import { loadCostProfile } from "./costProfiles";
 import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills } from "./skillArchival";
+import { assessAttributionHealth } from "./attributionHealth";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
 import { formatCompactUsd } from "./skillCost";
@@ -47,9 +48,21 @@ function hintForSkill(skill: string, suggestions: OptimizationSuggestion[], usag
   return "";
 }
 
+function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>): string {
+  const items = [
+    health.staleEqualSplit
+      ? "<li>Run <b>Reset Mis-attributed Cost Data</b> (Command Palette)</li>"
+      : "<li>Reset mis-attributed data — only if you see identical costs per skill</li>",
+    "<li>Use the <b>self-learning</b> skill on real tasks (<code>metadata.invoked: true</code>)</li>",
+    "<li>Work in Claude Code or Cursor for a few sessions, then reopen this dashboard</li>",
+  ];
+  return `<div class="panel"><h2>Per-skill data setup</h2><p>Agent totals above are valid. Per-skill breakdown needs clean attribution:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
+}
+
 export function formatCostDashboardHtml(target: string, libraryDir: string): string {
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
+  const health = assessAttributionHealth(target, libraryDir);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built);
   const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
   const unattributedCost = (unattributedTokens / 1_000_000) * 9;
@@ -57,15 +70,16 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
   const agentCostTotal = agentUsage.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxAgentCost = Math.max(...agentUsage.map((r) => r.cost), 1);
-  const suggestions = staleEqualSplit ? [] : generateOptimizationSuggestions(target, libraryDir, manifest);
-  const top = staleEqualSplit ? [] : topExpensiveSkills(attribution, 5);
+  const showPerSkill = health.reliable;
+  const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
+  const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];
   const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxTop = top[0]?.cost ?? 1;
-  const savings = staleEqualSplit
-    ? { realizedUsd: 0, potentialUsd: 0, cursorSkills: 0 }
-    : crossAgentSavingsSummary(attribution);
+  const savings = showPerSkill
+    ? crossAgentSavingsSummary(attribution)
+    : { realizedUsd: 0, speculativeUsd: 0, cursorSkills: 0 };
   const trend = calculateTrend();
-  const profile = staleEqualSplit ? undefined : loadCostProfile(target, libraryDir);
+  const profile = showPerSkill ? loadCostProfile(target, libraryDir) : undefined;
   const usageStats = computeUsageStats(target, manifest);
   const teamLines =
     staleEqualSplit || !isFeatureEnabled("teamCostSharing")
@@ -78,7 +92,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
     .map((row) => {
       const pct = agentCostTotal > 0 && row.cost > 0 ? Math.round((row.cost / agentCostTotal) * 100) : 0;
       const detail = !row.transcriptTracked
-        ? "No session transcripts — spend not measured for this agent"
+        ? "Deploy only — spend not measured (no transcript roots)"
         : row.tokens === 0
           ? "No usage logged in the last 14 days"
           : `${formatTokenCount(row.tokens)} tokens · ${row.sessions} session(s)`;
@@ -162,7 +176,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 
   <div class="panel">
     <div class="summary-line">
-      <span class="metric"><b>Last 14 days (all tracked agents):</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
+      <span class="metric"><b>Est. last 14 days (tracked agents):</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
     </div>
     <div class="metric"><b>Trend:</b> ${escapeHtml(trendLabel)}</div>
     ${profile ? `<div class="metric"><b>Profile:</b> ~${formatCompactUsd(profile.typical_monthly_cost)}/mo typical <span class="agent-id">(from skill attribution — may be inflated)</span></div>` : ""}
@@ -170,35 +184,37 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 
   <div class="panel">
     <h2>Usage by AI agent (last 14 days)</h2>
-    <p class="note" style="margin-top:0">Estimated from session transcripts per agent — not an API invoice. Kiro/Copilot have no transcript roots yet.</p>
+    <p class="note" style="margin-top:0"><b>Claude + Cursor:</b> spend estimated from session transcripts. <b>Kiro + Copilot:</b> skills deploy only — spend not measured. Not an API invoice.</p>
     ${agentRows}
   </div>
 
+  ${showPerSkill ? "" : setupChecklistHtml(health)}
+
   <div class="panel">
-    <h2>Top expensive skills</h2>
+    <h2>Top expensive skills (est.)</h2>
     ${
-      staleEqualSplit
-        ? "<p>Per-skill breakdown hidden until you run <b>Reset Mis-attributed Cost Data</b>. Agent totals above are still valid (from session transcripts).</p>"
-        : topRows || "<p>No per-skill cost data yet.</p>"
+      showPerSkill
+        ? topRows || "<p>No per-skill cost data yet.</p>"
+        : "<p>Hidden until attribution setup is complete (see checklist above). Agent totals remain valid.</p>"
     }
   </div>
 
   ${
-    staleEqualSplit
-      ? ""
-      : `<div class="panel">
-    <h2>Cross-agent savings</h2>
-    <p>Using Cursor for ${savings.cursorSkills} skill(s) saved ~${formatCompactUsd(savings.realizedUsd)}</p>
-    <p>Potential additional savings: ~${formatCompactUsd(savings.potentialUsd)}</p>
+    showPerSkill
+      ? `<div class="panel">
+    <h2>Cross-agent savings (est.)</h2>
+    <p>Measured: Cursor used for ${savings.cursorSkills} skill(s) — est. ~${formatCompactUsd(savings.realizedUsd)} saved vs Claude</p>
+    <p class="note">Speculative (heuristic, not measured): ~${formatCompactUsd(savings.speculativeUsd)} if more skills moved to Cursor</p>
   </div>`
+      : ""
   }
 
   <div class="panel">
     <h2>Optimization opportunities</h2>
     <ul>${
-      staleEqualSplit
-        ? "<li>Reset mis-attributed cost data, then reopen this dashboard for reliable disable/switch suggestions.</li>"
-        : optRows || "<li>No suggestions yet — collect more runs/transcript data.</li>"
+      showPerSkill
+        ? optRows || "<li>No suggestions yet — collect more runs/transcript data.</li>"
+        : "<li>Complete the per-skill setup checklist above before applying disable/switch suggestions.</li>"
     }</ul>
   </div>
 
@@ -207,7 +223,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   ${archived.length > 0 ? `<div class="panel"><h2>Archived skills</h2><p>${archived.map(escapeHtml).join(", ")} — use <b>Restore Archived Skill</b> command.</p></div>` : ""}
 
   <div class="actions">
-    <button onclick="applyOpts()">Apply optimizations</button>
+    <button onclick="applyOpts()" ${showPerSkill ? "" : "disabled title=\"Complete attribution setup first\""}>Apply optimizations</button>
     <button class="secondary" onclick="exportReport()">Export report</button>
     <button class="secondary" onclick="openBudget()">Configure budget</button>
   </div>
@@ -226,16 +242,18 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 export function formatCostDashboardText(target: string, libraryDir: string): string {
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
+  const health = assessAttributionHealth(target, libraryDir);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14);
-  const suggestions = staleEqualSplit ? [] : generateOptimizationSuggestions(target, libraryDir, manifest);
-  const top = staleEqualSplit ? [] : topExpensiveSkills(attribution, 5);
+  const showPerSkill = health.reliable;
+  const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
+  const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];
   const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxTop = top[0]?.cost ?? 1;
-  const savings = staleEqualSplit
-    ? { realizedUsd: 0, potentialUsd: 0, cursorSkills: 0 }
-    : crossAgentSavingsSummary(attribution);
+  const savings = showPerSkill
+    ? crossAgentSavingsSummary(attribution)
+    : { realizedUsd: 0, speculativeUsd: 0, cursorSkills: 0 };
 
   const lines = [
     "╔══════════════════════════════════════════════════════════════╗",
@@ -262,12 +280,13 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
         ? `${formatCompactUsd(row.cost)} | ${formatTokenCount(row.tokens)} | ${row.sessions} sessions`
         : row.transcriptTracked
           ? "no usage logged"
-          : "not tracked (no transcripts)";
+          : "deploy only — spend not measured";
     lines.push(`    ${row.displayName} (${row.agent}): ${spend}`);
   }
 
-  if (staleEqualSplit) {
-    lines.push("", "  Top expensive skills: (hidden — run Reset Mis-attributed Cost Data)");
+  if (!showPerSkill) {
+    lines.push("", "  Per-skill setup:", `    ${health.summary}`);
+    lines.push("", "  Top expensive skills: (hidden until attribution is reliable)");
   } else {
     lines.push("", "  Top expensive skills:");
     top.forEach((row, i) => {
@@ -282,9 +301,9 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
     });
     lines.push(
       "",
-      "  Cross-agent savings:",
-      `     Using Cursor for ${savings.cursorSkills} skills saved ${formatCompactUsd(savings.realizedUsd)}`,
-      `     Potential additional savings: ${formatCompactUsd(savings.potentialUsd)}`
+      "  Cross-agent savings (est.):",
+      `     Measured: Cursor for ${savings.cursorSkills} skills — ${formatCompactUsd(savings.realizedUsd)}`,
+      `     Speculative heuristic: ${formatCompactUsd(savings.speculativeUsd)}`
     );
   }
 
