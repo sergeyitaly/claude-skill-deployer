@@ -177,45 +177,65 @@ function appendRunsForWorkspace(target: string, parsed: ParsedTranscript, conten
 }
 
 export class AttributionCollector {
-  private static instance: AttributionCollector | undefined;
+  private static readonly instances = new Map<string, AttributionCollector>();
+  private static interval: ReturnType<typeof setInterval> | undefined;
+  private static activeTarget: string | undefined;
+  private static sharedLibraryDir = "";
+
   private lastRun = 0;
-  private timer: ReturnType<typeof setInterval> | undefined;
 
   private constructor(
-    private target: string,
+    private readonly target: string,
     private libraryDir: string
   ) {}
 
   static getInstance(target: string, libraryDir: string): AttributionCollector {
-    if (!AttributionCollector.instance) {
-      AttributionCollector.instance = new AttributionCollector(target, libraryDir);
+    const key = path.normalize(target);
+    AttributionCollector.setActiveTarget(key, libraryDir);
+    let inst = AttributionCollector.instances.get(key);
+    if (!inst) {
+      inst = new AttributionCollector(key, libraryDir);
+      AttributionCollector.instances.set(key, inst);
     } else {
-      AttributionCollector.instance.target = target;
-      AttributionCollector.instance.libraryDir = libraryDir;
+      inst.libraryDir = libraryDir;
     }
-    return AttributionCollector.instance;
+    return inst;
+  }
+
+  /** Track which workspace the periodic collector should run for. */
+  static setActiveTarget(target: string | undefined, libraryDir: string): void {
+    AttributionCollector.activeTarget = target ? path.normalize(target) : undefined;
+    AttributionCollector.sharedLibraryDir = libraryDir;
   }
 
   start(): void {
     void this.collect(true);
-    if (this.timer) {
+    if (AttributionCollector.interval) {
       return;
     }
-    this.timer = setInterval(() => {
-      void this.collect();
+    AttributionCollector.interval = setInterval(() => {
+      const key = AttributionCollector.activeTarget;
+      if (!key) {
+        return;
+      }
+      const inst = AttributionCollector.instances.get(key);
+      if (inst) {
+        void inst.collect();
+      }
     }, COLLECTION_INTERVAL_MS);
   }
 
   stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = undefined;
-    }
+    // Interval stopped globally via stopAll()
   }
 
   static stopAll(): void {
-    AttributionCollector.instance?.stop();
-    AttributionCollector.instance = undefined;
+    if (AttributionCollector.interval) {
+      clearInterval(AttributionCollector.interval);
+      AttributionCollector.interval = undefined;
+    }
+    AttributionCollector.instances.clear();
+    AttributionCollector.activeTarget = undefined;
   }
 
   async collect(force = false): Promise<number> {

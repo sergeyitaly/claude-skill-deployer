@@ -246,7 +246,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.7** (`serhiivoinolovych`).
+Current extension version: **1.0.8** (`serhiivoinolovych`).
 
 ## Performance impact
 
@@ -288,7 +288,8 @@ See [CHANGELOG.md](CHANGELOG.md) for v1.0.3 local skills, agent propagation, and
 
 ## What this tool does NOT do
 
-- No validation of `SKILL.md` frontmatter.
+- **SKILL.md lint is advisory** — sync-time checks (name, description, size) warn by default; set `claudeSkills.lint.blockSyncOnError` to hard-block.
+- **Cost figures are estimates** — not Anthropic/Cursor invoices; per-skill attribution is strongest for Claude Code with Attribution v2 hooks.
 - Community benchmark upload requires you to configure endpoints (no default public server).
 - PR comments require GitHub CLI and explicit feature enable.
 - Copilot clones are instruction files, not native Copilot skills.

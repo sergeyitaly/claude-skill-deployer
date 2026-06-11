@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.8] - 2026-06-11
+
+### Fixed
+
+- **Per-workspace cost profiles** — `cost-profile.json` under `<workspace>/.claude/learning/` (legacy global file migrates on first read).
+- **AttributionCollector** — one instance per workspace path; periodic collection follows the active folder instead of mutating a singleton target.
+- **skill-invoke-state.json** — prunes entries older than 30 days and caps at 3000 keys.
+
+### Changed
+
+- README limitations updated for SKILL.md lint and estimate-only cost intelligence.
+
 ## [1.0.7] - 2026-06-11
 
 ### Added

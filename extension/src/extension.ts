@@ -330,6 +330,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const refreshAll = () => {
     const target = getWorkspaceTarget();
+    if (target && isFeatureEnabled("attributionCollector")) {
+      AttributionCollector.setActiveTarget(target, libraryDir);
+    }
     syncBranchProfileContext(target);
     provider.refresh();
     refreshStatusBar(libraryDir);

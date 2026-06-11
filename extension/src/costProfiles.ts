@@ -1,10 +1,9 @@
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
 import { tierForSkill } from "./skillCost";
-import { detectRelevantSkills, loadManifest, Manifest } from "./skillOps";
+import { loadManifest } from "./skillOps";
 import { SkillUsageStat } from "./usageStats";
 
 export interface ProjectCostProfile {
@@ -15,12 +14,15 @@ export interface ProjectCostProfile {
   updatedAt: string;
 }
 
-export interface CostProfilesStore {
-  version: 1;
-  profiles: Record<string, ProjectCostProfile>;
-}
+/** @deprecated Global store — migrate to per-workspace cost-profile.json */
+export const LEGACY_COST_PROFILES_PATH = path.join(os.homedir(), ".claude", "learning", "cost-profiles.json");
 
-export const COST_PROFILES_PATH = path.join(os.homedir(), ".claude", "learning", "cost-profiles.json");
+/** @deprecated Use costProfilePath(target) */
+export const COST_PROFILES_PATH = LEGACY_COST_PROFILES_PATH;
+
+export function costProfilePath(target: string): string {
+  return path.join(target, ".claude", "learning", "cost-profile.json");
+}
 
 const PROFILE_HINTS: Record<string, string> = {
   "terraform-plan-review": "Use terraform validate locally before plan-review to reduce tokens by ~60%",
@@ -28,42 +30,45 @@ const PROFILE_HINTS: Record<string, string> = {
   "azure-rbac-diagnostics": "Collect exact error text before invoking — avoids broad permission scans",
 };
 
-function readStore(): CostProfilesStore {
-  if (!fs.existsSync(COST_PROFILES_PATH)) {
-    return { version: 1, profiles: {} };
+function migrateLegacyProfile(target: string): boolean {
+  const wsPath = costProfilePath(target);
+  if (fs.existsSync(wsPath) || !fs.existsSync(LEGACY_COST_PROFILES_PATH)) {
+    return false;
   }
   try {
-    return JSON.parse(fs.readFileSync(COST_PROFILES_PATH, "utf-8")) as CostProfilesStore;
+    const store = JSON.parse(fs.readFileSync(LEGACY_COST_PROFILES_PATH, "utf-8")) as {
+      profiles?: Record<string, ProjectCostProfile>;
+    };
+    const profiles = store.profiles ?? {};
+    const first = Object.values(profiles)[0];
+    if (!first) {
+      return false;
+    }
+    fs.mkdirSync(path.dirname(wsPath), { recursive: true });
+    fs.writeFileSync(wsPath, JSON.stringify(first, null, 2) + "\n", "utf-8");
+    return true;
   } catch {
-    return { version: 1, profiles: {} };
+    return false;
   }
 }
 
-function writeStore(store: CostProfilesStore): void {
-  fs.mkdirSync(path.dirname(COST_PROFILES_PATH), { recursive: true });
-  fs.writeFileSync(COST_PROFILES_PATH, JSON.stringify(store, null, 2) + "\n", "utf-8");
+function readProfile(target: string): ProjectCostProfile | null {
+  migrateLegacyProfile(target);
+  const file = costProfilePath(target);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8")) as ProjectCostProfile;
+  } catch {
+    return null;
+  }
 }
 
-function profileKeyForTarget(target: string, manifest: Manifest): string {
-  const detected = detectRelevantSkills(target, manifest);
-  const names = Object.keys(detected).sort();
-  if (names.length === 0) {
-    return `generic-${crypto.createHash("sha1").update(target).digest("hex").slice(0, 8)}`;
-  }
-  const tags: string[] = [];
-  if (names.some((n) => n.includes("terraform"))) {
-    tags.push("terraform");
-  }
-  if (names.some((n) => n.startsWith("azure-"))) {
-    tags.push("azure");
-  }
-  if (names.some((n) => n.includes("gitlab") || n.includes("ci-"))) {
-    tags.push("ci");
-  }
-  if (names.some((n) => n.includes("adx") || n.includes("kusto"))) {
-    tags.push("adx");
-  }
-  return tags.length > 0 ? `${tags.join("-")}-project` : `stack-${names.slice(0, 3).join("-")}`;
+function writeProfile(target: string, profile: ProjectCostProfile): void {
+  const file = costProfilePath(target);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(profile, null, 2) + "\n", "utf-8");
 }
 
 export function updateCostProfileFromAttribution(
@@ -73,8 +78,6 @@ export function updateCostProfileFromAttribution(
   usageStats: SkillUsageStat[]
 ): ProjectCostProfile {
   const manifest = loadManifest(libraryDir);
-  const key = profileKeyForTarget(target, manifest);
-  const store = readStore();
 
   const expensive = Object.entries(attribution)
     .map(([skill, agents]) => ({
@@ -87,10 +90,11 @@ export function updateCostProfileFromAttribution(
     .slice(0, 8)
     .map((r) => r.skill);
 
-  const monthly = Object.values(attribution).reduce(
-    (sum, agents) => sum + Object.values(agents).reduce((s, a) => s + (a?.cost ?? 0), 0),
-    0
-  ) * 2;
+  const monthly =
+    Object.values(attribution).reduce(
+      (sum, agents) => sum + Object.values(agents).reduce((s, a) => s + (a?.cost ?? 0), 0),
+      0
+    ) * 2;
 
   const debugRuns = usageStats.filter((s) => s.runs > 0 && s.name.includes("debug"));
   const debugCost =
@@ -113,20 +117,15 @@ export function updateCostProfileFromAttribution(
     updatedAt: new Date().toISOString(),
   };
 
-  store.profiles[key] = profile;
-  writeStore(store);
+  writeProfile(target, profile);
   return profile;
 }
 
-export function getProfileTip(target: string, libraryDir: string, skill: string): string | undefined {
-  const manifest = loadManifest(libraryDir);
-  const key = profileKeyForTarget(target, manifest);
-  const store = readStore();
-  return store.profiles[key]?.cheap_alternatives[skill] ?? PROFILE_HINTS[skill];
+export function getProfileTip(_target: string, _libraryDir: string, skill: string): string | undefined {
+  const profile = readProfile(_target);
+  return profile?.cheap_alternatives[skill] ?? PROFILE_HINTS[skill];
 }
 
-export function loadCostProfile(target: string, libraryDir: string): ProjectCostProfile | null {
-  const manifest = loadManifest(libraryDir);
-  const key = profileKeyForTarget(target, manifest);
-  return readStore().profiles[key] ?? null;
+export function loadCostProfile(target: string, _libraryDir: string): ProjectCostProfile | null {
+  return readProfile(target);
 }

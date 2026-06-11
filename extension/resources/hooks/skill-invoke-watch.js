@@ -68,8 +68,24 @@ function extractTokens(input) {
   return sumUsage(input.message?.usage);
 }
 
+const MAX_STATE_KEYS = 3000;
+const MAX_STATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 function dedupeKey(sessionId, skill, toolUseId) {
   return `${sessionId}|${skill}|${toolUseId || "na"}`;
+}
+
+function pruneState(state) {
+  const now = Date.now();
+  let entries = Object.entries(state).filter(([, ts]) => {
+    const t = Date.parse(ts);
+    return !Number.isNaN(t) && now - t < MAX_STATE_AGE_MS;
+  });
+  if (entries.length > MAX_STATE_KEYS) {
+    entries.sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]));
+    entries = entries.slice(0, MAX_STATE_KEYS);
+  }
+  return Object.fromEntries(entries);
 }
 
 function appendRun(cwd, record) {
@@ -136,6 +152,7 @@ function main() {
   try {
     appendRun(cwd, record);
     state[key] = ts;
+    state = pruneState(state);
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + "\n", "utf-8");
   } catch {
