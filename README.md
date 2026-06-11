@@ -12,7 +12,23 @@ Two ways to use this:
 - **CLI** (`generate_skills.py`, below) — works anywhere, no install.
 - **VS Code extension** ([`extension/`](extension/)) — adds an activity-bar
   view of the skill library with install/preview commands and per-workspace
-  status. See [`extension/README.md`](extension/README.md).
+  status. See [`extension/README.md`](extension/README.md) for the full
+  usage guide.
+
+### Using the VS Code extension
+
+The extension can be installed into any project at any time, including ones
+that already have skills under `.claude/skills/` — those project-local
+skills show up in the "Claude Skills" view alongside the bundled library
+(marked *project-only*), so nothing already in the project gets hidden or
+overwritten.
+
+Typical flow: open the **Claude Skills** activity-bar view -> "Install Skill
+Library to ~/.claude/skills" (one-time) -> "Install Relevant Skills for
+Workspace" (or preview first with the dry-run command) -> use the per-skill
+checkboxes to fine-tune what's enabled for this workspace. See
+[`extension/README.md`](extension/README.md) for the full command list,
+the usage/KPI report, and the session-size notification hook.
 
 ## One-time setup
 
@@ -93,6 +109,8 @@ instead:
 | `cross-platform-scripting` | OS detection (Windows/macOS/Linux) and PowerShell version detection/adaptation for `.ps1`/shell scripts |
 | `file-style-conventions` | No emoji outside Markdown files, and trailing newline at end of YAML files |
 | `skill-usage-insights` | Skill usage and KPI report from `.claude/learning/runs.jsonl` — what to keep, fix, add, or remove |
+| `drawio-diagrams` | Create/edit architecture diagrams as `.drawio` files via the draw.io MCP server, including Azure diagrams using the official Azure icon set |
+| `vscode-extension-publishing` | Build, package, and publish a VS Code extension via `@vscode/vsce` — manifest fields, `.vscodeignore`, Extension Development Host testing, version bumps, publisher/PAT setup, common publish errors |
 
 ## What this tool does NOT do
 

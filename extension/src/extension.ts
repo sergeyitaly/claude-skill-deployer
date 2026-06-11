@@ -10,7 +10,8 @@ import {
   removeSkill,
 } from "./skillOps";
 import { SkillItem, SkillsProvider } from "./skillsProvider";
-import { computeUsageStats, formatUsageReport, formatUsageReportHtml } from "./usageStats";
+import { computeSuggestedSkills, computeUsageStats, ensureLearningDir, formatUsageReport, formatUsageReportHtml } from "./usageStats";
+import { installSessionWatchHook } from "./hookOps";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -150,6 +151,7 @@ export function activate(context: vscode.ExtensionContext) {
         force: false,
         dryRun: false,
       });
+      ensureLearningDir(target);
       outputChannel.show(true);
       log(`\n=== Install relevant skills -> ${path.join(target, ".claude", "skills")} ===`);
       if (results.length === 0) {
@@ -177,6 +179,7 @@ export function activate(context: vscode.ExtensionContext) {
         force: false,
         dryRun: false,
       });
+      ensureLearningDir(target);
       outputChannel.show(true);
       log(`\n=== Install ALL skills -> ${path.join(target, ".claude", "skills")} ===`);
       for (const r of results) {
@@ -236,6 +239,7 @@ export function activate(context: vscode.ExtensionContext) {
         status = copySkill(item.status.name, sourceRoot, destRoot, true, false);
       }
 
+      ensureLearningDir(target);
       outputChannel.show(true);
       log(`\n=== Install ${item.status.name} -> ${destRoot} ===`);
       log(`${item.status.name}: ${status} (from ${sourceRoot})`);
@@ -261,12 +265,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const manifest = loadManifest(libraryDir);
       const stats = computeUsageStats(target, manifest);
+      const suggested = computeSuggestedSkills(target, manifest);
 
       outputChannel.show(true);
       log(`\n=== Skill usage report for ${target} ===`);
-      log(formatUsageReport(stats, target));
+      log(formatUsageReport(stats, suggested, target));
 
-      const html = formatUsageReportHtml(stats, target);
+      const html = formatUsageReportHtml(stats, suggested, target);
       if (usagePanel) {
         usagePanel.webview.html = html;
         usagePanel.reveal(vscode.ViewColumn.Active);
@@ -281,6 +286,29 @@ export function activate(context: vscode.ExtensionContext) {
         usagePanel.onDidDispose(() => {
           usagePanel = undefined;
         });
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.installSessionWatchHook", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      try {
+        const status = installSessionWatchHook(context.extensionPath, target);
+        outputChannel.show(true);
+        log(`\n=== Session-size notification hook -> ${target} ===`);
+        log(status);
+        if (status === "installed") {
+          vscode.window.showInformationMessage(
+            "Claude Skills: session-size notifications enabled for this workspace (.claude/settings.json)."
+          );
+        } else {
+          vscode.window.showInformationMessage("Claude Skills: session-size notifications were already enabled.");
+        }
+      } catch (err) {
+        vscode.window.showWarningMessage(`Claude Skills: could not enable session-size notifications - ${(err as Error).message}`);
       }
     })
   );

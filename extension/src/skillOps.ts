@@ -235,9 +235,62 @@ export interface SkillStatus {
   installedInWorkspace: boolean;
   availableInGlobal: boolean;
   bundledPath: string;
+  /** False for skills found in <workspace>/.claude/skills/ that aren't part
+   * of the bundled library (project-specific or installed from elsewhere). */
+  inLibrary: boolean;
 }
 
-/** Build the full status list used by the tree view. */
+/** Best-effort extraction of the `description:` field from a SKILL.md's
+ * YAML frontmatter, for display only (not validated). */
+function extractFrontmatterDescription(skillMdPath: string): string | undefined {
+  try {
+    const raw = fs.readFileSync(skillMdPath, "utf-8");
+    const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!frontmatter) {
+      return undefined;
+    }
+    const line = frontmatter[1].split(/\r?\n/).find((l) => l.trim().startsWith("description:"));
+    return line?.replace(/^\s*description:\s*/, "").trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Skills present in <target>/.claude/skills/ that aren't part of the
+ * bundled manifest - e.g. project-specific skills, or skills installed from
+ * elsewhere before this extension was added to the project. */
+function listProjectOnlySkills(target: string, manifest: Manifest): SkillStatus[] {
+  const skillsDir = path.join(target, ".claude", "skills");
+  if (!fs.existsSync(skillsDir)) {
+    return [];
+  }
+  const globalDir = globalSkillsDir();
+  return fs
+    .readdirSync(skillsDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .filter((name) => !(name in manifest.skills))
+    .filter((name) => fs.existsSync(path.join(skillsDir, name, "SKILL.md")))
+    .sort()
+    .map((name) => {
+      const skillMdPath = path.join(skillsDir, name, "SKILL.md");
+      return {
+        name,
+        description: extractFrontmatterDescription(skillMdPath) ?? "Project-local skill (not in library)",
+        detectGlobs: [],
+        matchedGlobs: [],
+        isRelevant: false,
+        installedInWorkspace: true,
+        availableInGlobal: fs.existsSync(path.join(globalDir, name, "SKILL.md")),
+        bundledPath: skillMdPath,
+        inLibrary: false,
+      };
+    });
+}
+
+/** Build the full status list used by the tree view: every skill in the
+ * bundled library, plus any project-local skills already present in
+ * <target>/.claude/skills/ that aren't part of the library. */
 export function listSkillStatuses(
   libraryDir: string,
   target: string | undefined
@@ -246,7 +299,7 @@ export function listSkillStatuses(
   const detected = target ? detectRelevantSkills(target, manifest) : {};
   const globalDir = globalSkillsDir();
 
-  return Object.entries(manifest.skills).map(([name, rule]) => {
+  const librarySkills = Object.entries(manifest.skills).map(([name, rule]) => {
     const matched = detected[name] ?? [];
     const installedInWorkspace = target
       ? fs.existsSync(path.join(target, ".claude", "skills", name, "SKILL.md"))
@@ -261,6 +314,10 @@ export function listSkillStatuses(
       installedInWorkspace,
       availableInGlobal,
       bundledPath: path.join(libraryDir, name, "SKILL.md"),
+      inLibrary: true,
     };
   });
+
+  const projectOnlySkills = target ? listProjectOnlySkills(target, manifest) : [];
+  return [...librarySkills, ...projectOnlySkills];
 }

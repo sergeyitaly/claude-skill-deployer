@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Manifest } from "./skillOps";
+import { detectRelevantSkills, Manifest } from "./skillOps";
 
 export interface RunRecord {
   ts: string;
@@ -25,10 +25,27 @@ export interface SkillUsageStat {
   lastUsed: string | null;
   daysSinceLastUse: number | null;
   rating: UsageRating;
-  recommendation: string;
 }
 
-const RUNS_LOG_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
+export interface SuggestedSkill {
+  name: string;
+  description: string;
+  matchedGlobs: string[];
+}
+
+const LEARNING_DIR_RELATIVE = path.join(".claude", "learning");
+const RUNS_LOG_RELATIVE = path.join(LEARNING_DIR_RELATIVE, "runs.jsonl");
+
+/** Ensures <target>/.claude/learning exists so the self-learning skill has a
+ * place to write run records. Returns true if the directory was created. */
+export function ensureLearningDir(target: string): boolean {
+  const dir = path.join(target, LEARNING_DIR_RELATIVE);
+  if (fs.existsSync(dir)) {
+    return false;
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  return true;
+}
 
 /** Reads and parses .claude/learning/runs.jsonl (written by the self-learning
  * skill). Malformed lines are skipped. Returns [] if the file doesn't exist. */
@@ -69,26 +86,20 @@ export function listInstalledSkills(target: string): string[] {
     .sort();
 }
 
-function rate(stat: Omit<SkillUsageStat, "rating" | "recommendation">): SkillUsageStat {
+function rate(stat: Omit<SkillUsageStat, "rating">): SkillUsageStat {
   let rating: UsageRating;
-  let recommendation: string;
 
   if (stat.runs === 0) {
     rating = "unused";
-    recommendation =
-      "Installed but no recorded runs yet - keep if recently added, otherwise a removal candidate.";
   } else if (stat.runs >= 3 && (stat.successRate ?? 100) < 60) {
     rating = "needs-attention";
-    recommendation = `Failing often (${Math.round(stat.successRate ?? 0)}% success over ${stat.runs} runs) - check .claude/learning/patterns.md for recurring errors before relying on this skill.`;
   } else if (stat.runs >= 2 && stat.daysSinceLastUse !== null && stat.daysSinceLastUse <= 30) {
     rating = "active";
-    recommendation = "Actively used and reliable - keep.";
   } else {
     rating = "low-usage";
-    recommendation = "Used rarely or not recently - keep if still relevant, otherwise a removal candidate.";
   }
 
-  return { ...stat, rating, recommendation };
+  return { ...stat, rating };
 }
 
 /** Aggregates .claude/learning/runs.jsonl entries per known skill (manifest
@@ -141,6 +152,31 @@ export function computeUsageStats(target: string, manifest: Manifest): SkillUsag
   return stats;
 }
 
+/** Skills relevant to this workspace (by manifest detect_globs) that aren't
+ * installed in <target>/.claude/skills yet - candidates that could help. */
+export function computeSuggestedSkills(target: string, manifest: Manifest): SuggestedSkill[] {
+  const detected = detectRelevantSkills(target, manifest);
+  const installed = new Set(listInstalledSkills(target));
+  return Object.entries(detected)
+    .filter(([name]) => !installed.has(name))
+    .map(([name, matchedGlobs]) => ({
+      name,
+      description: manifest.skills[name].description,
+      matchedGlobs,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function formatRecency(days: number | null): string {
+  if (days === null) {
+    return "-";
+  }
+  if (days === 0) {
+    return "today";
+  }
+  return days === 1 ? "1d ago" : `${days}d ago`;
+}
+
 const RATING_LABEL: Record<UsageRating, string> = {
   active: "Active",
   "needs-attention": "Needs attention",
@@ -148,59 +184,108 @@ const RATING_LABEL: Record<UsageRating, string> = {
   unused: "Unused",
 };
 
-export function formatUsageReport(stats: SkillUsageStat[], target: string): string {
-  const lines: string[] = [];
-  lines.push(
-    "# Claude Skills Usage Report",
-    "",
-    `Workspace: \`${target}\``,
-    "Source: `.claude/learning/runs.jsonl` (written by the self-learning skill)",
-    ""
-  );
-
-  if (stats.length === 0) {
-    lines.push(
-      "No installed skills and no recorded skill runs found. Install some skills and use the " +
-        "self-learning skill to start recording outcomes."
-    );
-    return lines.join("\n");
-  }
-
-  lines.push(
-    "| Skill | Runs | Success % | Last used | Days since | Rating | Recommendation |",
-    "|---|---|---|---|---|---|---|"
-  );
-  for (const s of stats) {
-    const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
-    const lastUsed = s.lastUsed ?? "-";
-    const days = s.daysSinceLastUse === null ? "-" : String(s.daysSinceLastUse);
-    lines.push(
-      `| ${s.name} | ${s.runs} | ${successPct} | ${lastUsed} | ${days} | ${RATING_LABEL[s.rating]} | ${s.recommendation} |`
-    );
-  }
-
+function tallyRatings(stats: SkillUsageStat[]): Record<UsageRating, number> {
   const counts: Record<UsageRating, number> = { active: 0, "needs-attention": 0, "low-usage": 0, unused: 0 };
   for (const s of stats) {
     counts[s.rating]++;
   }
+  return counts;
+}
+
+function summaryLine(stats: SkillUsageStat[], suggested: SuggestedSkill[], counts: Record<UsageRating, number>): string {
+  const parts: string[] = [];
+  if (stats.length > 0) {
+    parts.push(
+      `${stats.length} installed (${counts.active} active, ${counts["low-usage"]} low-usage, ${counts.unused} unused, ${counts["needs-attention"]} needs attention)`
+    );
+  }
+  if (suggested.length > 0) {
+    parts.push(`${suggested.length} suggested`);
+  }
+  return parts.join(" - ");
+}
+
+function misusedLines(stats: SkillUsageStat[]): string[] {
+  const misused = stats.filter((s) => s.rating === "needs-attention");
+  if (misused.length === 0) {
+    return [];
+  }
+  const lines = ["## Misused (failing often)", ""];
+  for (const s of misused) {
+    lines.push(
+      `- **${s.name}**: ${Math.round(s.successRate ?? 0)}% success over ${s.runs} runs - check \`.claude/learning/patterns.md\` for recurring errors.`
+    );
+  }
+  lines.push("");
+  return lines;
+}
+
+function suggestedLines(suggested: SuggestedSkill[]): string[] {
+  if (suggested.length === 0) {
+    return [];
+  }
+  const lines = ["## Could help with this workspace", ""];
+  for (const s of suggested) {
+    lines.push(`- **${s.name}** - ${s.description} (matches ${s.matchedGlobs.join(", ")})`);
+  }
+  lines.push("");
+  return lines;
+}
+
+function removalLines(stats: SkillUsageStat[]): string[] {
+  const removal = stats.filter((s) => s.rating === "unused" || s.rating === "low-usage");
+  if (removal.length === 0) {
+    return [];
+  }
+  const lines = ["## Removal candidates", ""];
+  for (const s of removal) {
+    const detail = s.runs === 0 ? "never used" : `${s.runs} run(s), last used ${formatRecency(s.daysSinceLastUse)}`;
+    lines.push(`- ${s.name} - ${detail}`);
+  }
   lines.push(
     "",
-    `Summary: ${counts.active} active, ${counts["low-usage"]} low-usage, ${counts.unused} unused, ${counts["needs-attention"]} needing attention.`
+    "Delete `.claude/skills/<name>/` if no longer needed, or ask the `skill-usage-insights` skill for a fuller analysis.",
+    ""
   );
-  if (counts.unused > 0 || counts["low-usage"] > 0) {
-    lines.push(
-      "",
-      "Unused/low-usage skills are removal candidates - delete `.claude/skills/<name>/` if no longer needed, or ask the `skill-usage-insights` skill for a fuller analysis before deciding."
-    );
+  return lines;
+}
+
+function detailTableLines(stats: SkillUsageStat[]): string[] {
+  if (stats.length === 0) {
+    return [];
   }
-  if (counts["needs-attention"] > 0) {
-    lines.push(
+  const lines = ["## Per-skill detail", "", "| Skill | Runs | Success | Last used | Rating |", "|---|---|---|---|---|"];
+  for (const s of stats) {
+    const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
+    lines.push(`| ${s.name} | ${s.runs} | ${successPct} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} |`);
+  }
+  return lines;
+}
+
+export function formatUsageReport(stats: SkillUsageStat[], suggested: SuggestedSkill[], target: string): string {
+  if (stats.length === 0 && suggested.length === 0) {
+    return [
+      "# Claude Skills Usage Report",
       "",
-      "Investigate failing skills via the `self-learning` skill's `patterns.md` before deciding to fix or remove them."
-    );
+      `Workspace: \`${target}\``,
+      "",
+      "No installed skills, no recorded skill runs, and no relevant skills detected for this workspace.",
+    ].join("\n");
   }
 
-  return lines.join("\n");
+  const counts = tallyRatings(stats);
+  return [
+    "# Claude Skills Usage Report",
+    "",
+    `Workspace: \`${target}\``,
+    "",
+    summaryLine(stats, suggested, counts),
+    "",
+    ...misusedLines(stats),
+    ...suggestedLines(suggested),
+    ...removalLines(stats),
+    ...detailTableLines(stats),
+  ].join("\n");
 }
 
 const RATING_CLASS: Record<UsageRating, string> = {
@@ -218,13 +303,7 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-/** Renders the usage report as a styled HTML page for a webview panel. */
-export function formatUsageReportHtml(stats: SkillUsageStat[], target: string): string {
-  const counts: Record<UsageRating, number> = { active: 0, "needs-attention": 0, "low-usage": 0, unused: 0 };
-  for (const s of stats) {
-    counts[s.rating]++;
-  }
-
+function htmlCards(counts: Record<UsageRating, number>, suggestedCount: number): string {
   const cards = (
     [
       ["active", "Active"],
@@ -232,53 +311,94 @@ export function formatUsageReportHtml(stats: SkillUsageStat[], target: string): 
       ["unused", "Unused"],
       ["needs-attention", "Needs attention"],
     ] as [UsageRating, string][]
-  )
-    .map(([key, label]) => `<div class="card ${key}"><div class="count">${counts[key]}</div><div class="label">${label}</div></div>`)
-    .join("\n");
+  ).map(([key, label]) => `<div class="card ${key}"><div class="count">${counts[key]}</div><div class="label">${label}</div></div>`);
 
-  let body: string;
+  if (suggestedCount > 0) {
+    cards.push(`<div class="card suggested"><div class="count">${suggestedCount}</div><div class="label">Suggested</div></div>`);
+  }
+  return cards.join("\n");
+}
+
+function htmlMisusedSection(stats: SkillUsageStat[]): string {
+  const misused = stats.filter((s) => s.rating === "needs-attention");
+  if (misused.length === 0) {
+    return "";
+  }
+  const items = misused
+    .map(
+      (s) =>
+        `<li><b>${escapeHtml(s.name)}</b>: ${Math.round(s.successRate ?? 0)}% success over ${s.runs} runs - check <code>.claude/learning/patterns.md</code> for recurring errors.</li>`
+    )
+    .join("\n");
+  return `<div class="section"><h2>Misused (failing often)</h2><ul>${items}</ul></div>`;
+}
+
+function htmlSuggestedSection(suggested: SuggestedSkill[]): string {
+  if (suggested.length === 0) {
+    return "";
+  }
+  const items = suggested
+    .map(
+      (s) =>
+        `<li><b>${escapeHtml(s.name)}</b> - ${escapeHtml(s.description)} <span class="muted">(matches ${escapeHtml(s.matchedGlobs.join(", "))})</span></li>`
+    )
+    .join("\n");
+  return `<div class="section"><h2>Could help with this workspace</h2><ul>${items}</ul></div>`;
+}
+
+function htmlRemovalSection(stats: SkillUsageStat[]): string {
+  const removal = stats.filter((s) => s.rating === "unused" || s.rating === "low-usage");
+  if (removal.length === 0) {
+    return "";
+  }
+  const items = removal
+    .map((s) => {
+      const detail = s.runs === 0 ? "never used" : `${s.runs} run(s), last used ${formatRecency(s.daysSinceLastUse)}`;
+      return `<li><b>${escapeHtml(s.name)}</b> - ${detail}</li>`;
+    })
+    .join("\n");
+  return `<div class="section"><h2>Removal candidates</h2><ul>${items}</ul><div class="note">Delete <code>.claude/skills/&lt;name&gt;/</code> if no longer needed, or ask the <code>skill-usage-insights</code> skill for a fuller analysis.</div></div>`;
+}
+
+function htmlDetailTable(stats: SkillUsageStat[]): string {
   if (stats.length === 0) {
-    body =
-      "<p>No installed skills and no recorded skill runs found. Install some skills and use the " +
-      "self-learning skill to start recording outcomes.</p>";
-  } else {
-    const rows = stats
-      .map((s) => {
-        const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
-        const lastUsed = s.lastUsed ?? "-";
-        const days = s.daysSinceLastUse === null ? "-" : `${s.daysSinceLastUse}d ago`;
-        return `<tr>
+    return "";
+  }
+  const rows = stats
+    .map((s) => {
+      const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
+      return `<tr>
           <td>${escapeHtml(s.name)}</td>
           <td class="num">${s.runs}</td>
           <td class="num">${successPct}</td>
-          <td>${escapeHtml(lastUsed)}</td>
-          <td>${escapeHtml(days)}</td>
+          <td>${formatRecency(s.daysSinceLastUse)}</td>
           <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
-          <td>${escapeHtml(s.recommendation)}</td>
         </tr>`;
-      })
-      .join("\n");
-
-    const notes: string[] = [];
-    if (counts.unused > 0 || counts["low-usage"] > 0) {
-      notes.push(
-        "Unused/low-usage skills are removal candidates - delete <code>.claude/skills/&lt;name&gt;/</code> if no longer needed, or ask the <code>skill-usage-insights</code> skill for a fuller analysis before deciding."
-      );
-    }
-    if (counts["needs-attention"] > 0) {
-      notes.push(
-        "Investigate failing skills via the <code>self-learning</code> skill's <code>patterns.md</code> before deciding to fix or remove them."
-      );
-    }
-
-    const notesHtml = notes.map((n) => `<div class="note">${n}</div>`).join("\n");
-    body = `<table>
-      <thead><tr>
-        <th>Skill</th><th>Runs</th><th>Success</th><th>Last used</th><th>Recency</th><th>Rating</th><th>Recommendation</th>
-      </tr></thead>
+    })
+    .join("\n");
+  return `<table>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Last used</th><th>Rating</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
-    ${notesHtml}`;
+    </table>`;
+}
+
+/** Renders the usage report as a styled HTML page for a webview panel. */
+export function formatUsageReportHtml(stats: SkillUsageStat[], suggested: SuggestedSkill[], target: string): string {
+  const counts = tallyRatings(stats);
+
+  let body: string;
+  if (stats.length === 0 && suggested.length === 0) {
+    body =
+      "<p>No installed skills, no recorded skill runs, and no relevant skills detected for this workspace.</p>";
+  } else {
+    body = [
+      htmlMisusedSection(stats),
+      htmlSuggestedSection(suggested),
+      htmlRemovalSection(stats),
+      htmlDetailTable(stats),
+    ]
+      .filter((s) => s.length > 0)
+      .join("\n");
   }
 
   return `<!DOCTYPE html>
@@ -288,9 +408,10 @@ export function formatUsageReportHtml(stats: SkillUsageStat[], target: string): 
 <style>
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 20px; }
   h1 { font-size: 1.3em; margin-bottom: 4px; }
+  h2 { font-size: 1em; margin: 0 0 6px; }
   .meta { color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-bottom: 18px; }
   .meta code { font-family: var(--vscode-editor-font-family); }
-  .summary { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .summary { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
   .card { border: 1px solid var(--vscode-panel-border); border-left-width: 4px; border-radius: 6px; padding: 8px 18px; min-width: 90px; text-align: center; }
   .card .count { font-size: 1.6em; font-weight: 600; }
   .card .label { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
@@ -298,6 +419,11 @@ export function formatUsageReportHtml(stats: SkillUsageStat[], target: string): 
   .card.low-usage { border-left-color: #d29922; }
   .card.unused { border-left-color: #8b949e; }
   .card.needs-attention { border-left-color: #f85149; }
+  .card.suggested { border-left-color: #58a6ff; }
+  .section { margin-bottom: 16px; }
+  .section ul { margin: 0; padding-left: 20px; font-size: 0.9em; }
+  .section li { margin-bottom: 2px; }
+  .muted { color: var(--vscode-descriptionForeground); }
   table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
   th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; }
   th { color: var(--vscode-descriptionForeground); font-weight: 600; }
@@ -307,15 +433,15 @@ export function formatUsageReportHtml(stats: SkillUsageStat[], target: string): 
   .badge.low-usage { background: #d29922; }
   .badge.unused { background: #8b949e; }
   .badge.needs-attention { background: #f85149; }
-  .note { margin-top: 16px; padding: 10px 14px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textCodeBlock-background); font-size: 0.9em; }
+  .note { margin-top: 8px; padding: 10px 14px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textCodeBlock-background); font-size: 0.9em; }
   .note code { font-family: var(--vscode-editor-font-family); }
 </style>
 </head>
 <body>
   <h1>Claude Skills Usage Report</h1>
-  <div class="meta">Workspace: <code>${escapeHtml(target)}</code><br>Source: <code>.claude/learning/runs.jsonl</code> (written by the self-learning skill)</div>
+  <div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>
   <div class="summary">
-${cards}
+${htmlCards(counts, suggested.length)}
   </div>
   ${body}
 </body>

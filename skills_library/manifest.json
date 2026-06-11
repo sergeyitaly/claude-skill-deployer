@@ -55,6 +55,14 @@
     "skill-usage-insights": {
       "description": "Skill usage and KPI report from .claude/learning/runs.jsonl - which skills to keep, fix, add, or remove",
       "detect_globs": ["**/.claude/learning/runs.jsonl", "**/.claude/skills/**"]
+    },
+    "drawio-diagrams": {
+      "description": "Create/edit architecture diagrams as .drawio files via the draw.io MCP server, including Azure architecture diagrams using the official Azure icon set",
+      "detect_globs": ["**/*.drawio", "**/*.drawio.xml", "**/diagrams/**", "**/docs/diagrams/**", "**/docs/architecture/**"]
+    },
+    "vscode-extension-publishing": {
+      "description": "Build, package, and publish a VS Code extension via @vscode/vsce - manifest fields, .vscodeignore, Extension Development Host testing, version bumps, publisher/PAT setup, common publish errors",
+      "detect_globs": ["**/.vscodeignore", "**/vsc-extension-quickstart.md", "**/*.vsix", "**/src/extension.ts", "**/src/extension.js"]
     }
   }
 }

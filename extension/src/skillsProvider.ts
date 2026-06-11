@@ -17,13 +17,23 @@ export class SkillItem extends vscode.TreeItem {
       : vscode.TreeItemCheckboxState.Unchecked;
 
     // contextValue drives view/item/context "when" clauses (must start with "skill-")
-    this.contextValue = status.availableInGlobal ? "skill-available" : "skill-unavailable";
+    this.contextValue = SkillItem.buildContextValue(status);
 
     this.command = {
       command: "claudeSkills.openSkill",
       title: "Open SKILL.md",
       arguments: [this],
     };
+  }
+
+  private static buildContextValue(status: SkillStatus): string {
+    if (!status.inLibrary) {
+      return "skill-project-local";
+    }
+    if (status.availableInGlobal) {
+      return "skill-available";
+    }
+    return "skill-unavailable";
   }
 
   private static buildDescription(status: SkillStatus): string {
@@ -38,6 +48,9 @@ export class SkillItem extends vscode.TreeItem {
     } else {
       parts.push("not in global library");
     }
+    if (!status.inLibrary) {
+      parts.push("project-only");
+    }
     return parts.join(" • ");
   }
 
@@ -45,7 +58,12 @@ export class SkillItem extends vscode.TreeItem {
     const md = new vscode.MarkdownString();
     md.appendMarkdown(`**${status.name}**\n\n`);
     md.appendMarkdown(`${status.description}\n\n`);
-    md.appendMarkdown(`Detect globs: \`${status.detectGlobs.join("`, `")}\`\n\n`);
+    if (!status.inLibrary) {
+      md.appendMarkdown(`_Project-local skill - not part of the bundled skill library._\n\n`);
+    }
+    if (status.detectGlobs.length > 0) {
+      md.appendMarkdown(`Detect globs: \`${status.detectGlobs.join("`, `")}\`\n\n`);
+    }
     if (status.matchedGlobs.length > 0) {
       md.appendMarkdown(`Matched in workspace: \`${status.matchedGlobs.join("`, `")}\`\n\n`);
     }

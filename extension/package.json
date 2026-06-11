@@ -87,6 +87,12 @@
         "title": "Show Skill Usage Report",
         "icon": "$(graph)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installSessionWatchHook",
+        "title": "Enable Session Size Notifications",
+        "icon": "$(bell-dot)",
+        "category": "Claude Skills"
       }
     ],
     "menus": {
@@ -120,12 +126,17 @@
           "command": "claudeSkills.showUsageStats",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.installSessionWatchHook",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
         }
       ],
       "view/item/context": [
         {
           "command": "claudeSkills.installSkillToWorkspace",
-          "when": "view == claudeSkillsView && viewItem =~ /^skill-/",
+          "when": "view == claudeSkillsView && viewItem =~ /^skill-(available|unavailable)$/",
           "group": "inline"
         },
         {
