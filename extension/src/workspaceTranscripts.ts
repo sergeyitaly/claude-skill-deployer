@@ -1,14 +1,23 @@
 import * as path from "node:path";
 
-/** Encode a workspace folder the same way Claude/Cursor store project transcript dirs. */
-export function encodeWorkspacePath(target: string): string {
-  const resolved = path.resolve(target);
-  const normalized = resolved.replace(/\\/g, "/");
+function encodeNormalizedPath(normalized: string): string {
   const win = normalized.match(/^([a-zA-Z]):\/(.*)$/);
   if (win) {
-    return `${win[1].toLowerCase()}--${win[2].replace(/\//g, "-")}`;
+    const rest = win[2].replace(/^\/+/, "").replace(/\//g, "-");
+    return `${win[1].toLowerCase()}--${rest}`;
   }
-  return normalized.replace(/\//g, "-").replace(/^-/, "");
+  return normalized.replace(/\//g, "-").replace(/^-+/, "");
+}
+
+/** Encode a workspace folder the same way Claude/Cursor store project transcript dirs. */
+export function encodeWorkspacePath(target: string): string {
+  const normalized = target.replace(/\\/g, "/");
+  // Windows and POSIX absolutes encode literally — path.resolve would mis-handle
+  // "C:/..." on Linux CI and "/home/..." on Windows (prepends cwd drive).
+  if (/^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("/")) {
+    return encodeNormalizedPath(normalized);
+  }
+  return encodeNormalizedPath(path.resolve(target).replace(/\\/g, "/"));
 }
 
 /** True when a Claude/Cursor transcript path belongs to this workspace folder. */

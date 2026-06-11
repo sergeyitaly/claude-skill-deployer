@@ -18,4 +18,12 @@ describe("transcriptFileMatchesWorkspace", () => {
     const file = "C:/Users/SerhiiVoinolovich/.claude/projects/c--Users-SerhiiVoinolovich-other-repo/session.jsonl";
     expect(transcriptFileMatchesWorkspace(file, "C:\\Users\\SerhiiVoinolovich\\claude-skills-deployer")).toBe(false);
   });
+
+  it("encodes POSIX workspace paths on Linux runners", () => {
+    const target = "/home/runner/work/claude-skill-deployer/claude-skill-deployer";
+    const encoded = encodeWorkspacePath(target);
+    expect(encoded).toBe("home-runner-work-claude-skill-deployer-claude-skill-deployer");
+    const file = `/home/runner/.claude/projects/${encoded}/session.jsonl`;
+    expect(transcriptFileMatchesWorkspace(file, target)).toBe(true);
+  });
 });
