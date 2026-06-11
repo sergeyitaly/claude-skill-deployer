@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  cheapestAgentForSkill,
   detectEqualSplitCluster,
+  formatEqualSplitWarning,
   resolveDisplayAttribution,
   sanitizeTranscriptSkills,
 } from "./costAttribution";
@@ -34,6 +36,38 @@ describe("sanitizeTranscriptSkills", () => {
     const { skills, purgedStaleEqualSplit } = sanitizeTranscriptSkills(stale);
     expect(purgedStaleEqualSplit).toBe(true);
     expect(Object.keys(skills)).toHaveLength(0);
+  });
+});
+
+describe("cheapestAgentForSkill", () => {
+  it("picks agent with lowest cost per session", () => {
+    const attribution = {
+      "ci-pipeline-debug": {
+        claude: { tokens: 100, cost: 2, sessions: 2 },
+        cursor: { tokens: 80, cost: 0.5, sessions: 1 },
+      },
+    };
+    expect(cheapestAgentForSkill("ci-pipeline-debug", attribution)).toBe("cursor");
+  });
+
+  it("returns null for missing skill or zero-session agents", () => {
+    expect(cheapestAgentForSkill("missing", {})).toBeNull();
+    expect(
+      cheapestAgentForSkill("idle", { idle: { claude: { tokens: 0, cost: 0, sessions: 0 } } })
+    ).toBeNull();
+  });
+});
+
+describe("formatEqualSplitWarning", () => {
+  it("includes count, cost, and reset guidance", () => {
+    const msg = formatEqualSplitWarning({ count: 5, cost: 12.34 });
+    expect(msg).toContain("5 skills");
+    expect(msg).toContain("$12.34");
+    expect(msg).toContain("Reset Mis-attributed Cost Data");
+  });
+
+  it("bolds reset label in html mode", () => {
+    expect(formatEqualSplitWarning({ count: 3, cost: 1 }, true)).toContain("<b>Reset Mis-attributed Cost Data</b>");
   });
 });
 
