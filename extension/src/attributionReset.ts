@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribution";
-
-const COLLECTOR_STATE_PATH = path.join(os.homedir(), ".claude", "learning", "attribution-collector-state.json");
+import { collectorStatePath, LEGACY_COLLECTOR_STATE_PATH } from "./collectorState";
 const RUNS_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
 
 export interface ResetResult {
@@ -79,14 +78,16 @@ export function resetMisattributedData(target: string): ResetResult {
     }
   }
 
-  if (fs.existsSync(COLLECTOR_STATE_PATH)) {
-    const backup = `${COLLECTOR_STATE_PATH}.pre-reset-${Date.now()}.bak`;
-    fs.copyFileSync(COLLECTOR_STATE_PATH, backup);
-    fs.writeFileSync(
-      COLLECTOR_STATE_PATH,
-      JSON.stringify({ lastRun: 0, fileMtimes: {}, processedSessions: {} }, null, 2) + "\n",
-      "utf-8"
-    );
+  const statePath = collectorStatePath(target);
+  const resetState = { lastRun: 0, fileMtimes: {}, processedSessions: {}, workspacePath: target };
+  if (fs.existsSync(statePath)) {
+    const backup = `${statePath}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(statePath, backup);
+    fs.writeFileSync(statePath, JSON.stringify(resetState, null, 2) + "\n", "utf-8");
+  } else if (fs.existsSync(LEGACY_COLLECTOR_STATE_PATH)) {
+    const backup = `${LEGACY_COLLECTOR_STATE_PATH}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(LEGACY_COLLECTOR_STATE_PATH, backup);
+    fs.writeFileSync(LEGACY_COLLECTOR_STATE_PATH, JSON.stringify(resetState, null, 2) + "\n", "utf-8");
   }
 
   return result;

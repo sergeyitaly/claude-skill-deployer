@@ -8,6 +8,7 @@ import {
   listRepoBranchProfiles,
 } from "./branchProfiles";
 import { isSkillEffectivelyEnabled, listSkillStatuses, loadManifest, SkillStatus } from "./skillOps";
+import { loadTeamSkillsProfile, teamProfileRelativePath } from "./teamBranchProfiles";
 import { isFeatureEnabled } from "./featureFlags";
 import { compareSkillsForSort, formatRoiDescription, skillRoiMetrics, SkillSortMode } from "./skillRoi";
 import { computeUsageStats } from "./usageStats";
@@ -20,6 +21,30 @@ export class BranchProfilesRootItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon("git-branch");
     this.description = `${count} saved`;
     this.tooltip = "Per-branch skill layouts stored in ~/.claude/learning/branch-profiles.json";
+  }
+}
+
+export class TeamProfilesRootItem extends vscode.TreeItem {
+  constructor(label: string, count: number) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = "team-profiles-root";
+    this.iconPath = new vscode.ThemeIcon("repo");
+    this.description = `${count} branch(es)`;
+    this.tooltip = "Git-committed team skill layouts (.claude/skills-profile.json)";
+  }
+}
+
+export class TeamProfileBranchItem extends vscode.TreeItem {
+  constructor(branch: string, skillCount: number, isCurrent: boolean, updatedAt?: string) {
+    super(branch, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = "team-profile-entry";
+    this.iconPath = new vscode.ThemeIcon(isCurrent ? "check" : "repo");
+    this.description = `${skillCount} skills`;
+    this.tooltip = `Team profile for ${branch}${updatedAt ? ` — updated ${updatedAt.slice(0, 16).replace("T", " ")}` : ""}`;
+    this.command = {
+      command: "claudeSkills.showTeamBranchProfiles",
+      title: "Show Team Branch Profiles",
+    };
   }
 }
 
@@ -43,7 +68,12 @@ export class BranchProfileBranchItem extends vscode.TreeItem {
   }
 }
 
-export type SkillsTreeNode = SkillItem | BranchProfilesRootItem | BranchProfileBranchItem;
+export type SkillsTreeNode =
+  | SkillItem
+  | BranchProfilesRootItem
+  | BranchProfileBranchItem
+  | TeamProfilesRootItem
+  | TeamProfileBranchItem;
 
 export class SkillItem extends vscode.TreeItem {
   constructor(public readonly status: SkillStatus, roiLine?: string) {
@@ -202,6 +232,24 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     return element;
   }
 
+  private teamSection(target: string): SkillsTreeNode[] {
+    const team = loadTeamSkillsProfile(target);
+    if (!team) {
+      return [];
+    }
+    const branches = Object.keys(team.branches);
+    const rel = teamProfileRelativePath();
+    const current = getCurrentBranch(target);
+    const root = new TeamProfilesRootItem(`Team profiles (${rel})`, branches.length);
+    if (branches.length === 0) {
+      root.collapsibleState = vscode.TreeItemCollapsibleState.None;
+      root.description = "empty — Export Team Branch Profile";
+      root.command = { command: "claudeSkills.exportTeamBranchProfile", title: "Export Team Branch Profile" };
+      return [root];
+    }
+    return [root];
+  }
+
   private branchSection(target: string): SkillsTreeNode[] {
     if (!branchProfilesFeatureActive() || !isGitWorkspace(target)) {
       return [];
@@ -222,6 +270,23 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
   getChildren(element?: SkillsTreeNode): SkillsTreeNode[] {
     const target = this.getTarget();
 
+    if (element instanceof TeamProfilesRootItem) {
+      if (!target) {
+        return [];
+      }
+      const team = loadTeamSkillsProfile(target);
+      if (!team) {
+        return [];
+      }
+      const current = getCurrentBranch(target);
+      return Object.entries(team.branches)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(
+          ([branch, entry]) =>
+            new TeamProfileBranchItem(branch, entry.skills.length, branch === current, entry.updatedAt)
+        );
+    }
+
     if (element instanceof BranchProfilesRootItem) {
       if (!target) {
         return [];
@@ -236,6 +301,7 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
       return [];
     }
 
+    const teamNodes = target ? this.teamSection(target) : [];
     const branchNodes = target ? this.branchSection(target) : [];
     const statuses = listSkillStatuses(this.libraryDir, target);
     const manifest = loadManifest(this.libraryDir);
@@ -265,6 +331,6 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
       }
       return new SkillItem(s, roiLine);
     });
-    return [...branchNodes, ...skillNodes];
+    return [...teamNodes, ...branchNodes, ...skillNodes];
   }
 }

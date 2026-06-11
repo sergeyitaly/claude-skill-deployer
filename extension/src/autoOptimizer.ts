@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
 import { getCurrentBranch, saveBranchProfile } from "./branchProfiles";
-import { OptimizationSuggestion } from "./costOptimizer";
+import { generateOptimizationSuggestions, OptimizationSuggestion, OptimizationType } from "./costOptimizer";
 import { isFeatureEnabled } from "./featureFlags";
 import { archiveSkill, archivalRules, candidatesForArchival } from "./skillArchival";
 import { setSkillOverride, loadManifest } from "./skillOps";
@@ -61,16 +61,17 @@ export async function applyOptimizationSuggestions(
   target: string,
   libraryDir: string,
   suggestions: OptimizationSuggestion[],
-  opts?: { auto?: boolean }
+  opts?: { auto?: boolean; directApply?: boolean }
 ): Promise<ApplyResult> {
   const auto = opts?.auto ?? false;
+  const directApply = opts?.directApply ?? false;
   const result: ApplyResult = { applied: [], skipped: [] };
 
   if (auto && !isAutoOptimizeEnabled()) {
     return result;
   }
 
-  if (!auto && suggestions.length > 0) {
+  if (!auto && !directApply && suggestions.length > 0) {
     const pick = await vscode.window.showQuickPick(
       suggestions.slice(0, 10).map((s) => ({
         label: s.skill,
@@ -132,6 +133,21 @@ export async function applyOptimizationSuggestions(
   }
 
   return result;
+}
+
+export async function applySingleOptimizationSuggestion(
+  target: string,
+  libraryDir: string,
+  skill: string,
+  type: OptimizationType
+): Promise<ApplyResult> {
+  const suggestions = generateOptimizationSuggestions(target, libraryDir).filter(
+    (s) => s.skill === skill && s.type === type
+  );
+  if (suggestions.length === 0) {
+    return { applied: [], skipped: [skill] };
+  }
+  return applyOptimizationSuggestions(target, libraryDir, suggestions, { directApply: true });
 }
 
 export async function runArchivalPass(target: string, libraryDir: string): Promise<string[]> {

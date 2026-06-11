@@ -19,6 +19,7 @@ import { assessAttributionHealth } from "./attributionHealth";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
+import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
@@ -128,7 +129,11 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
 
   const optRows = suggestions
     .slice(0, 6)
-    .map((s) => `<li><b>${escapeHtml(s.skill)}</b> — ${escapeHtml(s.action)}</li>`)
+    .map(
+      (s) =>
+        `<li class="opt-row"><span><b>${escapeHtml(s.skill)}</b> — ${escapeHtml(s.action)}</span>` +
+        `<button class="secondary apply-one" data-skill="${escapeHtml(s.skill)}" data-type="${escapeHtml(s.type)}" onclick="applyOne(this.dataset.skill,this.dataset.type)">Apply</button></li>`
+    )
     .join("");
 
   const trendLabel =
@@ -163,11 +168,15 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   .note { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 10px; }
   .warn { background: var(--vscode-inputValidation-warningBackground); border: 1px solid var(--vscode-inputValidation-warningBorder); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.9em; }
   .agent-id { color: var(--vscode-descriptionForeground); font-size: 0.85em; font-weight: normal; }
+  .estimate-banner { background: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.85em; }
+  .opt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .apply-one { padding: 2px 10px; font-size: 0.8em; }
 </style>
 </head>
 <body>
   <h1>Claude Skills — Cost Intelligence</h1>
-  <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code></div>
+  <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · <b>${ESTIMATE_DISCLAIMER_SHORT}</b></div>
+  <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.</div>
 
   ${
     equalSplitWarn
@@ -235,6 +244,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   <script>
     const vscode = acquireVsCodeApi();
     function applyOpts() { vscode.postMessage({ command: "applyOptimizations" }); }
+    function applyOne(skill, type) { vscode.postMessage({ command: "applySuggestion", skill, type }); }
     function exportReport() { vscode.postMessage({ command: "exportReport" }); }
     function openBudget() { vscode.postMessage({ command: "openBudget" }); }
   </script>

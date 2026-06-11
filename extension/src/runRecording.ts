@@ -35,10 +35,12 @@ export interface EnrichedRunRecord {
   note?: string;
 }
 
-const BLENDED_USD_PER_M_TOKEN = 9;
+import { tokenCostUsd as estimateTokenCost } from "./costRates";
 
-export function tokenCostUsd(tokens: number): number {
-  return (tokens / 1_000_000) * BLENDED_USD_PER_M_TOKEN;
+export { BLENDED_USD_PER_M_TOKEN, tokenCostUsd } from "./costRates";
+
+export function tokenCostUsdForRun(tokens: number, model?: string): number {
+  return estimateTokenCost(tokens, model);
 }
 
 export function runsFilePath(target: string): string {
@@ -99,7 +101,7 @@ export function normalizeRunRecord(raw: Record<string, unknown>): EnrichedRunRec
     action: typeof raw.action === "string" ? raw.action : "run",
     agent,
     tokens,
-    cost: typeof raw.cost === "number" ? raw.cost : tokenCostUsd(tokens),
+    cost: typeof raw.cost === "number" ? raw.cost : estimateTokenCost(tokens, typeof raw.model === "string" ? raw.model : undefined),
     rc,
     success: typeof raw.success === "boolean" ? raw.success : rc === 0,
     session_id: typeof raw.session_id === "string" ? raw.session_id : `unknown_${ts}`,
@@ -137,7 +139,7 @@ export function appendSkillRun(
     action: entry.action ?? "run",
     agent: entry.agent,
     tokens: entry.tokens,
-    cost: tokenCostUsd(entry.tokens),
+    cost: estimateTokenCost(entry.tokens, (entry.metadata as RunMetadata | undefined)?.model as string | undefined),
     rc: entry.success ? 0 : 1,
     success: entry.success,
     session_id: entry.session_id ?? `ext_${ts}`,

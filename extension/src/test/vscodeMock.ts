@@ -5,6 +5,9 @@ export const workspace = {
       if (section === "claudeSkills.agents" && key === "enabled") {
         return ["claude", "cursor", "kiro", "copilot"] as T;
       }
+      if (section === "claudeSkills.lint" && key === "requireFrontmatter") {
+        return true as T;
+      }
       return defaultValue;
     },
     update: async () => undefined,

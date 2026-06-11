@@ -7,6 +7,7 @@ import {
   installAttributionHooks,
   refreshCostControlHookScripts,
 } from "./hookOps";
+import { lintOnSync } from "./skillLint";
 import { listInstalledSkills } from "./usageStats";
 
 export interface WorkspaceSkillSyncResult {
@@ -28,6 +29,10 @@ export function propagateWorkspaceSkillChange(
 ): WorkspaceSkillSyncResult {
   const result: WorkspaceSkillSyncResult = { agentPathsUpdated: 0 };
   if (!target) {
+    return result;
+  }
+
+  if (!lintOnSync(target, log)) {
     return result;
   }
 

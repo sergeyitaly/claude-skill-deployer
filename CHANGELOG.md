@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.7] - 2026-06-11
+
+### Added
+
+- **Per-workspace collector state** — `attribution-collector-state.json` under `<workspace>/.claude/learning/` (legacy global file migrates on first use).
+- **Multi-root workspaces** — active editor's workspace folder is used; status bar picker + **Pick Active Workspace Folder** when multiple roots are open.
+- **SKILL.md lint** on sync — validates name, description, frontmatter, and size (`claudeSkills.lint.*`).
+- **Team profiles tree section** — git `.claude/skills-profile.json` branches appear above personal branch profiles.
+- **Dashboard per-suggestion Apply** — disable/switch-agent suggestions apply in one click (sets `skillOverrides` or agent preference).
+- **Model-aware estimate disclaimer** — shared `costRates` module; dashboard banner clarifies estimates vs invoices.
+- **GitHub Actions CI** — `npm run compile` + `npm test` on push/PR.
+- Marketplace capture helper script (`scripts/capture-marketplace-assets.ps1`).
+
+### Changed
+
+- Cost attribution and runs use `costRates.tokenCostUsd()` with optional model hint when available.
+
 ## [1.0.6] - 2026-06-11
 
 ### Added

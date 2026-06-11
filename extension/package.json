@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -47,6 +47,12 @@
         "command": "claudeSkills.refresh",
         "title": "Refresh",
         "icon": "$(refresh)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.pickWorkspaceFolder",
+        "title": "Pick Active Workspace Folder",
+        "icon": "$(root-folder)",
         "category": "Claude Skills"
       },
       {
@@ -346,6 +352,26 @@
           "type": "string",
           "default": ".claude/skills-profile.json",
           "description": "Git-committed team skill layout per branch (export with Export Team Branch Profile to Git)."
+        },
+        "claudeSkills.lint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lint SKILL.md frontmatter (name, description, size) on workspace skill sync."
+        },
+        "claudeSkills.lint.blockSyncOnError": {
+          "type": "boolean",
+          "default": false,
+          "description": "Block multi-agent sync when SKILL.md lint reports errors."
+        },
+        "claudeSkills.lint.maxSkillBytes": {
+          "type": "number",
+          "default": 262144,
+          "description": "Warn when SKILL.md exceeds this size (bytes)."
+        },
+        "claudeSkills.lint.maxDescriptionLength": {
+          "type": "number",
+          "default": 500,
+          "description": "Warn when frontmatter description exceeds this length."
         },
         "claudeSkills.preferLocalSkillOverrides": {
           "type": "boolean",
@@ -718,6 +744,10 @@
     {
       "path": "images/screenshot-setup-wizard.png",
       "caption": "Setup wizard for global library, workspace skills, and optional cost hooks"
+    },
+    {
+      "path": "images/screenshot-budget-controls.png",
+      "caption": "Budget mode status bar and daily spend limits"
     }
   ]
 }

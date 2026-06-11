@@ -1,6 +1,6 @@
 # Marketplace assets
 
-Capture these before publishing v1.0.0 to the VS Code Marketplace.
+Capture from **Extension Development Host** (F5 from `extension/`). Helper: `scripts/capture-marketplace-assets.ps1`.
 
 | File | Size | Content |
 |------|------|---------|

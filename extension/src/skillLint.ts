@@ -1,0 +1,192 @@
+import * as fs from "node:fs";
+import * as vscode from "vscode";
+
+export interface SkillLintIssue {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+}
+
+export interface SkillLintResult {
+  skill: string;
+  filePath: string;
+  issues: SkillLintIssue[];
+  ok: boolean;
+}
+
+const SKILL_NAME_RE = /^[a-z][a-z0-9-]{2,63}$/;
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+
+function maxSkillBytes(): number {
+  return vscode.workspace.getConfiguration("claudeSkills.lint").get<number>("maxSkillBytes", 262_144);
+}
+
+function maxDescriptionLength(): number {
+  return vscode.workspace.getConfiguration("claudeSkills.lint").get<number>("maxDescriptionLength", 500);
+}
+
+function requireFrontmatter(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("requireFrontmatter", true);
+}
+
+function parseFrontmatterBlock(raw: string): Record<string, string> | null {
+  const match = raw.match(FRONTMATTER_RE);
+  if (!match) {
+    return null;
+  }
+  const out: Record<string, string> = {};
+  for (const line of match[1].split("\n")) {
+    const m = line.match(/^([a-zA-Z0-9_-]+):\s*(.+)$/);
+    if (!m) {
+      continue;
+    }
+    let value = m[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    out[m[1]] = value;
+  }
+  return out;
+}
+
+export function lintSkillMd(skillName: string, raw: string, filePath = ""): SkillLintResult {
+  const issues: SkillLintIssue[] = [];
+
+  if (!SKILL_NAME_RE.test(skillName)) {
+    issues.push({
+      severity: "error",
+      code: "invalid-name",
+      message: `Skill directory name must match ${SKILL_NAME_RE} (got "${skillName}")`,
+    });
+  }
+
+  const fmName = parseFrontmatterBlock(raw)?.name;
+  if (fmName && fmName !== skillName) {
+    issues.push({
+      severity: "error",
+      code: "name-mismatch",
+      message: `Frontmatter name "${fmName}" must match directory "${skillName}"`,
+    });
+  }
+
+  const bytes = Buffer.byteLength(raw, "utf-8");
+  if (bytes > maxSkillBytes()) {
+    issues.push({
+      severity: "warning",
+      code: "size-cap",
+      message: `SKILL.md is ${bytes} bytes (cap ${maxSkillBytes()})`,
+    });
+  }
+
+  const fm = parseFrontmatterBlock(raw);
+  if (!fm && requireFrontmatter()) {
+    issues.push({
+      severity: "error",
+      code: "missing-frontmatter",
+      message: "Missing YAML frontmatter (--- block at top)",
+    });
+  } else if (fm) {
+    const desc = fm.description?.trim();
+    if (!desc) {
+      issues.push({
+        severity: "error",
+        code: "missing-description",
+        message: "Frontmatter description is required",
+      });
+    } else if (desc.length > maxDescriptionLength()) {
+      issues.push({
+        severity: "warning",
+        code: "long-description",
+        message: `Description is ${desc.length} chars (recommended max ${maxDescriptionLength()})`,
+      });
+    }
+    if (!fm.name) {
+      issues.push({
+        severity: "warning",
+        code: "missing-fm-name",
+        message: "Frontmatter name field recommended (should match folder name)",
+      });
+    }
+  }
+
+  const body = raw.replace(FRONTMATTER_RE, "").trim();
+  if (body.length < 40) {
+    issues.push({
+      severity: "warning",
+      code: "thin-body",
+      message: "Skill body is very short — add usage guidance",
+    });
+  }
+
+  const hasError = issues.some((i) => i.severity === "error");
+  return { skill: skillName, filePath, issues, ok: !hasError };
+}
+
+export function lintSkillFile(skillName: string, skillMdPath: string): SkillLintResult {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(skillMdPath, "utf-8");
+  } catch {
+    return {
+      skill: skillName,
+      filePath: skillMdPath,
+      issues: [{ severity: "error", code: "missing-file", message: `Cannot read ${skillMdPath}` }],
+      ok: false,
+    };
+  }
+  return lintSkillMd(skillName, raw, skillMdPath);
+}
+
+export function lintWorkspaceSkills(target: string): SkillLintResult[] {
+  const root = `${target}/.claude/skills`.replace(/\\/g, "/");
+  const dir = root;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const results: SkillLintResult[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const skillMd = `${dir}/${entry.name}/SKILL.md`;
+    if (fs.existsSync(skillMd)) {
+      results.push(lintSkillFile(entry.name, skillMd));
+    }
+  }
+  return results;
+}
+
+export function formatLintReport(results: SkillLintResult[]): string[] {
+  const lines: string[] = [];
+  for (const r of results) {
+    if (r.issues.length === 0) {
+      continue;
+    }
+    for (const issue of r.issues) {
+      lines.push(`[${issue.severity}] ${r.skill}: ${issue.message}`);
+    }
+  }
+  return lines;
+}
+
+/** Lint workspace skills; log issues; return false if errors and blockOnError is on. */
+export function lintOnSync(target: string, log: (line: string) => void): boolean {
+  if (!vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("enabled", true)) {
+    return true;
+  }
+  const results = lintWorkspaceSkills(target);
+  const lines = formatLintReport(results);
+  for (const line of lines) {
+    log(`SKILL lint: ${line}`);
+  }
+  const block = vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("blockSyncOnError", false);
+  const hasError = results.some((r) => !r.ok);
+  if (hasError && block) {
+    log("SKILL lint: sync blocked — fix errors or set claudeSkills.lint.blockSyncOnError to false.");
+    return false;
+  }
+  return true;
+}

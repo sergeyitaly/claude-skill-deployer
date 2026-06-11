@@ -64,7 +64,7 @@ import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
 import { formatCostDashboardHtml, formatCostDashboardText } from "./costDashboard";
-import { applyOptimizationSuggestions } from "./autoOptimizer";
+import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from "./autoOptimizer";
 import { checkPredictiveCostAlert } from "./costPredictor";
 import { installGitPostCommitHook } from "./commitCost";
 import { isAutoOptimizeEnabled, applyOptimizationSuggestions as applyAutoOptimizations, runArchivalPass } from "./autoOptimizer";
@@ -92,12 +92,21 @@ import {
   readWeeklyReportConfig,
   startWeeklyReportScheduler,
 } from "./weeklyReport";
+import {
+  isMultiRootWorkspace,
+  pickWorkspaceTarget,
+  registerWorkspaceTargetListeners,
+  resolveWorkspaceTarget,
+  workspaceFolderLabel,
+} from "./workspaceTarget";
+import { OptimizationType } from "./costOptimizer";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
 let creditStatusBarItem: vscode.StatusBarItem;
 let budgetModeStatusBarItem: vscode.StatusBarItem;
+let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 let costDashboardPanel: vscode.WebviewPanel | undefined;
 
@@ -109,7 +118,7 @@ const BUDGET_MODE_LABEL: Record<BudgetMode, string> = {
 };
 
 function getWorkspaceTarget(): string | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  return resolveWorkspaceTarget();
 }
 
 function log(line: string) {
@@ -303,6 +312,22 @@ export function activate(context: vscode.ExtensionContext) {
   budgetModeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
   context.subscriptions.push(budgetModeStatusBarItem);
 
+  workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+  context.subscriptions.push(workspaceFolderStatusBarItem);
+
+  const refreshWorkspaceFolderStatusBar = () => {
+    const target = getWorkspaceTarget();
+    if (!isMultiRootWorkspace() || !target) {
+      workspaceFolderStatusBarItem.hide();
+      return;
+    }
+    const label = workspaceFolderLabel(target) ?? "workspace";
+    workspaceFolderStatusBarItem.text = `$(root-folder) ${label}`;
+    workspaceFolderStatusBarItem.tooltip = `${target}\n\nClick to pick the active folder for skills, cost, and profiles.`;
+    workspaceFolderStatusBarItem.command = "claudeSkills.pickWorkspaceFolder";
+    workspaceFolderStatusBarItem.show();
+  };
+
   const refreshAll = () => {
     const target = getWorkspaceTarget();
     syncBranchProfileContext(target);
@@ -311,10 +336,13 @@ export function activate(context: vscode.ExtensionContext) {
     refreshUsageStatusBar(libraryDir);
     refreshCreditStatusBar(libraryDir);
     refreshBudgetModeStatusBar(libraryDir);
+    refreshWorkspaceFolderStatusBar();
     if (target) {
       void checkEmergencyCutoff(target);
     }
   };
+
+  registerWorkspaceTargetListeners(() => refreshAll(), context);
 
   applyBudgetSettings(libraryDir, false);
   const initialTarget = getWorkspaceTarget();
@@ -387,6 +415,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("claudeSkills.refresh", refreshAll),
+
+    vscode.commands.registerCommand("claudeSkills.pickWorkspaceFolder", async () => {
+      const picked = await pickWorkspaceTarget();
+      if (picked) {
+        refreshAll();
+        vscode.window.showInformationMessage(`Claude Skills: active folder — ${workspaceFolderLabel(picked) ?? picked}`);
+      }
+    }),
 
     vscode.commands.registerCommand("claudeSkills.installLibraryToGlobal", async () => {
       const syncAll = shouldSyncGlobalToAll();
@@ -932,9 +968,29 @@ export function activate(context: vscode.ExtensionContext) {
           { enableScripts: true }
         );
         costDashboardPanel.webview.html = html;
-        costDashboardPanel.webview.onDidReceiveMessage(async (msg: { command?: string }) => {
+        costDashboardPanel.webview.onDidReceiveMessage(async (msg: { command?: string; skill?: string; type?: string }) => {
           if (msg.command === "applyOptimizations") {
             await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
+          } else if (msg.command === "applySuggestion" && msg.skill && msg.type) {
+            const health = assessAttributionHealth(target, libraryDir);
+            if (!health.reliable) {
+              vscode.window.showWarningMessage(`Claude Skills: ${health.summary}`);
+              return;
+            }
+            const result = await applySingleOptimizationSuggestion(
+              target,
+              libraryDir,
+              msg.skill,
+              msg.type as OptimizationType
+            );
+            if (result.applied.length > 0) {
+              propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+              refreshAll();
+              costDashboardPanel!.webview.html = formatCostDashboardHtml(target, libraryDir);
+              vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
+            } else {
+              vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
+            }
           } else if (msg.command === "exportReport") {
             await vscode.commands.executeCommand("claudeSkills.exportCostReport");
           } else if (msg.command === "openBudget") {

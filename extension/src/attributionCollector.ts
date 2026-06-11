@@ -3,19 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribution";
+import { readCollectorState, writeCollectorState } from "./collectorState";
+import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
-import { appendSkillRun, sessionHasV2HookRuns, tokenCostUsd } from "./runRecording";
+import { appendSkillRun, sessionHasV2HookRuns } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 
-const COLLECTOR_STATE_PATH = path.join(os.homedir(), ".claude", "learning", "attribution-collector-state.json");
 const COLLECTION_INTERVAL_MS = 5 * 60 * 1000;
 
-export interface CollectorState {
-  lastRun: number;
-  fileMtimes: Record<string, number>;
-  /** sessionId|filePath -> mtime when runs.jsonl row was written (prevents double count). */
-  processedSessions?: Record<string, number>;
-}
+export type { CollectorState } from "./collectorState";
 
 export interface AttributionStore {
   updatedAt: string;
@@ -32,19 +28,6 @@ function expandHome(p: string): string {
     return path.join(os.homedir(), p.slice(2));
   }
   return p;
-}
-
-function readCollectorState(): CollectorState {
-  try {
-    return JSON.parse(fs.readFileSync(COLLECTOR_STATE_PATH, "utf-8")) as CollectorState;
-  } catch {
-    return { lastRun: 0, fileMtimes: {}, processedSessions: {} };
-  }
-}
-
-function writeCollectorState(state: CollectorState): void {
-  fs.mkdirSync(path.dirname(COLLECTOR_STATE_PATH), { recursive: true });
-  fs.writeFileSync(COLLECTOR_STATE_PATH, JSON.stringify(state, null, 2) + "\n", "utf-8");
 }
 
 function loadAttribution(target: string): AttributionStore {
@@ -243,7 +226,7 @@ export class AttributionCollector {
 
     enrichV2HookRunTokens(this.target, this.libraryDir);
 
-    const state = readCollectorState();
+    const state = readCollectorState(this.target);
     const since = state.lastRun || now - 24 * 60 * 60 * 1000;
     const store = loadAttribution(this.target);
     store.workspacePath = this.target;
@@ -300,7 +283,8 @@ export class AttributionCollector {
     }
 
     state.lastRun = now;
-    writeCollectorState(state);
+    state.workspacePath = this.target;
+    writeCollectorState(this.target, state);
     saveAttribution(this.target, store);
     this.lastRun = now;
     return processed;

@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { computeCreditUsageFromRoots } from "./usageCost";
+import { tokenCostUsd } from "./costRates";
 import { countV2HookRuns } from "./runRecording";
 import { readRunRecords, RunRecord } from "./usageStats";
 
@@ -90,7 +91,7 @@ function attributionFromRuns(records: RunRecord[]): SkillAttributionMap {
       continue;
     }
     const agent = (rec.agent ?? "claude") as AgentId;
-    const cost = (rec.tokens / 1_000_000) * 9;
+    const cost = tokenCostUsd(rec.tokens, (rec as RunRecord & { model?: string }).model);
     const skillMap = map[rec.skill] ?? {};
     const bucket = skillMap[agent] ?? emptyAgent();
     addAgent(bucket, rec.tokens, cost);

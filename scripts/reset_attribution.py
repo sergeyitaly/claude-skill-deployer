@@ -12,7 +12,11 @@ from pathlib import Path
 
 RUNS_RELATIVE = Path(".claude/learning/runs.jsonl")
 LEGACY_COST_ATTRIBUTION = Path.home() / ".claude/learning/cost-attribution.json"
-COLLECTOR_STATE = Path.home() / ".claude/learning/attribution-collector-state.json"
+LEGACY_COLLECTOR_STATE = Path.home() / ".claude/learning/attribution-collector-state.json"
+
+
+def collector_state_path(target: Path) -> Path:
+    return target / ".claude" / "learning" / "attribution-collector-state.json"
 
 
 def cost_attribution_path(target: Path) -> Path:
@@ -72,13 +76,16 @@ def reset_workspace(target: Path) -> dict:
         raw["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         attr_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
 
-    if COLLECTOR_STATE.is_file():
-        backup_state = COLLECTOR_STATE.with_suffix(f".json.pre-reset-{int(time.time())}.bak")
-        shutil.copy2(COLLECTOR_STATE, backup_state)
-        COLLECTOR_STATE.write_text(
-            json.dumps({"lastRun": 0, "fileMtimes": {}, "processedSessions": {}}, indent=2) + "\n",
-            encoding="utf-8",
-        )
+    state_path = collector_state_path(target)
+    reset_state = {"lastRun": 0, "fileMtimes": {}, "processedSessions": {}, "workspacePath": str(target)}
+    if state_path.is_file():
+        backup_state = state_path.with_suffix(f".json.pre-reset-{int(time.time())}.bak")
+        shutil.copy2(state_path, backup_state)
+        state_path.write_text(json.dumps(reset_state, indent=2) + "\n", encoding="utf-8")
+    elif LEGACY_COLLECTOR_STATE.is_file():
+        backup_state = LEGACY_COLLECTOR_STATE.with_suffix(f".json.pre-reset-{int(time.time())}.bak")
+        shutil.copy2(LEGACY_COLLECTOR_STATE, backup_state)
+        LEGACY_COLLECTOR_STATE.write_text(json.dumps(reset_state, indent=2) + "\n", encoding="utf-8")
 
     return {
         "removedRuns": removed,
