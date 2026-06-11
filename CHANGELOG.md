@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.1] - 2026-06-11
+
+### Fixed
+
+- **Multi-agent auto-sync**: workspace and global skill installs now fan out to all enabled agents by default (`.claude`, `.cursor`, `.kiro`, `.github/instructions`); checkbox install, branch profile apply, and `.claude/skills` file watcher also sync.
+- **Branch skill profiles not visible**: git detection now falls back to `git` CLI when `vscode.git` is not ready; profiles appear as a **Branch profiles** section at the top of the Skills tree; toolbar icons added for show/save/apply.
+- **Critical cost mis-attribution**: transcript parser no longer treats the full `skill_listing` catalog as invoked skills. Tokens are attributed only to skills with evidence of actual use (path reads, Skill tool, explicit markers).
+- Conservative fallback: sessions with no detected invocations go to `unattributed` instead of being split evenly across all enabled skills.
+- New command **Reset Mis-attributed Cost Data** clears bad collector rows and `transcriptSkills` for re-collection.
+- Dashboard and usage report warn when unattributed token volume is significant.
+
+### Changed
+
+- `self-learning` run schema documents `metadata.invoked: true` for accurate per-skill attribution.
+
 ## [1.0.0] - 2026-06-11
 
 ### Major milestone

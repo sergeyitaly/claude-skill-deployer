@@ -1,10 +1,49 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  branchProfilesFeatureActive,
+  BranchSkillProfile,
+  getCurrentBranch,
+  isGitWorkspace,
+  listRepoBranchProfiles,
+} from "./branchProfiles";
 import { listSkillStatuses, loadManifest, SkillStatus } from "./skillOps";
 import { isFeatureEnabled } from "./featureFlags";
 import { compareSkillsForSort, formatRoiDescription, skillRoiMetrics, SkillSortMode } from "./skillRoi";
 import { computeUsageStats } from "./usageStats";
 import * as vscode from "vscode";
+
+export class BranchProfilesRootItem extends vscode.TreeItem {
+  constructor(label: string, count: number) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = "branch-profiles-root";
+    this.iconPath = new vscode.ThemeIcon("git-branch");
+    this.description = `${count} saved`;
+    this.tooltip = "Per-branch skill layouts stored in ~/.claude/learning/branch-profiles.json";
+  }
+}
+
+export class BranchProfileBranchItem extends vscode.TreeItem {
+  constructor(profile: BranchSkillProfile, isCurrent: boolean) {
+    super(profile.branch, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = "branch-profile-entry";
+    this.iconPath = new vscode.ThemeIcon(isCurrent ? "check" : "git-branch");
+    this.description = `${profile.skills.length} skills`;
+    const overrides = Object.keys(profile.skillOverrides).length;
+    this.tooltip = new vscode.MarkdownString(
+      `**${profile.branch}**${isCurrent ? " (current)" : ""}\n\n` +
+        `Skills: ${profile.skills.length ? profile.skills.join(", ") : "(none)"}\n\n` +
+        `Overrides: ${overrides}\n\n` +
+        `Updated: ${profile.updatedAt.slice(0, 16).replace("T", " ")}`
+    );
+    this.command = {
+      command: "claudeSkills.showBranchProfiles",
+      title: "Show Branch Skill Profiles",
+    };
+  }
+}
+
+export type SkillsTreeNode = SkillItem | BranchProfilesRootItem | BranchProfileBranchItem;
 
 export class SkillItem extends vscode.TreeItem {
   constructor(public readonly status: SkillStatus, roiLine?: string) {
@@ -142,8 +181,8 @@ export class SkillItem extends vscode.TreeItem {
   }
 }
 
-export class SkillsProvider implements vscode.TreeDataProvider<SkillItem> {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<SkillItem | undefined | void>();
+export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<SkillsTreeNode | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   constructor(private readonly libraryDir: string, private readonly getTarget: () => string | undefined) {}
@@ -152,15 +191,45 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillItem> {
     this._onDidChangeTreeData.fire();
   }
 
-  getTreeItem(element: SkillItem): vscode.TreeItem {
+  getTreeItem(element: SkillsTreeNode): vscode.TreeItem {
     return element;
   }
 
-  getChildren(element?: SkillItem): SkillItem[] {
+  private branchSection(target: string): SkillsTreeNode[] {
+    if (!branchProfilesFeatureActive() || !isGitWorkspace(target)) {
+      return [];
+    }
+    const current = getCurrentBranch(target);
+    const profiles = listRepoBranchProfiles(target);
+    const rootLabel = current ? `Branch profiles (${current})` : "Branch profiles";
+    const root = new BranchProfilesRootItem(rootLabel, profiles.length);
+    if (profiles.length === 0) {
+      root.description = "none saved — use Save Branch Skill Profile";
+      root.collapsibleState = vscode.TreeItemCollapsibleState.None;
+      root.command = { command: "claudeSkills.saveBranchProfile", title: "Save Branch Skill Profile" };
+      return [root];
+    }
+    return [root];
+  }
+
+  getChildren(element?: SkillsTreeNode): SkillsTreeNode[] {
+    const target = this.getTarget();
+
+    if (element instanceof BranchProfilesRootItem) {
+      if (!target) {
+        return [];
+      }
+      const current = getCurrentBranch(target);
+      return listRepoBranchProfiles(target).map(
+        (p) => new BranchProfileBranchItem(p, p.branch === current)
+      );
+    }
+
     if (element) {
       return [];
     }
-    const target = this.getTarget();
+
+    const branchNodes = target ? this.branchSection(target) : [];
     const statuses = listSkillStatuses(this.libraryDir, target);
     const manifest = loadManifest(this.libraryDir);
     const sortMode = vscode.workspace
@@ -181,7 +250,7 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillItem> {
     });
 
     const showRoi = isFeatureEnabled("costAwareSearch");
-    return statuses.map((s) => {
+    const skillNodes = statuses.map((s) => {
       let roiLine: string | undefined;
       if (showRoi && s.inLibrary) {
         const metrics = skillRoiMetrics(s.name, manifest, usageMap.get(s.name));
@@ -189,5 +258,6 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillItem> {
       }
       return new SkillItem(s, roiLine);
     });
+    return [...branchNodes, ...skillNodes];
   }
 }

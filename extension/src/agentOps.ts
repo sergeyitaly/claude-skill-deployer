@@ -3,7 +3,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { buildCopilotInstructionsFile } from "./copilotTransform";
-import { copySkill, discoverBundledSkills, detectRelevantSkills, InstallResult, loadManifest, Manifest } from "./skillOps";
+import { isFeatureEnabled } from "./featureFlags";
+import {
+  copySkill,
+  discoverBundledSkills,
+  detectRelevantSkills,
+  globalSkillsDir,
+  InstallResult,
+  loadManifest,
+  Manifest,
+  removeSkill,
+} from "./skillOps";
+import { listInstalledSkills } from "./usageStats";
 import { computeCreditUsageFromRoots } from "./usageCost";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
@@ -50,6 +61,44 @@ export function enabledAgents(libraryDir: string): AgentId[] {
     "kiro",
   ]);
   return configured.filter((id) => id in manifest.agents);
+}
+
+/** True when multi-agent feature is on and workspace installs fan out to all enabled agents. */
+export function shouldSyncWorkspaceToAll(): boolean {
+  if (!isFeatureEnabled("multiAgent")) {
+    return false;
+  }
+  return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true);
+}
+
+/** True when multi-agent feature is on and global installs fan out to all enabled agents. */
+export function shouldSyncGlobalToAll(): boolean {
+  if (!isFeatureEnabled("multiAgent")) {
+    return false;
+  }
+  return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncGlobalToAll", true);
+}
+
+function resolveSkillSourceRoot(skillName: string, sourceRoot: string, libraryDir: string): string | undefined {
+  if (fs.existsSync(path.join(sourceRoot, skillName, "SKILL.md"))) {
+    return sourceRoot;
+  }
+  if (fs.existsSync(path.join(libraryDir, skillName, "SKILL.md"))) {
+    return libraryDir;
+  }
+  return undefined;
+}
+
+function removeSkillFromAgent(agent: AgentDefinition, destRoot: string, skillName: string): boolean {
+  if (agent.format === "skill-md") {
+    return removeSkill(destRoot, skillName);
+  }
+  const file = path.join(destRoot, `${skillName}.instructions.md`);
+  if (!fs.existsSync(file)) {
+    return false;
+  }
+  fs.rmSync(file, { force: true });
+  return true;
 }
 
 function globalDirFor(agent: AgentDefinition): string {
@@ -158,6 +207,109 @@ export function generateForAllAgents(
     for (const [skillName, matched] of Object.entries(detected)) {
       const r = installSkillToAgent(agentId, agent, skillName, libraryDir, manifest, destRoot, opts.force, opts.dryRun);
       results.push({ ...r, reason: matched.join(", ") });
+    }
+  }
+  return results;
+}
+
+/** Install one skill into every enabled agent workspace path (.claude, .cursor, .kiro, .github/instructions). */
+export function installSkillToAllWorkspaceAgents(
+  libraryDir: string,
+  target: string,
+  skillName: string,
+  sourceRoot: string,
+  force: boolean,
+  dryRun: boolean,
+  agentIds?: AgentId[]
+): AgentInstallResult[] {
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const manifest = loadManifest(libraryDir);
+  const resolvedSource = resolveSkillSourceRoot(skillName, sourceRoot, libraryDir);
+  const results: AgentInstallResult[] = [];
+
+  for (const agentId of agentIds ?? enabledAgents(libraryDir)) {
+    const agent = agentsManifest.agents[agentId];
+    if (!agent.supportsWorkspace) {
+      continue;
+    }
+    const destRoot = workspaceDirFor(target, agent);
+    if (!resolvedSource) {
+      results.push({ agent: agentId, skill: skillName, status: "source-missing" });
+      continue;
+    }
+    if (agent.format === "skill-md") {
+      results.push({
+        agent: agentId,
+        skill: skillName,
+        status: copySkill(skillName, resolvedSource, destRoot, force, dryRun),
+      });
+      continue;
+    }
+    const detectGlobs = manifest.skills[skillName]?.detect_globs ?? ["**/*"];
+    const destFile = path.join(destRoot, `${skillName}.instructions.md`);
+    const status = writeCopilotInstruction(
+      skillName,
+      path.join(resolvedSource, skillName, "SKILL.md"),
+      detectGlobs,
+      destFile,
+      force,
+      dryRun
+    );
+    results.push({ agent: agentId, skill: skillName, status });
+  }
+  return results;
+}
+
+/** Remove one skill from every enabled agent workspace path. */
+export function removeSkillFromAllWorkspaceAgents(
+  libraryDir: string,
+  target: string,
+  skillName: string,
+  agentIds?: AgentId[]
+): { agent: AgentId; removed: boolean }[] {
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const out: { agent: AgentId; removed: boolean }[] = [];
+  for (const agentId of agentIds ?? enabledAgents(libraryDir)) {
+    const agent = agentsManifest.agents[agentId];
+    if (!agent.supportsWorkspace) {
+      continue;
+    }
+    const destRoot = workspaceDirFor(target, agent);
+    out.push({ agent: agentId, removed: removeSkillFromAgent(agent, destRoot, skillName) });
+  }
+  return out;
+}
+
+/**
+ * Reconcile other agent paths from the Claude workspace skill set
+ * (.claude/skills is the git-tracked source of truth).
+ */
+export function syncWorkspaceSkillsToAllAgents(
+  libraryDir: string,
+  target: string,
+  opts?: { force?: boolean }
+): AgentInstallResult[] {
+  if (!shouldSyncWorkspaceToAll()) {
+    return [];
+  }
+  const force = opts?.force ?? false;
+  const globalDir = globalSkillsDir();
+  const claudeDir = path.join(target, ".claude", "skills");
+  const results: AgentInstallResult[] = [];
+
+  for (const skillName of listInstalledSkills(target)) {
+    const sourceRoot = fs.existsSync(path.join(claudeDir, skillName, "SKILL.md"))
+      ? claudeDir
+      : fs.existsSync(path.join(globalDir, skillName, "SKILL.md"))
+        ? globalDir
+        : libraryDir;
+    for (const r of installSkillToAllWorkspaceAgents(libraryDir, target, skillName, sourceRoot, force, false)) {
+      if (r.agent === "claude") {
+        continue;
+      }
+      if (r.status === "installed" || r.status === "written" || r.status === "skipped-exists") {
+        results.push(r);
+      }
     }
   }
   return results;

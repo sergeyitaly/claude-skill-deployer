@@ -5,7 +5,8 @@ export interface ParsedTranscript {
   agent: AgentId;
   sessionId: string;
   tokens: number;
-  skills: string[];
+  /** Skills with evidence of actual invocation (not merely enabled/listed). */
+  activeSkills: string[];
   filePath: string;
 }
 
@@ -14,9 +15,71 @@ export interface TranscriptParser {
   parseFile(filePath: string): ParsedTranscript | null;
 }
 
-const SKILL_NAME_RE = /^- ([a-z0-9][a-z0-9-]*):/gm;
-const SKILLS_PATH_RE = /[\\/]\.claude[\\/]skills[\\/]([a-z0-9][a-z0-9-]*)/gi;
-const CURSOR_SKILLS_PATH_RE = /[\\/]\.cursor[\\/]skills[\\/]([a-z0-9][a-z0-9-]*)/gi;
+const SKILL_PATH_RE = /[\\/]\.(?:claude|cursor)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/gi;
+
+/** Names that must never be attributed as skills. */
+const DENYLIST = new Set([
+  "claude",
+  "cursor",
+  "api",
+  "claude-api",
+  "unknown",
+  "base",
+  "context",
+  "skill",
+  "skills",
+]);
+
+function isPlausibleSkillName(name: string): boolean {
+  return /^[a-z][a-z0-9-]*$/.test(name) && name.length >= 3 && !DENYLIST.has(name);
+}
+
+/**
+ * Detect skills actually invoked in a session — NOT the full skill_listing catalog.
+ * Conservative: path reads, explicit skill_name, Skill tool, and custom markers only.
+ */
+export function parseActiveSkills(content: string): string[] {
+  const active = new Set<string>();
+
+  for (const match of content.matchAll(/"skill_name"\s*:\s*"([a-z][a-z0-9-]*)"/g)) {
+    if (isPlausibleSkillName(match[1])) {
+      active.add(match[1]);
+    }
+  }
+
+  for (const match of content.matchAll(/\[SKILL:([a-z][a-z0-9-]*)\]/gi)) {
+    const name = match[1].toLowerCase();
+    if (isPlausibleSkillName(name)) {
+      active.add(name);
+    }
+  }
+
+  for (const line of content.split("\n")) {
+    if (line.includes("skill_listing")) {
+      continue;
+    }
+
+    if (line.includes("tool_use") || line.includes("tool_result") || line.includes("Read")) {
+      SKILL_PATH_RE.lastIndex = 0;
+      for (const match of line.matchAll(SKILL_PATH_RE)) {
+        const name = match[1].toLowerCase();
+        if (isPlausibleSkillName(name)) {
+          active.add(name);
+        }
+      }
+    }
+
+    if (line.includes('"name":"Skill"') || line.includes('"name": "Skill"')) {
+      for (const match of line.matchAll(/"skill(?:_name)?"\s*:\s*"([a-z][a-z0-9-]*)"/g)) {
+        if (isPlausibleSkillName(match[1])) {
+          active.add(match[1]);
+        }
+      }
+    }
+  }
+
+  return [...active].sort();
+}
 
 function sumClaudeUsageLines(content: string): number {
   let total = 0;
@@ -59,34 +122,6 @@ function extractSessionId(content: string, fallback: string): string {
   return fallback;
 }
 
-function extractSkillsFromContent(content: string): string[] {
-  const found = new Set<string>();
-
-  for (const match of content.matchAll(SKILL_NAME_RE)) {
-    found.add(match[1]);
-  }
-
-  for (const re of [SKILLS_PATH_RE, CURSOR_SKILLS_PATH_RE]) {
-    re.lastIndex = 0;
-    for (const match of content.matchAll(re)) {
-      found.add(match[1]);
-    }
-  }
-
-  if (content.includes('"type":"skill_listing"')) {
-    for (const line of content.split("\n")) {
-      if (!line.includes("skill_listing")) {
-        continue;
-      }
-      for (const match of line.matchAll(/- ([a-z0-9][a-z0-9-]*):/g)) {
-        found.add(match[1]);
-      }
-    }
-  }
-
-  return [...found].sort();
-}
-
 export const claudeParser: TranscriptParser = {
   agent: "claude",
   parseFile(filePath: string): ParsedTranscript | null {
@@ -105,7 +140,7 @@ export const claudeParser: TranscriptParser = {
       agent: "claude",
       sessionId: extractSessionId(content, base),
       tokens: tokens || Math.round(content.length / 4),
-      skills: extractSkillsFromContent(content),
+      activeSkills: parseActiveSkills(content),
       filePath,
     };
   },
@@ -147,7 +182,7 @@ export const cursorParser: TranscriptParser = {
       agent: "cursor",
       sessionId: base,
       tokens,
-      skills: extractSkillsFromContent(content),
+      activeSkills: parseActiveSkills(content),
       filePath,
     };
   },

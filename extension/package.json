@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -227,6 +227,12 @@
         "title": "Repair Claude Skills Data",
         "icon": "$(wrench)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.resetAttribution",
+        "title": "Reset Mis-attributed Cost Data",
+        "icon": "$(debug-restart)",
+        "category": "Claude Skills"
       }
     ],
     "configuration": {
@@ -299,13 +305,13 @@
         },
         "claudeSkills.agents.syncGlobalToAll": {
           "type": "boolean",
-          "default": false,
-          "description": "When installing the global library, sync to all enabled agents instead of Claude only."
+          "default": true,
+          "description": "When installing the global library, sync to all enabled agents instead of Claude only. Requires claudeSkills.features.multiAgent."
         },
         "claudeSkills.agents.syncWorkspaceToAll": {
           "type": "boolean",
-          "default": false,
-          "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions)."
+          "default": true,
+          "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions). Requires claudeSkills.features.multiAgent."
         },
         "claudeSkills.optimizer.autoApply": {
           "type": "boolean",
@@ -497,6 +503,21 @@
           "group": "navigation@3"
         },
         {
+          "command": "claudeSkills.showBranchProfiles",
+          "when": "view == claudeSkillsView && claudeSkills.branchProfilesEnabled",
+          "group": "navigation@4"
+        },
+        {
+          "command": "claudeSkills.saveBranchProfile",
+          "when": "view == claudeSkillsView && claudeSkills.branchProfilesEnabled",
+          "group": "navigation@5"
+        },
+        {
+          "command": "claudeSkills.applyBranchProfile",
+          "when": "view == claudeSkillsView && claudeSkills.branchProfilesEnabled",
+          "group": "navigation@6"
+        },
+        {
           "command": "claudeSkills.installSessionWatchHook",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
@@ -510,21 +531,6 @@
           "command": "claudeSkills.cycleBudgetMode",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
-        },
-        {
-          "command": "claudeSkills.saveBranchProfile",
-          "when": "view == claudeSkillsView",
-          "group": "4_branch"
-        },
-        {
-          "command": "claudeSkills.applyBranchProfile",
-          "when": "view == claudeSkillsView",
-          "group": "4_branch"
-        },
-        {
-          "command": "claudeSkills.showBranchProfiles",
-          "when": "view == claudeSkillsView",
-          "group": "4_branch"
         }
       ],
       "view/item/context": [

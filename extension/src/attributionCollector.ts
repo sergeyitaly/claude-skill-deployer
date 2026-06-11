@@ -22,6 +22,8 @@ export interface AttributionStore {
   /** Incremental attribution from parsed transcripts (collector-owned). */
   transcriptSkills: Record<string, Partial<Record<AgentId, { tokens: number; cost: number; sessions: number }>>>;
   base_context: Partial<Record<AgentId, number>>;
+  /** Tokens that could not be attributed to a specific invoked skill. */
+  unattributed: Partial<Record<AgentId, number>>;
 }
 
 function expandHome(p: string): string {
@@ -58,9 +60,10 @@ function loadAttribution(): AttributionStore {
       workspacePath: raw.workspacePath,
       transcriptSkills: raw.transcriptSkills ?? raw.skills ?? {},
       base_context: raw.base_context ?? {},
+      unattributed: (raw as { unattributed?: Partial<Record<AgentId, number>> }).unattributed ?? {},
     };
   } catch {
-    return { updatedAt: new Date().toISOString(), transcriptSkills: {}, base_context: {} };
+    return { updatedAt: new Date().toISOString(), transcriptSkills: {}, base_context: {}, unattributed: {} };
   }
 }
 
@@ -77,6 +80,7 @@ function saveAttribution(store: AttributionStore): void {
     workspacePath: store.workspacePath,
     transcriptSkills: store.transcriptSkills,
     base_context: store.base_context,
+    unattributed: store.unattributed,
   };
   fs.mkdirSync(path.dirname(COST_ATTRIBUTION_PATH), { recursive: true });
   fs.writeFileSync(COST_ATTRIBUTION_PATH, JSON.stringify(data, null, 2) + "\n", "utf-8");
@@ -118,19 +122,21 @@ function transcriptWorkspace(filePath: string, content: string): string | null {
 }
 
 function updateAttribution(store: AttributionStore, parsed: ParsedTranscript): void {
-  const { agent, tokens, skills } = parsed;
+  const { agent, tokens, activeSkills } = parsed;
   if (tokens <= 0) {
     return;
   }
 
-  if (skills.length === 0) {
-    store.base_context[agent] = (store.base_context[agent] ?? 0) + tokens;
+  store.unattributed = store.unattributed ?? {};
+
+  if (activeSkills.length === 0) {
+    store.unattributed[agent] = (store.unattributed[agent] ?? 0) + tokens;
     return;
   }
 
-  const perSkill = tokens / skills.length;
+  const perSkill = tokens / activeSkills.length;
   const perSkillCost = tokenCostUsd(perSkill);
-  for (const skill of skills) {
+  for (const skill of activeSkills) {
     const skillMap = store.transcriptSkills[skill] ?? {};
     const bucket = skillMap[agent] ?? { tokens: 0, cost: 0, sessions: 0 };
     bucket.tokens += perSkill;
@@ -147,10 +153,21 @@ function appendRunsForWorkspace(target: string, parsed: ParsedTranscript, conten
     return;
   }
 
-  const skills = parsed.skills.length > 0 ? parsed.skills : ["base_context"];
-  const perSkill = Math.round(parsed.tokens / skills.length);
+  if (parsed.activeSkills.length === 0) {
+    appendSkillRun(target, {
+      skill: "unattributed",
+      agent: parsed.agent,
+      tokens: parsed.tokens,
+      success: true,
+      action: "transcript",
+      session_id: parsed.sessionId,
+      metadata: { source: "attribution-collector", file: parsed.filePath, invoked: false },
+    });
+    return;
+  }
 
-  for (const skill of skills) {
+  const perSkill = Math.round(parsed.tokens / parsed.activeSkills.length);
+  for (const skill of parsed.activeSkills) {
     appendSkillRun(target, {
       skill,
       agent: parsed.agent,
@@ -158,7 +175,7 @@ function appendRunsForWorkspace(target: string, parsed: ParsedTranscript, conten
       success: true,
       action: "transcript",
       session_id: parsed.sessionId,
-      metadata: { source: "attribution-collector", file: parsed.filePath },
+      metadata: { source: "attribution-collector", file: parsed.filePath, invoked: true },
     });
   }
 }

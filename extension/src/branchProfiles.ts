@@ -1,8 +1,14 @@
+import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import {
+  installSkillToAllWorkspaceAgents,
+  removeSkillFromAllWorkspaceAgents,
+  shouldSyncWorkspaceToAll,
+} from "./agentOps";
 import { tierForSkill, estimateSessionCostUsd, formatCompactUsd } from "./skillCost";
 import {
   copySkill,
@@ -73,6 +79,19 @@ interface GitApi {
   repositories: GitRepository[];
 }
 
+let cachedGitApi: GitApi | undefined;
+
+/** Called after vscode.git activates so sync git lookups work. */
+export function setGitApiCache(api: GitApi | undefined): void {
+  cachedGitApi = api;
+}
+
+export interface FilesystemGitInfo {
+  root: string;
+  branch?: string;
+  originUrl?: string;
+}
+
 function readStore(): BranchProfilesStore {
   if (!fs.existsSync(BRANCH_PROFILES_PATH)) {
     return { version: 1, repos: {} };
@@ -91,33 +110,85 @@ function writeStore(store: BranchProfilesStore): void {
 }
 
 function getGitApi(): GitApi | undefined {
+  if (cachedGitApi) {
+    return cachedGitApi;
+  }
   const ext = vscode.extensions.getExtension<{ getAPI(version: number): GitApi }>("vscode.git");
-  if (!ext) {
+  if (!ext?.isActive) {
     return undefined;
   }
   try {
-    return ext.isActive ? ext.exports.getAPI(1) : undefined;
+    cachedGitApi = ext.exports.getAPI(1);
+    return cachedGitApi;
   } catch {
     return undefined;
   }
 }
 
+function gitCommand(root: string, args: string): string | undefined {
+  try {
+    const out = execSync(`git -C "${root}" ${args}`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000,
+    }).trim();
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Fallback when vscode.git API is not ready (common on extension activate). */
+export function detectGitFromFilesystem(target: string): FilesystemGitInfo | undefined {
+  const root = gitCommand(path.resolve(target), "rev-parse --show-toplevel");
+  if (!root) {
+    return undefined;
+  }
+  const branch = gitCommand(root, "rev-parse --abbrev-ref HEAD");
+  const originUrl = gitCommand(root, "config --get remote.origin.url");
+  return {
+    root: path.normalize(root),
+    branch: branch && branch !== "HEAD" ? branch : undefined,
+    originUrl,
+  };
+}
+
 /** Best-effort git repo for a workspace folder (undefined if not a git repo). */
 export function getGitRepository(target: string): GitRepository | undefined {
   const api = getGitApi();
-  if (!api) {
+  if (api) {
+    const normalized = path.normalize(target);
+    const match = api.repositories.find((repo) => {
+      const root = path.normalize(repo.rootUri.fsPath);
+      return normalized === root || normalized.startsWith(root + path.sep);
+    });
+    if (match) {
+      return match;
+    }
+  }
+  const fsGit = detectGitFromFilesystem(target);
+  if (!fsGit) {
     return undefined;
   }
-  const normalized = path.normalize(target);
-  return api.repositories.find((repo) => {
-    const root = path.normalize(repo.rootUri.fsPath);
-    return normalized === root || normalized.startsWith(root + path.sep);
-  });
+  return {
+    rootUri: { fsPath: fsGit.root },
+    state: {
+      HEAD: fsGit.branch ? { name: fsGit.branch } : undefined,
+      remotes: fsGit.originUrl ? [{ name: "origin", fetchUrl: fsGit.originUrl }] : [],
+    },
+  };
 }
 
 export function getCurrentBranch(target: string): string | undefined {
   const repo = getGitRepository(target);
-  return repo?.state.HEAD?.name;
+  if (repo?.state.HEAD?.name) {
+    return repo.state.HEAD.name;
+  }
+  return detectGitFromFilesystem(target)?.branch;
+}
+
+export function isGitWorkspace(target: string): boolean {
+  return getGitRepository(target) !== undefined;
 }
 
 function originRemoteUrl(repo: GitRepository): string | undefined {
@@ -131,9 +202,16 @@ export function repoKeyFor(target: string): string | undefined {
   if (!repo) {
     return undefined;
   }
-  const remote = originRemoteUrl(repo);
+  const remote = originRemoteUrl(repo) ?? detectGitFromFilesystem(target)?.originUrl;
   const basis = remote ?? path.normalize(repo.rootUri.fsPath);
   return crypto.createHash("sha256").update(basis).digest("hex").slice(0, 16);
+}
+
+export function branchProfilesFeatureActive(): boolean {
+  return (
+    vscode.workspace.getConfiguration("claudeSkills.features").get<boolean>("branchProfiles", true) &&
+    branchProfilesEnabled()
+  );
 }
 
 function branchProfilesEnabled(): boolean {
@@ -268,6 +346,9 @@ export function applyBranchProfile(
     if (status === "installed" || status === "skipped-exists") {
       result.installed.push(skill);
       installed.add(skill);
+      if (shouldSyncWorkspaceToAll()) {
+        installSkillToAllWorkspaceAgents(libraryDir, target, skill, sourceRoot, false, false);
+      }
     } else {
       result.skipped.push(skill);
     }
@@ -276,8 +357,12 @@ export function applyBranchProfile(
   if (removeExtra) {
     for (const skill of [...installed]) {
       if (!desired.has(skill)) {
-        if (removeSkill(destRoot, skill)) {
+        const removed = removeSkill(destRoot, skill);
+        if (removed) {
           result.removed.push(skill);
+        }
+        if (shouldSyncWorkspaceToAll()) {
+          removeSkillFromAllWorkspaceAgents(libraryDir, target, skill);
         }
       }
     }

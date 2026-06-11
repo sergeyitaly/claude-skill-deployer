@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as vscode from "vscode";
 import { globalSkillsDir } from "./skillOps";
-import { getGitRepository } from "./branchProfiles";
+import { isGitWorkspace } from "./branchProfiles";
 
 const GLOBAL_SETUP_PROMPTED = "claudeSkills.globalSetupPrompted";
 
@@ -15,7 +15,7 @@ export function directoryExists(dir: string): boolean {
 
 /** Record whether the workspace is a git repo (branch profiles / PR features). */
 export function detectGitRepository(context: vscode.ExtensionContext, target?: string): boolean {
-  const isGit = target ? getGitRepository(target) !== undefined : false;
+  const isGit = target ? isGitWorkspace(target) : false;
   void context.globalState.update("claudeSkills.isGitRepo", isGit);
   return isGit;
 }

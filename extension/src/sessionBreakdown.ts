@@ -29,13 +29,17 @@ export function generateSessionBreakdown(target: string, sessionId: string): str
 
   let output = `\nSession: ${sessionId}\n`;
   output += `Total: $${totalCost.toFixed(2)} | ${formatTokenCount(totalTokens)} tokens\n\n`;
-  output += `Skills active in this session:\n`;
+  const hasUnattributed = rows.some((r) => r.skill === "unattributed");
+  output += hasUnattributed
+    ? `Attribution (some tokens unattributed — no skill invocation detected):\n`
+    : `Skills invoked in this session:\n`;
 
   for (const data of rows) {
     const percentage = totalCost > 0 ? (data.cost / totalCost) * 100 : 0;
     const barLength = Math.max(0, Math.min(50, Math.floor((data.cost / maxCost) * 50)));
     const bar = "\u2588".repeat(barLength) + "\u2591".repeat(50 - barLength);
-    output += `├── ${data.skill.padEnd(25)} $${data.cost.toFixed(2)} (${percentage.toFixed(0)}%)  ${bar} ${formatTokenCount(data.tokens)} tokens\n`;
+    const label = data.skill === "unattributed" ? "unattributed (est.)" : data.skill;
+    output += `├── ${label.padEnd(25)} $${data.cost.toFixed(2)} (${percentage.toFixed(0)}%)  ${bar} ${formatTokenCount(data.tokens)} tokens\n`;
   }
 
   return output;

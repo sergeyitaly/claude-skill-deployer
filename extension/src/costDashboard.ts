@@ -62,6 +62,8 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   const manifest = loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const attribution = mergeAttribution(built.skills, built.transcriptSkills);
+  const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
+  const unattributedCost = (unattributedTokens / 1_000_000) * 9;
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
   const suggestions = generateOptimizationSuggestions(target, libraryDir, manifest);
   const top = topExpensiveSkills(attribution, 5);
@@ -129,11 +131,18 @@ export function formatCostDashboardHtml(target: string, libraryDir: string): str
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   .metric { display: inline-block; margin-right: 16px; }
   .note { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 10px; }
+  .warn { background: var(--vscode-inputValidation-warningBackground); border: 1px solid var(--vscode-inputValidation-warningBorder); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.9em; }
 </style>
 </head>
 <body>
   <h1>Claude Skills — Cost Intelligence</h1>
   <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code></div>
+
+  ${
+    unattributedTokens > 0
+      ? `<div class="warn"><b>Attribution warning:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}) could not be assigned to a specific invoked skill. Run <b>Reset Mis-attributed Cost Data</b> if you see equal splits across many skills, then use self-learning to record runs with <code>invoked: true</code>.</div>`
+      : ""
+  }
 
   <div class="panel">
     <div class="summary-line">

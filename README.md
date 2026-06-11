@@ -23,11 +23,13 @@ See [`extension/README.md`](extension/README.md) for the full extension guide.
 1. Install **Claude Skills Manager** from the Marketplace (or a `.vsix` from `extension/`).
 2. Open a workspace folder.
 3. **Claude Skills** activity bar → **Install Skill Library to ~/.claude/skills** (one-time).
+   With `multiAgent` on (default), this also seeds `~/.cursor/skills/`, `~/.kiro/skills/`, and Copilot global instructions when those agents are enabled.
 4. **Install Relevant Skills for Workspace** (or **Preview** first).
+   By default, detected skills are copied to **all enabled agent paths** in the workspace (`.claude/skills/`, `.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`).
 5. Optional: **Enable Cost Control Hooks**, open **Cost Intelligence Dashboard**, configure **Budget** and **Feature Toggles**.
 
 The extension never hides skills already in `<workspace>/.claude/skills/` —
-project-local skills show as *project-only* in the tree.
+project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
 
 ## Quick start (CLI)
 
@@ -67,8 +69,10 @@ Or Settings → `claudeSkills.features.*`:
 ## Cost intelligence
 
 - **Cost Intelligence Dashboard** — top expensive skills, cross-agent savings, team attribution
+- **Attribution collector** — parses session transcripts; attributes tokens only to **invoked** skills (not the full skill catalog). Sessions with no detected invocation go to `unattributed`.
+- **Reset Mis-attributed Cost Data** — clears bad collector rows and `transcriptSkills` for re-collection (`scripts/reset_attribution.py` CLI equivalent)
 - **Optimization suggestions** — disable expensive low-use skills, agent-switch hints
-- **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply`
+- **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (keep `false` until attribution data looks sane)
 - **Community benchmarks** — `~/.claude/learning/community-benchmarks.json` (opt-in upload/download URLs)
 - **Emergency cutoff** — disables all workspace skills above `claudeSkills.emergency.hardLimitUsd`; reset via command
 - **Skill archival** — moves idle skills to `.claude/skills-archived/` (restore command)
@@ -85,12 +89,24 @@ py scripts/test_skill_cost.py terraform-plan-review --write-manifest
 
 ## Multi-agent support
 
-See `skills_library/agents.json`. Settings: `claudeSkills.agents.enabled`.
+See `skills_library/agents.json`.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro` | Which agents receive clones |
+| `claudeSkills.agents.syncWorkspaceToAll` | `true` | Workspace installs fan out to all enabled paths (requires `multiAgent` feature) |
+| `claudeSkills.agents.syncGlobalToAll` | `true` | Global library install fans out to all enabled agents |
+
+Checkbox install/remove, branch profile apply, and changes under `.claude/skills/` also sync to other agents when `syncWorkspaceToAll` is on.
 
 ## Per-branch skill profiles
 
 `~/.claude/learning/branch-profiles.json` — personal layouts per git branch.
 Committed `.claude/skills/` remains team source of truth.
+
+- **Branch profiles** section at the top of the Skills tree (current branch + saved profiles)
+- Toolbar icons: show / save / apply branch profile (git repos only)
+- Auto-save on skill install/remove; optional auto-apply on branch switch
 
 ## Library layout
 
@@ -110,7 +126,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.0** (`serhiivoinolovych`).
+Current extension version: **1.0.1** (`serhiivoinolovych`).
 
 ## Performance impact
 
@@ -138,9 +154,17 @@ Git integration is optional (branch profiles, team attribution). GitHub CLI is o
 node scripts/validate-release.mjs
 ```
 
-## v1.0.0 onboarding
+## v1.0.x onboarding & recovery
 
-First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 learning data to `.claude/backup-v0.7/`. See [CHANGELOG.md](CHANGELOG.md).
+First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 learning data to `.claude/backup-v0.7/`.
+
+| Command | Purpose |
+|---|---|
+| `Claude Skills: Start Onboarding Tour` | Guided setup |
+| `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL |
+| `Claude Skills: Reset Mis-attributed Cost Data` | Clear bad cost attribution after v1.0.0 collector bug |
+
+See [CHANGELOG.md](CHANGELOG.md) for v1.0.1 attribution, branch-profile, and multi-agent sync fixes.
 
 ## What this tool does NOT do
 

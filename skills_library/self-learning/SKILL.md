@@ -38,12 +38,16 @@ durable, reviewable output.
 ## Run record schema (one JSON object per line in runs.jsonl)
 
 ```json
-{"ts": "2026-06-11T14:32:00", "skill": "terraform", "action": "validate",
- "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345}
+{"ts": "2026-06-11T14:32:00", "skill": "terraform-plan-review", "action": "plan",
+ "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345,
+ "metadata": {"invoked": true}}
 ```
 
 - `skill`/`action`: a short identifier for what was run (e.g. skill name +
   subcommand, or `"task"` + a short task name).
+- `metadata.invoked`: set to `true` when this skill was **actually invoked**
+  in the session (not merely listed in context). Cost attribution uses this to
+  distinguish active skills from enabled-but-unused skills.
 - `rc`: 0 for success, non-zero for failure.
 - `error`: first meaningful error line (truncate to ~200 chars), empty on
   success.

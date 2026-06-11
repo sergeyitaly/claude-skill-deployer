@@ -64,7 +64,12 @@ export function generateOptimizationSuggestions(
 
   updateCostProfileFromAttribution(target, libraryDir, attribution, usageStats);
 
+  const NON_SKILL_KEYS = new Set(["unattributed", "base_context"]);
+
   for (const [skill, agentData] of Object.entries(attribution)) {
+    if (NON_SKILL_KEYS.has(skill)) {
+      continue;
+    }
     const totalCost = skillTotalCost(agentData);
     if (totalCost <= 0) {
       continue;
@@ -197,11 +202,14 @@ export function crossAgentSavingsSummary(attribution: SkillAttributionMap): {
   return { realizedUsd: realized, potentialUsd: potential, cursorSkills };
 }
 
+const DASHBOARD_EXCLUDE = new Set(["unattributed", "base_context"]);
+
 export function topExpensiveSkills(
   attribution: SkillAttributionMap,
   limit = 5
 ): { skill: string; cost: number; tokens: number }[] {
   return Object.entries(attribution)
+    .filter(([skill]) => !DASHBOARD_EXCLUDE.has(skill))
     .map(([skill, agents]) => ({
       skill,
       cost: skillTotalCost(agents),

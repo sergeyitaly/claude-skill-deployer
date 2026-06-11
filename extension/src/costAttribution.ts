@@ -65,22 +65,30 @@ function agentTotalsFromTranscripts(libraryDir: string): Partial<Record<AgentId,
 }
 
 export type BaseContextAttribution = Partial<Record<AgentId, number>>;
+export type UnattributedAttribution = Partial<Record<AgentId, number>>;
 
 export function buildCostAttribution(target: string, libraryDir: string): {
   skills: SkillAttributionMap;
   transcriptSkills: SkillAttributionMap;
   base_context: BaseContextAttribution;
+  unattributed: UnattributedAttribution;
   agentTotals: Partial<Record<AgentId, AgentAttribution>>;
 } {
   const records = readRunRecords(target);
   const fromRuns = attributionFromRuns(records);
   let transcriptSkills: SkillAttributionMap = {};
   let base_context: BaseContextAttribution = {};
+  let unattributed: UnattributedAttribution = {};
 
   for (const rec of records) {
-    if (rec.skill === "base_context" && rec.tokens && rec.tokens > 0) {
-      const agent = (rec.agent ?? "claude") as AgentId;
+    if (!rec.tokens || rec.tokens <= 0) {
+      continue;
+    }
+    const agent = (rec.agent ?? "claude") as AgentId;
+    if (rec.skill === "base_context") {
       base_context[agent] = (base_context[agent] ?? 0) + rec.tokens;
+    } else if (rec.skill === "unattributed") {
+      unattributed[agent] = (unattributed[agent] ?? 0) + rec.tokens;
     }
   }
 
@@ -90,9 +98,11 @@ export function buildCostAttribution(target: string, libraryDir: string): {
         transcriptSkills?: SkillAttributionMap;
         skills?: SkillAttributionMap;
         base_context?: BaseContextAttribution;
+        unattributed?: UnattributedAttribution;
       };
       transcriptSkills = stored.transcriptSkills ?? stored.skills ?? {};
       base_context = { ...stored.base_context, ...base_context };
+      unattributed = { ...stored.unattributed, ...unattributed };
     } catch {
       // use runs only
     }
@@ -102,6 +112,7 @@ export function buildCostAttribution(target: string, libraryDir: string): {
     skills: fromRuns,
     transcriptSkills,
     base_context,
+    unattributed,
     agentTotals: agentTotalsFromTranscripts(libraryDir),
   };
 }
@@ -128,6 +139,7 @@ export function persistCostAttribution(target: string, libraryDir: string): void
     skills: built.skills,
     transcriptSkills: built.transcriptSkills,
     base_context: built.base_context,
+    unattributed: built.unattributed,
     agentTotals: built.agentTotals,
   };
   fs.mkdirSync(path.dirname(COST_ATTRIBUTION_PATH), { recursive: true });
@@ -154,7 +166,8 @@ export function formatAttributionReport(
   attribution: SkillAttributionMap,
   agentTotals: Partial<Record<AgentId, AgentAttribution>>,
   baseContext?: BaseContextAttribution,
-  transcriptSkills?: SkillAttributionMap
+  transcriptSkills?: SkillAttributionMap,
+  unattributed?: UnattributedAttribution
 ): string[] {
   const lines: string[] = ["## Cross-agent cost attribution", ""];
 
@@ -172,6 +185,19 @@ export function formatAttributionReport(
   if (baseContext && Object.keys(baseContext).length > 0) {
     lines.push("### Base context (no skill detected)", "");
     for (const [agent, tokens] of Object.entries(baseContext).sort()) {
+      const cost = (tokens / 1_000_000) * 9;
+      lines.push(`- ${agent}: ${formatK(tokens)} tokens (~$${cost.toFixed(2)})`);
+    }
+    lines.push("");
+  }
+
+  if (unattributed && Object.keys(unattributed).length > 0) {
+    lines.push("### Unattributed (no invoked skill detected in transcript)", "");
+    lines.push(
+      "> Warning: these tokens could not be assigned to a specific skill. Use the self-learning skill to record `invoked: true` runs for accurate attribution.",
+      ""
+    );
+    for (const [agent, tokens] of Object.entries(unattributed).sort()) {
       const cost = (tokens / 1_000_000) * 9;
       lines.push(`- ${agent}: ${formatK(tokens)} tokens (~$${cost.toFixed(2)})`);
     }
