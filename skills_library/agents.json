@@ -1,0 +1,52 @@
+{
+  "agents": {
+    "claude": {
+      "displayName": "Claude Code",
+      "format": "skill-md",
+      "globalDir": ".claude/skills",
+      "workspaceDir": ".claude/skills",
+      "learningDir": ".claude/learning",
+      "supportsGlobal": true,
+      "supportsWorkspace": true,
+      "supportsBranchProfiles": true,
+      "supportsUsageTranscripts": true,
+      "transcriptRoots": ["~/.claude/projects"]
+    },
+    "cursor": {
+      "displayName": "Cursor",
+      "format": "skill-md",
+      "globalDir": ".cursor/skills",
+      "workspaceDir": ".cursor/skills",
+      "learningDir": ".cursor/learning",
+      "supportsGlobal": true,
+      "supportsWorkspace": true,
+      "supportsBranchProfiles": true,
+      "supportsUsageTranscripts": true,
+      "transcriptRoots": ["~/.cursor/projects"]
+    },
+    "kiro": {
+      "displayName": "Kiro",
+      "format": "skill-md",
+      "globalDir": ".kiro/skills",
+      "workspaceDir": ".kiro/skills",
+      "learningDir": ".kiro/learning",
+      "supportsGlobal": true,
+      "supportsWorkspace": true,
+      "supportsBranchProfiles": true,
+      "supportsUsageTranscripts": false,
+      "transcriptRoots": []
+    },
+    "copilot": {
+      "displayName": "GitHub Copilot",
+      "format": "copilot-instructions",
+      "globalDir": ".copilot/instructions",
+      "workspaceDir": ".github/instructions",
+      "learningDir": null,
+      "supportsGlobal": true,
+      "supportsWorkspace": true,
+      "supportsBranchProfiles": false,
+      "supportsUsageTranscripts": false,
+      "transcriptRoots": []
+    }
+  }
+}

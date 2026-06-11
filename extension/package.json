@@ -1,8 +1,8 @@
 {
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
-  "description": "Detect a project's stack and manage Claude Code skills from a personal global skill library.",
-  "version": "0.4.0",
+  "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
+  "version": "0.7.0",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -107,8 +107,136 @@
         "title": "Enable Session Size Notifications",
         "icon": "$(bell-dot)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installCostControlHooks",
+        "title": "Enable Cost Control Hooks (Budget + Session Size)",
+        "icon": "$(shield)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.cycleBudgetMode",
+        "title": "Cycle Budget Mode (Economy / Normal / Unlimited)",
+        "icon": "$(settings-gear)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.openBudgetSettings",
+        "title": "Open Budget Settings",
+        "icon": "$(settings)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.saveBranchProfile",
+        "title": "Save Branch Skill Profile",
+        "icon": "$(save)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.applyBranchProfile",
+        "title": "Apply Branch Skill Profile",
+        "icon": "$(repo-sync)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showBranchProfiles",
+        "title": "Show Branch Skill Profiles",
+        "icon": "$(git-branch)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installLibraryToAllAgents",
+        "title": "Install Skill Library to All Enabled AI Agents",
+        "icon": "$(layers)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showAgentCapabilities",
+        "title": "Show Enabled AI Agent Targets",
+        "icon": "$(list-tree)",
+        "category": "Claude Skills"
       }
     ],
+    "configuration": {
+      "title": "Claude Skills",
+      "properties": {
+        "claudeSkills.budget.mode": {
+          "type": "string",
+          "enum": ["economy", "normal", "unlimited"],
+          "enumDescriptions": [
+            "Disable high-tier skills locally and warn at low spend thresholds.",
+            "Warn at 80% of daily budget; auto-disable high-tier skills when budget is exceeded.",
+            "No restrictions; notify once per day at a high spend threshold."
+          ],
+          "default": "normal",
+          "description": "Token budget mode across all Claude Code projects on this machine."
+        },
+        "claudeSkills.budget.dailyBudgetUsd": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "Daily estimated spend cap in USD (0 disables the cap). Uses transcript-based estimates, not an actual bill."
+        },
+        "claudeSkills.budget.warnThresholdPercent": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Warn when today's estimated spend reaches this percentage of the daily budget."
+        },
+        "claudeSkills.budget.economyWarnUsd": {
+          "type": "number",
+          "default": 0.1,
+          "minimum": 0,
+          "description": "In economy mode, warn once per day when today's estimated spend crosses this USD amount."
+        },
+        "claudeSkills.budget.unlimitedNotifyUsd": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "In unlimited mode, notify once per day when today's estimated spend crosses this USD amount."
+        },
+        "claudeSkills.budget.autoDisableHighTier": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the daily budget is exceeded, auto-disable high-tier skills locally via skillOverrides."
+        },
+        "claudeSkills.branchProfiles.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Store per-git-branch skill layouts in ~/.claude/learning/branch-profiles.json."
+        },
+        "claudeSkills.branchProfiles.autoApplyOnSwitch": {
+          "type": "boolean",
+          "default": true,
+          "description": "When switching git branches, install skills from the saved profile for the new branch."
+        },
+        "claudeSkills.branchProfiles.removeExtraOnApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "When applying a branch profile, also remove workspace skills not listed in the profile. Default false keeps git-checkout removals only additive."
+        },
+        "claudeSkills.agents.enabled": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["claude", "cursor", "kiro", "copilot"]
+          },
+          "default": ["claude", "cursor", "kiro"],
+          "description": "AI agents that receive skill clones from this library (see skills_library/agents.json)."
+        },
+        "claudeSkills.agents.syncGlobalToAll": {
+          "type": "boolean",
+          "default": false,
+          "description": "When installing the global library, sync to all enabled agents instead of Claude only."
+        },
+        "claudeSkills.agents.syncWorkspaceToAll": {
+          "type": "boolean",
+          "default": false,
+          "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions)."
+        }
+      }
+    },
     "menus": {
       "view/title": [
         {
@@ -137,6 +265,16 @@
           "group": "2_global"
         },
         {
+          "command": "claudeSkills.installLibraryToAllAgents",
+          "when": "view == claudeSkillsView",
+          "group": "2_global"
+        },
+        {
+          "command": "claudeSkills.showAgentCapabilities",
+          "when": "view == claudeSkillsView",
+          "group": "2_global"
+        },
+        {
           "command": "claudeSkills.showUsageStats",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
@@ -145,6 +283,31 @@
           "command": "claudeSkills.installSessionWatchHook",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.installCostControlHooks",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.cycleBudgetMode",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.saveBranchProfile",
+          "when": "view == claudeSkillsView",
+          "group": "4_branch"
+        },
+        {
+          "command": "claudeSkills.applyBranchProfile",
+          "when": "view == claudeSkillsView",
+          "group": "4_branch"
+        },
+        {
+          "command": "claudeSkills.showBranchProfiles",
+          "when": "view == claudeSkillsView",
+          "group": "4_branch"
         }
       ],
       "view/item/context": [

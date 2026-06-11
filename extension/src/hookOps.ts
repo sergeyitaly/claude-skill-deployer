@@ -2,10 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ensureLearningDir } from "./usageStats";
 
-const HOOK_FILENAME = "session-size-watch.js";
-const HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${HOOK_FILENAME}"`;
+const SESSION_HOOK_FILENAME = "session-size-watch.js";
+const BUDGET_HOOK_FILENAME = "budget-watch.js";
+const HOOK_HELPER_FILENAME = "usageParse.js";
 
-export type HookInstallStatus = "installed" | "already-configured";
+const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSION_HOOK_FILENAME}"`;
+const BUDGET_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${BUDGET_HOOK_FILENAME}"`;
+
+export type HookInstallStatus = "installed" | "already-configured" | "updated";
 
 interface HookEntry {
   type: string;
@@ -38,37 +42,63 @@ function readSettings(file: string): Settings {
   }
 }
 
-function hasSessionWatchHook(settings: Settings): boolean {
+function hasHook(settings: Settings, filename: string): boolean {
   const matchers = settings.hooks?.UserPromptSubmit ?? [];
-  return matchers.some((m) => m.hooks.some((h) => h.command.includes(HOOK_FILENAME)));
+  return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
 }
 
-/** Copies the session-size-watch hook script into <target>/.claude/hooks and
- * registers it as a UserPromptSubmit hook in <target>/.claude/settings.json.
- * Idempotent: returns "already-configured" if already registered. */
-export function installSessionWatchHook(extensionPath: string, target: string): HookInstallStatus {
+function copyHookFiles(extensionPath: string, hooksDir: string): void {
+  const hooksSource = path.join(extensionPath, "resources", "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+  for (const name of [SESSION_HOOK_FILENAME, BUDGET_HOOK_FILENAME, HOOK_HELPER_FILENAME]) {
+    fs.copyFileSync(path.join(hooksSource, name), path.join(hooksDir, name));
+  }
+}
+
+function ensureHookRegistered(settings: Settings, filename: string, command: string): boolean {
+  settings.hooks = settings.hooks ?? {};
+  settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit ?? [];
+
+  if (hasHook(settings, filename)) {
+    return false;
+  }
+
+  settings.hooks.UserPromptSubmit.push({
+    matcher: "",
+    hooks: [{ type: "command", command, timeout: 8 }],
+  });
+  return true;
+}
+
+/** Copies cost-control hook scripts into <target>/.claude/hooks and registers
+ * session-size + budget UserPromptSubmit hooks in <target>/.claude/settings.json.
+ * Idempotent; refreshes hook file contents on each run. */
+export function installCostControlHooks(extensionPath: string, target: string): HookInstallStatus {
   ensureLearningDir(target);
 
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);
+  const hadSession = hasHook(settings, SESSION_HOOK_FILENAME);
+  const hadBudget = hasHook(settings, BUDGET_HOOK_FILENAME);
 
-  if (hasSessionWatchHook(settings)) {
-    return "already-configured";
+  copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
+
+  const addedSession = ensureHookRegistered(settings, SESSION_HOOK_FILENAME, SESSION_HOOK_COMMAND);
+  const addedBudget = ensureHookRegistered(settings, BUDGET_HOOK_FILENAME, BUDGET_HOOK_COMMAND);
+
+  if (addedSession || addedBudget) {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+    return "installed";
   }
 
-  const hooksDir = path.join(target, ".claude", "hooks");
-  fs.mkdirSync(hooksDir, { recursive: true });
-  fs.copyFileSync(path.join(extensionPath, "resources", "hooks", HOOK_FILENAME), path.join(hooksDir, HOOK_FILENAME));
+  if (hadSession && hadBudget) {
+    return "already-configured";
+  }
+  return "updated";
+}
 
-  settings.hooks = settings.hooks ?? {};
-  settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit ?? [];
-  settings.hooks.UserPromptSubmit.push({
-    matcher: "",
-    hooks: [{ type: "command", command: HOOK_COMMAND, timeout: 5 }],
-  });
-
-  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
-  fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n", "utf-8");
-
-  return "installed";
+/** @deprecated Use installCostControlHooks */
+export function installSessionWatchHook(extensionPath: string, target: string): HookInstallStatus {
+  return installCostControlHooks(extensionPath, target);
 }

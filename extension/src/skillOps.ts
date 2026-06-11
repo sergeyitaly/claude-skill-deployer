@@ -2,9 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { CostEstimateTier } from "./skillCost";
+
 export interface SkillRule {
   description: string;
   detect_globs: string[];
+  /** Typical session token load when this skill is active (install preview). */
+  cost_estimate?: CostEstimateTier;
 }
 
 export interface Manifest {
