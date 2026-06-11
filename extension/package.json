@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -155,6 +155,66 @@
         "title": "Show Enabled AI Agent Targets",
         "icon": "$(list-tree)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showCostDashboard",
+        "title": "Show Cost Intelligence Dashboard",
+        "icon": "$(dashboard)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showOptimizationSuggestions",
+        "title": "Show Cost Optimization Suggestions",
+        "icon": "$(lightbulb-autofix)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.applyOptimizations",
+        "title": "Apply Cost Optimizations",
+        "icon": "$(wand)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.exportCostReport",
+        "title": "Export Cost Report",
+        "icon": "$(export)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.installCommitCostHook",
+        "title": "Enable Git Commit Cost Tracking",
+        "icon": "$(git-commit)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.manageFeatures",
+        "title": "Manage Feature Toggles",
+        "icon": "$(settings-gear)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.resetEmergencyCutoff",
+        "title": "Reset Emergency Cost Cutoff",
+        "icon": "$(warning)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.cycleSkillSort",
+        "title": "Cycle Skill Sort (ROI / Cost)",
+        "icon": "$(sort-precedence)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.estimatePRCost",
+        "title": "Estimate PR Review Cost",
+        "icon": "$(git-pull-request)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.restoreArchivedSkill",
+        "title": "Restore Archived Skill",
+        "icon": "$(history)",
+        "category": "Claude Skills"
       }
     ],
     "configuration": {
@@ -234,6 +294,126 @@
           "type": "boolean",
           "default": false,
           "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions)."
+        },
+        "claudeSkills.optimizer.autoApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically disable expensive rarely-used skills and apply safe optimizations (disable/unused only, max 3 per 30 min)."
+        },
+        "claudeSkills.optimizer.weeklyBudgetUsd": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Weekly spend cap for predictive alerts (0 = daily budget x 7)."
+        },
+        "claudeSkills.features.budgetControls": {
+          "type": "boolean",
+          "default": true,
+          "description": "Daily budget, economy mode, and cost control hooks."
+        },
+        "claudeSkills.features.branchProfiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Per-git-branch skill profiles."
+        },
+        "claudeSkills.features.multiAgent": {
+          "type": "boolean",
+          "default": true,
+          "description": "Deploy skills to Cursor, Kiro, and Copilot."
+        },
+        "claudeSkills.features.attributionCollector": {
+          "type": "boolean",
+          "default": true,
+          "description": "Background transcript attribution collector."
+        },
+        "claudeSkills.features.costIntelligence": {
+          "type": "boolean",
+          "default": true,
+          "description": "Cost dashboard, optimization suggestions, and reports."
+        },
+        "claudeSkills.features.autoOptimizer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-apply safe optimizations when claudeSkills.optimizer.autoApply is on."
+        },
+        "claudeSkills.features.predictiveAlerts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Weekly trend warnings when spend is projected over budget."
+        },
+        "claudeSkills.features.communityBenchmarks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Community cost benchmarks (opt-in telemetry)."
+        },
+        "claudeSkills.features.teamCostSharing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Attribute skill cost to git authors in shared .claude/skills/."
+        },
+        "claudeSkills.features.skillArchival": {
+          "type": "boolean",
+          "default": true,
+          "description": "Archive idle expensive skills to .claude/skills-archived/."
+        },
+        "claudeSkills.features.emergencyCutoff": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hard daily spend cutoff that disables all workspace skills."
+        },
+        "claudeSkills.features.prCostEstimate": {
+          "type": "boolean",
+          "default": false,
+          "description": "GitHub PR cost estimate via gh CLI."
+        },
+        "claudeSkills.features.costAwareSearch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show ROI/cost in skills tree and enable cost-based sorting."
+        },
+        "claudeSkills.search.sortBy": {
+          "type": "string",
+          "enum": ["relevance", "lowest_cost", "highest_roi", "best_value"],
+          "default": "relevance",
+          "description": "Skills library tree sort order."
+        },
+        "claudeSkills.archival.noUsageDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 7,
+          "description": "Archive skills unused for this many days (when auto-archive enabled)."
+        },
+        "claudeSkills.archival.costPerUse": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "description": "Archive if cost per use exceeds this USD and idle 14+ days."
+        },
+        "claudeSkills.archival.autoArchive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically archive qualifying skills (moves to skills-archived, not deleted)."
+        },
+        "claudeSkills.emergency.hardLimitUsd": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "Absolute daily spend limit that triggers emergency cutoff."
+        },
+        "claudeSkills.benchmarks.optIn": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to anonymized benchmark upload."
+        },
+        "claudeSkills.benchmarks.uploadUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional HTTPS endpoint for anonymized benchmark upload."
+        },
+        "claudeSkills.benchmarks.downloadUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional HTTPS endpoint to download community benchmarks weekly."
         }
       }
     },
@@ -278,6 +458,26 @@
           "command": "claudeSkills.showUsageStats",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.showCostDashboard",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.showOptimizationSuggestions",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.manageFeatures",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.cycleSkillSort",
+          "when": "view == claudeSkillsView",
+          "group": "navigation@3"
         },
         {
           "command": "claudeSkills.installSessionWatchHook",

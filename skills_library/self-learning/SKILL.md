@@ -132,8 +132,19 @@ work.
 
 ## 3. After running something non-trivial
 
-Append a record to `runs.jsonl` with the outcome. Then regenerate
-`patterns.md` (see structure below) by aggregating all records:
+Append a record to `runs.jsonl` with the outcome. When token/cost data is
+available, also record prediction accuracy via the repo helper (from project
+root):
+
+```bash
+py -c "from cost_learning import record_cost_outcome; record_cost_outcome('skill-name', expected_cost=0.25, actual_cost=0.31, success=True)"
+```
+
+This writes to `.claude/learning/cost-learning.jsonl` and updates
+`~/.claude/learning/cost-models.json` multipliers for future estimates.
+
+Then regenerate `patterns.md` (see structure below) by aggregating all
+records:
 
 - **Reliable commands** — 100% pass rate over 3+ runs: list as
   `skill | action | runs | avg duration`.

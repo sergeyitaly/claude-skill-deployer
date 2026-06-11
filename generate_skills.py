@@ -22,6 +22,10 @@ LIBRARY_DIR = SCRIPT_DIR / "skills_library"
 MANIFEST_PATH = LIBRARY_DIR / "manifest.json"
 GLOBAL_SKILLS_DIR = Path.home() / ".claude" / "skills"
 
+from cost_utils import print_cost_summary, should_skip_expensive_skill, TIER_SESSION_TOKENS, parse_tier  # noqa: E402
+from record_runs import record_skill_run  # noqa: E402
+from cost_intelligence import print_cost_report, weekly_summary_from_runs  # noqa: E402
+
 EXCLUDE_DIRS = {".git", "node_modules", ".terraform", "__pycache__", ".venv"}
 
 
@@ -85,13 +89,33 @@ def copy_skill(skill_name: str, source_root: Path, dest_root: Path,
 # --- Subcommand implementations ----------------------------------------
 
 def cmd_install(args) -> int:
+    manifest = load_manifest()
     skills = discover_bundled_skills()
     if not skills:
         print(f"No skills found in {LIBRARY_DIR}")
         return 1
+    if args.dry_run:
+        print_cost_summary(skills, manifest)
+
     for skill_name in skills:
+        rule = manifest["skills"].get(skill_name, {})
+        skip = should_skip_expensive_skill(skill_name, rule, dry_run=args.dry_run or args.force)
+        if skip:
+            print(f"{skill_name}: skipped ({skip})")
+            continue
         status = copy_skill(skill_name, LIBRARY_DIR, GLOBAL_SKILLS_DIR, args.force, args.dry_run)
         print(f"{skill_name}: {status}")
+        if status == "installed" and not args.dry_run:
+            tier = parse_tier(rule.get("cost_estimate"))
+            record_skill_run(
+                skill_name,
+                "claude",
+                TIER_SESSION_TOKENS.get(tier, TIER_SESSION_TOKENS["medium"]),
+                True,
+                action="install",
+                target=Path.cwd(),
+                metadata={"matched": "global-install"},
+            )
     return 0
 
 
@@ -109,8 +133,16 @@ def cmd_generate(args) -> int:
         print("(use --all to install the full library regardless)")
         return 0
 
+    if args.dry_run:
+        print_cost_summary(list(detected.keys()), manifest)
+
     dest_root = target / ".claude" / "skills"
     for skill_name, matched in detected.items():
+        rule = manifest["skills"].get(skill_name, {})
+        skip = should_skip_expensive_skill(skill_name, rule, dry_run=args.dry_run or args.force)
+        if skip:
+            print(f"{skill_name}: skipped ({skip})  (matched: {', '.join(matched)})")
+            continue
         src = GLOBAL_SKILLS_DIR / skill_name
         if not (src / "SKILL.md").exists():
             print(f"{skill_name}: SOURCE MISSING in {GLOBAL_SKILLS_DIR} (run 'install' first) -- skipping")
@@ -118,6 +150,17 @@ def cmd_generate(args) -> int:
         status = copy_skill(skill_name, GLOBAL_SKILLS_DIR, dest_root, args.force, args.dry_run)
         reason = ", ".join(matched)
         print(f"{skill_name}: {status}  (matched: {reason})")
+        if status == "installed" and not args.dry_run:
+            tier = parse_tier(rule.get("cost_estimate"))
+            record_skill_run(
+                skill_name,
+                "claude",
+                TIER_SESSION_TOKENS.get(tier, TIER_SESSION_TOKENS["medium"]),
+                True,
+                action="generate",
+                target=target,
+                metadata={"matched": matched},
+            )
     return 0
 
 
@@ -224,7 +267,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.add_argument("--force", action="store_true")
     p_setup.set_defaults(func=cmd_setup_task)
 
+    p_cost = sub.add_parser("cost-report", help="Show cost intelligence report and optimization suggestions")
+    p_cost.add_argument("--target", type=Path, default=Path.cwd())
+    p_cost.add_argument("--weekly", action="store_true", help="Include week-over-week summary")
+    p_cost.set_defaults(func=cmd_cost_report)
+
     return parser
+
+
+def cmd_cost_report(args) -> int:
+    target = args.target.resolve()
+    rc = print_cost_report(target)
+    if args.weekly:
+        summary = weekly_summary_from_runs(target)
+        print(f"\nWeekly: ${summary['total']:.2f} ({summary['total_tokens']:,} tokens)")
+        print(f"Change vs prior week: {summary['vs_last_week_percent']:+.1f}%")
+    return rc
 
 
 def main(argv=None) -> int:

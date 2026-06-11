@@ -1,13 +1,16 @@
-import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { listSkillStatuses, SkillStatus } from "./skillOps";
+import { listSkillStatuses, loadManifest, SkillStatus } from "./skillOps";
+import { isFeatureEnabled } from "./featureFlags";
+import { compareSkillsForSort, formatRoiDescription, skillRoiMetrics, SkillSortMode } from "./skillRoi";
+import { computeUsageStats } from "./usageStats";
+import * as vscode from "vscode";
 
 export class SkillItem extends vscode.TreeItem {
-  constructor(public readonly status: SkillStatus) {
+  constructor(public readonly status: SkillStatus, roiLine?: string) {
     super(status.name, vscode.TreeItemCollapsibleState.None);
 
-    this.description = SkillItem.buildDescription(status);
+    this.description = SkillItem.buildDescription(status, roiLine);
     this.tooltip = SkillItem.buildTooltip(status);
     this.iconPath = SkillItem.buildIcon(status);
 
@@ -57,8 +60,11 @@ export class SkillItem extends vscode.TreeItem {
     }
   }
 
-  private static buildDescription(status: SkillStatus): string {
+  private static buildDescription(status: SkillStatus, roiLine?: string): string {
     const parts: string[] = [];
+    if (roiLine) {
+      parts.push(roiLine);
+    }
     if (status.isRelevant) {
       parts.push("relevant");
     }
@@ -156,12 +162,32 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillItem> {
     }
     const target = this.getTarget();
     const statuses = listSkillStatuses(this.libraryDir, target);
+    const manifest = loadManifest(this.libraryDir);
+    const sortMode = vscode.workspace
+      .getConfiguration("claudeSkills.search")
+      .get<SkillSortMode>("sortBy", "relevance");
+    const usageMap = new Map(
+      target ? computeUsageStats(target, manifest).map((s) => [s.name, s]) : []
+    );
+
     statuses.sort((a, b) => {
-      if (a.isRelevant !== b.isRelevant) {
+      if (sortMode === "relevance" && a.isRelevant !== b.isRelevant) {
         return a.isRelevant ? -1 : 1;
+      }
+      if (isFeatureEnabled("costAwareSearch") && sortMode !== "relevance") {
+        return compareSkillsForSort(a.name, b.name, sortMode, manifest, usageMap);
       }
       return a.name.localeCompare(b.name);
     });
-    return statuses.map((s) => new SkillItem(s));
+
+    const showRoi = isFeatureEnabled("costAwareSearch");
+    return statuses.map((s) => {
+      let roiLine: string | undefined;
+      if (showRoi && s.inLibrary) {
+        const metrics = skillRoiMetrics(s.name, manifest, usageMap.get(s.name));
+        roiLine = formatRoiDescription(metrics, s.isRelevant);
+      }
+      return new SkillItem(s, roiLine);
+    });
   }
 }

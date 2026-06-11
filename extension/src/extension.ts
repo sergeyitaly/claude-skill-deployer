@@ -20,6 +20,9 @@ import {
   mirrorLearningArtifacts,
   computeEnabledAgentsCreditUsage,
 } from "./agentOps";
+import { buildCostAttribution, formatAttributionReport, persistCostAttribution } from "./costAttribution";
+import { getOptimalAgent, formatRoutingSuggestion } from "./costRouter";
+import { budgetProgressBar, remainingDailyBudgetUsd, writeTodayCostSnapshot } from "./todayCostSnapshot";
 import { computeCreditUsage } from "./usageCost";
 import { formatCompactUsd, sumInstallCostEstimate, tierForSkill } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
@@ -35,6 +38,21 @@ import {
   saveBranchProfile,
 } from "./branchProfiles";
 import { installCostControlHooks, installSessionWatchHook } from "./hookOps";
+import { AttributionCollector } from "./attributionCollector";
+import { generateLatestSessionBreakdown } from "./sessionBreakdown";
+import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
+import { formatCostDashboardHtml, formatCostDashboardText } from "./costDashboard";
+import { applyOptimizationSuggestions } from "./autoOptimizer";
+import { checkPredictiveCostAlert } from "./costPredictor";
+import { installGitPostCommitHook } from "./commitCost";
+import { isAutoOptimizeEnabled, applyOptimizationSuggestions as applyAutoOptimizations, runArchivalPass } from "./autoOptimizer";
+import { isFeatureEnabled, featureFlagLines, FeatureKey } from "./featureFlags";
+import { checkEmergencyCutoff, resetEmergencyCutoff } from "./emergencyCutoff";
+import { syncCommunityBenchmarks, updateLocalBenchmarks, uploadAnonymizedStats } from "./communityBenchmarks";
+import { attributeCostToAuthors } from "./teamCostSharing";
+import { listArchivedSkills, restoreArchivedSkill } from "./skillArchival";
+import { estimateAndCommentPR } from "./prCostEstimate";
+import { SkillSortMode } from "./skillRoi";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -42,6 +60,7 @@ let usageStatusBarItem: vscode.StatusBarItem;
 let creditStatusBarItem: vscode.StatusBarItem;
 let budgetModeStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
+let costDashboardPanel: vscode.WebviewPanel | undefined;
 
 const BUDGET_MODE_CYCLE: BudgetMode[] = ["economy", "normal", "unlimited"];
 const BUDGET_MODE_LABEL: Record<BudgetMode, string> = {
@@ -58,11 +77,11 @@ function log(line: string) {
   outputChannel.appendLine(line);
 }
 
-function persistBranchProfile(target: string | undefined): void {
+function persistBranchProfile(target: string | undefined, libraryDir: string): void {
   if (!target) {
     return;
   }
-  saveBranchProfile(target);
+  saveBranchProfile(target, libraryDir);
 }
 
 function refreshStatusBar(libraryDir: string) {
@@ -102,6 +121,7 @@ function refreshCreditStatusBar(libraryDir: string) {
     : 0;
   const totalCost = todayRow?.cost ?? 0;
   const pct = budgetUsagePercent(totalCost, config);
+  writeTodayCostSnapshot(totalCost, totalTokens);
 
   if (totalTokens === 0) {
     creditStatusBarItem.text = "$(credit-card) Claude: no usage today";
@@ -109,10 +129,15 @@ function refreshCreditStatusBar(libraryDir: string) {
       "No recorded Claude Code token usage today. Estimates use published API rates for reference (Pro/Max plans are flat-rate).\n\nClick for the full usage report.";
   } else {
     const budgetSuffix =
-      config.dailyBudgetUsd > 0 && pct !== null ? ` (${Math.round(pct)}% of ${formatCompactUsd(config.dailyBudgetUsd)} budget)` : "";
-    creditStatusBarItem.text = `$(credit-card) ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}`;
+      config.dailyBudgetUsd > 0 && pct !== null
+        ? ` | ${budgetProgressBar(pct)} ${Math.round(pct)}% of ${formatCompactUsd(config.dailyBudgetUsd)}`
+        : "";
+    creditStatusBarItem.text = `$(credit-card) ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}${budgetSuffix}`;
+    const remaining = remainingDailyBudgetUsd(config);
     creditStatusBarItem.tooltip =
-      `Estimated Claude usage today: ${formatTokenCount(totalTokens)} tokens (~${formatCompactUsd(totalCost)})${budgetSuffix}. Based on session transcripts, not an actual bill.\n\nClick for the full usage report.`;
+      `Estimated usage today: ${formatTokenCount(totalTokens)} tokens (~${formatCompactUsd(totalCost)}).` +
+      (remaining !== null ? ` ~${formatCompactUsd(remaining)} budget remaining.` : "") +
+      " Based on session transcripts, not an actual bill.\n\nClick for the full usage report.";
   }
   creditStatusBarItem.command = "claudeSkills.showUsageStats";
   creditStatusBarItem.show();
@@ -206,7 +231,7 @@ export function activate(context: vscode.ExtensionContext) {
           log(`${name}: disabled for workspace${removed ? "" : " (was not installed)"}`);
         }
       }
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
     })
   );
@@ -229,12 +254,49 @@ export function activate(context: vscode.ExtensionContext) {
     refreshUsageStatusBar(libraryDir);
     refreshCreditStatusBar(libraryDir);
     refreshBudgetModeStatusBar(libraryDir);
+    const target = getWorkspaceTarget();
+    if (target) {
+      void checkEmergencyCutoff(target);
+    }
   };
 
   applyBudgetSettings(libraryDir, false);
   const initialTarget = getWorkspaceTarget();
-  initBranchTracking(initialTarget);
+  if (isFeatureEnabled("branchProfiles")) {
+    initBranchTracking(initialTarget);
+  }
   refreshAll();
+
+  if (initialTarget) {
+    if (isFeatureEnabled("attributionCollector")) {
+      const collector = AttributionCollector.getInstance(initialTarget, libraryDir);
+      collector.start();
+      context.subscriptions.push({ dispose: () => collector.stop() });
+    }
+    if (isFeatureEnabled("autoOptimizer")) {
+      const autoOptTimer = setInterval(() => {
+        if (!isAutoOptimizeEnabled()) {
+          return;
+        }
+        const suggestions = generateOptimizationSuggestions(initialTarget, libraryDir).filter(
+          (s) => s.type === "disable" || s.type === "unused"
+        );
+        if (suggestions.length > 0) {
+          void applyAutoOptimizations(initialTarget, libraryDir, suggestions.slice(0, 3), { auto: true });
+        }
+        void runArchivalPass(initialTarget, libraryDir);
+      }, 30 * 60 * 1000);
+      context.subscriptions.push({ dispose: () => clearInterval(autoOptTimer) });
+    }
+    if (isFeatureEnabled("predictiveAlerts")) {
+      setTimeout(() => {
+        void checkPredictiveCostAlert();
+      }, 8000);
+    }
+    if (isFeatureEnabled("communityBenchmarks")) {
+      void syncCommunityBenchmarks();
+    }
+  }
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -324,7 +386,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${installed} skill(s) for this workspace -- see "Claude Skills" output for details.`
       );
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
     }),
 
@@ -349,7 +411,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${installed} skill(s) (full library) -- see "Claude Skills" output for details.`
       );
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
     }),
 
@@ -413,7 +475,7 @@ export function activate(context: vscode.ExtensionContext) {
       log(`\n=== Install ${item.status.name} -> ${destRoot} ===`);
       log(`${item.status.name}: ${status} (from ${sourceRoot})`);
       vscode.window.showInformationMessage(`Claude Skills: ${item.status.name} -> ${status}`);
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
     }),
 
@@ -424,7 +486,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       setSkillOverride(target, item.status.name, "off");
       log(`${item.status.name}: disabled locally (.claude/settings.local.json) - shared .claude/skills/ unchanged`);
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
     }),
 
@@ -436,7 +498,7 @@ export function activate(context: vscode.ExtensionContext) {
       setSkillOverride(target, item.status.name, undefined);
       clearBudgetTrackingForSkill(target, item.status.name);
       log(`${item.status.name}: re-enabled locally (removed override from .claude/settings.local.json)`);
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
     }),
 
@@ -462,10 +524,31 @@ export function activate(context: vscode.ExtensionContext) {
       const suggested = computeSuggestedSkills(target, manifest);
       const creditUsage = computeEnabledAgentsCreditUsage(libraryDir);
       const mirrored = mirrorLearningArtifacts(target, libraryDir);
+      await AttributionCollector.getInstance(target, libraryDir).collect(true);
+      persistCostAttribution(target, libraryDir);
+      const attribution = buildCostAttribution(target, libraryDir);
 
       outputChannel.show(true);
       log(`\n=== Skill usage report for ${target} ===`);
       log(formatUsageReport(stats, suggested, target, creditUsage));
+      log(
+        formatAttributionReport(
+          attribution.skills,
+          attribution.agentTotals,
+          attribution.base_context,
+          attribution.transcriptSkills
+        ).join("\n")
+      );
+      const sessionBreakdown = generateLatestSessionBreakdown(target);
+      if (sessionBreakdown) {
+        log("\n## Session cost breakdown (latest)\n");
+        log(sessionBreakdown);
+      }
+      const topSkill = stats.filter((s) => s.runs > 0).sort((a, b) => b.runs - a.runs)[0];
+      if (topSkill) {
+        const agent = getOptimalAgent(topSkill.name, attribution.skills);
+        log(formatRoutingSuggestion(topSkill.name, attribution.skills, agent));
+      }
       if (mirrored.length > 0) {
         log(`\nMirrored learning artifacts to: ${mirrored.join(", ")}`);
       }
@@ -543,7 +626,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
         return;
       }
-      const profile = saveBranchProfile(target);
+      const profile = saveBranchProfile(target, libraryDir);
       outputChannel.show(true);
       if (!profile) {
         log("\n=== Save branch profile ===\nNot a git repo or branch profiles disabled.");
@@ -579,7 +662,7 @@ export function activate(context: vscode.ExtensionContext) {
       log(`Installed: ${result.installed.join(", ") || "(none)"}`);
       log(`Removed: ${result.removed.join(", ") || "(none)"}`);
       log(`Overrides applied: ${result.overridesApplied}`);
-      persistBranchProfile(target);
+      persistBranchProfile(target, libraryDir);
       refreshAll();
       vscode.window.showInformationMessage(
         `Claude Skills: applied "${branch}" profile (+${result.installed.length}, -${result.removed.length}).`
@@ -603,6 +686,212 @@ export function activate(context: vscode.ExtensionContext) {
       outputChannel.show(true);
       log(`\n=== Branch skill profiles ===`);
       log(formatBranchProfilesReport(target));
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.showCostDashboard", async () => {
+      if (!isFeatureEnabled("costIntelligence")) {
+        vscode.window.showWarningMessage("Claude Skills: cost intelligence is disabled (claudeSkills.features.costIntelligence).");
+        return;
+      }
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      ensureLearningDir(target);
+      if (isFeatureEnabled("attributionCollector")) {
+        await AttributionCollector.getInstance(target, libraryDir).collect(true);
+      }
+      persistCostAttribution(target, libraryDir);
+      const built = buildCostAttribution(target, libraryDir);
+      const merged = { ...built.skills, ...built.transcriptSkills };
+      updateLocalBenchmarks(merged);
+      void uploadAnonymizedStats(merged);
+      const html = formatCostDashboardHtml(target, libraryDir);
+      if (costDashboardPanel) {
+        costDashboardPanel.webview.html = html;
+        costDashboardPanel.reveal(vscode.ViewColumn.Active);
+      } else {
+        costDashboardPanel = vscode.window.createWebviewPanel(
+          "claudeSkillsCostDashboard",
+          "Claude Skills Cost Intelligence",
+          vscode.ViewColumn.Active,
+          { enableScripts: true }
+        );
+        costDashboardPanel.webview.html = html;
+        costDashboardPanel.webview.onDidReceiveMessage(async (msg: { command?: string }) => {
+          if (msg.command === "applyOptimizations") {
+            await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
+          } else if (msg.command === "exportReport") {
+            await vscode.commands.executeCommand("claudeSkills.exportCostReport");
+          } else if (msg.command === "openBudget") {
+            await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
+          }
+        });
+        costDashboardPanel.onDidDispose(() => {
+          costDashboardPanel = undefined;
+        });
+      }
+      outputChannel.show(true);
+      log(`\n${formatCostDashboardText(target, libraryDir)}`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.showOptimizationSuggestions", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const suggestions = generateOptimizationSuggestions(target, libraryDir);
+      outputChannel.show(true);
+      log("\n=== Cost optimization suggestions ===");
+      log(formatSuggestionsReport(suggestions).join("\n"));
+      if (suggestions.length === 0) {
+        vscode.window.showInformationMessage("Claude Skills: no optimization suggestions yet.");
+      } else {
+        const apply = await vscode.window.showInformationMessage(
+          `${suggestions.length} optimization suggestion(s) — apply selected?`,
+          "Apply",
+          "Dismiss"
+        );
+        if (apply === "Apply") {
+          await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.applyOptimizations", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const suggestions = generateOptimizationSuggestions(target, libraryDir);
+      const result = await applyOptimizationSuggestions(target, libraryDir, suggestions);
+      outputChannel.show(true);
+      log("\n=== Apply optimizations ===");
+      log(result.applied.join("\n") || "(none applied)");
+      if (result.skipped.length > 0) {
+        log(`Skipped: ${result.skipped.join(", ")}`);
+      }
+      refreshAll();
+      vscode.window.showInformationMessage(
+        `Claude Skills: applied ${result.applied.length} optimization(s).`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.exportCostReport", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      const text = [
+        formatCostDashboardText(target, libraryDir),
+        "",
+        ...formatSuggestionsReport(generateOptimizationSuggestions(target, libraryDir)),
+      ].join("\n");
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(path.join(target, "claude-skills-cost-report.txt")),
+        filters: { Text: ["txt", "md"] },
+      });
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(text, "utf-8"));
+        vscode.window.showInformationMessage(`Cost report saved to ${uri.fsPath}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.manageFeatures", async () => {
+      const cfg = vscode.workspace.getConfiguration("claudeSkills.features");
+      const keys: FeatureKey[] = [
+        "budgetControls",
+        "branchProfiles",
+        "multiAgent",
+        "attributionCollector",
+        "costIntelligence",
+        "autoOptimizer",
+        "predictiveAlerts",
+        "communityBenchmarks",
+        "teamCostSharing",
+        "skillArchival",
+        "emergencyCutoff",
+        "prCostEstimate",
+        "costAwareSearch",
+      ];
+      const pick = await vscode.window.showQuickPick(
+        keys.map((k) => ({
+          label: k,
+          description: isFeatureEnabled(k) ? "enabled" : "disabled",
+          key: k,
+        })),
+        { title: "Toggle Claude Skills feature", placeHolder: "Select a feature to flip on/off" }
+      );
+      if (!pick) {
+        return;
+      }
+      const next = !isFeatureEnabled(pick.key);
+      await cfg.update(pick.key, next, vscode.ConfigurationTarget.Global);
+      outputChannel.show(true);
+      log(`\n=== Feature ${pick.key} -> ${next ? "on" : "off"} ===`);
+      log(featureFlagLines().join("\n"));
+      vscode.window.showInformationMessage(`Claude Skills: ${pick.key} is now ${next ? "enabled" : "disabled"}. Reload window to apply some changes.`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.resetEmergencyCutoff", async () => {
+      await resetEmergencyCutoff(getWorkspaceTarget());
+      refreshAll();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.cycleSkillSort", async () => {
+      const cfg = vscode.workspace.getConfiguration("claudeSkills.search");
+      const modes: SkillSortMode[] = ["relevance", "lowest_cost", "highest_roi", "best_value"];
+      const current = cfg.get<SkillSortMode>("sortBy", "relevance");
+      const next = modes[(modes.indexOf(current) + 1) % modes.length];
+      await cfg.update("sortBy", next, vscode.ConfigurationTarget.Workspace);
+      provider.refresh();
+      vscode.window.showInformationMessage(`Claude Skills: skill sort -> ${next}`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.estimatePRCost", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      const pr = await vscode.window.showInputBox({ prompt: "PR number", placeHolder: "42" });
+      if (!pr) {
+        return;
+      }
+      await estimateAndCommentPR(target, libraryDir, parseInt(pr, 10));
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.restoreArchivedSkill", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      const archived = listArchivedSkills(target);
+      if (archived.length === 0) {
+        vscode.window.showInformationMessage("No archived skills to restore.");
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(archived, { title: "Restore archived skill" });
+      if (pick && restoreArchivedSkill(target, pick)) {
+        refreshAll();
+        vscode.window.showInformationMessage(`Restored skill: ${pick}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.installCommitCostHook", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      try {
+        const status = installGitPostCommitHook(target, context.extensionPath);
+        vscode.window.showInformationMessage(`Claude Skills: commit cost hook ${status}.`);
+      } catch (err) {
+        vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
+      }
     })
   );
 
@@ -614,7 +903,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const skillsWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/skills/**");
   const debouncedSave = debounce(() => {
-    persistBranchProfile(getWorkspaceTarget());
+    persistBranchProfile(getWorkspaceTarget(), libraryDir);
   }, 1500);
   skillsWatcher.onDidCreate(debouncedSave);
   skillsWatcher.onDidDelete(debouncedSave);
@@ -675,5 +964,5 @@ function debounce(fn: () => void, ms: number): () => void {
 }
 
 export function deactivate() {
-  // no-op
+  AttributionCollector.stopAll();
 }

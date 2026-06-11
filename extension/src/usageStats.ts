@@ -2,9 +2,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary } from "./usageCost";
+import { EnrichedRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
+
+export type { RunAgent };
 
 export interface RunRecord {
   ts: string;
+  timestamp?: string;
   skill: string;
   action: string;
   rc: number;
@@ -13,6 +17,14 @@ export interface RunRecord {
   hint?: string;
   note?: string;
   tokens?: number;
+  cost?: number;
+  success?: boolean;
+  session_id?: string;
+  project?: string;
+  branch?: string | null;
+  metadata?: Record<string, unknown>;
+  /** Optional — which agent ran this skill (defaults to claude in attribution). */
+  agent?: RunAgent;
 }
 
 export type UsageRating = "active" | "needs-attention" | "low-usage" | "unused";
@@ -53,21 +65,45 @@ export function ensureLearningDir(target: string): boolean {
 /** Reads and parses .claude/learning/runs.jsonl (written by the self-learning
  * skill). Malformed lines are skipped. Returns [] if the file doesn't exist. */
 export function readRunRecords(target: string): RunRecord[] {
+  return readEnrichedRuns(target).map((r) => ({
+    ts: r.ts,
+    timestamp: r.timestamp,
+    skill: r.skill,
+    action: r.action,
+    rc: r.rc,
+    duration: r.duration,
+    error: r.error,
+    hint: r.hint,
+    note: r.note,
+    tokens: r.tokens,
+    cost: r.cost,
+    success: r.success,
+    session_id: r.session_id,
+    project: r.project,
+    branch: r.branch ?? undefined,
+    metadata: r.metadata,
+    agent: r.agent,
+  }));
+}
+
+/** Normalized runs with attribution fields (agent, session_id, cost, etc.). */
+export function readEnrichedRuns(target: string): EnrichedRunRecord[] {
   const file = path.join(target, RUNS_LOG_RELATIVE);
   if (!fs.existsSync(file)) {
     return [];
   }
   const lines = fs.readFileSync(file, "utf-8").split("\n");
-  const records: RunRecord[] = [];
+  const records: EnrichedRunRecord[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) {
       continue;
     }
     try {
-      const obj = JSON.parse(trimmed);
-      if (typeof obj.skill === "string" && typeof obj.ts === "string") {
-        records.push(obj as RunRecord);
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      const normalized = normalizeRunRecord(obj);
+      if (normalized) {
+        records.push(normalized);
       }
     } catch {
       // skip malformed lines

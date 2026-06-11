@@ -21,6 +21,10 @@ export interface BudgetConfig {
   autoDisableHighTierOnBudgetHit: boolean;
   /** Synced from manifest — skills with cost_estimate === "high". */
   highTierSkills: string[];
+  /** Synced from manifest — skills with cost_estimate === "medium". */
+  mediumTierSkills: string[];
+  /** Synced from manifest — skills with cost_estimate === "low". */
+  lowTierSkills: string[];
 }
 
 export interface BudgetState {
@@ -44,13 +48,27 @@ const DEFAULT_CONFIG: BudgetConfig = {
   unlimitedNotifyUsd: 10,
   autoDisableHighTierOnBudgetHit: true,
   highTierSkills: [],
+  mediumTierSkills: [],
+  lowTierSkills: [],
 };
 
-export function highTierSkillsFromManifest(manifest: Manifest): string[] {
+function tierSkillsFromManifest(manifest: Manifest, tier: CostEstimateTier): string[] {
   return Object.entries(manifest.skills)
-    .filter(([, rule]) => (rule.cost_estimate ?? "medium") === ("high" satisfies CostEstimateTier))
+    .filter(([, rule]) => (rule.cost_estimate ?? "medium") === tier)
     .map(([name]) => name)
     .sort();
+}
+
+export function highTierSkillsFromManifest(manifest: Manifest): string[] {
+  return tierSkillsFromManifest(manifest, "high");
+}
+
+export function mediumTierSkillsFromManifest(manifest: Manifest): string[] {
+  return tierSkillsFromManifest(manifest, "medium");
+}
+
+export function lowTierSkillsFromManifest(manifest: Manifest): string[] {
+  return tierSkillsFromManifest(manifest, "low");
 }
 
 export function readBudgetConfig(): BudgetConfig {
@@ -63,6 +81,8 @@ export function readBudgetConfig(): BudgetConfig {
       ...DEFAULT_CONFIG,
       ...parsed,
       highTierSkills: parsed.highTierSkills ?? DEFAULT_CONFIG.highTierSkills,
+      mediumTierSkills: parsed.mediumTierSkills ?? DEFAULT_CONFIG.mediumTierSkills,
+      lowTierSkills: parsed.lowTierSkills ?? DEFAULT_CONFIG.lowTierSkills,
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -101,6 +121,8 @@ export function configFromVsCodeSettings(manifest: Manifest): BudgetConfig {
     unlimitedNotifyUsd: cfg.get<number>("unlimitedNotifyUsd", 10),
     autoDisableHighTierOnBudgetHit: cfg.get<boolean>("autoDisableHighTier", true),
     highTierSkills: highTierSkillsFromManifest(manifest),
+    mediumTierSkills: mediumTierSkillsFromManifest(manifest),
+    lowTierSkills: lowTierSkillsFromManifest(manifest),
   };
 }
 

@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // Claude Code UserPromptSubmit hook: nudges the user toward /compact or
-// /clear once the session transcript grows large, with estimated token/cost.
-// Installed by the Claude Skills Manager extension's "Enable Session Size
-// Notifications" command.
+// /clear once the session transcript grows large, with estimated token/cost
+// and projected savings from /compact.
 
 const fs = require("fs");
 const path = require("path");
 const { sumTranscriptUsage, formatTokenCount, formatUsd } = require("./usageParse");
 
-const WARN_BYTES = 4 * 1024 * 1024; // ~4MB
-const CRITICAL_BYTES = 10 * 1024 * 1024; // ~10MB
+const WARN_BYTES = 4 * 1024 * 1024;
+const CRITICAL_BYTES = 10 * 1024 * 1024;
+const PROJECTED_TOKEN_CEILING = 200_000;
+const BLENDED_USD_PER_TOKEN = 0.000009;
 
 const LEVEL_RANK = { ok: 0, warn: 1, critical: 2 };
 
@@ -23,27 +24,43 @@ function levelFor(bytes) {
   return "ok";
 }
 
-function costSuffix(transcriptPath) {
-  const { totalTokens, totalCostUsd } = sumTranscriptUsage(transcriptPath);
-  if (totalTokens > 0) {
-    return ` Session at ${formatTokenCount(totalTokens)} tokens (~${formatUsd(totalCostUsd)} est.).`;
+function tokenAndCost(transcriptPath) {
+  const usage = sumTranscriptUsage(transcriptPath);
+  if (usage.totalTokens > 0) {
+    return { tokens: usage.totalTokens, cost: usage.totalCostUsd };
   }
   let size;
   try {
     size = fs.statSync(transcriptPath).size;
   } catch {
+    return { tokens: 0, cost: 0 };
+  }
+  const tokens = Math.round(size / 4);
+  return { tokens, cost: tokens * BLENDED_USD_PER_TOKEN };
+}
+
+function savingsHint(tokens, cost) {
+  const projectedCost = PROJECTED_TOKEN_CEILING * BLENDED_USD_PER_TOKEN;
+  const saveUsd = Math.max(0, projectedCost - cost);
+  if (saveUsd < 0.01) {
+    return " /compact frees context; /clear resets completely.";
+  }
+  return ` /compact now may save ~${formatUsd(saveUsd)} vs letting the session grow; /clear resets completely.`;
+}
+
+function costSuffix(transcriptPath) {
+  const { tokens, cost } = tokenAndCost(transcriptPath);
+  if (tokens === 0) {
     return "";
   }
-  const approxTokens = Math.round(size / 4);
-  const approxCost = (approxTokens / 1_000_000) * 9;
-  return ` Transcript ~${formatTokenCount(approxTokens)} tokens (~${formatUsd(approxCost)} est.).`;
+  return ` Session at ${formatTokenCount(tokens)} tokens (~${formatUsd(cost)} est.).${savingsHint(tokens, cost)}`;
 }
 
 const MESSAGES = {
   warn: (transcriptPath) =>
-    `[Claude Skills] This session's transcript is getting large.${costSuffix(transcriptPath)} Consider running /compact to summarize and free up context.`,
+    `[Claude Skills] This session's transcript is getting large.${costSuffix(transcriptPath)}`,
   critical: (transcriptPath) =>
-    `[Claude Skills] This session's transcript is very large.${costSuffix(transcriptPath)} Consider running /clear (or /compact) soon to keep things responsive.`,
+    `[Claude Skills] This session's transcript is very large.${costSuffix(transcriptPath)}`,
 };
 
 function readJsonSafe(file) {
@@ -94,7 +111,7 @@ function main() {
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + "\n", "utf-8");
   } catch {
-    // non-fatal: still emit the notification if escalating
+    // non-fatal
   }
 
   const escalated = LEVEL_RANK[level] > LEVEL_RANK[previous];

@@ -20,6 +20,30 @@ const DEFAULT_CONFIG = {
   unlimitedNotifyUsd: 10,
   autoDisableHighTierOnBudgetHit: true,
   highTierSkills: [],
+  mediumTierSkills: [],
+  lowTierSkills: [],
+};
+
+const FALLBACK_CONFIG = {
+  80: {
+    action: "warn",
+    message: "Budget at 80% - consider /compact",
+  },
+  90: {
+    action: "switch_agent",
+    toAgent: "cursor",
+    excludeSkills: ["high"],
+    message: "Budget critical - switching non-critical skills to Cursor (disable high-tier locally)",
+  },
+  95: {
+    action: "restrict",
+    allowedTiers: ["low"],
+    message: "Budget exhausted - only low-cost skills available",
+  },
+  100: {
+    action: "readonly",
+    message: "Daily budget exceeded - run /clear or wait for reset",
+  },
 };
 
 function readJsonSafe(file, fallback) {
@@ -47,15 +71,15 @@ function readStdin() {
   }
 }
 
-function disableHighTierSkills(cwd, highTierSkills, reason) {
+function disableSkills(cwd, skills, reason, stateKey) {
   const settingsPath = path.join(cwd, ".claude", "settings.local.json");
   const settings = readJsonSafe(settingsPath, {});
   const overrides = { ...(settings.skillOverrides || {}) };
   const meta = settings[BUDGET_META_KEY] || {};
-  const previouslyBudgetDisabled = new Set(meta.disabledByBudget || []);
+  const previouslyBudgetDisabled = new Set(meta[stateKey] || []);
   const disabledNow = [];
 
-  for (const skill of highTierSkills) {
+  for (const skill of skills) {
     if (overrides[skill] === "off" && !previouslyBudgetDisabled.has(skill)) {
       continue;
     }
@@ -72,12 +96,78 @@ function disableHighTierSkills(cwd, highTierSkills, reason) {
   }
 
   settings.skillOverrides = overrides;
-  settings[BUDGET_META_KEY] = {
-    disabledByBudget: [...new Set([...(meta.disabledByBudget || []), ...disabledNow])].sort(),
-    disabledReason: reason,
-  };
+  meta[stateKey] = [...new Set([...(meta[stateKey] || []), ...disabledNow])].sort();
+  meta.disabledReason = reason;
+  settings[BUDGET_META_KEY] = meta;
   writeJsonSafe(settingsPath, settings);
   return disabledNow;
+}
+
+function disableHighTierSkills(cwd, highTierSkills, reason) {
+  return disableSkills(cwd, highTierSkills, reason, "disabledByBudget");
+}
+
+function skillsOutsideTiers(config, allowedTiers) {
+  const allowed = new Set(allowedTiers);
+  const all = [
+    ...(config.highTierSkills || []).map((s) => ({ s, t: "high" })),
+    ...(config.mediumTierSkills || []).map((s) => ({ s, t: "medium" })),
+    ...(config.lowTierSkills || []).map((s) => ({ s, t: "low" })),
+  ];
+  return all.filter(({ t }) => !allowed.has(t)).map(({ s }) => s);
+}
+
+function applyFallbackAction(cwd, config, pct, state, today, messages) {
+  const thresholds = Object.keys(FALLBACK_CONFIG)
+    .map((k) => parseInt(k, 10))
+    .sort((a, b) => b - a);
+  const hit = thresholds.find((t) => pct >= t);
+  if (!hit) {
+    return;
+  }
+  const fb = FALLBACK_CONFIG[hit];
+  const noticeKey = `fallback${hit}`;
+  const notices = todayNotifications(state, today);
+  if (notices[noticeKey]) {
+    return;
+  }
+  notices[noticeKey] = true;
+
+  if (fb.action === "warn") {
+    messages.push(`[Claude Skills] ${fb.message}`);
+    return;
+  }
+
+  if (fb.action === "switch_agent") {
+    const toDisable = (config.highTierSkills || []).filter((s) =>
+      (fb.excludeSkills || []).includes("high") ? config.highTierSkills.includes(s) : true
+    );
+    const disabled = disableHighTierSkills(cwd, toDisable, `budget-${hit}pct`);
+    messages.push(`[Claude Skills] ${fb.message}`);
+    if (disabled.length > 0) {
+      messages.push(`[Claude Skills] Disabled ${disabled.length} high-tier skill(s): ${disabled.join(", ")}.`);
+    }
+    if (fb.toAgent) {
+      messages.push(`[Claude Skills] Consider running medium/low-tier tasks in ${fb.toAgent} to preserve Claude budget.`);
+    }
+    return;
+  }
+
+  if (fb.action === "restrict") {
+    const blocked = skillsOutsideTiers(config, fb.allowedTiers || ["low"]);
+    const disabled = disableSkills(cwd, blocked, `budget-${hit}pct-restrict`, "disabledByBudgetRestrict");
+    messages.push(`[Claude Skills] ${fb.message}`);
+    if (disabled.length > 0) {
+      messages.push(`[Claude Skills] Restricted ${disabled.length} skill(s) to low-tier only.`);
+    }
+    return;
+  }
+
+  if (fb.action === "readonly") {
+    state.readonlyMode = true;
+    state.readonlyModeDate = today;
+    messages.push(`[Claude Skills] ${fb.message}`);
+  }
 }
 
 function todayNotifications(state, today) {
@@ -139,6 +229,8 @@ function main() {
   if (config.dailyBudgetUsd > 0) {
     const pct = (totalCostUsd / config.dailyBudgetUsd) * 100;
     const warnAt = config.warnThresholdPercent ?? 80;
+
+    applyFallbackAction(cwd, config, pct, state, today, messages);
 
     if (!notices.warn && pct >= warnAt && pct < 100) {
       notices.warn = true;

@@ -3,9 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { tierForSkill, estimateSessionCostUsd, formatCompactUsd } from "./skillCost";
 import {
   copySkill,
   globalSkillsDir,
+  loadManifest,
+  Manifest,
   readSkillOverrides,
   removeSkill,
   setSkillOverride,
@@ -13,10 +16,18 @@ import {
 } from "./skillOps";
 import { listInstalledSkills } from "./usageStats";
 
+export interface BranchForecast {
+  estimatedDailyCost: number;
+  estimatedWeeklyCost: number;
+  riskLevel: "low" | "medium" | "high";
+  suggestion?: string;
+}
+
 export interface BranchSkillProfile {
   branch: string;
   /** Skill directories present in <workspace>/.claude/skills/ when saved. */
   skills: string[];
+  forecast?: BranchForecast;
   /** Personal overrides from settings.local.json at save time. */
   skillOverrides: Record<string, SkillOverrideValue>;
   headCommit?: string;
@@ -137,32 +148,61 @@ function removeExtraOnApply(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.branchProfiles").get<boolean>("removeExtraOnApply", false);
 }
 
+export function forecastForSkills(skillNames: string[], manifest: Manifest, sessionsPerDay = 2): BranchForecast {
+  let daily = 0;
+  let highCount = 0;
+  for (const name of skillNames) {
+    const tier = tierForSkill(manifest.skills[name]?.cost_estimate);
+    daily += estimateSessionCostUsd(tier) * sessionsPerDay;
+    if (tier === "high") {
+      highCount++;
+    }
+  }
+  const riskLevel: BranchForecast["riskLevel"] =
+    highCount >= 2 ? "high" : highCount === 1 || daily > 1.5 ? "medium" : "low";
+  const suggestion =
+    highCount > 0
+      ? `Branch uses ${highCount} high-tier skill(s) (~${formatCompactUsd(daily)}/day est.). Consider Cursor for diagramming or Economy mode.`
+      : undefined;
+  return {
+    estimatedDailyCost: daily,
+    estimatedWeeklyCost: daily * 5,
+    riskLevel,
+    suggestion,
+  };
+}
+
 /** Capture the current workspace skill layout for the active git branch. */
-export function captureBranchProfile(target: string): BranchSkillProfile | undefined {
+export function captureBranchProfile(target: string, libraryDir?: string): BranchSkillProfile | undefined {
   const repo = getGitRepository(target);
   const branch = repo?.state.HEAD?.name;
   if (!branch) {
     return undefined;
   }
 
-  return {
+  const skills = listInstalledSkills(target);
+  const profile: BranchSkillProfile = {
     branch,
-    skills: listInstalledSkills(target),
+    skills,
     skillOverrides: { ...readSkillOverrides(target) },
     headCommit: repo?.state.HEAD?.commit,
     updatedAt: new Date().toISOString(),
     workspacePath: path.normalize(target),
     remoteUrl: repo ? originRemoteUrl(repo) : undefined,
   };
+  if (libraryDir) {
+    profile.forecast = forecastForSkills(skills, loadManifest(libraryDir));
+  }
+  return profile;
 }
 
 /** Persist the active branch profile to ~/.claude/learning/branch-profiles.json. */
-export function saveBranchProfile(target: string): BranchSkillProfile | undefined {
+export function saveBranchProfile(target: string, libraryDir?: string): BranchSkillProfile | undefined {
   if (!branchProfilesEnabled()) {
     return undefined;
   }
   const key = repoKeyFor(target);
-  const profile = captureBranchProfile(target);
+  const profile = captureBranchProfile(target, libraryDir);
   if (!key || !profile) {
     return undefined;
   }
@@ -312,6 +352,14 @@ export function formatBranchProfilesReport(target: string): string {
     lines.push(
       `- Overrides: ${overrideEntries.length ? overrideEntries.map(([k, v]) => `${k}=${v}`).join(", ") : "(none)"}`
     );
+    if (p.forecast) {
+      lines.push(
+        `- Forecast: ~${formatCompactUsd(p.forecast.estimatedDailyCost)}/day, ~${formatCompactUsd(p.forecast.estimatedWeeklyCost)}/week (${p.forecast.riskLevel} risk)`
+      );
+      if (p.forecast.suggestion) {
+        lines.push(`- Tip: ${p.forecast.suggestion}`);
+      }
+    }
     lines.push("");
   }
 

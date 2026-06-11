@@ -12,7 +12,7 @@ export const TIER_SESSION_TOKENS: Record<CostEstimateTier, number> = {
 };
 
 /** Sonnet-class reference rate (USD per million tokens, blended input/output). */
-const BLENDED_USD_PER_M_TOKEN = 0.009;
+const BLENDED_USD_PER_M_TOKEN = 9;
 
 export function tierForSkill(costEstimate: CostEstimateTier | undefined): CostEstimateTier {
   return costEstimate ?? "medium";
