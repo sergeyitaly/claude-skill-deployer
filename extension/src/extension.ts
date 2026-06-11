@@ -10,11 +10,12 @@ import {
   removeSkill,
 } from "./skillOps";
 import { SkillItem, SkillsProvider } from "./skillsProvider";
-import { computeUsageStats, formatUsageReport } from "./usageStats";
+import { computeUsageStats, formatUsageReport, formatUsageReportHtml } from "./usageStats";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
+let usagePanel: vscode.WebviewPanel | undefined;
 
 function getWorkspaceTarget(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -260,14 +261,27 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const manifest = loadManifest(libraryDir);
       const stats = computeUsageStats(target, manifest);
-      const report = formatUsageReport(stats, target);
 
       outputChannel.show(true);
       log(`\n=== Skill usage report for ${target} ===`);
-      log(report);
+      log(formatUsageReport(stats, target));
 
-      const doc = await vscode.workspace.openTextDocument({ content: report, language: "markdown" });
-      await vscode.window.showTextDocument(doc, { preview: true });
+      const html = formatUsageReportHtml(stats, target);
+      if (usagePanel) {
+        usagePanel.webview.html = html;
+        usagePanel.reveal(vscode.ViewColumn.Active);
+      } else {
+        usagePanel = vscode.window.createWebviewPanel(
+          "claudeSkillsUsage",
+          "Claude Skills Usage",
+          vscode.ViewColumn.Active,
+          {}
+        );
+        usagePanel.webview.html = html;
+        usagePanel.onDidDispose(() => {
+          usagePanel = undefined;
+        });
+      }
     })
   );
 

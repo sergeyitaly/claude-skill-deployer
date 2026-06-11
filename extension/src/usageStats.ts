@@ -202,3 +202,122 @@ export function formatUsageReport(stats: SkillUsageStat[], target: string): stri
 
   return lines.join("\n");
 }
+
+const RATING_CLASS: Record<UsageRating, string> = {
+  active: "active",
+  "needs-attention": "needs-attention",
+  "low-usage": "low-usage",
+  unused: "unused",
+};
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+/** Renders the usage report as a styled HTML page for a webview panel. */
+export function formatUsageReportHtml(stats: SkillUsageStat[], target: string): string {
+  const counts: Record<UsageRating, number> = { active: 0, "needs-attention": 0, "low-usage": 0, unused: 0 };
+  for (const s of stats) {
+    counts[s.rating]++;
+  }
+
+  const cards = (
+    [
+      ["active", "Active"],
+      ["low-usage", "Low usage"],
+      ["unused", "Unused"],
+      ["needs-attention", "Needs attention"],
+    ] as [UsageRating, string][]
+  )
+    .map(([key, label]) => `<div class="card ${key}"><div class="count">${counts[key]}</div><div class="label">${label}</div></div>`)
+    .join("\n");
+
+  let body: string;
+  if (stats.length === 0) {
+    body =
+      "<p>No installed skills and no recorded skill runs found. Install some skills and use the " +
+      "self-learning skill to start recording outcomes.</p>";
+  } else {
+    const rows = stats
+      .map((s) => {
+        const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
+        const lastUsed = s.lastUsed ?? "-";
+        const days = s.daysSinceLastUse === null ? "-" : `${s.daysSinceLastUse}d ago`;
+        return `<tr>
+          <td>${escapeHtml(s.name)}</td>
+          <td class="num">${s.runs}</td>
+          <td class="num">${successPct}</td>
+          <td>${escapeHtml(lastUsed)}</td>
+          <td>${escapeHtml(days)}</td>
+          <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
+          <td>${escapeHtml(s.recommendation)}</td>
+        </tr>`;
+      })
+      .join("\n");
+
+    const notes: string[] = [];
+    if (counts.unused > 0 || counts["low-usage"] > 0) {
+      notes.push(
+        "Unused/low-usage skills are removal candidates - delete <code>.claude/skills/&lt;name&gt;/</code> if no longer needed, or ask the <code>skill-usage-insights</code> skill for a fuller analysis before deciding."
+      );
+    }
+    if (counts["needs-attention"] > 0) {
+      notes.push(
+        "Investigate failing skills via the <code>self-learning</code> skill's <code>patterns.md</code> before deciding to fix or remove them."
+      );
+    }
+
+    const notesHtml = notes.map((n) => `<div class="note">${n}</div>`).join("\n");
+    body = `<table>
+      <thead><tr>
+        <th>Skill</th><th>Runs</th><th>Success</th><th>Last used</th><th>Recency</th><th>Rating</th><th>Recommendation</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${notesHtml}`;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 20px; }
+  h1 { font-size: 1.3em; margin-bottom: 4px; }
+  .meta { color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-bottom: 18px; }
+  .meta code { font-family: var(--vscode-editor-font-family); }
+  .summary { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .card { border: 1px solid var(--vscode-panel-border); border-left-width: 4px; border-radius: 6px; padding: 8px 18px; min-width: 90px; text-align: center; }
+  .card .count { font-size: 1.6em; font-weight: 600; }
+  .card .label { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .card.active { border-left-color: #3fb950; }
+  .card.low-usage { border-left-color: #d29922; }
+  .card.unused { border-left-color: #8b949e; }
+  .card.needs-attention { border-left-color: #f85149; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; }
+  th { color: var(--vscode-descriptionForeground); font-weight: 600; }
+  td.num { text-align: right; white-space: nowrap; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.8em; font-weight: 600; color: #fff; white-space: nowrap; }
+  .badge.active { background: #3fb950; }
+  .badge.low-usage { background: #d29922; }
+  .badge.unused { background: #8b949e; }
+  .badge.needs-attention { background: #f85149; }
+  .note { margin-top: 16px; padding: 10px 14px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textCodeBlock-background); font-size: 0.9em; }
+  .note code { font-family: var(--vscode-editor-font-family); }
+</style>
+</head>
+<body>
+  <h1>Claude Skills Usage Report</h1>
+  <div class="meta">Workspace: <code>${escapeHtml(target)}</code><br>Source: <code>.claude/learning/runs.jsonl</code> (written by the self-learning skill)</div>
+  <div class="summary">
+${cards}
+  </div>
+  ${body}
+</body>
+</html>`;
+}
