@@ -351,7 +351,7 @@ export function applyBranchProfile(
       result.skipped.push(skill);
       continue;
     }
-    const status = copySkill(skill, sourceRoot, destRoot, false, false);
+    const status = copySkill(skill, sourceRoot, destRoot, false, false, { libraryDir });
     if (status === "installed" || status === "skipped-exists") {
       result.installed.push(skill);
       installed.add(skill);

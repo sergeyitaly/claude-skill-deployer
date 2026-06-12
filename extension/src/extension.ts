@@ -133,6 +133,14 @@ import { showOnboardingWizard } from "./onboardingWizard";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
 import { buildUsageSkillConfidenceMap } from "./attributionConfidence";
+import { buildGlobalTrustBadge, formatGlobalTrustStatusBar } from "./attributionTrust";
+import {
+  lifecycleAlertsEnabled,
+  lifecycleAutoSuggestEnabled,
+  listOutdatedSkills,
+  listSkillVersionStatuses,
+  upgradeOutdatedSkills,
+} from "./skillLifecycle";
 import { readSkillStatsIndex } from "./runsIndex";
 import { setPricingContext } from "./costRates";
 import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
@@ -185,6 +193,7 @@ let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
 let creditStatusBarItem: vscode.StatusBarItem;
+let trustStatusBarItem: vscode.StatusBarItem;
 let budgetModeStatusBarItem: vscode.StatusBarItem;
 let contextFocusStatusBarItem: vscode.StatusBarItem;
 let practicalFocusStatusBarItem: vscode.StatusBarItem;
@@ -340,6 +349,54 @@ function refreshCreditStatusBar(libraryDir: string, target?: string) {
   creditStatusBarItem.show();
 }
 
+function refreshTrustStatusBar(libraryDir: string, target?: string) {
+  if (!target) {
+    trustStatusBarItem.hide();
+    return;
+  }
+  const health = assessAttributionHealth(target, libraryDir);
+  const hookStatus = getWorkspaceHookStatus(target, libraryDir);
+  const badge = buildGlobalTrustBadge(health, hookStatus);
+  trustStatusBarItem.text = formatGlobalTrustStatusBar(badge);
+  trustStatusBarItem.tooltip = `${badge.label} (${badge.scorePct}%)\n\n${badge.detail}\n\nTranscripts and split attribution are probabilistic — not an API invoice.\n\nClick for the usage report.`;
+  trustStatusBarItem.command = "claudeSkills.showUsageStats";
+  trustStatusBarItem.show();
+}
+
+let lastOutdatedAlertCheckMs = 0;
+const OUTDATED_ALERT_INTERVAL_MS = 10 * 60 * 1000;
+
+async function maybePromptOutdatedSkillUpgrades(libraryDir: string, target: string): Promise<void> {
+  if (!lifecycleAlertsEnabled() || !lifecycleAutoSuggestEnabled()) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastOutdatedAlertCheckMs < OUTDATED_ALERT_INTERVAL_MS) {
+    return;
+  }
+  lastOutdatedAlertCheckMs = now;
+  const outdated = listOutdatedSkills(libraryDir, target);
+  if (outdated.length === 0) {
+    return;
+  }
+  const preview = outdated
+    .slice(0, 3)
+    .map((s) => `${s.name} (${s.installedVersion} → ${s.catalogVersion})`)
+    .join(", ");
+  const suffix = outdated.length > 3 ? ` +${outdated.length - 3} more` : "";
+  const choice = await vscode.window.showInformationMessage(
+    `Claude Skills: ${outdated.length} outdated skill(s) — ${preview}${suffix}. Upgrade from the library?`,
+    "Upgrade all",
+    "Show report",
+    "Dismiss"
+  );
+  if (choice === "Upgrade all") {
+    await vscode.commands.executeCommand("claudeSkills.upgradeOutdatedSkills");
+  } else if (choice === "Show report") {
+    await vscode.commands.executeCommand("claudeSkills.showUsageStats");
+  }
+}
+
 function refreshBudgetModeStatusBar(libraryDir: string) {
   const manifest = loadManifest(libraryDir);
   const config = configFromVsCodeSettings(manifest);
@@ -480,7 +537,7 @@ export function activate(context: vscode.ExtensionContext) {
         const sourceRoot = item.status.availableInGlobal ? globalSkillsDir() : libraryDir;
         if (state === vscode.TreeItemCheckboxState.Checked) {
           ensureLearningDir(target);
-          const action = enableWorkspaceSkill(target, name, sourceRoot);
+          const action = enableWorkspaceSkill(target, name, sourceRoot, libraryDir);
           if (action === "local-on") {
             log(`${name}: re-enabled locally (skillOverrides cleared, shared files unchanged)`);
           } else if (action === "installed") {
@@ -514,6 +571,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   creditStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
   context.subscriptions.push(creditStatusBarItem);
+
+  trustStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97.5);
+  context.subscriptions.push(trustStatusBarItem);
 
   budgetModeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
   context.subscriptions.push(budgetModeStatusBarItem);
@@ -576,6 +636,7 @@ export function activate(context: vscode.ExtensionContext) {
     refreshStatusBar(libraryDir);
     refreshUsageStatusBar(libraryDir);
     refreshCreditStatusBar(libraryDir, target);
+    refreshTrustStatusBar(libraryDir, target);
     refreshBudgetModeStatusBar(libraryDir);
     refreshContextFocusStatusBar();
     refreshPracticalFocusStatusBar();
@@ -603,6 +664,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       scheduleHighUsageSkillProposalCheck(target);
+      void maybePromptOutdatedSkillUpgrades(libraryDir, target);
     }
   };
 
@@ -893,7 +955,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`Claude Skills: ${skillName} installed to ${installed} agent path(s).`);
       } else {
         const destRoot = path.join(target, ".claude", "skills");
-        let status = copySkill(skillName, sourceRoot, destRoot, false, false);
+        let status = copySkill(skillName, sourceRoot, destRoot, false, false, { libraryDir });
         if (status === "skipped-exists") {
           const choice = await vscode.window.showWarningMessage(
             `${skillName} is already installed in this workspace. Overwrite?`,
@@ -903,7 +965,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (choice !== "Overwrite") {
             return;
           }
-          status = copySkill(skillName, sourceRoot, destRoot, true, false);
+          status = copySkill(skillName, sourceRoot, destRoot, true, false, { libraryDir });
         }
         ensureLearningDir(target);
         outputChannel.show(true);
@@ -973,6 +1035,9 @@ export function activate(context: vscode.ExtensionContext) {
         target,
         stats.map((s) => s.name)
       );
+      const hookStatus = getWorkspaceHookStatus(target, libraryDir);
+      const globalTrust = buildGlobalTrustBadge(health, hookStatus);
+      const versionStatuses = listSkillVersionStatuses(libraryDir, target);
       const reportOpts = {
         skillConfidence,
         workspaceConfidence: {
@@ -981,6 +1046,9 @@ export function activate(context: vscode.ExtensionContext) {
           summary: health.summary,
           v2Coverage: 0,
         },
+        globalTrust,
+        versionStatuses,
+        manifest,
         inefficiency,
         taskProposals,
         taskSummary: savedProposals?.taskSummary,
@@ -1022,7 +1090,7 @@ export function activate(context: vscode.ExtensionContext) {
         suggested,
         target,
         creditUsage,
-        getWorkspaceHookStatus(target, libraryDir),
+        hookStatus,
         reportOpts
       );
       if (usagePanel) {
@@ -1068,6 +1136,31 @@ export function activate(context: vscode.ExtensionContext) {
         );
       } else {
         vscode.window.showInformationMessage("Claude Skills: could not install suggested skills.");
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.upgradeOutdatedSkills", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const outdated = listOutdatedSkills(libraryDir, target);
+      if (outdated.length === 0) {
+        vscode.window.showInformationMessage("Claude Skills: all installed skills match the library catalog version.");
+        return;
+      }
+      const upgraded = await upgradeOutdatedSkills(libraryDir, target);
+      if (upgraded.length > 0) {
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          saveBranchProfile: true,
+        });
+        refreshAll();
+        vscode.window.showInformationMessage(
+          `Claude Skills: upgraded ${upgraded.length} skill(s): ${upgraded.join(", ")}.`
+        );
+      } else {
+        vscode.window.showInformationMessage("Claude Skills: no skills were upgraded (cancelled or missing from library).");
       }
     }),
 

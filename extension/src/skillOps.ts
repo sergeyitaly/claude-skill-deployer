@@ -11,6 +11,16 @@ export interface SkillRule {
   detect_globs: string[];
   /** Typical session token load when this skill is active (install preview). */
   cost_estimate?: CostEstimateTier;
+  /** Semver in manifest — compared to installed copy for upgrade alerts. */
+  version?: string;
+  /** Short note shown in upgrade suggestions. */
+  changelog?: string;
+  /** When true, skill is flagged for replacement in lifecycle reports. */
+  deprecation?: boolean;
+}
+
+export function skillCatalogVersion(rule: SkillRule | undefined): string {
+  return rule?.version?.trim() || "1.0.0";
 }
 
 export interface Manifest {
@@ -179,11 +189,12 @@ export type WorkspaceSkillToggleAction = "installed" | "local-on" | "local-off" 
 export function enableWorkspaceSkill(
   target: string,
   skillName: string,
-  sourceRoot: string
+  sourceRoot: string,
+  libraryDir?: string
 ): WorkspaceSkillToggleAction {
   const destRoot = path.join(target, ".claude", "skills");
   const committedBefore = isSkillCommittedOnBranch(target, skillName);
-  const status = copySkill(skillName, sourceRoot, destRoot, false, false);
+  const status = copySkill(skillName, sourceRoot, destRoot, false, false, libraryDir ? { libraryDir } : undefined);
   setSkillOverride(target, skillName, undefined);
   if (!committedBefore && !isSkillCommittedOnBranch(target, skillName)) {
     markSkillAsPersonalLocal(target, skillName);
@@ -334,7 +345,8 @@ export function copySkill(
   sourceRoot: string,
   destRoot: string,
   force: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  opts?: { libraryDir?: string }
 ): CopyStatus {
   const src = path.join(sourceRoot, skillName);
   const dst = path.join(destRoot, skillName);
@@ -348,7 +360,42 @@ export function copySkill(
     return "would-install";
   }
   copyRecursive(src, dst);
+  if (opts?.libraryDir) {
+    const manifest = loadManifest(opts.libraryDir);
+    const rule = manifest.skills[skillName];
+    writeSkillVersionSidecar(dst, skillCatalogVersion(rule), rule?.changelog);
+  }
   return "installed";
+}
+
+export interface SkillVersionSidecar {
+  version: string;
+  changelog?: string;
+  installedAt: string;
+}
+
+const SKILL_VERSION_FILE = ".skill-version.json";
+
+/** Persist manifest version beside an installed skill copy. */
+export function writeSkillVersionSidecar(skillDir: string, version: string, changelog?: string): void {
+  const payload: SkillVersionSidecar = {
+    version,
+    changelog: changelog?.trim() || undefined,
+    installedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(skillDir, SKILL_VERSION_FILE), JSON.stringify(payload, null, 2) + "\n", "utf-8");
+}
+
+export function readSkillVersionSidecar(skillDir: string): SkillVersionSidecar | null {
+  const file = path.join(skillDir, SKILL_VERSION_FILE);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8")) as SkillVersionSidecar;
+  } catch {
+    return null;
+  }
 }
 
 /** Remove `<destRoot>/<skillName>` if present. Returns false if it didn't exist. */

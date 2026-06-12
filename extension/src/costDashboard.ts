@@ -17,6 +17,7 @@ import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills } from "./skillArchival";
 import { assessAttributionHealth } from "./attributionHealth";
 import { assessSkillCostConfidence, formatConfidenceBadge } from "./attributionConfidence";
+import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml } from "./attributionTrust";
 import { resolveAttributionStrategy, formatAttributionStrategyLine } from "./attributionStrategy";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { formatBenchmarkLine } from "./communityBenchmarks";
@@ -203,8 +204,10 @@ export function formatCostDashboardHtml(
       const v2Runs = stat ? (stat.agentRuns ? Object.values(stat.agentRuns).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) : stat.runs) : 0;
       roi = upgradeRoiConfidenceFromRuns(roi, health.v2HookRuns > 0 ? v2Runs : 0);
       const conf = skillConfidence.get(row.skill);
+      const trust = buildSkillTrustLine(conf, roi.roiBand);
       const hint = [
         formatRoiDashboardLine(roi, formatCompactUsd(row.cost)),
+        trust.summary,
         hintForSkill(row.skill, suggestions, usageStats),
         formatSkillAgentBreakdown(row.skill, attribution),
         isFeatureEnabled("communityBenchmarks") ? formatBenchmarkLine(row.skill) : undefined,
@@ -216,7 +219,7 @@ export function formatCostDashboardHtml(
         <div class="skill-head"><span class="rank">${i + 1}.</span> <b>${escapeHtml(row.skill)}</b>
           <span class="roi-${roi.roiBand.toLowerCase()}">${escapeHtml(roi.roiBand)}</span>
           <span class="cost">${formatCompactUsd(row.cost)} (${pct}%)</span>
-          <span class="conf-${confClass}">${escapeHtml(formatConfidenceBadge(conf?.level ?? "estimated"))}</span>
+          <span class="conf-${confClass}">${escapeHtml(trust.summary)}</span>
           <span class="bar">${bar(row.cost, maxTop)}</span></div>
         ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
       </div>`;
@@ -237,12 +240,14 @@ export function formatCostDashboardHtml(
 
   const trendLabel = formatTrendLabel(trend);
 
+  const globalTrust = buildGlobalTrustBadge(health, hookStatus);
+
   return wrapDashboardHtml({
     title: "Cost Intelligence",
     headerHtml: `<div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · ${escapeHtml(ESTIMATE_DISCLAIMER_SHORT)}</div>`,
     nonce,
     body: `
-  <div class="estimate-banner"><b>Trust</b> ${escapeHtml(health.summary)} <span class="conf-${health.confidenceLevel}">(${Math.round(health.confidenceScore * 100)}% · ${formatConfidenceBadge(health.confidenceLevel)})</span> · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}</div>
+  ${formatGlobalTrustBannerHtml(globalTrust)} · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}
 
   ${modeCtx.banner ? `<div class="warn"><b>${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
 

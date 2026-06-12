@@ -3,7 +3,10 @@
     "terraform-plan-review": {
       "description": "Terraform plan/apply review and drift triage",
       "detect_globs": ["**/*.tf", "**/*.tfvars"],
-      "cost_estimate": "high"
+      "cost_estimate": "high",
+      "version": "1.2.0",
+      "changelog": "Improved Terraform parsing",
+      "deprecation": false
     },
     "azure-rbac-diagnostics": {
       "description": "Azure RBAC 403/AuthorizationFailed diagnostics",
@@ -78,7 +81,9 @@
     "skill-feedback-adaptation": {
       "description": "Register user negative feedback on agent/skill behavior; propose skills for new tasks via task-skill-proposals.json",
       "detect_globs": ["**/.claude/learning/skill-feedback.jsonl", "**/.claude/learning/task-skill-proposals.json", "**/.claude/learning/**"],
-      "cost_estimate": "low"
+      "cost_estimate": "low",
+      "version": "1.0.0",
+      "changelog": "Initial feedback and task proposal workflow"
     },
     "drawio-diagrams": {
       "description": "Create/edit architecture diagrams as .drawio files via the draw.io MCP server, including Azure architecture diagrams using the official Azure icon set",
@@ -153,7 +158,9 @@
     "profile-init": {
       "description": "Initialize a personal skill profile for the current git branch based on team position; agent picks skills from the live catalog",
       "detect_globs": ["**/.claude/learning/profile-init-request.json", "**/.claude/profile.local.json"],
-      "cost_estimate": "low"
+      "cost_estimate": "low",
+      "version": "1.1.0",
+      "changelog": "Required platform skills and auto-recovery on new branches"
     },
     "skill-creator": {
       "description": "Create, edit, optimize, and benchmark Claude skills",

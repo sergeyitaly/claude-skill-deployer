@@ -8,9 +8,12 @@ import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { WorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusBannerHtml } from "./workspaceHookStatus";
 import { formatConfidenceBadge, SkillCostConfidence, WorkspaceConfidence } from "./attributionConfidence";
+import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml, formatSkillTrustHtml, GlobalTrustBadge } from "./attributionTrust";
 import { DASHBOARD_USAGE_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
 import { computeSkillInefficiencyStats, SkillInefficiencyStat } from "./skillFeedback";
 import { resolveTaskSkillProposals, TaskSkillProposal } from "./taskSkillProposals";
+import { formatOutdatedSkillsLines, SkillVersionStatus } from "./skillLifecycle";
+import { computeSkillRoi } from "./skillRoi";
 
 export type { RunAgent, SkillInefficiencyStat, TaskSkillProposal };
 
@@ -402,6 +405,32 @@ function removalLines(stats: SkillUsageStat[]): string[] {
   return lines;
 }
 
+function outdatedLines(statuses: SkillVersionStatus[]): string[] {
+  return formatOutdatedSkillsLines(statuses);
+}
+
+function htmlOutdatedSection(statuses: SkillVersionStatus[]): string {
+  const outdated = statuses.filter((s) => s.outdated);
+  const deprecated = statuses.filter((s) => s.deprecated);
+  if (outdated.length === 0 && deprecated.length === 0) {
+    return "";
+  }
+  const items = outdated
+    .map(
+      (s) =>
+        `<li><b>${escapeHtml(s.name)}</b> <span class="badge outdated">${escapeHtml(s.installedVersion)} → ${escapeHtml(s.catalogVersion)}</span>${s.changelog ? ` — ${escapeHtml(s.changelog)}` : ""}</li>`
+    )
+    .join("\n");
+  const depItems = deprecated
+    .map((s) => `<li><b>${escapeHtml(s.name)}</b> <span class="badge needs-attention">deprecated</span></li>`)
+    .join("\n");
+  const upgradeNote =
+    outdated.length > 0
+      ? `<div class="note">Run <b>Claude Skills: Upgrade Outdated Skills</b> to reinstall from the library.</div>`
+      : "";
+  return `<div class="panel"><h2>Skill lifecycle</h2>${outdated.length ? `<ul>${items}</ul>` : ""}${deprecated.length ? `<h3 class="subhead">Deprecated</h3><ul>${depItems}</ul>` : ""}${upgradeNote}</div>`;
+}
+
 function detailTableLines(stats: SkillUsageStat[], confidence?: Map<string, SkillCostConfidence>): string[] {
   if (stats.length === 0) {
     return [];
@@ -409,15 +438,15 @@ function detailTableLines(stats: SkillUsageStat[], confidence?: Map<string, Skil
   const lines = [
     "## Per-skill detail",
     "",
-    "| Skill | Runs | Success | Tokens | By agent | Last used | Rating | Confidence |",
+    "| Skill | Runs | Success | Tokens | By agent | Last used | Rating | Trust |",
     "|---|---|---|---|---|---|---|---|",
   ];
   for (const s of stats) {
     const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
     const conf = confidence?.get(s.name);
-    const confLabel = conf ? formatConfidenceBadge(conf.level) : "estimated";
+    const trust = buildSkillTrustLine(conf);
     lines.push(
-      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} | ${confLabel} |`
+      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} | ${trust.summary} |`
     );
   }
   return lines;
@@ -477,6 +506,9 @@ export function formatUsageReport(
     workspaceConfidence?: WorkspaceConfidence;
     inefficiency?: SkillInefficiencyStat[];
     taskProposals?: TaskSkillProposal[];
+    versionStatuses?: SkillVersionStatus[];
+    globalTrust?: GlobalTrustBadge;
+    manifest?: Manifest;
   }
 ): string {
   if (stats.length === 0 && suggested.length === 0) {
@@ -491,19 +523,22 @@ export function formatUsageReport(
   }
 
   const counts = tallyRatings(stats);
-  const confBanner =
-    opts?.workspaceConfidence != null
-      ? `Attribution confidence: ${Math.round(opts.workspaceConfidence.score * 100)}% (${formatConfidenceBadge(opts.workspaceConfidence.level)}).`
-      : "";
+  const trustBanner =
+    opts?.globalTrust != null
+      ? `${opts.globalTrust.label} (${opts.globalTrust.scorePct}%). ${opts.globalTrust.detail}`
+      : opts?.workspaceConfidence != null
+        ? `Attribution confidence: ${Math.round(opts.workspaceConfidence.score * 100)}% (${formatConfidenceBadge(opts.workspaceConfidence.level)}). ${opts.workspaceConfidence.summary}`
+        : "";
   return [
     "# Claude Skills Usage Report",
     "",
     `Workspace: \`${target}\``,
     "",
-    confBanner ? `${confBanner}\n` : "",
+    trustBanner ? `${trustBanner}\n` : "",
     summaryLine(stats, suggested, counts),
     "",
     ...creditUsageLines(creditUsage),
+    ...outdatedLines(opts?.versionStatuses ?? []),
     ...inefficiencyLines(opts?.inefficiency ?? []),
     ...taskProposalLines(opts?.taskProposals ?? []),
     ...misusedLines(stats),
@@ -623,7 +658,8 @@ function htmlRemovalSection(stats: SkillUsageStat[]): string {
 function htmlDetailTable(
   stats: SkillUsageStat[],
   confidence?: Map<string, SkillCostConfidence>,
-  inefficiency?: Map<string, SkillInefficiencyStat>
+  inefficiency?: Map<string, SkillInefficiencyStat>,
+  manifest?: Manifest
 ): string {
   if (stats.length === 0) {
     return "";
@@ -632,9 +668,9 @@ function htmlDetailTable(
     .map((s) => {
       const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
       const conf = confidence?.get(s.name);
-      const confBadge = conf
-        ? `<span class="badge conf-${conf.level}">${escapeHtml(formatConfidenceBadge(conf.level))}</span>`
-        : `<span class="badge conf-estimated">estimated</span>`;
+      const roi = manifest ? computeSkillRoi(s.name, manifest, s) : undefined;
+      const trust = buildSkillTrustLine(conf, roi?.roiBand);
+      const trustHtml = formatSkillTrustHtml(trust);
       const ineff = inefficiency?.get(s.name);
       const ineffCell =
         ineff && ineff.negativeCount > 0
@@ -649,17 +685,17 @@ function htmlDetailTable(
           <td class="muted">${escapeHtml(formatAgentBreakdown(s.agentRuns, s.agentTokens))}</td>
           <td>${formatRecency(s.daysSinceLastUse)}</td>
           <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
-          <td>${confBadge}</td>
+          <td class="trust-cell">${trustHtml}</td>
         </tr>`;
     })
     .join("\n");
   const rowsTable = `<table>
-      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>Feedback</th><th>By agent</th><th>Last used</th><th>Rating</th><th>Confidence</th></tr></thead>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>Feedback</th><th>By agent</th><th>Last used</th><th>Rating</th><th>ROI / Trust</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   return `<div class="panel">
     <h2>Skills detail</h2>
-    <p class="note">Runs and tokens count hook invocations and self-learning records only — not transcript cost estimates (see Credits above for session spend).</p>
+    <p class="note">Runs and tokens count hook invocations and self-learning records only — not transcript cost estimates (see Credits above for session spend). ROI and confidence are best-effort, not billing data.</p>
     <div class="table-wrap">${rowsTable}</div>
   </div>`;
 }
@@ -726,6 +762,9 @@ export function formatUsageReportHtml(
     inefficiency?: SkillInefficiencyStat[];
     taskProposals?: TaskSkillProposal[];
     taskSummary?: string;
+    versionStatuses?: SkillVersionStatus[];
+    globalTrust?: GlobalTrustBadge;
+    manifest?: Manifest;
   }
 ): string {
   const counts = tallyRatings(stats);
@@ -735,8 +774,14 @@ export function formatUsageReportHtml(
     inefficiency.length > 0
       ? `<div class="card inefficient"><div class="count">${inefficiency.length}</div><div class="label">Inefficient</div></div>`
       : "";
-  const confBanner =
-    opts?.workspaceConfidence != null
+  const outdatedCount = (opts?.versionStatuses ?? []).filter((s) => s.outdated).length;
+  const outdatedCard =
+    outdatedCount > 0
+      ? `<div class="card outdated"><div class="count">${outdatedCount}</div><div class="label">Outdated</div></div>`
+      : "";
+  const confBanner = opts?.globalTrust
+    ? formatGlobalTrustBannerHtml(opts.globalTrust)
+    : opts?.workspaceConfidence != null
       ? `<div class="estimate-banner"><b>Trust</b> ${escapeHtml(opts.workspaceConfidence.summary)} <span class="conf-${opts.workspaceConfidence.level}">(${Math.round(opts.workspaceConfidence.score * 100)}% · ${escapeHtml(formatConfidenceBadge(opts.workspaceConfidence.level))})</span></div>`
       : "";
 
@@ -750,17 +795,18 @@ export function formatUsageReportHtml(
     body = [
       htmlCreditUsageSection(creditUsage),
       htmlInefficiencySection(inefficiency),
+      htmlOutdatedSection(opts?.versionStatuses ?? []),
       htmlTaskProposalsSection(opts?.taskProposals ?? [], opts?.taskSummary),
       htmlMisusedSection(stats),
       htmlSuggestedSection(suggested),
       htmlRemovalSection(stats),
-      htmlDetailTable(stats, opts?.skillConfidence, inefficiencyMap),
+      htmlDetailTable(stats, opts?.skillConfidence, inefficiencyMap, opts?.manifest),
     ]
       .filter((s) => s.length > 0)
       .join("\n");
   }
 
-  const summaryCards = htmlCards(counts, suggested.length) + inefficiencyCard;
+  const summaryCards = htmlCards(counts, suggested.length) + inefficiencyCard + outdatedCard;
 
   return wrapDashboardHtml({
     title: "Usage Report",

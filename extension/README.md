@@ -200,6 +200,32 @@ Personal learning loop when agent answers miss the mark or a new task needs the 
 
 **Extension:** Usage Report **Inefficient skills** panel; high branch/task spend popup (default when usage exceeds **50%** of monthly credits — `claudeSkills.skillFeedback.*`).
 
+### Skill lifecycle (versioning)
+
+Each skill in `skills_library/manifest.json` may declare:
+
+```json
+{
+  "version": "1.2.0",
+  "changelog": "Improved Terraform parsing",
+  "deprecation": false
+}
+```
+
+Installed copies store `.skill-version.json` beside `SKILL.md`. The extension detects **outdated** skills, shows them in the Usage Report, prompts periodically, and offers **Claude Skills: Upgrade Outdated Skills**.
+
+### Attribution trust messaging
+
+Status bar **Trust** badge and dashboard headers show graded reliability:
+
+| Badge | Meaning |
+|---|---|
+| **Reliable (hooks active)** | v2 hooks logged skill invokes — measured per-skill cost where hooks fired |
+| **Estimated (transcripts)** | Mix of hooks/transcripts — probabilistic split, not an API invoice |
+| **Low confidence** | Enable Attribution v2 hooks or collect runs for usable per-skill data |
+
+Per-skill rows show **ROI band** and **Confidence: N% (Hook-based / Transcript-based / …)**.
+
 **CLI:** `py record_feedback.py <skill> --signal "no" --context "..."`
 
 ### Local files (gitignored)
@@ -380,6 +406,8 @@ Find all options under **Settings → Extensions → Claude Skills Manager** (or
 | `claudeSkills.profileInit.autoStartOnSession` | `true` | SessionStart hook + agent sync when profile init is pending |
 | `claudeSkills.profileInit.requiredSkills` | see below | Platform skills always merged into every profile-init set |
 | `claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch` | `true` | Reinstall missing/disabled required platform skills on new branch (no saved profile) |
+| `claudeSkills.lifecycle.alertOnOutdated` | `true` | Detect catalog version newer than installed copy |
+| `claudeSkills.lifecycle.autoSuggestUpgrades` | `true` | Periodic popup to upgrade outdated skills |
 | `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro`, `copilot` | Agents that receive skill clones |
 | `claudeSkills.agents.syncWorkspaceToAll` | `true` | Fan out workspace install to all enabled agent paths (requires `multiAgent` feature) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Fan out global library install to all enabled agent paths |

@@ -261,7 +261,7 @@ export function installSkillToAllWorkspaceAgents(
       results.push({
         agent: agentId,
         skill: skillName,
-        status: copySkill(skillName, resolvedSource, destRoot, force, dryRun),
+        status: copySkill(skillName, resolvedSource, destRoot, force, dryRun, { libraryDir }),
       });
       continue;
     }

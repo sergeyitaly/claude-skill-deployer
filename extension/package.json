@@ -126,6 +126,12 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.upgradeOutdatedSkills",
+        "title": "Upgrade Outdated Skills",
+        "icon": "$(arrow-up)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.installSessionWatchHook",
         "title": "Enable Session Size Notifications",
         "icon": "$(bell-dot)",
@@ -644,6 +650,23 @@
             "type": "boolean",
             "default": true,
             "description": "When switching to a git branch with no saved skill profile (or on first open when required skills are missing), reinstall required platform skills from the library if they were deleted or locally disabled."
+          }
+        }
+      },
+      {
+        "id": "lifecycle",
+        "title": "Skill Lifecycle",
+        "order": 2.6,
+        "properties": {
+          "claudeSkills.lifecycle.alertOnOutdated": {
+            "type": "boolean",
+            "default": true,
+            "description": "Detect installed skills whose catalog version is newer than the workspace copy."
+          },
+          "claudeSkills.lifecycle.autoSuggestUpgrades": {
+            "type": "boolean",
+            "default": true,
+            "description": "Periodically prompt to upgrade outdated skills from the bundled library."
           }
         }
       },

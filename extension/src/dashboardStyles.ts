@@ -128,7 +128,33 @@ export const DASHBOARD_BASE_STYLES = `
   .conf-high { color: var(--vscode-testing-iconPassed); font-size: 0.76em; }
   .conf-estimated { color: var(--vscode-editorWarning-foreground); font-size: 0.76em; }
   .conf-low { color: var(--vscode-descriptionForeground); font-size: 0.76em; }
+  .trust-banner {
+    border-radius: 5px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    font-size: 0.76em;
+    line-height: 1.35;
+    border: 1px solid var(--vscode-panel-border);
+  }
+  .trust-banner.trust-reliable {
+    background: color-mix(in srgb, var(--vscode-testing-iconPassed) 14%, transparent);
+    border-color: color-mix(in srgb, var(--vscode-testing-iconPassed) 40%, transparent);
+  }
+  .trust-banner.trust-estimated {
+    background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 12%, transparent);
+    border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground) 35%, transparent);
+  }
+  .trust-banner.trust-low {
+    background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground) 35%, transparent);
+    border-color: var(--vscode-inputValidation-errorBorder);
+  }
+  .trust-detail { color: var(--vscode-descriptionForeground); font-weight: normal; }
+  .trust-cell { font-size: 0.88em; line-height: 1.35; white-space: normal; min-width: 10em; }
+  .badge.outdated { background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 18%, transparent); color: var(--vscode-editorWarning-foreground); }
+  .card.outdated { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground) 45%, transparent); }
   .roi-high { color: var(--vscode-testing-iconPassed); font-weight: 600; font-size: 0.85em; }
+  .roi-medium { color: var(--vscode-editorWarning-foreground); font-weight: 600; font-size: 0.85em; }
+  .roi-low { color: var(--vscode-descriptionForeground); font-size: 0.85em; }
   .table-wrap { overflow-x: auto; margin: 4px 0; }
   table { border-collapse: collapse; width: 100%; font-size: 0.78em; }
   th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; }

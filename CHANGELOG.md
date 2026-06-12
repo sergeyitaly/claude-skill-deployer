@@ -16,6 +16,8 @@ Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.19** is the cu
 - **Settings** — `claudeSkills.skillFeedback.promptOnHighUsage`, `monthlyCreditThresholdPercent`, `monthlyCreditsUsd`.
 - **Profile init required skills** — every branch profile auto-includes platform skills (`self-learning`, `skill-creator`, `skill-usage-insights`, etc.); configurable via `claudeSkills.profileInit.requiredSkills`.
 - **Required skill auto-recovery** — on a new git branch (no saved profile) or first workspace open when required skills are missing, the extension reinstalls them from the library; toggle via `claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`.
+- **Skill lifecycle versioning** — `manifest.json` skills support `version`, `changelog`, and `deprecation`; outdated alerts and **Upgrade Outdated Skills** command.
+- **Attribution trust messaging** — global status bar badge (Reliable / Estimated / Low confidence) and per-skill ROI + confidence % in usage and cost dashboards.
 
 ## [1.0.19] - 2026-06-12
 
