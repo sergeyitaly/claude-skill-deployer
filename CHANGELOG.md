@@ -2,7 +2,29 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.18** is the current Marketplace publish target — it must exceed the last live version (**1.0.17**) so users receive this build. After publishing, run `scripts/unpublish-marketplace-versions.ps1` (then `-IncludeLatest`) to remove obsolete patch releases.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.19** is the current Marketplace publish target.
+
+## [1.0.19] - 2026-06-12
+
+Pipeline index, confidence propagation, and real-time optimizer.
+
+### In-memory index
+
+- **Runs cache** — derived v2 hook counts and session ids alongside cached `runs.jsonl` parse; `countV2HookRuns` / `sessionHasV2HookRuns` use cache.
+- **Transcript cache** — `transcriptUsageIndex.ts` fingerprints transcript mtimes; `computeEnabledAgentsCreditUsage` avoids full re-read when unchanged.
+- **Invalidation** — collector, prune, and reset clear transcript + runs caches together.
+
+### Confidence on every layer
+
+- **Usage Report** — trust banner and per-skill confidence column (`high` / `estimated` / `low`).
+- **Predictive alerts** — include confidence %; suppress trend-only alerts when confidence is `low`.
+- **Weekly report** — attribution confidence line.
+- **Cost Dashboard** — pipeline trace shows confidence alongside stage timings.
+
+### Real-time optimizer
+
+- **`autoDetectOnPipeline`** (default on) — debounced (~5s) auto-apply after each cost pipeline sync when `autoApply` is enabled.
+- **30-minute timer** — uses shared `runAutoOptimizePass` (no duplicate pipeline run).
 
 ## [1.0.18] - 2026-06-12
 
@@ -25,6 +47,25 @@ Attribution, pipeline resilience, and dashboard UX release.
 - **Shared compact UI** — `dashboardStyles.ts` unifies Cost Intelligence, Usage Report, and Setup wizard chrome (stat pills, tighter panels, pill hook badges).
 - **Models by agent** — dashboard panel shows per-model spend and tokens for Claude and Cursor (14d window).
 - **CSP-safe webviews** — nonce-based script listeners replace inline `onclick` in setup wizard and cost dashboard.
+
+### Usage report & attribution accuracy
+
+- **`runs.jsonl` scope** — Attribution v2 hook invocations and self-learning records only; background collector no longer writes equal-split transcript rows into `runs.jsonl` (transcript estimates stay in `cost-attribution.json`).
+- **Skills detail table** — Usage Report runs/tokens count hook + self-learning rows only; **Credits · 14d** still reflects session transcript spend for the workspace.
+- **Reset Mis-attributed Cost Data** — removes legacy collector transcript rows from `runs.jsonl`, clears `transcriptSkills`, refreshes the pipeline index; re-collection no longer repopulates bad per-skill run counts.
+
+### Predictive cost alerts
+
+- **Workspace-scoped** — trend and budget warnings use enabled-agent transcripts for the **current workspace**, not all of `~/.claude/projects/`.
+- **Sanitized math** — WoW % requires a meaningful prior week (minimum spend + active days); capped at ±200%; projection continues last week’s pace instead of compounding absurd percentages.
+
+### Pipeline roadmap (documented)
+
+Implemented in **v1.0.19**:
+
+- **Confidence on every layer** — Usage Report trust banner and per-skill confidence column; weekly report, predictive alerts, and pipeline trace include workspace confidence.
+- **In-memory index** — `learningStateIndex` derived v2 stats; `transcriptUsageIndex` caches transcript credit usage by mtime fingerprint.
+- **Real-time optimizer** — `claudeSkills.optimizer.autoDetectOnPipeline` (default on) debounces detect → auto-adjust after each pipeline sync when `autoApply` is enabled.
 
 ## [1.0.17] - 2026-06-12
 

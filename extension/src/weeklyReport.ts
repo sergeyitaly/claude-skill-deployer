@@ -4,9 +4,11 @@ import * as tls from "node:tls";
 import * as vscode from "vscode";
 import { agentCapabilityLines, computeEnabledAgentsCreditUsage } from "./agentOps";
 import { buildCostAttribution } from "./costAttribution";
-import { calculateTrend, predictWeeklyCost } from "./costPredictor";
+import { calculateTrend, predictWeeklyCostFromTrend } from "./costPredictor";
 import { generateOptimizationSuggestions } from "./costOptimizer";
 import { runCostPipelineSync } from "./costPipeline";
+import { assessAttributionHealth } from "./attributionHealth";
+import { formatConfidenceBadge } from "./attributionConfidence";
 import { fetchVcsIdentity, parseGitRemote, pickAndStoreVcsToken } from "./vcsReportDelivery";
 import { formatCompactUsd } from "./skillCost";
 import { formatTokenCount, readEnrichedRuns } from "./usageStats";
@@ -250,8 +252,9 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
   const priorWeekCost = Math.max(0, lastWeek.cost - thisWeek.cost);
   const changePercent = priorWeekCost > 0 ? ((thisWeek.cost - priorWeekCost) / priorWeekCost) * 100 : 0;
 
-  const trend = calculateTrend();
+  const trend = calculateTrend(target, libraryDir);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
+  const health = assessAttributionHealth(target, libraryDir);
   runCostPipelineSync(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const suggestions = generateOptimizationSuggestions(target, libraryDir).slice(0, 5);
@@ -286,8 +289,9 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
     `- Estimated spend: **${formatCompactUsd(thisWeek.cost)}**`,
     `- Tokens recorded: **${formatTokenCount(thisWeek.tokens)}**`,
     `- Change vs prior week: **${changePercent >= 0 ? "+" : ""}${changePercent.toFixed(1)}%**`,
-    `- Trend (transcripts): ${trend.direction === "up" ? "up" : trend.direction === "down" ? "down" : "flat"} ${Math.abs(trend.percentage)}%`,
-    `- Projected next week: ~${formatCompactUsd(predictWeeklyCost())}`,
+    `- Trend (transcripts): ${trend.direction === "up" ? "up" : trend.direction === "down" ? "down" : "flat"} ${Math.abs(trend.percentage)}%${trend.reliable ? "" : " (insufficient prior week)"}`,
+    `- Projected next week: ~${formatCompactUsd(predictWeeklyCostFromTrend(trend))}`,
+    `- Attribution confidence: ${Math.round(health.confidenceScore * 100)}% (${formatConfidenceBadge(health.confidenceLevel)})`,
     "",
     "### Agent totals (session transcripts, 14 days)",
     agentLines.length ? agentLines.join("\n") : "- No transcript usage yet",

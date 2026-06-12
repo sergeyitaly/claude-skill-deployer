@@ -1,7 +1,7 @@
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { SkillAttributionMap } from "./costAttribution";
-import { countV2HookRuns, isV2HookRun, SKILL_INVOKE_HOOK_SOURCE } from "./runRecording";
-import { readEnrichedRuns } from "./usageStats";
+import { readCachedEnrichedRuns, countCachedV2HookRuns } from "./learningStateIndex";
+import { isUsageRunRecord, isV2HookRun, SKILL_INVOKE_HOOK_SOURCE } from "./runRecording";
 
 export type ConfidenceLevel = "high" | "estimated" | "low";
 
@@ -83,7 +83,7 @@ export function assessSkillCostConfidence(
     transcriptSkills?: SkillAttributionMap;
   }
 ): Map<string, SkillCostConfidence> {
-  const runs = readEnrichedRuns(target);
+  const runs = readCachedEnrichedRuns(target);
   const v2BySkill = new Map<string, number>();
   const runsBySkill = new Map<string, number>();
   for (const r of runs) {
@@ -120,8 +120,8 @@ export function assessWorkspaceConfidence(
   unattributedTokens: number
 ): WorkspaceConfidence {
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
-  const v2Runs = countV2HookRuns(target);
-  const totalRuns = readEnrichedRuns(target).length;
+  const v2Runs = countCachedV2HookRuns(target);
+  const totalRuns = readCachedEnrichedRuns(target).length;
   const v2Coverage = totalRuns > 0 ? v2Runs / totalRuns : v2Runs > 0 ? 1 : 0;
   const unattributedRatio = credit.totalTokens > 0 ? unattributedTokens / credit.totalTokens : 0;
 
@@ -170,6 +170,30 @@ export function formatSkillCostWithConfidence(costLabel: string, conf: SkillCost
     return `${costLabel} (confidence: estimated)`;
   }
   return `${costLabel} (confidence: ${formatConfidenceBadge(conf.level)})`;
+}
+
+/** Confidence for Usage Report skill rows (hook/self-learning runs only). */
+export function assessUsageSkillConfidence(target: string, skill: string): SkillCostConfidence {
+  const runs = readCachedEnrichedRuns(target).filter((r) => r.skill === skill && isUsageRunRecord(r));
+  const v2Count = runs.filter(isV2HookRun).length;
+  const runCount = runs.length;
+  if (v2Count > 0) {
+    const score = scoreForSource("v2-hook", v2Count, false);
+    return { skill, level: levelFromScore(score), score, source: "v2-hook" };
+  }
+  if (runCount > 0) {
+    const score = scoreForSource("runs", runCount, false);
+    return { skill, level: levelFromScore(score), score, source: "runs" };
+  }
+  return { skill, level: "low", score: 0.25, source: "heuristic" };
+}
+
+export function buildUsageSkillConfidenceMap(target: string, skillNames: string[]): Map<string, SkillCostConfidence> {
+  const out = new Map<string, SkillCostConfidence>();
+  for (const skill of skillNames) {
+    out.set(skill, assessUsageSkillConfidence(target, skill));
+  }
+  return out;
 }
 
 /** Exported for tests — documents v2 hook source id. */

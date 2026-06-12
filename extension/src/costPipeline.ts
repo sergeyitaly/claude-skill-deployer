@@ -13,6 +13,7 @@ import { refreshRunsIndex } from "./runsIndex";
 import { loadManifest } from "./skillOps";
 import { refreshWorkspaceSystemState, readWorkspaceSystemState, WorkspaceSystemState } from "./workspaceSystemState";
 import { SystemMode } from "./systemMode";
+import { scheduleAutoOptimizePass } from "./autoOptimizer";
 
 export interface CostPipelineRunOptions {
   collectMs?: number;
@@ -91,6 +92,7 @@ export function runCostPipelineSync(
     writePipelineTrace(target, trace);
 
     const status = evaluatePipelineStatus(target, readPipelineCycle(target));
+    scheduleAutoOptimizePass(target, libraryDir);
     return {
       ready: status.ready,
       fresh: status.fresh,

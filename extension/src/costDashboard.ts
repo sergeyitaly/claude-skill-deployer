@@ -11,7 +11,7 @@ import {
   OptimizationSuggestion,
   topExpensiveSkills,
 } from "./costOptimizer";
-import { calculateTrend } from "./costPredictor";
+import { calculateTrend, formatTrendLabel } from "./costPredictor";
 import { loadCostProfile } from "./costProfiles";
 import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills } from "./skillArchival";
@@ -155,7 +155,7 @@ export function formatCostDashboardHtml(
   const savings = showPerSkill
     ? crossAgentSavingsSummary(attribution)
     : { realizedUsd: 0, speculativeUsd: 0, cursorSkills: 0 };
-  const trend = calculateTrend();
+  const trend = calculateTrend(target, libraryDir);
   const profile = showPerSkill ? loadCostProfile(target, libraryDir) : undefined;
   const usageStats = computeUsageStats(target, manifest);
   const usageMap = new Map(usageStats.map((s) => [s.name, s]));
@@ -235,12 +235,7 @@ export function formatCostDashboardHtml(
     )
     .join("");
 
-  const trendLabel =
-    trend.direction === "up"
-      ? `Up ${trend.percentage}% vs prior week`
-      : trend.direction === "down"
-        ? `Down ${Math.abs(trend.percentage)}% vs prior week`
-        : "Stable week-over-week";
+  const trendLabel = formatTrendLabel(trend);
 
   return wrapDashboardHtml({
     title: "Cost Intelligence",
@@ -263,7 +258,7 @@ export function formatCostDashboardHtml(
       <div class="stat-pill"><b>Pipeline</b><span class="val">${pipeline.fresh ? "fresh" : "stale"}${pipeline.circuitOpen ? " · circuit" : ""}</span></div>
     </div>
     <p class="note">${escapeHtml(formatCapabilitiesSummary(systemState.capabilities))}</p>
-    ${pipeline.trace ? `<p class="note">Trace ${pipeline.trace.collectMs ?? "—"}/${pipeline.trace.indexMs ?? "—"}/${pipeline.trace.analyzeMs ?? "—"} ms · total ${pipeline.trace.totalMs ?? "—"} ms${pipeline.trace.errors.length > 0 ? ` · ${escapeHtml(pipeline.trace.errors.map((e) => `${e.phase}: ${e.message}`).join("; "))}` : ""}</p>` : ""}
+    ${pipeline.trace ? `<p class="note">Trace collect/index/analyze: ${pipeline.trace.collectMs ?? "—"}/${pipeline.trace.indexMs ?? "—"}/${pipeline.trace.analyzeMs ?? "—"} ms · total ${pipeline.trace.totalMs ?? "—"} ms · confidence ${Math.round(health.confidenceScore * 100)}% <span class="conf-${health.confidenceLevel}">${escapeHtml(formatConfidenceBadge(health.confidenceLevel))}</span>${pipeline.trace.errors.length > 0 ? ` · ${escapeHtml(pipeline.trace.errors.map((e) => `${e.phase}: ${e.message}`).join("; "))}` : ""}</p>` : `<p class="note">Pipeline confidence ${Math.round(health.confidenceScore * 100)}% · <span class="conf-${health.confidenceLevel}">${escapeHtml(formatConfidenceBadge(health.confidenceLevel))}</span></p>`}
   </div>
 
   ${

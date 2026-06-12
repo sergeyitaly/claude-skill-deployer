@@ -12,7 +12,7 @@ import { setSkillOverride, loadManifest } from "./skillOps";
 import { computeUsageStats } from "./usageStats";
 import { assessAttributionHealth } from "./attributionHealth";
 import { buildSystemModeContext } from "./systemMode";
-import { readPipelineCycle } from "./pipelineCycle";
+import { evaluatePipelineStatus, readPipelineCycle } from "./pipelineCycle";
 import {
   applyOptimizerSafetyCaps,
   capAutoApplySuggestions,
@@ -60,6 +60,61 @@ export function setAgentPreference(target: string, skill: string, agent: AgentId
 
 export function isAutoOptimizeEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.optimizer").get<boolean>("autoApply", false);
+}
+
+export function isAutoDetectOnPipelineEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.optimizer").get<boolean>("autoDetectOnPipeline", true);
+}
+
+const optimizeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const AUTO_DETECT_DELAY_MS = 5000;
+
+/** Debounced detect → auto-adjust after pipeline or hook activity. */
+export function scheduleAutoOptimizePass(target: string, libraryDir: string, delayMs = AUTO_DETECT_DELAY_MS): void {
+  if (!isFeatureEnabled("autoOptimizer") || !isAutoOptimizeEnabled() || !isAutoDetectOnPipelineEnabled()) {
+    return;
+  }
+  const key = path.resolve(target);
+  const existing = optimizeTimers.get(key);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  optimizeTimers.set(
+    key,
+    setTimeout(() => {
+      optimizeTimers.delete(key);
+      void runAutoOptimizePass(target, libraryDir);
+    }, delayMs)
+  );
+}
+
+/** Detect expensive/unused skills and auto-apply when `autoApply` is on. */
+export async function runAutoOptimizePass(target: string, libraryDir: string): Promise<ApplyResult | null> {
+  if (!isFeatureEnabled("autoOptimizer") || !isAutoOptimizeEnabled()) {
+    return null;
+  }
+
+  const status = evaluatePipelineStatus(target, readPipelineCycle(target));
+  if (!status.fresh) {
+    return null;
+  }
+
+  const health = assessAttributionHealth(target, libraryDir);
+  const modeCtx = buildSystemModeContext(health, target, status.cycle);
+  if (!modeCtx.canAutoApplyOptimizations) {
+    return null;
+  }
+
+  const suggestions = generateOptimizationSuggestions(target, libraryDir).filter(
+    (s) => s.type === "disable" || s.type === "unused"
+  );
+  if (suggestions.length === 0) {
+    return null;
+  }
+
+  const result = await applyOptimizationSuggestions(target, libraryDir, suggestions, { auto: true });
+  await runArchivalPass(target, libraryDir);
+  return result;
 }
 
 export interface ApplyResult {

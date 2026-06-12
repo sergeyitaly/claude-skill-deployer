@@ -108,7 +108,7 @@ import { formatCostDashboardHtml, formatCostDashboardText } from "./costDashboar
 import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from "./autoOptimizer";
 import { checkPredictiveCostAlert } from "./costPredictor";
 import { installGitPostCommitHook } from "./commitCost";
-import { isAutoOptimizeEnabled, applyOptimizationSuggestions as applyAutoOptimizations, runArchivalPass } from "./autoOptimizer";
+import { isAutoOptimizeEnabled, runAutoOptimizePass } from "./autoOptimizer";
 import { isFeatureEnabled, featureFlagLines, FeatureKey, FEATURE_DESCRIPTIONS } from "./featureFlags";
 import { checkEmergencyCutoff, resetEmergencyCutoff } from "./emergencyCutoff";
 import { syncCommunityBenchmarks, updateLocalBenchmarks, uploadAnonymizedStats } from "./communityBenchmarks";
@@ -125,6 +125,8 @@ import { showOnboardingTour } from "./onboarding";
 import { showOnboardingWizard } from "./onboardingWizard";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
+import { buildUsageSkillConfidenceMap } from "./attributionConfidence";
+import { readSkillStatsIndex } from "./runsIndex";
 import { setPricingContext } from "./costRates";
 import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
 import {
@@ -574,30 +576,16 @@ export function activate(context: vscode.ExtensionContext) {
         if (!isAutoOptimizeEnabled()) {
           return;
         }
-        void (async () => {
-          const pipeline = await runCostPipeline(initialTarget, libraryDir);
-          if (!pipeline.fresh) {
-            return;
-          }
-          const health = assessAttributionHealth(initialTarget, libraryDir);
-          const modeCtx = buildSystemModeContext(health, initialTarget, pipeline.cycle);
-          if (!modeCtx.canAutoApplyOptimizations) {
-            return;
-          }
-          const suggestions = generateOptimizationSuggestions(initialTarget, libraryDir).filter(
-            (s) => s.type === "disable" || s.type === "unused"
-          );
-          if (suggestions.length > 0) {
-            await applyAutoOptimizations(initialTarget, libraryDir, suggestions, { auto: true });
-          }
-          await runArchivalPass(initialTarget, libraryDir);
-        })();
+        void runAutoOptimizePass(initialTarget, libraryDir);
       }, 30 * 60 * 1000);
       context.subscriptions.push({ dispose: () => clearInterval(autoOptTimer) });
     }
     if (isFeatureEnabled("predictiveAlerts")) {
       setTimeout(() => {
-        void checkPredictiveCostAlert();
+        const target = getWorkspaceTarget();
+        if (target) {
+          void checkPredictiveCostAlert(target, libraryDir);
+        }
       }, 8000);
     }
     if (isFeatureEnabled("communityBenchmarks")) {
@@ -894,13 +882,27 @@ export function activate(context: vscode.ExtensionContext) {
       persistCostAttribution(target, libraryDir);
       const built = buildCostAttribution(target, libraryDir);
       const { attribution } = resolveDisplayAttribution(built, target);
-      const stats = enrichUsageStatsWithAttribution(computeUsageStats(target, manifest), attribution);
+      const health = assessAttributionHealth(target, libraryDir);
+      const stats = enrichUsageStatsWithAttribution(readSkillStatsIndex(target, manifest), attribution);
       const suggested = computeSuggestedSkills(target, manifest);
       const creditUsage = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
+      const skillConfidence = buildUsageSkillConfidenceMap(
+        target,
+        stats.map((s) => s.name)
+      );
+      const reportOpts = {
+        skillConfidence,
+        workspaceConfidence: {
+          score: health.confidenceScore,
+          level: health.confidenceLevel,
+          summary: health.summary,
+          v2Coverage: 0,
+        },
+      };
 
       outputChannel.show(true);
       log(`\n=== Skill usage report for ${target} ===`);
-      log(formatUsageReport(stats, suggested, target, creditUsage));
+      log(formatUsageReport(stats, suggested, target, creditUsage, reportOpts));
       log(
         formatAttributionReport(
           built.skills,
@@ -934,7 +936,8 @@ export function activate(context: vscode.ExtensionContext) {
         suggested,
         target,
         creditUsage,
-        getWorkspaceHookStatus(target, libraryDir)
+        getWorkspaceHookStatus(target, libraryDir),
+        reportOpts
       );
       if (usagePanel) {
         usagePanel.webview.html = html;
@@ -1791,9 +1794,11 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const result = resetMisattributedData(target);
       await AttributionCollector.getInstance(target, libraryDir).collect(true);
+      runCostPipelineSync(target, libraryDir);
       persistCostAttribution(target, libraryDir);
+      refreshAll();
       vscode.window.showInformationMessage(
-        `Claude Skills: removed ${result.removedRuns} mis-attributed run(s); kept ${result.keptRuns}. Re-collection started.`
+        `Claude Skills: removed ${result.removedRuns} transcript estimate row(s); kept ${result.keptRuns} hook/self-learning run(s). Reopen Usage Report to refresh.`
       );
     }),
 

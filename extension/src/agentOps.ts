@@ -21,6 +21,7 @@ import {
   removeSkill,
 } from "./skillOps";
 import { computeCreditUsageFromRoots, ModelUsage } from "./usageCost";
+import { readCachedCreditUsageFromRoots } from "./transcriptUsageIndex";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
 
@@ -552,7 +553,7 @@ export function computeEnabledAgentsCreditUsage(libraryDir: string, daysBack = 1
   if (roots.length === 0) {
     return computeCreditUsageFromRoots([], daysBack);
   }
-  return computeCreditUsageFromRoots(roots, daysBack, workspaceTarget);
+  return readCachedCreditUsageFromRoots(roots, daysBack, workspaceTarget);
 }
 
 export interface AgentCreditRow {
@@ -588,7 +589,7 @@ export function computePerAgentCreditUsage(
         models: [],
       };
     }
-    const summary = computeCreditUsageFromRoots(def.transcriptRoots, daysBack, workspaceTarget);
+    const summary = readCachedCreditUsageFromRoots(def.transcriptRoots, daysBack, workspaceTarget);
     return {
       agent: id,
       displayName: def.displayName,

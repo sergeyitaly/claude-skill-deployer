@@ -9,6 +9,13 @@ Skills live in `skills_library/` (source of truth). Deploy globally to your
 machine, per workspace, per git branch, and across multiple AI agents from
 one manifest.
 
+## How it works
+
+The extension detects your project context, lets an AI agent choose the best
+development skills, synchronizes them across tools like Cursor and Copilot,
+tracks how those skills are actually used, calculates cost and value, and
+continuously optimizes your setup based on real usage.
+
 ## Do you need Claude Code?
 
 **No.** The VS Code extension works in **VS Code or Cursor** without the [Claude Code](https://docs.claude.com/claude-code) app or CLI installed.
@@ -79,7 +86,7 @@ Or Settings → `claudeSkills.features.*`:
 | `attributionCollector` | on | Background transcript attribution |
 | `costIntelligence` | on | Dashboard, suggestions, export |
 | `autoOptimizer` | on | Scheduled safe auto-optimizations |
-| `predictiveAlerts` | on | Weekly trend warnings |
+| `predictiveAlerts` | on | Workspace spend vs weekly budget; sane WoW trend (not global all-projects) |
 | `communityBenchmarks` | off | Opt-in community cost benchmarks |
 | `teamCostSharing` | on | Git author attribution on shared skills |
 | `skillArchival` | on | Archive idle skills (restore available) |
@@ -99,8 +106,9 @@ Estimates only — not Anthropic/Cursor invoices. Per-skill data is **best-effor
 
 ### Attribution & data
 
-- **Attribution collector** — parses session transcripts; attributes tokens only to **invoked** skills. Unattributed sessions → `unattributed`.
+- **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
 - **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open)
+- **Usage Report split** — **Skills detail** (runs, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts for this workspace
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
 - **Stale data guard** — auto-purges equal-split `transcriptSkills`; per-skill rankings hidden until clean or **Reset Mis-attributed Cost Data**
 - **Indexed stats** — `skill-stats.json` + `daily-stats.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
@@ -110,6 +118,7 @@ Estimates only — not Anthropic/Cursor invoices. Per-skill data is **best-effor
 - **Optimization suggestions** — disable expensive low-use skills, agent-switch hints with **estimated $/month** savings
 - **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (max **3 applies per 30 minutes** when auto)
 - **Pricing overrides** — optional `.claude/learning/pricing-overrides.json` for model $/M tokens and ROI hourly rate (audit-friendly vs built-in tiers)
+- **Predictive alerts** — workspace last-7-day spend vs weekly budget (`claudeSkills.features.predictiveAlerts`); sane WoW % when prior week has enough data
 - **Emergency cutoff**, **skill archival**, **PR cost estimate**, **commit cost hook** — unchanged from 1.0.x
 - **Community benchmarks** — opt-in via `~/.claude/learning/community-benchmarks.json`
 
@@ -117,15 +126,35 @@ Estimates only — not Anthropic/Cursor invoices. Per-skill data is **best-effor
 
 | File | Purpose |
 |---|---|
-| `.claude/learning/runs.jsonl` | Skill runs (hooks + self-learning); pruned on attribution reset (90d) |
-| `.claude/learning/skill-stats.json` | Aggregated per-skill stats index |
+| `.claude/learning/runs.jsonl` | Hook invocations + self-learning run log (not transcript cost estimates) |
+| `.claude/learning/cost-attribution.json` | Transcript-based per-skill estimates (`transcriptSkills`) and unattributed totals |
+| `.claude/learning/skill-stats.json` | Aggregated per-skill stats index (hook/self-learning runs) |
 | `.claude/learning/daily-stats.json` | Cost/tokens/runs by day |
 | `.claude/learning/system-state.json` | Unified `profileInit` / attribution / hooks / capabilities snapshot |
 | `.claude/learning/write-locks.json` | Coordinated write versions for profile-init files |
 | `.claude/learning/pricing-overrides.json` | Optional manual model pricing + hourly rate |
-| `.claude/learning/cost-attribution.json` | Collector + runs merge store |
 
-- **Reset Mis-attributed Cost Data** — clears bad collector rows (`scripts/reset_attribution.py` or Command Palette)
+- **Reset Mis-attributed Cost Data** — removes legacy collector transcript rows from `runs.jsonl`, clears `transcriptSkills`, resets collector state; reopen Usage Report after reset
+
+### Cost pipeline
+
+Background sync runs **collect → index → analyze** on a schedule and after hooks append to `runs.jsonl`:
+
+| Stage | What it does |
+|---|---|
+| **Collect** | Parse session transcripts into `cost-attribution.json`; refresh attribution health |
+| **Index** | Aggregate hook/self-learning runs into `skill-stats.json` and `daily-stats.json` |
+| **Analyze** | ROI bands, optimization suggestions, system-state snapshot, predictive alerts |
+
+Stage timings and errors appear in the Cost Dashboard **System** panel. A circuit breaker trips after more than 10 pipeline runs per minute and forces safe mode (auto-optimize off) until the window clears.
+
+**Pipeline roadmap** (v1.0.19):
+
+| Direction | Status |
+|---|---|
+| **Confidence on every layer** | Usage Report trust banner + per-skill confidence column; weekly report + predictive alerts + pipeline trace show workspace confidence |
+| **In-memory index** | Unified `runs.jsonl` cache with derived v2 stats; transcript mtime fingerprint cache for credit usage (`transcriptUsageIndex.ts`) |
+| **Real-time optimizer** | `autoDetectOnPipeline` (default on): debounced auto-apply after each pipeline sync when `autoApply` is enabled |
 
 ### Official Anthropic skills (repos with `skills_library/`)
 

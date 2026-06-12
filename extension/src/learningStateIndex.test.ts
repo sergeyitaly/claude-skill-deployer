@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { invalidateLearningCache, learningCacheSize, readCachedEnrichedRuns } from "./learningStateIndex";
+import { invalidateLearningCache, learningCacheSize, readCachedEnrichedRuns, countCachedV2HookRuns } from "./learningStateIndex";
+import { SKILL_INVOKE_HOOK_SOURCE } from "./runRecording";
 
 const workspaces: string[] = [];
 
@@ -46,5 +47,29 @@ describe("learningStateIndex", () => {
     const third = readCachedEnrichedRuns(target);
     expect(third).toHaveLength(2);
     expect(third).not.toBe(first);
+  });
+
+  it("derives v2 hook stats from cached runs", () => {
+    const target = makeWorkspace();
+    const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
+    fs.writeFileSync(
+      runsFile,
+      [
+        JSON.stringify({
+          ts: "2026-06-12T12:00:00Z",
+          skill: "a",
+          action: "run",
+          rc: 0,
+          session_id: "sess-1",
+          metadata: { source: SKILL_INVOKE_HOOK_SOURCE, invoked: true },
+        }),
+        JSON.stringify({ ts: "2026-06-12T12:01:00Z", skill: "b", action: "run", rc: 0 }),
+      ].join("\n") + "\n",
+      "utf-8"
+    );
+
+    expect(countCachedV2HookRuns(target)).toBe(1);
+    readCachedEnrichedRuns(target);
+    expect(countCachedV2HookRuns(target)).toBe(1);
   });
 });

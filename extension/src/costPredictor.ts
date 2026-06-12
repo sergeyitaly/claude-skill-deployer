@@ -1,44 +1,100 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
+import { assessAttributionHealth } from "./attributionHealth";
+import { formatConfidenceBadge } from "./attributionConfidence";
+import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { readBudgetConfig } from "./budgetConfig";
 import { localDateKey } from "./localDate";
-import { computeCreditUsage } from "./usageCost";
+import { CreditUsageSummary } from "./usageCost";
+
+/** Minimum prior-week spend before WoW % is shown or used for projection. */
+export const MIN_PRIOR_WEEK_USD = 5;
+
+/** Minimum days with spend in the prior 7-day window for a reliable comparison. */
+export const MIN_PRIOR_WEEK_DAYS = 2;
+
+/** Cap displayed WoW change so sparse data cannot produce absurd percentages. */
+export const MAX_TREND_PCT = 200;
 
 export interface CostTrend {
   direction: "up" | "down" | "flat";
   percentage: number;
   lastWeekUsd: number;
   priorWeekUsd: number;
+  /** False when prior window is too sparse/small to compare week-over-week. */
+  reliable: boolean;
 }
 
-export function weeklyCostFromSummary(daysBack = 14): { lastWeekUsd: number; priorWeekUsd: number } {
-  const summary = computeCreditUsage(daysBack);
+export interface WeeklyCostWindow {
+  lastWeekUsd: number;
+  priorWeekUsd: number;
+  lastWeekDaysWithSpend: number;
+  priorWeekDaysWithSpend: number;
+}
+
+export function weeklyCostFromSummary(summary: CreditUsageSummary): WeeklyCostWindow {
   const days = [...summary.byDay].sort((a, b) => b.date.localeCompare(a.date));
-  const lastWeek = days.slice(0, 7).reduce((s, d) => s + d.cost, 0);
-  const priorWeek = days.slice(7, 14).reduce((s, d) => s + d.cost, 0);
-  return { lastWeekUsd: lastWeek, priorWeekUsd: priorWeek };
+  const lastWeekDays = days.slice(0, 7);
+  const priorWeekDays = days.slice(7, 14);
+  const daysWithSpend = (rows: typeof days) => rows.filter((d) => d.cost > 0.001).length;
+  return {
+    lastWeekUsd: lastWeekDays.reduce((s, d) => s + d.cost, 0),
+    priorWeekUsd: priorWeekDays.reduce((s, d) => s + d.cost, 0),
+    lastWeekDaysWithSpend: daysWithSpend(lastWeekDays),
+    priorWeekDaysWithSpend: daysWithSpend(priorWeekDays),
+  };
 }
 
-export function calculateTrend(): CostTrend {
-  const { lastWeekUsd, priorWeekUsd } = weeklyCostFromSummary(14);
-  if (priorWeekUsd <= 0) {
-    return { direction: "flat", percentage: 0, lastWeekUsd, priorWeekUsd };
+function priorWeekIsReliable(window: WeeklyCostWindow): boolean {
+  return window.priorWeekUsd >= MIN_PRIOR_WEEK_USD && window.priorWeekDaysWithSpend >= MIN_PRIOR_WEEK_DAYS;
+}
+
+/** WoW trend from a credit-usage summary (newest 7 days vs previous 7). */
+export function calculateTrendFromSummary(summary: CreditUsageSummary): CostTrend {
+  const window = weeklyCostFromSummary(summary);
+  const { lastWeekUsd, priorWeekUsd } = window;
+
+  if (!priorWeekIsReliable(window) || priorWeekUsd <= 0) {
+    return { direction: "flat", percentage: 0, lastWeekUsd, priorWeekUsd, reliable: false };
   }
+
   const change = ((lastWeekUsd - priorWeekUsd) / priorWeekUsd) * 100;
+  const capped = Math.max(-MAX_TREND_PCT, Math.min(MAX_TREND_PCT, change));
   let direction: CostTrend["direction"] = "flat";
-  if (change > 5) {
+  if (capped > 5) {
     direction = "up";
-  } else if (change < -5) {
+  } else if (capped < -5) {
     direction = "down";
   }
-  return { direction, percentage: Math.round(change), lastWeekUsd, priorWeekUsd };
+  return {
+    direction,
+    percentage: Math.round(capped),
+    lastWeekUsd,
+    priorWeekUsd,
+    reliable: true,
+  };
 }
 
-export function predictWeeklyCost(): number {
-  const trend = calculateTrend();
-  if (trend.direction === "up" && trend.percentage > 0) {
-    return trend.lastWeekUsd * (1 + trend.percentage / 100);
+/** Workspace-scoped trend from enabled agent transcripts (matches Cost Dashboard credits). */
+export function calculateTrend(target: string, libraryDir: string): CostTrend {
+  const summary = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
+  return calculateTrendFromSummary(summary);
+}
+
+/**
+ * Next-week estimate: continue last 7d pace; if reliably trending up, add one capped increment
+ * of absolute growth (never compound WoW % on top of itself).
+ */
+export function predictWeeklyCostFromTrend(trend: CostTrend): number {
+  if (!trend.reliable || trend.direction !== "up") {
+    return trend.lastWeekUsd;
   }
-  return trend.lastWeekUsd;
+  const growth = Math.max(0, trend.lastWeekUsd - trend.priorWeekUsd);
+  return trend.lastWeekUsd + Math.min(growth, trend.lastWeekUsd * 0.5);
+}
+
+export function predictWeeklyCost(target: string, libraryDir: string): number {
+  return predictWeeklyCostFromTrend(calculateTrend(target, libraryDir));
 }
 
 export function weeklyBudgetUsd(): number {
@@ -50,32 +106,54 @@ export function weeklyBudgetUsd(): number {
   return override > 0 ? override : daily * 7;
 }
 
-let lastAlertDate = "";
+export function formatTrendLabel(trend: CostTrend): string {
+  if (!trend.reliable) {
+    return trend.lastWeekUsd > 0 ? "Insufficient prior-week data" : "Stable week-over-week";
+  }
+  if (trend.direction === "up") {
+    return `Up ${trend.percentage}% vs prior week`;
+  }
+  if (trend.direction === "down") {
+    return `Down ${Math.abs(trend.percentage)}% vs prior week`;
+  }
+  return "Stable week-over-week";
+}
 
-export async function checkPredictiveCostAlert(): Promise<string | null> {
-  const trend = calculateTrend();
+let lastAlertKey = "";
+
+export async function checkPredictiveCostAlert(target: string, libraryDir: string): Promise<string | null> {
+  const trend = calculateTrend(target, libraryDir);
+  const health = assessAttributionHealth(target, libraryDir);
   const budget = weeklyBudgetUsd();
   if (budget <= 0) {
     return null;
   }
 
-  if (trend.direction !== "up" || trend.percentage <= 20) {
+  const projected = predictWeeklyCostFromTrend(trend);
+  const overBudget = trend.lastWeekUsd > budget * 1.2 || projected > budget * 1.2;
+  const meaningfulUptrend = trend.reliable && trend.direction === "up" && trend.percentage > 20;
+
+  if (!overBudget && !meaningfulUptrend) {
     return null;
   }
 
-  const projected = predictWeeklyCost();
-  if (projected <= budget * 1.2) {
+  if (health.confidenceLevel === "low" && !overBudget) {
     return null;
   }
 
-  const today = localDateKey();
-  if (lastAlertDate === today) {
+  const alertKey = `${localDateKey()}|${path.normalize(target)}`;
+  if (lastAlertKey === alertKey) {
     return null;
   }
-  lastAlertDate = today;
+  lastAlertKey = alertKey;
 
+  const confPart = ` (${Math.round(health.confidenceScore * 100)}% ${formatConfidenceBadge(health.confidenceLevel)})`;
+  const trendPart = trend.reliable && trend.direction === "up"
+    ? ` Costs trending up ${trend.percentage}%.`
+    : "";
   const msg =
-    `Costs trending up ${trend.percentage}%. Projected: $${projected.toFixed(2)} (weekly budget: $${budget.toFixed(2)}). ` +
+    `Estimated workspace spend last 7 days: $${trend.lastWeekUsd.toFixed(2)}` +
+    ` (projected ~$${projected.toFixed(2)}; weekly budget: $${budget.toFixed(2)}${confPart}).${trendPart} ` +
     `Open Cost Dashboard to review optimizations?`;
 
   const choice = await vscode.window.showWarningMessage(msg, "Open Dashboard", "Dismiss");

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CollectorState } from "./collectorState";
+import { invalidateLearningCache } from "./learningStateIndex";
 
 const DEFAULT_RUNS_RETENTION_DAYS = 90;
 const MAX_PROCESSED_SESSIONS = 2000;
@@ -49,6 +50,10 @@ export function pruneRunsJsonl(filePath: string, retentionDays = DEFAULT_RUNS_RE
   }
   if (removed > 0) {
     fs.writeFileSync(filePath, kept.join("\n") + (kept.length ? "\n" : ""), "utf-8");
+    const learningDir = path.dirname(filePath);
+    const claudeDir = path.dirname(learningDir);
+    const target = path.dirname(claudeDir);
+    invalidateLearningCache(target);
   }
   return removed;
 }

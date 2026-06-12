@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { computeCreditUsageFromRoots } from "./usageCost";
 import { tokenCostUsd } from "./costRates";
-import { countV2HookRuns } from "./runRecording";
+import { countV2HookRuns, isUsageRunRecord } from "./runRecording";
 import { readRunRecords, RunRecord } from "./usageStats";
 
 export interface AgentAttribution {
@@ -121,7 +121,7 @@ function addAgent(target: AgentAttribution, tokens: number, cost: number, sessio
 function attributionFromRuns(records: RunRecord[]): SkillAttributionMap {
   const map: SkillAttributionMap = {};
   for (const rec of records) {
-    if (!rec.tokens || rec.tokens <= 0) {
+    if (!isUsageRunRecord(rec) || !rec.tokens || rec.tokens <= 0) {
       continue;
     }
     const agent = (rec.agent ?? "claude") as AgentId;
@@ -176,7 +176,7 @@ export function buildCostAttribution(target: string, libraryDir: string): {
   let unattributed: UnattributedAttribution = {};
 
   for (const rec of records) {
-    if (!rec.tokens || rec.tokens <= 0) {
+    if (!isUsageRunRecord(rec) || !rec.tokens || rec.tokens <= 0) {
       continue;
     }
     const agent = (rec.agent ?? "claude") as AgentId;

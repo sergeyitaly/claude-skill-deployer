@@ -5,6 +5,7 @@ import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribu
 import { collectorStatePath, LEGACY_COLLECTOR_STATE_PATH } from "./collectorState";
 import { pruneBackupFiles, pruneRunsJsonl } from "./learningPrune";
 import { invalidateLearningCache } from "./learningStateIndex";
+import { isCollectorTranscriptRun } from "./runRecording";
 const RUNS_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
 
 export interface ResetResult {
@@ -14,13 +15,9 @@ export interface ResetResult {
   backupRuns: string | null;
 }
 
-function isCollectorTranscriptRun(line: string): boolean {
+function isCollectorTranscriptLine(line: string): boolean {
   try {
-    const row = JSON.parse(line) as {
-      action?: string;
-      metadata?: { source?: string };
-    };
-    return row.action === "transcript" && row.metadata?.source === "attribution-collector";
+    return isCollectorTranscriptRun(JSON.parse(line) as { action?: string; metadata?: { source?: string } });
   } catch {
     return false;
   }
@@ -48,7 +45,7 @@ export function resetMisattributedData(target: string): ResetResult {
       if (!trimmed) {
         continue;
       }
-      if (isCollectorTranscriptRun(trimmed)) {
+      if (isCollectorTranscriptLine(trimmed)) {
         result.removedRuns += 1;
       } else {
         kept.push(trimmed);

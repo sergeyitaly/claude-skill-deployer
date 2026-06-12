@@ -8,9 +8,10 @@ import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { markPipelineCollected } from "./pipelineCycle";
 import { scheduleCostPipelineSync } from "./costPipelineScheduler";
-import { appendSkillRun, sessionHasV2HookRuns } from "./runRecording";
+import { sessionHasV2HookRuns } from "./runRecording";
+import { invalidateTranscriptUsageCache } from "./transcriptUsageIndex";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
-import { transcriptFileMatchesWorkspace, workspaceFromTranscriptFile } from "./workspaceTranscripts";
+import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
 const COLLECTION_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -79,24 +80,6 @@ function parserForAgent(agent: AgentId): TranscriptParser | null {
   return null;
 }
 
-function transcriptWorkspace(filePath: string, content: string): string | null {
-  for (const line of content.split("\n")) {
-    if (!line.includes('"cwd"')) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(line) as { cwd?: string };
-      if (parsed.cwd) {
-        return path.resolve(parsed.cwd);
-      }
-    } catch {
-      // skip
-    }
-  }
-  const fromPath = workspaceFromTranscriptFile(filePath);
-  return fromPath ? path.resolve(fromPath) : null;
-}
-
 function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, target: string): void {
   const { agent, tokens, activeSkills } = parsed;
   if (tokens <= 0) {
@@ -125,43 +108,6 @@ function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, ta
     bucket.sessions += 1;
     skillMap[agent] = bucket;
     store.transcriptSkills[skill] = skillMap;
-  }
-}
-
-function appendRunsForWorkspace(target: string, parsed: ParsedTranscript, content: string): void {
-  const ws = transcriptWorkspace(parsed.filePath, content);
-  if (!ws || path.resolve(ws) !== path.resolve(target)) {
-    return;
-  }
-
-  if (sessionHasV2HookRuns(target, parsed.sessionId)) {
-    return;
-  }
-
-  if (parsed.activeSkills.length === 0) {
-    appendSkillRun(target, {
-      skill: "unattributed",
-      agent: parsed.agent,
-      tokens: parsed.tokens,
-      success: true,
-      action: "transcript",
-      session_id: parsed.sessionId,
-      metadata: { source: "attribution-collector", file: parsed.filePath, invoked: false },
-    });
-    return;
-  }
-
-  const perSkill = Math.round(parsed.tokens / parsed.activeSkills.length);
-  for (const skill of parsed.activeSkills) {
-    appendSkillRun(target, {
-      skill,
-      agent: parsed.agent,
-      tokens: perSkill,
-      success: true,
-      action: "transcript",
-      session_id: parsed.sessionId,
-      metadata: { source: "attribution-collector", file: parsed.filePath, invoked: true },
-    });
   }
 }
 
@@ -286,7 +232,6 @@ export class AttributionCollector {
           }
 
           updateAttribution(store, parsed, this.target);
-          appendRunsForWorkspace(this.target, parsed, content);
           state.fileMtimes[file] = mtime;
           state.processedSessions[sessionKey] = mtime;
           processed += 1;
@@ -298,6 +243,7 @@ export class AttributionCollector {
     state.workspacePath = this.target;
     writeCollectorState(this.target, state);
     saveAttribution(this.target, store);
+    invalidateTranscriptUsageCache(this.target);
     markPipelineCollected(this.target);
     if (opts?.schedulePipeline !== false) {
       scheduleCostPipelineSync(this.target, this.libraryDir);

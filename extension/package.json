@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -772,6 +772,11 @@
             "type": "boolean",
             "default": false,
             "description": "Automatically disable expensive rarely-used skills and apply safe optimizations (disable/unused only, max 3 per 30 min)."
+          },
+          "claudeSkills.optimizer.autoDetectOnPipeline": {
+            "type": "boolean",
+            "default": true,
+            "description": "When autoApply is on, run detect → auto-adjust after each cost pipeline sync (debounced ~5s), not only on the 30-minute timer."
           },
           "claudeSkills.optimizer.disableCostPerUseUsd": {
             "type": "number",

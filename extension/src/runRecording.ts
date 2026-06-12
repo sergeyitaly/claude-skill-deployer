@@ -1,11 +1,29 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { invalidateLearningCache } from "./learningStateIndex";
+import { invalidateLearningCache, countCachedV2HookRuns, sessionHasCachedV2HookRuns } from "./learningStateIndex";
 
 export type RunAgent = "claude" | "cursor" | "kiro" | "copilot";
 
 /** Attribution v2: explicit per-invoke rows from PostToolUse hook. */
 export const SKILL_INVOKE_HOOK_SOURCE = "skill-invoke-hook-v2";
+
+/** Background collector writes equal-split transcript rows (cost-attribution only). */
+export const ATTRIBUTION_COLLECTOR_SOURCE = "attribution-collector";
+
+export function isCollectorTranscriptRun(entry: {
+  action?: string;
+  metadata?: { source?: string };
+}): boolean {
+  return entry.action === "transcript" && entry.metadata?.source === ATTRIBUTION_COLLECTOR_SOURCE;
+}
+
+/** Rows suitable for Usage Report / skill KPIs (hooks, self-learning — not transcript splits). */
+export function isUsageRunRecord(entry: {
+  action?: string;
+  metadata?: { source?: string };
+}): boolean {
+  return !isCollectorTranscriptRun(entry);
+}
 
 export interface RunMetadata {
   task_type?: string;
@@ -74,13 +92,11 @@ export function isV2HookRun(record: EnrichedRunRecord): boolean {
 }
 
 export function countV2HookRuns(target: string): number {
-  return readEnrichedRunsFromFile(runsFilePath(target)).filter(isV2HookRun).length;
+  return countCachedV2HookRuns(target);
 }
 
 export function sessionHasV2HookRuns(target: string, sessionId: string): boolean {
-  return readEnrichedRunsFromFile(runsFilePath(target)).some(
-    (r) => r.session_id === sessionId && isV2HookRun(r)
-  );
+  return sessionHasCachedV2HookRuns(target, sessionId);
 }
 
 /** Normalize legacy and enriched runs.jsonl rows into a common shape. */

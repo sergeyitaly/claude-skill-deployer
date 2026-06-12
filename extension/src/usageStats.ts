@@ -3,10 +3,11 @@ import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary } from "./usageCost";
-import { EnrichedRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
+import { EnrichedRunRecord, normalizeRunRecord, RunAgent, isUsageRunRecord } from "./runRecording";
 import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { WorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusBannerHtml } from "./workspaceHookStatus";
+import { formatConfidenceBadge, SkillCostConfidence, WorkspaceConfidence } from "./attributionConfidence";
 import { DASHBOARD_USAGE_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
 
 export type { RunAgent };
@@ -182,7 +183,7 @@ function statForSkill(name: string, recs: RunRecord[], now: number): SkillUsageS
 /** Aggregates .claude/learning/runs.jsonl entries per known skill (manifest
  * keys), plus any installed skill with zero matching records ("unused"). */
 export function computeUsageStats(target: string, manifest: Manifest): SkillUsageStat[] {
-  const records = readRunRecords(target);
+  const records = readRunRecords(target).filter(isUsageRunRecord);
   const installed = new Set(listInstalledSkills(target));
   const knownSkills = new Set(Object.keys(manifest.skills));
 
@@ -243,6 +244,9 @@ export function enrichUsageStatsWithAttribution(
   attribution: SkillAttributionMap
 ): SkillUsageStat[] {
   return stats.map((s) => {
+    if (s.runs === 0) {
+      return s;
+    }
     const fromRuns = s.totalTokens ?? 0;
     const fromAttribution = tokensForSkillInAttribution(s.name, attribution);
     const totalTokens = fromRuns > 0 ? fromRuns : fromAttribution > 0 ? fromAttribution : null;
@@ -369,20 +373,22 @@ function removalLines(stats: SkillUsageStat[]): string[] {
   return lines;
 }
 
-function detailTableLines(stats: SkillUsageStat[]): string[] {
+function detailTableLines(stats: SkillUsageStat[], confidence?: Map<string, SkillCostConfidence>): string[] {
   if (stats.length === 0) {
     return [];
   }
   const lines = [
     "## Per-skill detail",
     "",
-    "| Skill | Runs | Success | Tokens | By agent | Last used | Rating |",
-    "|---|---|---|---|---|---|---|",
+    "| Skill | Runs | Success | Tokens | By agent | Last used | Rating | Confidence |",
+    "|---|---|---|---|---|---|---|---|",
   ];
   for (const s of stats) {
     const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
+    const conf = confidence?.get(s.name);
+    const confLabel = conf ? formatConfidenceBadge(conf.level) : "estimated";
     lines.push(
-      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} |`
+      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} | ${confLabel} |`
     );
   }
   return lines;
@@ -436,7 +442,8 @@ export function formatUsageReport(
   stats: SkillUsageStat[],
   suggested: SuggestedSkill[],
   target: string,
-  creditUsage: CreditUsageSummary
+  creditUsage: CreditUsageSummary,
+  opts?: { skillConfidence?: Map<string, SkillCostConfidence>; workspaceConfidence?: WorkspaceConfidence }
 ): string {
   if (stats.length === 0 && suggested.length === 0) {
     return [
@@ -450,18 +457,23 @@ export function formatUsageReport(
   }
 
   const counts = tallyRatings(stats);
+  const confBanner =
+    opts?.workspaceConfidence != null
+      ? `Attribution confidence: ${Math.round(opts.workspaceConfidence.score * 100)}% (${formatConfidenceBadge(opts.workspaceConfidence.level)}).`
+      : "";
   return [
     "# Claude Skills Usage Report",
     "",
     `Workspace: \`${target}\``,
     "",
+    confBanner ? `${confBanner}\n` : "",
     summaryLine(stats, suggested, counts),
     "",
     ...creditUsageLines(creditUsage),
     ...misusedLines(stats),
     ...suggestedLines(suggested),
     ...removalLines(stats),
-    ...detailTableLines(stats),
+    ...detailTableLines(stats, opts?.skillConfidence),
   ].join("\n");
 }
 
@@ -537,13 +549,17 @@ function htmlRemovalSection(stats: SkillUsageStat[]): string {
   return `<div class="panel"><h2>Removal candidates</h2><ul>${items}</ul><div class="note">Delete <code>.claude/skills/&lt;name&gt;/</code> or use <code>skill-usage-insights</code>.</div></div>`;
 }
 
-function htmlDetailTable(stats: SkillUsageStat[]): string {
+function htmlDetailTable(stats: SkillUsageStat[], confidence?: Map<string, SkillCostConfidence>): string {
   if (stats.length === 0) {
     return "";
   }
   const rows = stats
     .map((s) => {
       const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
+      const conf = confidence?.get(s.name);
+      const confBadge = conf
+        ? `<span class="badge conf-${conf.level}">${escapeHtml(formatConfidenceBadge(conf.level))}</span>`
+        : `<span class="badge conf-estimated">estimated</span>`;
       return `<tr>
           <td>${escapeHtml(s.name)}</td>
           <td class="num">${s.runs}</td>
@@ -552,15 +568,17 @@ function htmlDetailTable(stats: SkillUsageStat[]): string {
           <td class="muted">${escapeHtml(formatAgentBreakdown(s.agentRuns, s.agentTokens))}</td>
           <td>${formatRecency(s.daysSinceLastUse)}</td>
           <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
+          <td>${confBadge}</td>
         </tr>`;
     })
     .join("\n");
   const rowsTable = `<table>
-      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>By agent</th><th>Last used</th><th>Rating</th></tr></thead>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>By agent</th><th>Last used</th><th>Rating</th><th>Confidence</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   return `<div class="panel">
     <h2>Skills detail</h2>
+    <p class="note">Runs and tokens count hook invocations and self-learning records only — not transcript cost estimates (see Credits above for session spend).</p>
     <div class="table-wrap">${rowsTable}</div>
   </div>`;
 }
@@ -620,9 +638,14 @@ export function formatUsageReportHtml(
   suggested: SuggestedSkill[],
   target: string,
   creditUsage: CreditUsageSummary,
-  hookStatus?: WorkspaceHookStatus
+  hookStatus?: WorkspaceHookStatus,
+  opts?: { skillConfidence?: Map<string, SkillCostConfidence>; workspaceConfidence?: WorkspaceConfidence }
 ): string {
   const counts = tallyRatings(stats);
+  const confBanner =
+    opts?.workspaceConfidence != null
+      ? `<div class="estimate-banner"><b>Trust</b> ${escapeHtml(opts.workspaceConfidence.summary)} <span class="conf-${opts.workspaceConfidence.level}">(${Math.round(opts.workspaceConfidence.score * 100)}% · ${escapeHtml(formatConfidenceBadge(opts.workspaceConfidence.level))})</span></div>`
+      : "";
 
   let body: string;
   if (stats.length === 0 && suggested.length === 0) {
@@ -636,7 +659,7 @@ export function formatUsageReportHtml(
       htmlMisusedSection(stats),
       htmlSuggestedSection(suggested),
       htmlRemovalSection(stats),
-      htmlDetailTable(stats),
+      htmlDetailTable(stats, opts?.skillConfidence),
     ]
       .filter((s) => s.length > 0)
       .join("\n");
@@ -644,7 +667,7 @@ export function formatUsageReportHtml(
 
   return wrapDashboardHtml({
     title: "Usage Report",
-    headerHtml: `<div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}<div class="summary">${htmlCards(counts, suggested.length)}</div>`,
+    headerHtml: `${confBanner}<div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}<div class="summary">${htmlCards(counts, suggested.length)}</div>`,
     extraStyles: DASHBOARD_USAGE_EXTRA_STYLES,
     body,
   });
