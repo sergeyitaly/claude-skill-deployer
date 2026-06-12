@@ -61,12 +61,17 @@ describe("feature integration (live workspace)", () => {
 
   it("encodes Claude and Cursor project folder names for this repo", () => {
     const normalized = WORKSPACE.replace(/\\/g, "/");
-    expect(encodeWorkspacePath(WORKSPACE)).toBeTruthy();
-    expect(encodeCursorWorkspacePath(WORKSPACE)).toBeTruthy();
-    expect(encodeCursorWorkspacePath(WORKSPACE)).not.toBe(encodeWorkspacePath(WORKSPACE));
+    const claudeEncoded = encodeWorkspacePath(WORKSPACE);
+    const cursorEncoded = encodeCursorWorkspacePath(WORKSPACE);
+    expect(claudeEncoded).toBeTruthy();
+    expect(cursorEncoded).toBeTruthy();
     if (/^[a-zA-Z]:\//.test(normalized)) {
-      expect(encodeCursorWorkspacePath(WORKSPACE)).toMatch(/^[a-z]-/);
-      expect(encodeWorkspacePath(WORKSPACE)).toMatch(/^[a-z]--/);
+      expect(cursorEncoded).not.toBe(claudeEncoded);
+      expect(cursorEncoded).toMatch(/^[a-z]-/);
+      expect(claudeEncoded).toMatch(/^[a-z]--/);
+    } else {
+      // POSIX paths encode the same for Claude and Cursor (no drive letter).
+      expect(cursorEncoded).toBe(claudeEncoded);
     }
   });
 
