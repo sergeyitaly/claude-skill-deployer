@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import { saveBranchProfile } from "./branchProfiles";
-import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
+import {
+  agentMirrorsNeedSync,
+  missingAgentMirrorSkills,
+  shouldSyncWorkspaceToAll,
+  syncWorkspaceSkillsToAllAgents,
+} from "./agentOps";
 import {
   areCostControlHooksConfigured,
   HookInstallStatus,
@@ -66,12 +71,20 @@ export function propagateWorkspaceSkillChange(
   }
 
   const lintOk = lintOnSync(target, log);
-  if (lintOk && shouldSyncWorkspaceToAll()) {
+  const catchUpMirrors = agentMirrorsNeedSync(target, libraryDir);
+  if (shouldSyncWorkspaceToAll() && (lintOk || catchUpMirrors || opts?.forceAgentSync)) {
     const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: opts?.forceAgentSync });
     result.agentPathsUpdated = synced.length;
     if (synced.length > 0) {
       log(`Propagated workspace skills to ${synced.length} other agent path(s) (cursor/kiro/copilot).`);
     }
+    if (catchUpMirrors && !lintOk) {
+      for (const gap of missingAgentMirrorSkills(target, libraryDir)) {
+        log(`SKILL lint: catch-up sync for ${gap.agent} — missing ${gap.missing.length} mirror(s).`);
+      }
+    }
+  } else if (catchUpMirrors && !shouldSyncWorkspaceToAll()) {
+    log("Multi-agent mirror catch-up skipped — enable claudeSkills.features.multiAgent and claudeSkills.agents.syncWorkspaceToAll.");
   }
 
   lintAgentMirrorsOnSync(target, libraryDir, log);

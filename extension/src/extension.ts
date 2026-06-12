@@ -24,6 +24,7 @@ import {
 } from "./usageStats";
 import {
   agentCapabilityLines,
+  agentMirrorsNeedSync,
   formatAgentInstallSummary,
   generateForAllAgents,
   installLibraryToAllAgents,
@@ -33,6 +34,7 @@ import {
   removeSkillFromAllWorkspaceAgents,
   shouldSyncGlobalToAll,
   shouldSyncWorkspaceToAll,
+  syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
 import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
 import {
@@ -390,6 +392,12 @@ export function activate(context: vscode.ExtensionContext) {
     refreshCreditStatusBar(libraryDir, target);
     refreshBudgetModeStatusBar(libraryDir);
     refreshWorkspaceFolderStatusBar();
+    if (target && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
+      const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
+      if (synced.length > 0) {
+        log(`Auto-synced ${synced.length} skill mirror(s) to cursor/kiro/copilot.`);
+      }
+    }
     if (target) {
       void checkEmergencyCutoff(target, libraryDir);
     }

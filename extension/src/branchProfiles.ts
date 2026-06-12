@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
 import { tierForSkill, estimateSessionCostUsd, formatCompactUsd } from "./skillCost";
 import {
   copySkill,
@@ -402,6 +403,10 @@ export function applyBranchProfile(
         result.overridesApplied++;
       }
     }
+  }
+
+  if (shouldSyncWorkspaceToAll()) {
+    syncWorkspaceSkillsToAllAgents(libraryDir, target);
   }
 
   return result;

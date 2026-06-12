@@ -322,6 +322,53 @@ function listAgentWorkspaceSkills(target: string, agent: AgentDefinition): strin
   return agent.format === "skill-md" ? listSkillMdSkillsInDir(destRoot) : listCopilotInstructionsInDir(destRoot);
 }
 
+export interface AgentMirrorGap {
+  agent: AgentId;
+  missing: string[];
+}
+
+/** Skills present in .claude/skills but missing from another agent's workspace mirror. */
+export function missingAgentMirrorSkills(target: string, libraryDir: string): AgentMirrorGap[] {
+  if (!shouldSyncWorkspaceToAll()) {
+    return [];
+  }
+  const effective = listEffectiveEnabledSkills(target);
+  if (effective.length === 0) {
+    return [];
+  }
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const gaps: AgentMirrorGap[] = [];
+
+  for (const agentId of enabledAgents(libraryDir)) {
+    if (agentId === "claude") {
+      continue;
+    }
+    const agent = agentsManifest.agents[agentId];
+    if (!agent.supportsWorkspace) {
+      continue;
+    }
+    const destRoot = workspaceDirFor(target, agent);
+    const missing: string[] = [];
+    for (const skill of effective) {
+      if (agent.format === "skill-md") {
+        if (!fs.existsSync(path.join(destRoot, skill, "SKILL.md"))) {
+          missing.push(skill);
+        }
+      } else if (!fs.existsSync(path.join(destRoot, `${skill}.instructions.md`))) {
+        missing.push(skill);
+      }
+    }
+    if (missing.length > 0) {
+      gaps.push({ agent: agentId, missing });
+    }
+  }
+  return gaps;
+}
+
+export function agentMirrorsNeedSync(target: string, libraryDir: string): boolean {
+  return missingAgentMirrorSkills(target, libraryDir).length > 0;
+}
+
 function resolveWorkspaceSkillSource(
   target: string,
   libraryDir: string,

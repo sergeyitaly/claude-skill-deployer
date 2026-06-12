@@ -8,6 +8,12 @@ export const workspace = {
       if (section === "claudeSkills.lint" && key === "requireFrontmatter") {
         return true as T;
       }
+      if (section === "claudeSkills.agents" && key === "syncWorkspaceToAll") {
+        return true as T;
+      }
+      if (section === "claudeSkills.features" && key === "multiAgent") {
+        return true as T;
+      }
       return defaultValue;
     },
     update: async () => undefined,
