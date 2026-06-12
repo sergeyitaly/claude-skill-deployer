@@ -7,7 +7,7 @@ import { readCollectorState, writeCollectorState } from "./collectorState";
 import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { markPipelineCollected } from "./pipelineCycle";
-import { runCostPipelineNow } from "./costPipelineScheduler";
+import { scheduleCostPipelineSync } from "./costPipelineScheduler";
 import { appendSkillRun, sessionHasV2HookRuns } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace, workspaceFromTranscriptFile } from "./workspaceTranscripts";
@@ -227,7 +227,7 @@ export class AttributionCollector {
     AttributionCollector.activeTarget = undefined;
   }
 
-  async collect(force = false): Promise<number> {
+  async collect(force = false, opts?: { schedulePipeline?: boolean }): Promise<number> {
     const now = Date.now();
     if (!force && now - this.lastRun < COLLECTION_INTERVAL_MS) {
       return 0;
@@ -236,7 +236,7 @@ export class AttributionCollector {
     enrichV2HookRunTokens(this.target, this.libraryDir);
 
     const state = readCollectorState(this.target);
-    const since = state.lastRun || now - 24 * 60 * 60 * 1000;
+    const since = force ? 0 : state.lastRun || now - 24 * 60 * 60 * 1000;
     const store = loadAttribution(this.target);
     store.workspacePath = this.target;
     let processed = 0;
@@ -280,7 +280,7 @@ export class AttributionCollector {
 
           state.processedSessions = state.processedSessions ?? {};
           const sessionKey = `${parsed.sessionId}|${file}`;
-          const alreadyProcessed = state.processedSessions[sessionKey] === mtime;
+          const alreadyProcessed = !force && state.processedSessions[sessionKey] === mtime;
           if (alreadyProcessed) {
             continue;
           }
@@ -299,7 +299,9 @@ export class AttributionCollector {
     writeCollectorState(this.target, state);
     saveAttribution(this.target, store);
     markPipelineCollected(this.target);
-    void runCostPipelineNow(this.target, this.libraryDir);
+    if (opts?.schedulePipeline !== false) {
+      scheduleCostPipelineSync(this.target, this.libraryDir);
+    }
     this.lastRun = now;
     return processed;
   }

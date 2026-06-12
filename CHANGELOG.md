@@ -2,7 +2,29 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.17** is the current Marketplace publish target — it must exceed the last live version (**1.0.16**) so users receive this build. After publishing, run `scripts/unpublish-marketplace-versions.ps1` (then `-IncludeLatest`) to remove obsolete patch releases.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.18** is the current Marketplace publish target — it must exceed the last live version (**1.0.17**) so users receive this build. After publishing, run `scripts/unpublish-marketplace-versions.ps1` (then `-IncludeLatest`) to remove obsolete patch releases.
+
+## [1.0.18] - 2026-06-12
+
+Attribution, pipeline resilience, and dashboard UX release.
+
+### Cursor skill attribution
+
+- **Expanded skill path detection** — hooks and transcript parsers now recognize `.cursor/skills-cursor/`, `skills_library/`, and `.agents/skills/` in addition to `.claude/skills/` and `.cursor/skills/`.
+- **Cursor hook session fallbacks** — `skill-invoke-watch.js` resolves sessions from `conversation_id`, `generation_id`, or `tool_use_id` + workspace root when `conversation_id` is missing.
+- **Model capture** — Cursor hook runs record model id when present in tool output.
+
+### Cost pipeline & system mode
+
+- **Pipeline tracing** — each sync cycle records stage timings and errors in the dashboard System panel.
+- **Circuit breaker** — trips after >10 pipeline runs per minute; skips further sync until the window clears and forces **safe mode** (auto-optimize disabled).
+- **Scheduler coordination** — attribution collect can skip re-scheduling the pipeline to avoid double-sync loops.
+
+### Dashboard & reports
+
+- **Shared compact UI** — `dashboardStyles.ts` unifies Cost Intelligence, Usage Report, and Setup wizard chrome (stat pills, tighter panels, pill hook badges).
+- **Models by agent** — dashboard panel shows per-model spend and tokens for Claude and Cursor (14d window).
+- **CSP-safe webviews** — nonce-based script listeners replace inline `onclick` in setup wizard and cost dashboard.
 
 ## [1.0.17] - 2026-06-12
 

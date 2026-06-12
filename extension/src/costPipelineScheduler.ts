@@ -1,4 +1,4 @@
-import { runCostPipelineSync, CostPipelineResult } from "./costPipeline";
+import { runCostPipelineSync, CostPipelineResult, CostPipelineRunOptions } from "./costPipeline";
 
 const DEFAULT_DEBOUNCE_MS = 2000;
 
@@ -15,14 +15,18 @@ function targetKey(target: string): string {
 }
 
 /** Run pipeline immediately; coalesce concurrent calls for the same workspace. */
-export function runCostPipelineNow(target: string, libraryDir: string): Promise<CostPipelineResult> {
+export function runCostPipelineNow(
+  target: string,
+  libraryDir: string,
+  opts?: CostPipelineRunOptions
+): Promise<CostPipelineResult> {
   cancelScheduledCostPipeline(target);
   const key = targetKey(target);
   const existing = inflightByTarget.get(key);
   if (existing) {
     return existing;
   }
-  const run = Promise.resolve().then(() => runCostPipelineSync(target, libraryDir));
+  const run = Promise.resolve().then(() => runCostPipelineSync(target, libraryDir, opts));
   inflightByTarget.set(
     key,
     run.finally(() => {

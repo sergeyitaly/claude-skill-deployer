@@ -36,4 +36,12 @@ describe("parseActiveSkills", () => {
       '{"tool_use":{"name":"Read","input":{"file_path":"/proj/.github/instructions/ci-pipeline-debug.instructions.md"}}}';
     expect(parseActiveSkills(content)).toEqual(["ci-pipeline-debug"]);
   });
+
+  it("detects cursor skills-cursor and skills_library reads", () => {
+    const content = [
+      '{"type":"tool_use","name":"Read","input":{"path":"C:/Users/me/.cursor/skills-cursor/create-hook/SKILL.md"}}',
+      '{"type":"tool_use","name":"Read","input":{"path":"C:/repo/skills_library/skill-usage-insights/SKILL.md"}}',
+    ].join("\n");
+    expect(parseActiveSkills(content)).toEqual(["create-hook", "skill-usage-insights"]);
+  });
 });

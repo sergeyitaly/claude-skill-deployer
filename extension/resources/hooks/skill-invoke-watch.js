@@ -14,6 +14,9 @@ const VALID_AGENTS = new Set(["claude", "cursor", "kiro", "copilot"]);
 const DENYLIST = new Set(["claude", "cursor", "api", "claude-api", "unknown", "base", "context", "skill", "skills", "kiro", "copilot"]);
 const SKILL_FILE_PATTERNS = [
   /[\\/](?:\.claude|\.cursor|\.kiro)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
+  /[\\/]\.cursor[\\/]skills-cursor[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
+  /[\\/]\.agents[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
+  /[\\/]skills_library[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
   /[\\/]\.github[\\/]instructions[\\/]([a-z][a-z0-9-]*)\.instructions\.md/i,
 ];
 
@@ -64,6 +67,12 @@ function collectPaths(toolInput) {
   }
   if (typeof toolInput.filePath === "string") {
     paths.push(toolInput.filePath);
+  }
+  if (typeof toolInput.target_file === "string") {
+    paths.push(toolInput.target_file);
+  }
+  if (typeof toolInput.targetFile === "string") {
+    paths.push(toolInput.targetFile);
   }
   if (Array.isArray(toolInput.operations)) {
     for (const op of toolInput.operations) {
@@ -127,8 +136,17 @@ function extractTokens(normalized) {
   if (typeof tr === "string") {
     try {
       const parsed = JSON.parse(tr);
-      return sumUsage(parsed.usage || parsed.message?.usage);
+      const fromUsage = sumUsage(parsed.usage || parsed.message?.usage);
+      if (fromUsage > 0) {
+        return fromUsage;
+      }
+      if (typeof parsed.text === "string" && parsed.text.length > 0) {
+        return Math.max(1, Math.round(parsed.text.length / 4));
+      }
     } catch {
+      if (tr.length > 0) {
+        return Math.max(1, Math.round(tr.length / 4));
+      }
       return 0;
     }
   }
@@ -148,28 +166,46 @@ function extractTokens(normalized) {
   return sumUsage(normalized.message?.usage);
 }
 
-function normalizeInput(raw) {
-  const cwd =
-    raw.cwd ||
-    raw.workingDirectory ||
-    raw.working_directory ||
-    process.env.CLAUDE_PROJECT_DIR ||
-    process.cwd();
-  const sessionId =
+function resolveCwd(raw) {
+  if (raw.cwd) {
+    return raw.cwd;
+  }
+  if (Array.isArray(raw.workspace_roots) && raw.workspace_roots[0]) {
+    return raw.workspace_roots[0];
+  }
+  if (raw.workingDirectory || raw.working_directory) {
+    return raw.workingDirectory || raw.working_directory;
+  }
+  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
+}
+
+function resolveSessionId(raw) {
+  return (
     raw.session_id ||
     raw.sessionId ||
     raw.conversation_id ||
     raw.conversationId ||
     raw.sessionID ||
-    "";
+    raw.generation_id ||
+    raw.generationId ||
+    (raw.tool_use_id && raw.cwd ? `${raw.cwd}|${raw.tool_use_id}` : "") ||
+    (raw.toolUseId && raw.cwd ? `${raw.cwd}|${raw.toolUseId}` : "") ||
+    ""
+  );
+}
+
+function normalizeInput(raw) {
+  const cwd = resolveCwd(raw);
+  const sessionId = resolveSessionId({ ...raw, cwd });
   return {
     cwd,
     sessionId,
     toolName: raw.tool_name || raw.toolName || "",
     toolInput: raw.tool_input || raw.toolArgs || raw.toolInput || {},
     toolUseId: raw.tool_use_id || raw.toolUseId || raw.tool_use?.id || "",
-    toolResponse: raw.tool_response ?? raw.toolResult ?? raw.tool_result,
+    toolResponse: raw.tool_response ?? raw.toolResult ?? raw.tool_result ?? raw.tool_output,
     message: raw.message,
+    model: typeof raw.model === "string" ? raw.model : undefined,
   };
 }
 
@@ -284,6 +320,7 @@ function main() {
     success: true,
     session_id: sessionId,
     project: cwd,
+    model: input.model,
     metadata: {
       source: SOURCE,
       invoked: true,

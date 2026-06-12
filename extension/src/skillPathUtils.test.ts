@@ -18,6 +18,18 @@ describe("skillNameFromFilePath", () => {
     expect(skillNameFromFilePath("/proj/.github/instructions/self-learning.instructions.md")).toBe("self-learning");
   });
 
+  it("extracts cursor built-in skills-cursor paths", () => {
+    expect(skillNameFromFilePath("C:\\Users\\me\\.cursor\\skills-cursor\\create-skill\\SKILL.md")).toBe("create-skill");
+  });
+
+  it("extracts skills_library paths", () => {
+    expect(skillNameFromFilePath("C:\\repo\\skills_library\\self-learning\\SKILL.md")).toBe("self-learning");
+  });
+
+  it("extracts .agents/skills paths", () => {
+    expect(skillNameFromFilePath("/home/me/.agents/skills/azure-cost/SKILL.md")).toBe("azure-cost");
+  });
+
   it("denylists bogus names", () => {
     expect(skillNameFromFilePath("/proj/.claude/skills/api/SKILL.md")).toBeNull();
     expect(isPlausibleSkillName("api")).toBe(false);

@@ -323,7 +323,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.17** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Current extension version: **1.0.18** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Performance impact
 

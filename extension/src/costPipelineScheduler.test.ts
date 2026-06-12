@@ -12,15 +12,19 @@ vi.mock("./costPipeline", () => ({
     cycle: {},
     systemMode: "normal",
     state: { version: 1 },
+    circuitOpen: false,
+    skipped: false,
     processedSessions: 0,
   })),
 }));
 
 import { runCostPipelineSync } from "./costPipeline";
+import { resetPipelineCircuitBreakerForTests } from "./pipelineCircuitBreaker";
 
 describe("costPipelineScheduler", () => {
   afterEach(() => {
     resetCostPipelineSchedulerForTests();
+    resetPipelineCircuitBreakerForTests();
     vi.clearAllMocks();
   });
 

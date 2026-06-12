@@ -20,7 +20,7 @@ import {
   Manifest,
   removeSkill,
 } from "./skillOps";
-import { computeCreditUsageFromRoots } from "./usageCost";
+import { computeCreditUsageFromRoots, ModelUsage } from "./usageCost";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
 
@@ -563,6 +563,8 @@ export interface AgentCreditRow {
   sessions: number;
   /** False when the agent has no session transcript roots (e.g. Copilot). */
   transcriptTracked: boolean;
+  /** Token/cost breakdown by model id from session transcripts (last N days). */
+  models: ModelUsage[];
 }
 
 /** Per-agent token/cost estimate from each agent's transcript folders (last N days). */
@@ -583,6 +585,7 @@ export function computePerAgentCreditUsage(
         cost: 0,
         sessions: 0,
         transcriptTracked: false,
+        models: [],
       };
     }
     const summary = computeCreditUsageFromRoots(def.transcriptRoots, daysBack, workspaceTarget);
@@ -593,6 +596,7 @@ export function computePerAgentCreditUsage(
       cost: summary.totalCost,
       sessions: summary.sessionCount,
       transcriptTracked: true,
+      models: summary.byModel,
     };
   });
 }

@@ -103,11 +103,4 @@ export function formatHookStatusPlain(status: WorkspaceHookStatus): string {
   return `${attr}. ${session}. ${budget}. ${focus}. ${practical}.`;
 }
 
-export const HOOK_STATUS_STYLES = `
-  .hook-banner { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-  .hook-badge { display: inline-block; font-size: 0.78em; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-  .hook-badge.hook-on { background: var(--vscode-testing-iconPassed); color: var(--vscode-editor-background); }
-  .hook-badge.hook-off { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-  .hook-panel .hook-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 0.9em; }
-  .hook-section-label { font-size: 0.82em; font-weight: 600; color: var(--vscode-descriptionForeground); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.03em; }
-`;
+export { HOOK_STATUS_STYLES } from "./dashboardStyles";

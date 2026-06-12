@@ -109,6 +109,7 @@ describe("computeCreditUsageFromRoots", () => {
     expect(scoped.sessionCount).toBe(1);
     expect(scoped.totalTokens).toBeGreaterThan(0);
     expect(scoped.totalCost).toBeGreaterThan(0);
+    expect(scoped.byModel.some((m) => m.model === "cursor-agent")).toBe(true);
   });
 
   it("ignores all-zero usage lines", () => {

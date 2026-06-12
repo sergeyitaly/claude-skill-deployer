@@ -6,7 +6,8 @@ import { CreditUsageSummary } from "./usageCost";
 import { EnrichedRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
 import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { WorkspaceHookStatus } from "./hookOps";
-import { formatHookStatusBannerHtml, HOOK_STATUS_STYLES } from "./workspaceHookStatus";
+import { formatHookStatusBannerHtml } from "./workspaceHookStatus";
+import { DASHBOARD_USAGE_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
 
 export type { RunAgent };
 
@@ -506,7 +507,7 @@ function htmlMisusedSection(stats: SkillUsageStat[]): string {
         `<li><b>${escapeHtml(s.name)}</b>: ${Math.round(s.successRate ?? 0)}% success over ${s.runs} runs - check <code>.claude/learning/patterns.md</code> for recurring errors.</li>`
     )
     .join("\n");
-  return `<div class="section"><h2>Misused (failing often)</h2><ul>${items}</ul></div>`;
+  return `<div class="panel"><h2>Misused</h2><ul>${items}</ul></div>`;
 }
 
 function htmlSuggestedSection(suggested: SuggestedSkill[]): string {
@@ -519,7 +520,7 @@ function htmlSuggestedSection(suggested: SuggestedSkill[]): string {
         `<li><b>${escapeHtml(s.name)}</b> - ${escapeHtml(s.description)} <span class="muted">(matches ${escapeHtml(s.matchedGlobs.join(", "))})</span></li>`
     )
     .join("\n");
-  return `<div class="section"><h2>Could help with this workspace</h2><ul>${items}</ul></div>`;
+  return `<div class="panel"><h2>Suggested</h2><ul>${items}</ul></div>`;
 }
 
 function htmlRemovalSection(stats: SkillUsageStat[]): string {
@@ -533,7 +534,7 @@ function htmlRemovalSection(stats: SkillUsageStat[]): string {
       return `<li><b>${escapeHtml(s.name)}</b> - ${detail}</li>`;
     })
     .join("\n");
-  return `<div class="section"><h2>Removal candidates</h2><ul>${items}</ul><div class="note">Delete <code>.claude/skills/&lt;name&gt;/</code> if no longer needed, or ask the <code>skill-usage-insights</code> skill for a fuller analysis.</div></div>`;
+  return `<div class="panel"><h2>Removal candidates</h2><ul>${items}</ul><div class="note">Delete <code>.claude/skills/&lt;name&gt;/</code> or use <code>skill-usage-insights</code>.</div></div>`;
 }
 
 function htmlDetailTable(stats: SkillUsageStat[]): string {
@@ -554,16 +555,20 @@ function htmlDetailTable(stats: SkillUsageStat[]): string {
         </tr>`;
     })
     .join("\n");
-  return `<table>
+  const rowsTable = `<table>
       <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>By agent</th><th>Last used</th><th>Rating</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+  return `<div class="panel">
+    <h2>Skills detail</h2>
+    <div class="table-wrap">${rowsTable}</div>
+  </div>`;
 }
 
 function htmlCreditUsageSection(creditUsage: CreditUsageSummary): string {
-  const title = `Claude Credits Usage (last ${creditUsage.daysBack} days, ${creditUsageScopeLabel(creditUsage)})`;
+  const title = `Credits · ${creditUsage.daysBack}d · ${creditUsageScopeLabel(creditUsage)}`;
   if (creditUsage.totalTokens === 0) {
-    return `<div class="section"><h2>${title}</h2><p>No recorded Claude Code activity in this window.</p></div>`;
+    return `<div class="panel"><h2>${title}</h2><p class="note">No recorded activity in this window.</p></div>`;
   }
 
   const modelRows = creditUsage.byModel
@@ -590,18 +595,22 @@ function htmlCreditUsageSection(creditUsage: CreditUsageSummary): string {
     )
     .join("\n");
 
-  return `<div class="section">
+  return `<div class="panel">
     <h2>${title}</h2>
-    <p>${formatTokenCount(creditUsage.totalTokens)} tokens, ~${formatCost(creditUsage.totalCost)} estimated, across ${creditUsage.sessionCount} session(s).</p>
-    <table>
-      <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>Tokens</th><th>Est. cost</th></tr></thead>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>Tokens</b><span class="val">${formatTokenCount(creditUsage.totalTokens)}</span></div>
+      <div class="stat-pill"><b>Est. cost</b><span class="val">${formatCost(creditUsage.totalCost)}</span></div>
+      <div class="stat-pill"><b>Sessions</b><span class="val">${creditUsage.sessionCount}</span></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cache W</th><th>Cache R</th><th>Total</th><th>Cost</th></tr></thead>
       <tbody>${modelRows}</tbody>
-    </table>
-    <table>
-      <thead><tr><th>Date</th><th>Tokens</th><th>Est. cost</th></tr></thead>
+    </table></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Tokens</th><th>Cost</th></tr></thead>
       <tbody>${dayRows}</tbody>
-    </table>
-    <div class="note">Estimated cost is based on published per-model API pricing for reference - it is not an actual bill (Pro/Max plans are flat-rate).</div>
+    </table></div>
+    <div class="note">Reference API pricing — not an actual bill (Pro/Max are flat-rate).</div>
   </div>`;
 }
 
@@ -633,51 +642,10 @@ export function formatUsageReportHtml(
       .join("\n");
   }
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 20px; }
-  h1 { font-size: 1.3em; margin-bottom: 4px; }
-  h2 { font-size: 1em; margin: 0 0 6px; }
-  .meta { color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-bottom: 18px; }
-  .meta code { font-family: var(--vscode-editor-font-family); }
-  .summary { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
-  .card { border: 1px solid var(--vscode-panel-border); border-left-width: 4px; border-radius: 6px; padding: 8px 18px; min-width: 90px; text-align: center; }
-  .card .count { font-size: 1.6em; font-weight: 600; }
-  .card .label { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-  .card.active { border-left-color: #3fb950; }
-  .card.low-usage { border-left-color: #d29922; }
-  .card.unused { border-left-color: #8b949e; }
-  .card.needs-attention { border-left-color: #f85149; }
-  .card.suggested { border-left-color: #58a6ff; }
-  .section { margin-bottom: 16px; }
-  .section ul { margin: 0; padding-left: 20px; font-size: 0.9em; }
-  .section li { margin-bottom: 2px; }
-  .muted { color: var(--vscode-descriptionForeground); }
-  table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; }
-  th { color: var(--vscode-descriptionForeground); font-weight: 600; }
-  td.num { text-align: right; white-space: nowrap; }
-  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.8em; font-weight: 600; color: #fff; white-space: nowrap; }
-  .badge.active { background: #3fb950; }
-  .badge.low-usage { background: #d29922; }
-  .badge.unused { background: #8b949e; }
-  .badge.needs-attention { background: #f85149; }
-  .note { margin-top: 8px; padding: 10px 14px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textCodeBlock-background); font-size: 0.9em; }
-  .note code { font-family: var(--vscode-editor-font-family); }
-  ${HOOK_STATUS_STYLES}
-</style>
-</head>
-<body>
-  <h1>Claude Skills Usage Report</h1>
-  <div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>
-  ${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}
-  <div class="summary">
-${htmlCards(counts, suggested.length)}
-  </div>
-  ${body}
-</body>
-</html>`;
+  return wrapDashboardHtml({
+    title: "Usage Report",
+    headerHtml: `<div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}<div class="summary">${htmlCards(counts, suggested.length)}</div>`,
+    extraStyles: DASHBOARD_USAGE_EXTRA_STYLES,
+    body,
+  });
 }

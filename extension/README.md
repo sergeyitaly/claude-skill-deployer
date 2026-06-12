@@ -188,13 +188,16 @@ Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
 
 The extension tracks **cost** and **estimated value** so optimizations favor high-ROI skills, not blind cutbacks.
 
+**v1.0.18** — compact shared dashboard layout (stat pills, tighter panels), **Models by agent** panel, improved Cursor skill attribution paths, pipeline trace + circuit breaker in the System panel.
+
 ### Dashboard panels
 
 | Panel | What it shows |
 |---|---|
 | **Trust banner** | Disclaimer + workspace confidence % + attribution fallback (hooks → transcripts → heuristics) |
-| **System state** | `profileInit` (`idle` / `pending` / `applied` / `failed`), attribution (`healthy` / `degraded` / `broken`), hook status, per-agent capabilities |
+| **System state** | Mode, profile, attribution, hooks, pipeline freshness, trace timings, circuit breaker status |
 | **Usage by agent** | Claude/Cursor transcript spend for this workspace (14d); Kiro/Copilot deploy-only unless transcripts exist |
+| **Models by agent** | Per-model tokens and estimated spend per agent (Claude ids from transcripts; Cursor size-based estimate when ids missing) |
 | **Value & ROI** | Total estimated minutes saved, $ value (@ hourly rate), net ROI band |
 | **Cost by repo** | Rollup from `runs.jsonl` `project` field |
 | **Cost by skill owner** | Git author of each `SKILL.md` (proxy — not who invoked the agent) |

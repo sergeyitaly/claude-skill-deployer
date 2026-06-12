@@ -12,6 +12,26 @@ export interface PipelineCycleTimestamps {
   runsFileSize?: number;
   /** cost-attribution.json mtime captured at last collect/index pass. */
   attributionMtime?: number;
+  /** Last pipeline phase timings and errors (observability). */
+  trace?: PipelineTrace;
+  /** Set when pipeline runs exceed the per-minute budget. */
+  circuitOpen?: boolean;
+  runsLastMinute?: number;
+}
+
+export interface PipelineTraceError {
+  phase: "collect" | "index" | "analyze";
+  message: string;
+  at: string;
+}
+
+export interface PipelineTrace {
+  collectMs?: number;
+  indexMs?: number;
+  analyzeMs?: number;
+  totalMs?: number;
+  lastCompletedAt?: string;
+  errors: PipelineTraceError[];
 }
 
 export interface PipelineFileFingerprint {
@@ -77,6 +97,39 @@ export function markPipelineAnalyzed(target: string): PipelineCycleTimestamps {
   return writePipelineCycle(target, cycle);
 }
 
+export function writePipelineTrace(target: string, trace: PipelineTrace): PipelineCycleTimestamps {
+  const cycle = readPipelineCycle(target);
+  cycle.trace = trace;
+  return writePipelineCycle(target, cycle);
+}
+
+export function appendPipelineTraceError(
+  target: string,
+  phase: PipelineTraceError["phase"],
+  message: string
+): PipelineCycleTimestamps {
+  const cycle = readPipelineCycle(target);
+  const trace = cycle.trace ?? { errors: [] };
+  trace.errors = [...trace.errors, { phase, message, at: new Date().toISOString() }].slice(-8);
+  cycle.trace = trace;
+  return writePipelineCycle(target, cycle);
+}
+
+export function setPipelineCircuitState(
+  target: string,
+  circuitOpen: boolean,
+  runsLastMinute: number
+): PipelineCycleTimestamps {
+  const cycle = readPipelineCycle(target);
+  cycle.circuitOpen = circuitOpen;
+  cycle.runsLastMinute = runsLastMinute;
+  return writePipelineCycle(target, cycle);
+}
+
+export function isPipelineCircuitOpen(cycle: PipelineCycleTimestamps): boolean {
+  return cycle.circuitOpen === true;
+}
+
 function tsMs(iso: string | undefined): number {
   if (!iso) {
     return 0;
@@ -125,6 +178,9 @@ export function isPipelineFresh(target: string, cycle: PipelineCycleTimestamps):
 }
 
 export function pipelineStaleSummary(target: string, cycle: PipelineCycleTimestamps): string | undefined {
+  if (isPipelineCircuitOpen(cycle)) {
+    return `Pipeline circuit open (${cycle.runsLastMinute ?? "?"} runs/min) — pausing cost sync to prevent loops.`;
+  }
   if (isIndexStaleForCollection(cycle)) {
     return "Cost index is behind the latest attribution collection — refresh or wait for sync before applying optimizations.";
   }

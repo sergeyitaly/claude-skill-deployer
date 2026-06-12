@@ -28,13 +28,14 @@ import { buildTeamEconomicsSnapshot } from "./teamEconomics";
 import { buildSystemModeContext } from "./systemMode";
 import { CostPipelineResult, runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
-import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
+import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage, AgentCreditRow } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
+import { formatModelLabel, totalTokensForModelUsage } from "./usageCost";
 import { getWorkspaceHookStatus } from "./hookOps";
 import {
   formatHookStatusPanelHtml,
-  HOOK_STATUS_STYLES,
 } from "./workspaceHookStatus";
+import { wrapDashboardHtml } from "./dashboardStyles";
 import { loadManifest } from "./skillOps";
 
 function escapeHtml(v: string): string {
@@ -76,6 +77,42 @@ function formatSkillAgentBreakdown(skill: string, attribution: SkillAttributionM
   return parts.length > 0 ? `By agent: ${parts.join(", ")}` : "";
 }
 
+function formatModelsByAgentHtml(agentUsage: AgentCreditRow[]): string {
+  const tracked = agentUsage.filter((row) => row.transcriptTracked);
+  if (tracked.length === 0) {
+    return "";
+  }
+
+  const sections = tracked
+    .map((row) => {
+      if (row.models.length === 0) {
+        return `<div class="skill-row"><div class="skill-head"><b>${escapeHtml(row.displayName)}</b> <span class="agent-id">(${escapeHtml(row.agent)})</span></div><div class="hint">No model ids in transcripts for this window.</div></div>`;
+      }
+      const modelLines = row.models
+        .map((m) => {
+          const tokens = totalTokensForModelUsage(m);
+          const pct = row.tokens > 0 ? Math.round((tokens / row.tokens) * 100) : 0;
+          return `<div class="skill-row">
+        <div class="skill-head"><span>${escapeHtml(formatModelLabel(m.model))}</span>
+          <span class="cost">${formatCompactUsd(m.cost)}${pct ? ` (${pct}%)` : ""} · ${formatTokenCount(tokens)} tokens</span>
+          ${tokens > 0 ? `<span class="bar">${bar(m.cost, row.cost)}</span>` : ""}</div>
+      </div>`;
+        })
+        .join("");
+      return `<div class="agent-block">
+    <div class="subhead">${escapeHtml(row.displayName)} <span class="agent-id">(${escapeHtml(row.agent)})</span></div>
+    ${modelLines}
+  </div>`;
+    })
+    .join("");
+
+  return `<div class="panel">
+    <h2>Models by agent · 14d</h2>
+    <p class="note" style="margin-top:0">Claude: model ids from transcripts. Cursor: size-based estimate when ids are missing.</p>
+    ${sections}
+  </div>`;
+}
+
 function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>): string {
   const items = [
     health.staleEqualSplit
@@ -85,7 +122,7 @@ function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>):
     "<li>Use the <b>self-learning</b> skill on real tasks (<code>metadata.invoked: true</code>)</li>",
     "<li>Work in any enabled agent for a few sessions, then reopen this dashboard</li>",
   ];
-  return `<div class="panel"><h2>Per-skill data setup</h2><p>Agent totals above are valid. Per-skill breakdown needs clean attribution:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
+  return `<div class="panel"><h2>Setup checklist</h2><p class="note">Agent totals are valid. Per-skill breakdown needs:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
 }
 
 export function formatCostDashboardHtml(
@@ -95,9 +132,6 @@ export function formatCostDashboardHtml(
   pipelineResult?: CostPipelineResult
 ): string {
   const nonce = scriptNonce ?? "";
-  const cspMeta = nonce
-    ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">`
-    : "";
   enrichV2HookRunTokens(target, libraryDir);
   const manifest = loadManifest(libraryDir);
   const pipeline = pipelineResult ?? runCostPipelineSync(target, libraryDir);
@@ -208,146 +242,117 @@ export function formatCostDashboardHtml(
         ? `Down ${Math.abs(trend.percentage)}% vs prior week`
         : "Stable week-over-week";
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-${cspMeta}
-<style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 20px; max-width: 900px; }
-  h1 { font-size: 1.25em; margin: 0 0 4px; }
-  .subtitle { color: var(--vscode-descriptionForeground); font-size: 0.85em; margin-bottom: 16px; }
-  .panel { border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
-  .panel h2 { font-size: 0.95em; margin: 0 0 10px; }
-  .summary-line { font-size: 1.05em; margin-bottom: 8px; }
-  .skill-row { margin-bottom: 10px; font-size: 0.9em; }
-  .skill-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .rank { color: var(--vscode-descriptionForeground); min-width: 1.5em; }
-  .cost { margin-left: auto; white-space: nowrap; }
-  .bar { font-family: monospace; letter-spacing: 1px; color: var(--vscode-textLink-foreground); }
-  .hint { margin-left: 2em; color: var(--vscode-descriptionForeground); font-size: 0.85em; }
-  ul { margin: 0; padding-left: 18px; font-size: 0.9em; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.9em; }
-  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-  .metric { display: inline-block; margin-right: 16px; }
-  .note { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 10px; }
-  .warn { background: var(--vscode-inputValidation-warningBackground); border: 1px solid var(--vscode-inputValidation-warningBorder); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.9em; }
-  .agent-id { color: var(--vscode-descriptionForeground); font-size: 0.85em; font-weight: normal; }
-  .estimate-banner { background: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.85em; }
-  .opt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .apply-one { padding: 2px 10px; font-size: 0.8em; }
-  .hook-on { color: var(--vscode-testing-iconPassed); }
-  .conf-high { color: var(--vscode-testing-iconPassed); font-size: 0.8em; }
-  .conf-estimated { color: var(--vscode-editorWarning-foreground); font-size: 0.8em; }
-  .conf-low { color: var(--vscode-descriptionForeground); font-size: 0.8em; }
-  .roi-high { color: var(--vscode-testing-iconPassed); font-weight: 600; }
-  ${HOOK_STATUS_STYLES}
-</style>
-</head>
-<body>
-  <h1>Claude Skills — Cost Intelligence</h1>
-  <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · <b>${ESTIMATE_DISCLAIMER_SHORT}</b></div>
-  <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.<br><br><b>Trust:</b> ${escapeHtml(health.summary)} <span class="conf-${health.confidenceLevel}">(${Math.round(health.confidenceScore * 100)}% — ${formatConfidenceBadge(health.confidenceLevel)})</span><br><span class="note">${escapeHtml(formatAttributionStrategyLine(attrStrategy))}</span></div>
+  return wrapDashboardHtml({
+    title: "Cost Intelligence",
+    headerHtml: `<div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · ${escapeHtml(ESTIMATE_DISCLAIMER_SHORT)}</div>`,
+    nonce,
+    body: `
+  <div class="estimate-banner"><b>Trust</b> ${escapeHtml(health.summary)} <span class="conf-${health.confidenceLevel}">(${Math.round(health.confidenceScore * 100)}% · ${formatConfidenceBadge(health.confidenceLevel)})</span> · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}</div>
 
-  ${modeCtx.banner ? `<div class="warn"><b>System mode: ${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
+  ${modeCtx.banner ? `<div class="warn"><b>${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
 
   ${formatHookStatusPanelHtml(hookStatus)}
 
   <div class="panel">
-    <h2>System state</h2>
-    <p class="summary-line">
-      <span class="metric"><b>Mode:</b> ${escapeHtml(systemState.systemMode)}</span>
-      <span class="metric"><b>Profile init:</b> ${escapeHtml(systemState.profileInit)}</span>
-      <span class="metric"><b>Attribution:</b> ${escapeHtml(systemState.attribution.status)} (${Math.round(systemState.attribution.confidence * 100)}%)</span>
-      <span class="metric"><b>Hooks:</b> ${systemState.hooks.allConfigured ? "all on" : systemState.hooks.installed ? "partial" : "off"}</span>
-    </p>
+    <h2>System</h2>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>Mode</b><span class="val">${escapeHtml(systemState.systemMode)}</span></div>
+      <div class="stat-pill"><b>Profile</b><span class="val">${escapeHtml(systemState.profileInit)}</span></div>
+      <div class="stat-pill"><b>Attribution</b><span class="val">${escapeHtml(systemState.attribution.status)} ${Math.round(systemState.attribution.confidence * 100)}%</span></div>
+      <div class="stat-pill"><b>Hooks</b><span class="val">${systemState.hooks.allConfigured ? "all on" : systemState.hooks.installed ? "partial" : "off"}</span></div>
+      <div class="stat-pill"><b>Pipeline</b><span class="val">${pipeline.fresh ? "fresh" : "stale"}${pipeline.circuitOpen ? " · circuit" : ""}</span></div>
+    </div>
     <p class="note">${escapeHtml(formatCapabilitiesSummary(systemState.capabilities))}</p>
-    <p class="note">Pipeline: collected ${systemState.lastCycle.collectedAt ? escapeHtml(systemState.lastCycle.collectedAt.slice(0, 19)) : "—"} · indexed ${systemState.lastCycle.indexedAt ? escapeHtml(systemState.lastCycle.indexedAt.slice(0, 19)) : "—"} · analyzed ${systemState.lastCycle.analyzedAt ? escapeHtml(systemState.lastCycle.analyzedAt.slice(0, 19)) : "—"} · <b>fresh:</b> ${pipeline.fresh ? "yes" : "no"}</p>
+    ${pipeline.trace ? `<p class="note">Trace ${pipeline.trace.collectMs ?? "—"}/${pipeline.trace.indexMs ?? "—"}/${pipeline.trace.analyzeMs ?? "—"} ms · total ${pipeline.trace.totalMs ?? "—"} ms${pipeline.trace.errors.length > 0 ? ` · ${escapeHtml(pipeline.trace.errors.map((e) => `${e.phase}: ${e.message}`).join("; "))}` : ""}</p>` : ""}
   </div>
 
   ${
     equalSplitWarn
-      ? `<div class="warn"><b>Per-skill costs unreliable:</b> ${equalSplitWarn}</div>`
+      ? `<div class="warn"><b>Per-skill unreliable:</b> ${equalSplitWarn}</div>`
       : unattributedTokens > 0
-        ? `<div class="warn"><b>Attribution warning:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}) could not be assigned to a specific invoked skill. Run <b>Reset Mis-attributed Cost Data</b>, then use self-learning to record runs with <code>invoked: true</code>.</div>`
+        ? `<div class="warn"><b>Unattributed:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}). Reset mis-attributed data, then record <code>invoked: true</code> runs.</div>`
         : ""
   }
 
   <div class="panel">
-    <div class="summary-line">
-      <span class="metric"><b>Est. last 14 days (this workspace):</b> ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)} tokens</span>
+    <h2>Overview · 14d</h2>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>Est. spend</b><span class="val">${formatCompactUsd(credit.totalCost)}</span></div>
+      <div class="stat-pill"><b>Tokens</b><span class="val">${formatTokenCount(credit.totalTokens)}</span></div>
+      <div class="stat-pill"><b>Trend</b><span class="val">${escapeHtml(trendLabel)}</span></div>
+      ${profile ? `<div class="stat-pill"><b>Typical / mo</b><span class="val">${formatCompactUsd(profile.typical_monthly_cost)}</span></div>` : ""}
     </div>
-    <div class="metric"><b>Trend:</b> ${escapeHtml(trendLabel)}</div>
-    ${profile ? `<div class="metric"><b>Profile:</b> ~${formatCompactUsd(profile.typical_monthly_cost)}/mo typical <span class="agent-id">(from skill attribution — may be inflated)</span></div>` : ""}
   </div>
 
   <div class="panel">
-    <h2>Usage by AI agent (last 14 days)</h2>
-    <p class="note" style="margin-top:0"><b>Claude + Cursor:</b> spend from session transcripts for <i>this workspace folder only</i> (not all projects on your machine). <b>Kiro + Copilot:</b> deploy only. Not an API invoice.</p>
+    <h2>By agent · 14d</h2>
+    <p class="note" style="margin-top:0">Claude + Cursor: this workspace only. Kiro + Copilot: deploy only.</p>
     ${agentRows}
   </div>
+
+  ${formatModelsByAgentHtml(agentUsage)}
 
   ${showPerSkill ? "" : setupChecklistHtml(health)}
 
   ${showPerSkill && teamEconomics ? `<div class="panel">
-    <h2>Value &amp; ROI (est.)</h2>
-    <p class="summary-line"><span class="metric"><b>Time saved:</b> ~${teamEconomics.estimatedMinutesSaved} min</span>
-    <span class="metric"><b>Value:</b> ${formatCompactUsd(teamEconomics.estimatedValueUsd)} @ $75/hr heuristic</span>
-    <span class="metric"><b>Net ROI:</b> <span class="roi-${teamEconomics.netRoiBand.toLowerCase()}">${teamEconomics.netRoiBand}</span> (${teamEconomics.netRoi}x)</span></p>
-    <p class="note">ROI uses tier-based time-saved heuristics (e.g. deployment-practical ~20 min). Not measured productivity — best-effort model.</p>
+    <h2>ROI estimate</h2>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>Time saved</b><span class="val">~${teamEconomics.estimatedMinutesSaved} min</span></div>
+      <div class="stat-pill"><b>Value</b><span class="val">${formatCompactUsd(teamEconomics.estimatedValueUsd)}</span></div>
+      <div class="stat-pill"><b>Net ROI</b><span class="val roi-${teamEconomics.netRoiBand.toLowerCase()}">${teamEconomics.netRoiBand} (${teamEconomics.netRoi}x)</span></div>
+    </div>
+    <p class="note">Heuristic tiers — not measured productivity.</p>
   </div>` : ""}
 
   ${showPerSkill && teamEconomics && teamEconomics.byRepo.length > 0 ? `<div class="panel">
-    <h2>Cost by repo (from runs.jsonl)</h2>
-    <ul>${teamEconomics.byRepo.slice(0, 8).map((r) => `<li><b>${escapeHtml(r.repoPath)}</b>: ${formatCompactUsd(r.costUsd)} · ${r.runs} run(s) · ${r.skills.length} skill(s)</li>`).join("")}</ul>
+    <h2>By repo</h2>
+    <ul>${teamEconomics.byRepo.slice(0, 8).map((r) => `<li><b>${escapeHtml(r.repoPath)}</b> ${formatCompactUsd(r.costUsd)} · ${r.runs} runs · ${r.skills.length} skills</li>`).join("")}</ul>
   </div>` : ""}
 
   ${showPerSkill && teamEconomics && teamEconomics.bySkillOwner.length > 0 ? `<div class="panel">
-    <h2>Cost by skill owner (git proxy)</h2>
-    <p class="note" style="margin-top:0">Attributes cost to who committed each SKILL.md — not who invoked the agent.</p>
-    <ul>${teamEconomics.bySkillOwner.slice(0, 8).map((o) => `<li><b>${escapeHtml(o.author)}</b>: ${formatCompactUsd(o.costUsd)} · ${o.skills.length} skill(s)</li>`).join("")}</ul>
+    <h2>By skill owner</h2>
+    <p class="note" style="margin-top:0">Git author of SKILL.md — not who invoked the agent.</p>
+    <ul>${teamEconomics.bySkillOwner.slice(0, 8).map((o) => `<li><b>${escapeHtml(o.author)}</b> ${formatCompactUsd(o.costUsd)} · ${o.skills.length} skills</li>`).join("")}</ul>
   </div>` : ""}
 
   <div class="panel">
-    <h2>Top expensive skills (est.)</h2>
+    <h2>Top skills</h2>
     ${
       showPerSkill
-        ? topRows || "<p>No per-skill cost data yet.</p>"
-        : "<p>Hidden until attribution setup is complete (see checklist above). Agent totals remain valid.</p>"
+        ? topRows || "<p class=\"note\">No per-skill cost data yet.</p>"
+        : "<p class=\"note\">Hidden until attribution setup completes.</p>"
     }
   </div>
 
   ${
     showPerSkill
       ? `<div class="panel">
-    <h2>Cross-agent savings (est.)</h2>
-    <p>Measured: Cursor used for ${savings.cursorSkills} skill(s) — est. ~${formatCompactUsd(savings.realizedUsd)} saved vs Claude</p>
-    <p class="note">Speculative (heuristic, not measured): ~${formatCompactUsd(savings.speculativeUsd)} if more skills moved to Cursor</p>
+    <h2>Cross-agent savings</h2>
+    <p class="note" style="margin-top:0">Cursor: ${savings.cursorSkills} skill(s) · ~${formatCompactUsd(savings.realizedUsd)} saved vs Claude · speculative ~${formatCompactUsd(savings.speculativeUsd)}</p>
   </div>`
       : ""
   }
 
   <div class="panel">
-    <h2>Optimization opportunities</h2>
+    <h2>Optimizations</h2>
     <ul>${
       showPerSkill
-        ? optRows || "<li>No suggestions yet — collect more runs/transcript data.</li>"
-        : "<li>Complete the per-skill setup checklist above before applying disable/switch suggestions.</li>"
+        ? optRows || "<li class=\"note\">No suggestions yet.</li>"
+        : "<li class=\"note\">Complete per-skill setup first.</li>"
     }</ul>
   </div>
 
-  ${teamLines.length > 0 ? `<div class="panel"><h2>Team skill attribution</h2><ul>${teamLines.map((t) => `<li><b>${escapeHtml(t.skill)}</b>: ${escapeHtml(t.line)}</li>`).join("")}</ul></div>` : ""}
+  ${teamLines.length > 0 ? `<div class="panel"><h2>Team attribution</h2><ul>${teamLines.map((t) => `<li><b>${escapeHtml(t.skill)}</b>: ${escapeHtml(t.line)}</li>`).join("")}</ul></div>` : ""}
 
-  ${archived.length > 0 ? `<div class="panel"><h2>Archived skills</h2><p>${archived.map(escapeHtml).join(", ")} — use <b>Restore Archived Skill</b> command.</p></div>` : ""}
+  ${archived.length > 0 ? `<div class="panel"><h2>Archived</h2><p class="note">${archived.map(escapeHtml).join(", ")}</p></div>` : ""}
 
   <div class="actions">
-    <button type="button" id="btn-apply-opts" ${canApplyOptimizations ? "" : "disabled title=\"Optimizations paused in safe/degraded mode or until pipeline syncs\""}>Apply optimizations</button>
+    <button type="button" id="btn-apply-opts" ${canApplyOptimizations ? "" : "disabled title=\"Paused in safe/degraded mode\""}>Apply optimizations</button>
     <button type="button" class="secondary" id="btn-export-report">Export report</button>
     <button type="button" class="secondary" id="btn-open-budget">Configure budget</button>
   </div>
-  <div class="note">Estimates from transcripts and runs.jsonl — not an actual API bill.</div>
-
+  <div class="note">${escapeHtml(ESTIMATE_DISCLAIMER)}</div>`,
+    scriptHtml: `
   <script${nonce ? ` nonce="${nonce}"` : ""}>
     const vscode = acquireVsCodeApi();
     document.getElementById("btn-apply-opts")?.addEventListener("click", () => {
@@ -369,9 +374,8 @@ ${cspMeta}
         });
       });
     });
-  </script>
-</body>
-</html>`;
+  </script>`,
+  });
 }
 
 export function formatCostDashboardText(target: string, libraryDir: string): string {
@@ -419,6 +423,13 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
           ? "no usage logged"
           : "deploy only — spend not measured";
     lines.push(`    ${row.displayName} (${row.agent}): ${spend}`);
+    if (row.models.length > 0) {
+      for (const m of row.models) {
+        lines.push(
+          `      · ${formatModelLabel(m.model)}: ${formatCompactUsd(m.cost)} | ${formatTokenCount(totalTokensForModelUsage(m))} tokens`
+        );
+      }
+    }
   }
 
   if (!showPerSkill) {

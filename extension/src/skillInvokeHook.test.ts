@@ -64,6 +64,56 @@ describe("skill-invoke-watch.js", () => {
     expect(runs[0].agent).toBe("copilot");
   });
 
+  it("logs Cursor Read of skills-cursor paths", () => {
+    const { runs } = runHook("cursor", {
+      conversation_id: "conv-cursor-001",
+      tool_name: "Read",
+      tool_input: {
+        path: "C:/Users/me/.cursor/skills-cursor/create-skill/SKILL.md",
+      },
+      tool_use_id: "tu_cursor_1",
+      cwd: undefined,
+      workspace_roots: ["C:/proj/ws"],
+    });
+    expect(runs).toHaveLength(1);
+    expect(runs[0].skill).toBe("create-skill");
+    expect(runs[0].agent).toBe("cursor");
+  });
+
+  it("logs Cursor Read with tool_use_id session fallback when conversation_id missing", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "skill-hook-cursor-"));
+    const skillPath = path.join(tmp, "skills_library", "ci-preflight", "SKILL.md");
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, "# skill");
+
+    const result = spawnSync(process.execPath, [HOOK_SCRIPT, "cursor"], {
+      input: JSON.stringify({
+        tool_name: "Read",
+        tool_input: { path: skillPath },
+        tool_use_id: "tu_fallback",
+        cwd: tmp,
+      }),
+      encoding: "utf-8",
+    });
+
+    const runsFile = path.join(tmp, ".claude", "learning", "runs.jsonl");
+    const runs = fs.existsSync(runsFile)
+      ? fs
+          .readFileSync(runsFile, "utf-8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+      : [];
+
+    expect(result.status).toBe(0);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].skill).toBe("ci-preflight");
+    expect(runs[0].agent).toBe("cursor");
+
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it("reads Kiro payload from USER_PROMPT when stdin is empty", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "skill-hook-kiro-"));
     const learningDir = path.join(tmp, ".claude", "learning");

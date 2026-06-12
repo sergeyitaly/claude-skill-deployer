@@ -7,7 +7,7 @@ import { cursorParser, listTranscriptFiles } from "./transcriptParsers";
 import { isCursorTranscriptRoot, transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
 /** Model id for Cursor agent transcripts (no per-line model metadata; Sonnet-like default rates). */
-const CURSOR_TRANSCRIPT_MODEL = "cursor-agent";
+export const CURSOR_TRANSCRIPT_MODEL = "cursor-agent";
 
 interface TokenUsage {
   inputTokens: number;
@@ -29,6 +29,21 @@ function addUsage(target: TokenUsage, delta: TokenUsage): void {
 
 function totalTokens(usage: TokenUsage): number {
   return usage.inputTokens + usage.outputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
+}
+
+export function totalTokensForModelUsage(usage: TokenUsage): number {
+  return totalTokens(usage);
+}
+
+/** Human-readable model label for dashboard rows. */
+export function formatModelLabel(model: string): string {
+  if (model === CURSOR_TRANSCRIPT_MODEL) {
+    return "Cursor agent (transcript size estimate)";
+  }
+  if (model.startsWith("cursor/task:")) {
+    return `Cursor Task subagent (${model.slice("cursor/task:".length)})`;
+  }
+  return model;
 }
 
 function getOrCreate(map: Map<string, TokenUsage>, key: string): TokenUsage {

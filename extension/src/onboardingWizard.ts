@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as vscode from "vscode";
-import { discoverBundledSkills, globalSkillsDir, listSkillStatuses } from "./skillOps";
+import { globalSkillsDir, listSkillStatuses } from "./skillOps";
 import { getWorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
+import { DASHBOARD_WIZARD_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
 
 function escapeHtml(v: string): string {
   return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -28,7 +29,8 @@ function wizardHtml(
   libraryDir: string,
   globalCount: number,
   ws: { installed: number; suggested: number },
-  hookStatusText?: string
+  hookStatusText?: string,
+  nonce?: string
 ): string {
   const step1Done = globalCount > 0;
   const step2Done = target !== undefined && ws.installed > 0;
@@ -41,41 +43,21 @@ function wizardHtml(
         ? `${ws.suggested} relevant skill(s) detected — not installed`
         : "No workspace skills installed yet";
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 20px; max-width: 640px; }
-  h1 { font-size: 1.2em; margin: 0 0 8px; }
-  p.lead { color: var(--vscode-descriptionForeground); margin: 0 0 16px; font-size: 0.9em; }
-  .step { border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
-  .step.done { border-color: var(--vscode-testing-iconPassed); }
-  .step h2 { font-size: 0.95em; margin: 0 0 6px; }
-  .status { font-size: 0.85em; color: var(--vscode-descriptionForeground); }
-  .actions { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
-  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; }
-  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .note { margin-top: 14px; font-size: 0.8em; color: var(--vscode-descriptionForeground); }
-</style>
-</head>
-<body>
-  <h1>Claude Skills — Setup</h1>
+  const body = `
   <p class="lead">Install the right skills for this repo across Claude, Cursor, Kiro, and Copilot. Cost tracking is optional and needs a few sessions of data.</p>
 
   <div class="step ${step1Done ? "done" : ""}">
     <h2>1. Global skill library</h2>
     <div class="status">${escapeHtml(step1Status)}</div>
-    <div class="actions"><button onclick="run('installGlobal')" ${step1Done ? "disabled" : ""}>Install library</button></div>
+    <div class="actions"><button type="button" id="btn-install-global" ${step1Done ? "disabled" : ""}>Install library</button></div>
   </div>
 
   <div class="step ${step2Done ? "done" : ""}">
     <h2>2. Workspace skills</h2>
     <div class="status">${escapeHtml(step2Status)}</div>
     <div class="actions">
-      <button onclick="run('installWorkspace')" ${!target ? "disabled" : ""}>Install relevant skills</button>
-      <button class="secondary" onclick="run('preview')">Preview detection</button>
+      <button type="button" id="btn-install-workspace" ${!target ? "disabled" : ""}>Install relevant skills</button>
+      <button type="button" class="secondary" id="btn-preview">Preview detection</button>
     </div>
   </div>
 
@@ -83,29 +65,60 @@ function wizardHtml(
     <h2>3. Hooks &amp; notifications</h2>
     <div class="status">${escapeHtml(hookStatusText ?? "Open a workspace folder to inspect hook status.")}</div>
     <div class="actions">
-      <button class="secondary" onclick="run('attributionHooks')">Install attribution hooks</button>
-      <button class="secondary" onclick="run('budget')">Budget settings</button>
-      <button class="secondary" onclick="run('hooks')">Enable session/budget hooks</button>
+      <button type="button" class="secondary" id="btn-attribution-hooks">Install attribution hooks</button>
+      <button type="button" class="secondary" id="btn-budget">Budget settings</button>
+      <button type="button" class="secondary" id="btn-hooks">Enable session/budget hooks</button>
     </div>
   </div>
 
   <div class="step">
     <h2>4. Optional: cost dashboard (beta)</h2>
     <div class="status">Per-skill costs need transcript data. Agent totals may show before per-skill breakdown.</div>
-    <div class="actions"><button class="secondary" onclick="run('dashboard')" ${!step1Done || !step2Done ? "disabled" : ""}>Open dashboard</button></div>
+    <div class="actions"><button type="button" class="secondary" id="btn-dashboard" ${!step1Done || !step2Done ? "disabled" : ""}>Open dashboard</button></div>
   </div>
 
   <div class="actions">
-    <button onclick="run('done')" ${!step1Done || !step2Done ? "disabled" : ""}>Mark setup complete</button>
-    <button class="secondary" onclick="run('close')">Close</button>
+    <button type="button" id="btn-done" ${!step1Done || !step2Done ? "disabled" : ""}>Mark setup complete</button>
+    <button type="button" class="secondary" id="btn-close">Close</button>
   </div>
-  <div class="note">Core value: steps 1–2. Steps 3–4 are power-user features (estimates only, not your API invoice).</div>
-  <script>
+  <div class="note">Core value: steps 1–2. Steps 3–4 are power-user features (estimates only, not your API invoice).</div>`;
+
+  const scriptHtml = nonce
+    ? `<script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    function run(cmd) { vscode.postMessage({ command: cmd }); }
-  </script>
-</body>
-</html>`;
+    const run = (cmd) => vscode.postMessage({ command: cmd });
+    document.getElementById("btn-install-global")?.addEventListener("click", () => run("installGlobal"));
+    document.getElementById("btn-install-workspace")?.addEventListener("click", () => run("installWorkspace"));
+    document.getElementById("btn-preview")?.addEventListener("click", () => run("preview"));
+    document.getElementById("btn-attribution-hooks")?.addEventListener("click", () => run("attributionHooks"));
+    document.getElementById("btn-budget")?.addEventListener("click", () => run("budget"));
+    document.getElementById("btn-hooks")?.addEventListener("click", () => run("hooks"));
+    document.getElementById("btn-dashboard")?.addEventListener("click", () => run("dashboard"));
+    document.getElementById("btn-done")?.addEventListener("click", () => run("done"));
+    document.getElementById("btn-close")?.addEventListener("click", () => run("close"));
+  </script>`
+    : `<script>
+    const vscode = acquireVsCodeApi();
+    const run = (cmd) => vscode.postMessage({ command: cmd });
+    document.getElementById("btn-install-global")?.addEventListener("click", () => run("installGlobal"));
+    document.getElementById("btn-install-workspace")?.addEventListener("click", () => run("installWorkspace"));
+    document.getElementById("btn-preview")?.addEventListener("click", () => run("preview"));
+    document.getElementById("btn-attribution-hooks")?.addEventListener("click", () => run("attributionHooks"));
+    document.getElementById("btn-budget")?.addEventListener("click", () => run("budget"));
+    document.getElementById("btn-hooks")?.addEventListener("click", () => run("hooks"));
+    document.getElementById("btn-dashboard")?.addEventListener("click", () => run("dashboard"));
+    document.getElementById("btn-done")?.addEventListener("click", () => run("done"));
+    document.getElementById("btn-close")?.addEventListener("click", () => run("close"));
+  </script>`;
+
+  return wrapDashboardHtml({
+    title: "Claude Skills — Setup",
+    headerHtml: "",
+    extraStyles: DASHBOARD_WIZARD_EXTRA_STYLES,
+    body,
+    nonce,
+    scriptHtml,
+  });
 }
 
 export async function showOnboardingWizard(
@@ -121,6 +134,7 @@ export async function showOnboardingWizard(
     vscode.ViewColumn.Active,
     { enableScripts: true }
   );
+  const nonce = String(Date.now());
 
   const render = () => {
     const currentTarget = getTarget();
@@ -130,7 +144,8 @@ export async function showOnboardingWizard(
       libraryDir,
       globalSkillCount(),
       currentTarget ? workspaceSkillSummary(currentTarget, libraryDir) : { installed: 0, suggested: 0 },
-      hookStatusText
+      hookStatusText,
+      nonce
     );
   };
   render();

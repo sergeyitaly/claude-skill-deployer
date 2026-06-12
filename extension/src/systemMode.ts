@@ -1,10 +1,5 @@
 import { AttributionHealth } from "./attributionHealth";
-import {
-  isPipelineFresh,
-  isPipelineReadyForOptimizer,
-  PipelineCycleTimestamps,
-  pipelineStaleSummary,
-} from "./pipelineCycle";
+import { isPipelineCircuitOpen, isPipelineFresh, isPipelineReadyForOptimizer, PipelineCycleTimestamps, pipelineStaleSummary } from "./pipelineCycle";
 
 export type SystemMode = "normal" | "degraded" | "safe";
 
@@ -25,6 +20,9 @@ export function resolveSystemMode(
   target: string,
   cycle: PipelineCycleTimestamps
 ): SystemMode {
+  if (isPipelineCircuitOpen(cycle)) {
+    return "safe";
+  }
   const pipelineFresh = isPipelineFresh(target, cycle);
   if (health.staleEqualSplit || health.confidenceScore < 0.45 || !pipelineFresh) {
     return "safe";
@@ -47,7 +45,9 @@ export function buildSystemModeContext(
 
   let banner: string | undefined;
   if (mode === "safe") {
-    if (health.staleEqualSplit) {
+    if (isPipelineCircuitOpen(cycle)) {
+      banner = `Safe mode: ${pipelineStaleMessage ?? "pipeline circuit open — too many sync runs"}`;
+    } else if (health.staleEqualSplit) {
       banner = "Safe mode: mis-attributed cost data — reset attribution before trusting per-skill numbers.";
     } else if (!pipelineFresh) {
       banner = `Safe mode: ${pipelineStaleMessage ?? "pipeline not fresh"}`;

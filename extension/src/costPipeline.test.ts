@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCostPipelineSync } from "./costPipeline";
+import { MAX_PIPELINE_RUNS_PER_MINUTE, resetPipelineCircuitBreakerForTests } from "./pipelineCircuitBreaker";
 import { readPipelineCycle } from "./pipelineCycle";
 import { systemStatePath } from "./workspaceSystemState";
 
@@ -26,6 +27,7 @@ afterEach(() => {
     fs.rmSync(ws, { recursive: true, force: true });
   }
   workspaces.length = 0;
+  resetPipelineCircuitBreakerForTests();
 });
 
 describe("costPipeline", () => {
@@ -51,6 +53,10 @@ describe("costPipeline", () => {
     expect(fs.existsSync(systemStatePath(target))).toBe(true);
     expect(result.ready).toBe(true);
     expect(result.fresh).toBe(true);
+    expect(result.skipped).toBe(false);
+    expect(result.circuitOpen).toBe(false);
+    expect(result.trace?.indexMs).toBeDefined();
+    expect(result.trace?.analyzeMs).toBeDefined();
   });
 
   it("becomes ready after collect timestamp when sync follows", () => {
@@ -63,5 +69,28 @@ describe("costPipeline", () => {
     );
 
     expect(runCostPipelineSync(target, libraryDir).ready).toBe(true);
+  });
+
+  it("skips sync when circuit is open", () => {
+    const target = makeWorkspace();
+    fs.writeFileSync(
+      path.join(target, ".claude", "learning", "runs.jsonl"),
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        skill: "self-learning",
+        outcome: "success",
+        agent: "cursor",
+      }) + "\n",
+      "utf-8"
+    );
+
+    for (let i = 0; i < MAX_PIPELINE_RUNS_PER_MINUTE; i++) {
+      runCostPipelineSync(target, libraryDir);
+    }
+    const result = runCostPipelineSync(target, libraryDir);
+    expect(result.skipped).toBe(true);
+    expect(result.circuitOpen).toBe(true);
+    expect(result.systemMode).toBe("safe");
+    expect(result.staleMessage).toMatch(/circuit open/i);
   });
 });
