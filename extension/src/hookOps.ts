@@ -9,6 +9,7 @@ const CONTEXT_FOCUS_HOOK_FILENAME = "context-focus-watch.js";
 const PRACTICAL_FOCUS_HOOK_FILENAME = "practical-focus-watch.js";
 const SKILL_INVOKE_HOOK_FILENAME = "skill-invoke-watch.js";
 const OFFICIAL_SKILLS_HOOK_FILENAME = "official-skills-watch.js";
+const PROFILE_INIT_HOOK_FILENAME = "profile-init-watch.js";
 const HOOK_HELPER_FILENAME = "usageParse.js";
 
 const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
@@ -24,6 +25,7 @@ const CURSOR_SKILL_INVOKE_COMMAND = `node .cursor/hooks/${SKILL_INVOKE_HOOK_FILE
 const KIRO_SKILL_INVOKE_COMMAND = `node .claude/hooks/${SKILL_INVOKE_HOOK_FILENAME} kiro`;
 const COPILOT_SKILL_INVOKE_COMMAND = `node .claude/hooks/${SKILL_INVOKE_HOOK_FILENAME} copilot`;
 const OFFICIAL_SKILLS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${OFFICIAL_SKILLS_HOOK_FILENAME}"`;
+const PROFILE_INIT_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PROFILE_INIT_HOOK_FILENAME}"`;
 const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
 const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread";
 
@@ -160,6 +162,7 @@ const ALL_HOOK_FILES = [
   PRACTICAL_FOCUS_HOOK_FILENAME,
   SKILL_INVOKE_HOOK_FILENAME,
   OFFICIAL_SKILLS_HOOK_FILENAME,
+  PROFILE_INIT_HOOK_FILENAME,
   HOOK_HELPER_FILENAME,
 ];
 
@@ -523,6 +526,37 @@ export function installOfficialSkillsSessionHook(extensionPath: string, target: 
     OFFICIAL_SKILLS_SESSION_MATCHER,
     OFFICIAL_SKILLS_HOOK_FILENAME,
     OFFICIAL_SKILLS_HOOK_COMMAND
+  );
+
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return had ? "already-configured" : "updated";
+}
+
+export function areProfileInitHooksConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
+  } catch {
+    return false;
+  }
+}
+
+/** SessionStart hook: inject profile-init when a branch profile request is pending. */
+export function installProfileInitSessionHook(extensionPath: string, target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
+
+  copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
+  const added = ensureSessionStartHookRegistered(
+    settings,
+    OFFICIAL_SKILLS_SESSION_MATCHER,
+    PROFILE_INIT_HOOK_FILENAME,
+    PROFILE_INIT_HOOK_COMMAND
   );
 
   if (added) {

@@ -10,6 +10,8 @@ import {
   loadBranchProfile,
   saveBranchProfile,
 } from "./branchProfiles";
+import { installProfileInitSessionHook } from "./hookOps";
+import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
 import { copySkill, ensureGitExcludeEntry, listSkillStatuses, SkillStatus } from "./skillOps";
 import { ensureLearningDir } from "./usageStats";
 
@@ -75,7 +77,8 @@ export interface ProfileInitRequest {
   outputPath: string;
   relevantSkillNames: string[];
   skillCount: number;
-  prompt: string;
+  status: "pending" | "completed";
+  agentInstructions: string;
 }
 
 const LOCAL_PATHS = [
@@ -111,8 +114,68 @@ export function promptOnNewBranchEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.profileInit").get<boolean>("promptOnNewBranch", true);
 }
 
+export function autoStartOnSessionEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.profileInit").get<boolean>("autoStartOnSession", true);
+}
+
+export function profileInitRequestPending(target: string): boolean {
+  const request = readProfileInitRequest(target);
+  if (!request || request.status === "completed") {
+    return false;
+  }
+  const profile = readBranchProfileInit(target);
+  if (profile?.status === "applied" && profile.skills.length > 0) {
+    return false;
+  }
+  return true;
+}
+
+export function markProfileInitRequestCompleted(target: string): void {
+  const request = readProfileInitRequest(target);
+  if (!request) {
+    return;
+  }
+  writeJsonAtomic(profileInitRequestPath(target), { ...request, status: "completed" as const });
+}
+
+function buildAgentInstructions(branch: string, position: UserPosition, relevantSkillNames: string[]): string {
+  const relevant =
+    relevantSkillNames.length > 0
+      ? `Prioritize workspace-relevant skills: ${relevantSkillNames.join(", ")}.`
+      : "No detect_globs matches yet — choose from catalog descriptions and branch context.";
+  return [
+    "Read and follow the profile-init skill immediately — do not wait for the user to ask.",
+    `Pick skills for git branch "${branch}" as a ${position.label}.`,
+    relevant,
+    "Write .claude/profile.local.json with status \"pending\" and a focused skills[] list from the catalog.",
+    "The extension auto-installs when the file is saved.",
+  ].join(" ");
+}
+
 export function autoApplyProfileFileEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.profileInit").get<boolean>("autoApplyProfileFile", true);
+}
+
+/** Install SessionStart hook and sync profile-init skill to enabled agents. */
+export function ensureProfileInitSessionReady(
+  extensionPath: string,
+  libraryDir: string,
+  target: string,
+  log: (line: string) => void
+): void {
+  if (!profileInitEnabled() || !autoStartOnSessionEnabled() || !profileInitRequestPending(target)) {
+    return;
+  }
+  const hookStatus = installProfileInitSessionHook(extensionPath, target);
+  if (hookStatus === "installed" || hookStatus === "updated") {
+    log(`Profile init SessionStart hook ${hookStatus}.`);
+  }
+  if (shouldSyncWorkspaceToAll()) {
+    const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
+    if (synced.length > 0) {
+      log(`Synced profile-init to ${synced.length} agent path(s).`);
+    }
+  }
 }
 
 /** Gitignore local profile-init artifacts via .git/info/exclude. */
@@ -211,6 +274,9 @@ export function readProfileInitRequest(target: string): ProfileInitRequest | und
   if (!parsed || parsed.version !== 1) {
     return undefined;
   }
+  if (!parsed.status) {
+    parsed.status = "pending";
+  }
   return parsed;
 }
 
@@ -231,10 +297,8 @@ export function buildProfileInitRequest(
     outputPath: ".claude/profile.local.json",
     relevantSkillNames,
     skillCount: catalog.skills.length,
-    prompt:
-      `Initialize the skill profile for git branch "${branch}" for a ${position.label}. ` +
-      `Read the profile-init skill, use ${".claude/learning/skills-catalog.json"} to pick skills, ` +
-      `and write ${".claude/profile.local.json"}. The extension will install them automatically.`,
+    status: "pending",
+    agentInstructions: buildAgentInstructions(branch, position, relevantSkillNames),
   };
   writeJsonAtomic(profileInitRequestPath(target), request);
   return request;
@@ -325,6 +389,7 @@ export function applyLocalProfileInit(
     appliedAt: new Date().toISOString(),
   };
   writeBranchProfileInit(target, applied);
+  markProfileInitRequestCompleted(target);
 
   return { result, init: applied, invalid };
 }
@@ -378,6 +443,7 @@ export async function promptForPosition(target: string): Promise<UserPosition | 
 }
 
 export async function startProfileInitFlow(
+  extensionPath: string,
   libraryDir: string,
   target: string,
   branch: string,
@@ -396,30 +462,17 @@ export async function startProfileInitFlow(
   installProfileInitSkill(libraryDir, target);
   markProfileInitPending(target, branch, position);
   const request = buildProfileInitRequest(target, libraryDir, position, branch);
+  ensureProfileInitSessionReady(extensionPath, libraryDir, target, log);
 
   log(`\n=== Profile init for branch \`${branch}\` ===`);
   log(`Position: ${position.label}`);
   log(`Catalog: ${skillsCatalogPath(target)} (${request.skillCount} skills)`);
   log(`Relevant to workspace: ${request.relevantSkillNames.join(", ") || "(none detected)"}`);
-  log(`Agent prompt: ${request.prompt}`);
+  log(`SessionStart hook will inject profile-init on the next AI agent session.`);
 
-  const choice = await vscode.window.showInformationMessage(
-    `Initialize skills for branch "${branch}" as ${position.label}? Ask your AI agent to run the profile-init skill.`,
-    "Copy agent prompt",
-    "Open profile-init skill",
-    "Dismiss"
+  void vscode.window.showInformationMessage(
+    `Profile init ready for "${branch}" (${position.label}). Start a new AI agent session — profile-init runs automatically.`
   );
-
-  if (choice === "Copy agent prompt") {
-    await vscode.env.clipboard.writeText(request.prompt);
-    vscode.window.showInformationMessage("Claude Skills: agent prompt copied to clipboard.");
-  } else if (choice === "Open profile-init skill") {
-    const skillMd = path.join(target, ".claude", "skills", PROFILE_INIT_SKILL, "SKILL.md");
-    if (fs.existsSync(skillMd)) {
-      const doc = await vscode.workspace.openTextDocument(skillMd);
-      await vscode.window.showTextDocument(doc);
-    }
-  }
 
   return true;
 }
@@ -431,6 +484,7 @@ function dismissedKey(target: string, branch: string): string {
 }
 
 export async function maybePromptProfileInitOnNewBranch(
+  extensionPath: string,
   libraryDir: string,
   target: string,
   branch: string,
@@ -454,7 +508,7 @@ export async function maybePromptProfileInitOnNewBranch(
   );
 
   if (choice === "Init profile") {
-    await startProfileInitFlow(libraryDir, target, branch, log);
+    await startProfileInitFlow(extensionPath, libraryDir, target, branch, log);
   } else if (choice === "Not now") {
     dismissedBranchesThisSession.add(dismissedKey(target, branch));
     captureBranchProfile(target, libraryDir);

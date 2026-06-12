@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 const HOOKS_DIR = path.join(__dirname, "..", "resources", "hooks");
 const CONTEXT_HOOK = path.join(HOOKS_DIR, "context-focus-watch.js");
 const PRACTICAL_HOOK = path.join(HOOKS_DIR, "practical-focus-watch.js");
+const PROFILE_INIT_HOOK = path.join(HOOKS_DIR, "profile-init-watch.js");
 
 const workspaces: string[] = [];
 const configFiles: string[] = [];
@@ -146,5 +147,62 @@ describe("practical-focus-watch.js", () => {
     const second = runFocusHook(PRACTICAL_HOOK, cwd, env);
     expect(first.stdout.trim()).not.toBe("");
     expect(second.stdout.trim()).toBe("");
+  });
+});
+
+describe("profile-init-watch.js", () => {
+  it("emits SessionStart context when profile-init request is pending", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "profile-init-request.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          status: "pending",
+          branch: "feature/test",
+          position: { role: "qa", label: "QA" },
+          catalogPath: ".claude/learning/skills-catalog.json",
+          outputPath: ".claude/profile.local.json",
+          agentInstructions: "Run profile-init now.",
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK], {
+      input: JSON.stringify({ cwd, source: "startup" }),
+      encoding: "utf-8",
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as {
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("PROFILE INIT REQUIRED");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("feature/test");
+  });
+
+  it("outputs nothing when profile is already applied", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "profile-init-request.json"),
+      JSON.stringify({ version: 1, status: "pending", branch: "main" }) + "\n",
+      "utf-8"
+    );
+    fs.mkdirSync(path.join(cwd, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "profile.local.json"),
+      JSON.stringify({ version: 1, status: "applied", skills: ["self-learning"] }) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK], {
+      input: JSON.stringify({ cwd, source: "startup" }),
+      encoding: "utf-8",
+    });
+    expect(result.stdout.trim()).toBe("");
   });
 });

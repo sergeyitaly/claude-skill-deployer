@@ -238,44 +238,27 @@ Setting: `claudeSkills.preferLocalSkillOverrides` (default `true`).
 
 ## Profile init (role + branch, agent-driven)
 
-When you land on a **new git branch** with no saved personal profile, the extension can prompt you to initialize skills for your **position** (DevOps, QA, AQA, Backend, Frontend, BA, Resource Manager, Team Lead). There is **no fixed role→skills map** — your AI agent reads the live catalog and picks what fits this branch and task.
+When you land on a **new git branch** with no saved personal profile:
 
-**Flow:**
+1. Extension saves your **position** → `.claude/position.local.json` (gitignored).
+2. On init, writes `.claude/learning/skills-catalog.json` and `.claude/learning/profile-init-request.json` (includes `agentInstructions`).
+3. **SessionStart hook** + synced **`profile-init` skill** auto-run on the **next AI agent session** — no manual prompt copy.
+4. Agent writes `.claude/profile.local.json` → extension auto-installs and saves branch profile.
 
-1. Extension saves your role once → `.claude/position.local.json` (gitignored).
-2. On init, extension writes `.claude/learning/skills-catalog.json` (all skills the library knows now) and `.claude/learning/profile-init-request.json` (branch + position context).
-3. Your AI agent runs the **`profile-init`** skill → writes `.claude/profile.local.json` with the chosen skill names.
-4. Extension auto-applies (default): installs into `.claude/skills/`, mirrors to other agents, saves `~/.claude/learning/branch-profiles.json`.
+**Local-only files:** `position.local.json`, `skills-catalog.json`, `profile-init-request.json`, `profile.local.json`.
 
-**Local-only files (never committed):**
+**Settings:** `claudeSkills.profileInit.*` — see [`extension/README.md`](extension/README.md).
 
-| File | Purpose |
-|---|---|
-| `.claude/position.local.json` | Your team role |
-| `.claude/learning/skills-catalog.json` | Extension-generated skill inventory |
-| `.claude/learning/profile-init-request.json` | Init context for the agent |
-| `.claude/profile.local.json` | Agent’s skill selection for this branch |
+### Multi-agent
 
-**Commands:** `Claude Skills: Set Your Position`, `Init Profile for Current Branch`, `Refresh Skill Catalog for Agent`, `Apply Local Profile`.
-
-**Settings:** `claudeSkills.profileInit.enabled`, `promptOnNewBranch`, `autoApplyProfileFile` (see [`extension/README.md`](extension/README.md)).
-
-### Works with Cursor, Kiro, and Copilot
-
-Profile init is **agent-agnostic** at the extension layer: catalog, apply, and branch restore run in VS Code regardless of which agent wrote `profile.local.json`.
-
-When **multi-agent sync** is on, `profile-init` is mirrored like any other skill:
+Profile init is **agent-agnostic** for apply/catalog. **`profile-init`** syncs to Cursor, Kiro, and Copilot. Claude Code uses a **SessionStart hook**; other agents rely on the synced skill + pending request file at session start.
 
 | Agent | Skill copy |
 |---|---|
-| Claude | `.claude/skills/profile-init/SKILL.md` |
+| Claude | `.claude/skills/profile-init/SKILL.md` + SessionStart hook |
 | Cursor | `.cursor/skills/profile-init/SKILL.md` |
 | Kiro | `.kiro/skills/profile-init/SKILL.md` |
 | Copilot | `.github/instructions/profile-init.instructions.md` |
-
-All agents use the same **`.claude/` file contract** for catalog and profile output (extension source of truth). After **Init Profile for Current Branch**, the extension syncs `profile-init` to every enabled agent path. If you use Cursor/Kiro/Copilot immediately after the automatic new-branch prompt, run **Sync Workspace Skills to All Agents** once if the skill is not visible yet.
-
-In chat (any synced agent): *“Initialize my skill profile for this branch using profile-init.”*
 
 ## Library layout
 
@@ -295,7 +278,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.16** (`serhiivoinolovych`).
+Current extension version: **1.0.0** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Performance impact
 
@@ -333,7 +316,7 @@ First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL |
 | `Claude Skills: Reset Mis-attributed Cost Data` | Clear bad cost attribution after v1.0.0 collector bug |
 
-See [CHANGELOG.md](CHANGELOG.md) for the full v1.0.x release notes (v1.0.10: cross-platform transcript path matching + expanded unit tests).
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## What this tool does NOT do
 

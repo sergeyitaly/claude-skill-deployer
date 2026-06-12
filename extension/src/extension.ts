@@ -151,8 +151,10 @@ import { OptimizationType } from "./costOptimizer";
 import {
   applyLocalProfileInit,
   autoApplyProfileFileEnabled,
+  ensureProfileInitSessionReady,
   maybePromptProfileInitOnNewBranch,
   profileInitEnabled,
+  profileInitRequestPending,
   promptForPosition,
   readUserPosition,
   refreshSkillsCatalog,
@@ -186,13 +188,13 @@ function log(line: string) {
   outputChannel.appendLine(line);
 }
 
-function branchChangeOpts(libraryDir: string, target: string) {
+function branchChangeOpts(extensionPath: string, libraryDir: string, target: string) {
   if (!profileInitEnabled()) {
     return undefined;
   }
   return {
     onNewBranchWithoutProfile: (branch: string) =>
-      maybePromptProfileInitOnNewBranch(libraryDir, target, branch, log),
+      maybePromptProfileInitOnNewBranch(extensionPath, libraryDir, target, branch, log),
   };
 }
 
@@ -508,6 +510,9 @@ export function activate(context: vscode.ExtensionContext) {
       if (profileInitEnabled()) {
         try {
           refreshSkillsCatalog(target, libraryDir);
+          if (profileInitRequestPending(target)) {
+            ensureProfileInitSessionReady(context.extensionPath, libraryDir, target, log);
+          }
         } catch (err) {
           log(`Skill catalog refresh failed: ${(err as Error).message}`);
         }
@@ -1260,7 +1265,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       outputChannel.show(true);
-      await startProfileInitFlow(libraryDir, target, branch, log);
+      await startProfileInitFlow(context.extensionPath, libraryDir, target, branch, log);
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
         saveBranchProfile: false,
       });
@@ -1848,7 +1853,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (teamResult) {
         log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
       }
-      await handleBranchChange(libraryDir, target, log, branchChangeOpts(libraryDir, target));
+      await handleBranchChange(libraryDir, target, log, branchChangeOpts(context.extensionPath, libraryDir, target));
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     };
@@ -1891,7 +1896,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (teamResult) {
             log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
           }
-          await handleBranchChange(libraryDir, target, log, branchChangeOpts(libraryDir, target));
+          await handleBranchChange(libraryDir, target, log, branchChangeOpts(context.extensionPath, libraryDir, target));
           propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
             saveBranchProfile: false,
           });
