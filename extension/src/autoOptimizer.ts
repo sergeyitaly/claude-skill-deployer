@@ -10,6 +10,14 @@ import { autoApplySlotsRemaining, recordAutoApplies } from "./autoOptimizerRateL
 import { tokenCostUsd } from "./costRates";
 import { setSkillOverride, loadManifest } from "./skillOps";
 import { computeUsageStats } from "./usageStats";
+import { assessAttributionHealth } from "./attributionHealth";
+import { buildSystemModeContext } from "./systemMode";
+import { readPipelineCycle } from "./pipelineCycle";
+import {
+  applyOptimizerSafetyCaps,
+  capAutoApplySuggestions,
+  countDisableSuggestions,
+} from "./optimizerSafety";
 
 const AGENT_PREFS_KEY = "claudeSkillsAgentPrefs";
 
@@ -69,7 +77,22 @@ export async function applyOptimizationSuggestions(
   const directApply = opts?.directApply ?? false;
   const result: ApplyResult = { applied: [], skipped: [] };
 
+  const health = assessAttributionHealth(target, libraryDir);
+  const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+  if (!modeCtx.canApplyOptimizations) {
+    result.skipped.push(...suggestions.map((s) => s.skill));
+    return result;
+  }
+
+  const manifest = loadManifest(libraryDir);
+  const usageStats = computeUsageStats(target, manifest);
+  suggestions = applyOptimizerSafetyCaps(suggestions, target, usageStats);
+
   if (auto && !isAutoOptimizeEnabled()) {
+    return result;
+  }
+
+  if (auto && !modeCtx.canAutoApplyOptimizations) {
     return result;
   }
 
@@ -78,7 +101,7 @@ export async function applyOptimizationSuggestions(
     if (slots <= 0) {
       return result;
     }
-    suggestions = suggestions.slice(0, slots);
+    suggestions = capAutoApplySuggestions(suggestions).slice(0, slots);
   }
 
   if (!auto && !directApply && suggestions.length > 0) {
@@ -99,6 +122,17 @@ export async function applyOptimizationSuggestions(
       return result;
     }
     suggestions = pick.map((p) => p.suggestion);
+    if (countDisableSuggestions(suggestions) > 1) {
+      const bulk = await vscode.window.showWarningMessage(
+        `Apply ${countDisableSuggestions(suggestions)} disable suggestions at once? Protected skills and safety caps already applied.`,
+        { modal: true },
+        "Apply all",
+        "Cancel"
+      );
+      if (bulk !== "Apply all") {
+        return result;
+      }
+    }
   }
 
   for (const suggestion of suggestions) {

@@ -33,6 +33,8 @@ describe("workspaceSystemState", () => {
     expect(state.profileInit).toBe("idle");
     expect(state.attribution.status).toBe("broken");
     expect(state.version).toBe(1);
+    expect(state.systemMode).toBe("safe");
+    expect(state.lastCycle).toBeDefined();
   });
 
   it("reports applied profile when profile.local is applied", () => {

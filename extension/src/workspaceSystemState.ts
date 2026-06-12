@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { assessAttributionHealth } from "./attributionHealth";
 import { detectAgentCapabilities, AgentCapabilitiesSnapshot } from "./agentCapabilities";
+import { buildSystemModeContext } from "./systemMode";
 import { getWorkspaceHookStatus } from "./hookOps";
 import {
   profileInitRequestPending,
@@ -8,6 +9,8 @@ import {
   readProfileInitRequest,
 } from "./profileInit";
 import { writeJsonAtomic, readJsonFile } from "./fileWriteCoordination";
+import { markPipelineAnalyzed, PipelineCycleTimestamps, readPipelineCycle } from "./pipelineCycle";
+import { SystemMode } from "./systemMode";
 
 export type ProfileInitState = "idle" | "pending" | "applied" | "failed";
 export type AttributionStatus = "healthy" | "degraded" | "broken";
@@ -27,6 +30,8 @@ export interface WorkspaceSystemState {
     lastSync: string;
   };
   capabilities: AgentCapabilitiesSnapshot;
+  lastCycle: PipelineCycleTimestamps;
+  systemMode: SystemMode;
 }
 
 export function systemStatePath(target: string): string {
@@ -71,6 +76,8 @@ export function buildWorkspaceSystemState(target: string, libraryDir: string): W
   const health = assessAttributionHealth(target, libraryDir);
   const hooks = getWorkspaceHookStatus(target, libraryDir);
   const capabilities = detectAgentCapabilities(target, libraryDir);
+  const lastCycle = readPipelineCycle(target);
+  const modeCtx = buildSystemModeContext(health, lastCycle);
 
   return {
     version: 1,
@@ -92,11 +99,15 @@ export function buildWorkspaceSystemState(target: string, libraryDir: string): W
       lastSync: new Date().toISOString(),
     },
     capabilities,
+    lastCycle,
+    systemMode: modeCtx.mode,
   };
 }
 
 export function refreshWorkspaceSystemState(target: string, libraryDir: string): WorkspaceSystemState {
   const state = buildWorkspaceSystemState(target, libraryDir);
+  markPipelineAnalyzed(target);
+  state.lastCycle = readPipelineCycle(target);
   writeJsonAtomic(systemStatePath(target), state);
   return state;
 }

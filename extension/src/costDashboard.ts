@@ -26,6 +26,9 @@ import { formatCompactUsd } from "./skillCost";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import { buildTeamEconomicsSnapshot } from "./teamEconomics";
 import { refreshWorkspaceSystemState } from "./workspaceSystemState";
+import { buildSystemModeContext } from "./systemMode";
+import { readPipelineCycle } from "./pipelineCycle";
+import { refreshRunsIndex } from "./runsIndex";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
@@ -93,10 +96,14 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">`
     : "";
   enrichV2HookRunTokens(target, libraryDir);
+  refreshRunsIndex(target, loadManifest(libraryDir));
   const manifest = loadManifest(libraryDir);
   const systemState = refreshWorkspaceSystemState(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
+  const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+  const showPerSkill = modeCtx.canShowPerSkillCosts;
+  const canApplyOptimizations = modeCtx.canApplyOptimizations;
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
   const unattributedCost = tokenCostUsd(unattributedTokens);
@@ -104,7 +111,6 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);
   const agentCostTotal = agentUsage.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxAgentCost = Math.max(...agentUsage.map((r) => r.cost), 1);
-  const showPerSkill = health.reliable;
   const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
   const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];
   const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
@@ -185,7 +191,10 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
     .map(
       (s) =>
         `<li class="opt-row"><span><b>${escapeHtml(s.skill)}</b> — ${escapeHtml(s.action)}</span>` +
-        `<button type="button" class="secondary apply-one" data-skill="${escapeHtml(s.skill)}" data-type="${escapeHtml(s.type)}">Apply</button></li>`
+        (canApplyOptimizations
+          ? `<button type="button" class="secondary apply-one" data-skill="${escapeHtml(s.skill)}" data-type="${escapeHtml(s.type)}">Apply</button>`
+          : `<span class="note">read-only</span>`) +
+        `</li>`
     )
     .join("");
 
@@ -238,16 +247,20 @@ ${cspMeta}
   <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · <b>${ESTIMATE_DISCLAIMER_SHORT}</b></div>
   <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.<br><br><b>Trust:</b> ${escapeHtml(health.summary)} <span class="conf-${health.confidenceLevel}">(${Math.round(health.confidenceScore * 100)}% — ${formatConfidenceBadge(health.confidenceLevel)})</span><br><span class="note">${escapeHtml(formatAttributionStrategyLine(attrStrategy))}</span></div>
 
+  ${modeCtx.banner ? `<div class="warn"><b>System mode: ${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
+
   ${formatHookStatusPanelHtml(hookStatus)}
 
   <div class="panel">
     <h2>System state</h2>
     <p class="summary-line">
+      <span class="metric"><b>Mode:</b> ${escapeHtml(systemState.systemMode)}</span>
       <span class="metric"><b>Profile init:</b> ${escapeHtml(systemState.profileInit)}</span>
       <span class="metric"><b>Attribution:</b> ${escapeHtml(systemState.attribution.status)} (${Math.round(systemState.attribution.confidence * 100)}%)</span>
       <span class="metric"><b>Hooks:</b> ${systemState.hooks.allConfigured ? "all on" : systemState.hooks.installed ? "partial" : "off"}</span>
     </p>
     <p class="note">${escapeHtml(formatCapabilitiesSummary(systemState.capabilities))}</p>
+    <p class="note">Pipeline: collected ${systemState.lastCycle.collectedAt ? escapeHtml(systemState.lastCycle.collectedAt.slice(0, 19)) : "—"} · indexed ${systemState.lastCycle.indexedAt ? escapeHtml(systemState.lastCycle.indexedAt.slice(0, 19)) : "—"} · analyzed ${systemState.lastCycle.analyzedAt ? escapeHtml(systemState.lastCycle.analyzedAt.slice(0, 19)) : "—"}</p>
   </div>
 
   ${
@@ -326,7 +339,7 @@ ${cspMeta}
   ${archived.length > 0 ? `<div class="panel"><h2>Archived skills</h2><p>${archived.map(escapeHtml).join(", ")} — use <b>Restore Archived Skill</b> command.</p></div>` : ""}
 
   <div class="actions">
-    <button type="button" id="btn-apply-opts" ${showPerSkill ? "" : "disabled title=\"Complete attribution setup first\""}>Apply optimizations</button>
+    <button type="button" id="btn-apply-opts" ${canApplyOptimizations ? "" : "disabled title=\"Optimizations paused in safe/degraded mode or until pipeline syncs\""}>Apply optimizations</button>
     <button type="button" class="secondary" id="btn-export-report">Export report</button>
     <button type="button" class="secondary" id="btn-open-budget">Configure budget</button>
   </div>
@@ -360,12 +373,14 @@ ${cspMeta}
 
 export function formatCostDashboardText(target: string, libraryDir: string): string {
   const manifest = loadManifest(libraryDir);
+  refreshRunsIndex(target, manifest);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
+  const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);
-  const showPerSkill = health.reliable;
+  const showPerSkill = modeCtx.canShowPerSkillCosts;
   const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
   const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];
   const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;

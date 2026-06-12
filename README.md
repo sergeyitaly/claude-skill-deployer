@@ -9,14 +9,34 @@ Skills live in `skills_library/` (source of truth). Deploy globally to your
 machine, per workspace, per git branch, and across multiple AI agents from
 one manifest.
 
+## Do you need Claude Code?
+
+**No.** The VS Code extension works in **VS Code or Cursor** without the [Claude Code](https://docs.claude.com/claude-code) app or CLI installed.
+
+Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout convention** — the extension **creates them** on install. They are not proof that Claude Code is on your machine. With `multiAgent` on (default), skills also deploy to `.cursor/skills/`, `.kiro/skills/`, and `.github/instructions/` for the agents you enable.
+
+| You primarily use… | Works without Claude Code? | What you get |
+|---|---|---|
+| **Cursor** | Yes | Skill tree, detection, branch profiles, `.cursor/skills/` sync, Cursor attribution hooks, Cursor transcript cost estimates |
+| **GitHub Copilot / Kiro** | Yes | Per-skill instruction files; attribution hooks when enabled |
+| **Claude Code** | Full set | Everything above plus Claude session transcripts, budget/session/focus hooks, SessionStart profile-init |
+
+**Needs Claude Code specifically** (otherwise skipped or empty — no crash):
+
+- **Cost control hooks** (budget, session size, context/practical focus) — installed into `.claude/settings.json` for Claude Code to run
+- **Claude transcript spend** in the status bar and usage report — shows *“No recorded Claude Code token usage”* when `~/.claude/projects/` is absent
+- **SessionStart hooks** for profile-init and official Anthropic skill checks — Claude only; Cursor/Kiro/Copilot use the synced `profile-init` skill + request file instead
+
+**Cursor-only tip:** set `claudeSkills.agents.enabled` to `["cursor"]` (Settings) if you do not want global/workspace installs under Claude paths. Workspace skills still use `.claude/skills/` as the git-tracked source of truth; the extension mirrors from there to your enabled agents.
+
+See [`extension/README.md`](extension/README.md) for the full extension guide.
+
 ## Two ways to use this
 
 | Surface | Best for |
 |---|---|
 | **CLI** (`generate_skills.py`) | Scripts, CI, any editor, no VS Code install |
 | **VS Code extension** ([`extension/`](extension/)) | Activity-bar UI, budget controls, cost intelligence, branch profiles, multi-agent sync |
-
-See [`extension/README.md`](extension/README.md) for the full extension guide.
 
 ## Quick start (extension)
 
@@ -316,12 +336,12 @@ Tuned for workspaces with fewer than 100 skills and fewer than 10K transcript li
 
 ## Compatibility
 
-| Component | Version |
-|---|---|
-| VS Code | 1.85+ |
-| Claude Code | 0.2+ |
-| Node.js | 18+ (for hooks) |
-| OS | Windows 10+, macOS 11+, Linux (glibc 2.28+) |
+| Component | Required? | Version / notes |
+|---|---|---|
+| VS Code or Cursor | Yes | 1.85+ |
+| Claude Code | No | 0.2+ for Claude-only hooks and Claude transcript spend |
+| Node.js | For hooks | 18+ |
+| OS | | Windows 10+, macOS 11+, Linux (glibc 2.28+) |
 
 Git integration is optional (branch profiles, team attribution). GitHub CLI is optional (PR cost estimates).
 

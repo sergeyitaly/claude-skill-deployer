@@ -12,6 +12,9 @@ import { getProfileTip, updateCostProfileFromAttribution } from "./costProfiles"
 import { tierForSkill } from "./skillCost";
 import { loadManifest, Manifest } from "./skillOps";
 import { computeUsageStats, readEnrichedRuns, SkillUsageStat } from "./usageStats";
+import { readPipelineCycle, isPipelineReadyForOptimizer } from "./pipelineCycle";
+import { buildSystemModeContext } from "./systemMode";
+import { applyOptimizerSafetyCaps } from "./optimizerSafety";
 
 export type OptimizationType = "disable" | "switch_agent" | "cache" | "unused";
 
@@ -78,6 +81,11 @@ export function generateOptimizationSuggestions(
   const m = manifest ?? loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
+  const cycle = readPipelineCycle(target);
+  const modeCtx = buildSystemModeContext(health, cycle);
+  if (!modeCtx.canSuggestOptimizations || !isPipelineReadyForOptimizer(cycle)) {
+    return [];
+  }
   if (!health.reliable && health.confidenceScore < 0.45) {
     return [];
   }
@@ -190,7 +198,11 @@ export function generateOptimizationSuggestions(
     }
   }
 
-  return suggestions.sort((a, b) => b.priority - a.priority || (b.savings ?? 0) - (a.savings ?? 0));
+  return applyOptimizerSafetyCaps(
+    suggestions.sort((a, b) => b.priority - a.priority || (b.savings ?? 0) - (a.savings ?? 0)),
+    target,
+    usageStats
+  );
 }
 
 export function formatSuggestionsReport(

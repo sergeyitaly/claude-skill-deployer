@@ -4,6 +4,7 @@ import { Manifest } from "./skillOps";
 import { computeUsageStats, SkillUsageStat } from "./usageStats";
 import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { writeJsonAtomic } from "./fileWriteCoordination";
+import { markPipelineIndexed } from "./pipelineCycle";
 
 const RUNS_REL = path.join(".claude", "learning", "runs.jsonl");
 
@@ -73,6 +74,7 @@ export function refreshRunsIndex(target: string, manifest: Manifest): void {
     days,
   };
   writeJsonAtomic(dailyStatsIndexPath(target), dailyIndex);
+  markPipelineIndexed(target);
 }
 
 function indexIsFresh(

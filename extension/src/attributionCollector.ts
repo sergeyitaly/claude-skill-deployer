@@ -6,6 +6,7 @@ import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribu
 import { readCollectorState, writeCollectorState } from "./collectorState";
 import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
+import { markPipelineCollected } from "./pipelineCycle";
 import { appendSkillRun, sessionHasV2HookRuns } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace, workspaceFromTranscriptFile } from "./workspaceTranscripts";
@@ -296,6 +297,7 @@ export class AttributionCollector {
     state.workspacePath = this.target;
     writeCollectorState(this.target, state);
     saveAttribution(this.target, store);
+    markPipelineCollected(this.target);
     this.lastRun = now;
     return processed;
   }

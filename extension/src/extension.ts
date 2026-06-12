@@ -127,6 +127,8 @@ import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
 import { setPricingContext } from "./costRates";
 import { refreshRunsIndex } from "./runsIndex";
+import { buildSystemModeContext } from "./systemMode";
+import { readPipelineCycle } from "./pipelineCycle";
 import { refreshWorkspaceSystemState } from "./workspaceSystemState";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
@@ -508,8 +510,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
     if (target) {
       try {
-        refreshWorkspaceSystemState(target, libraryDir);
         refreshRunsIndex(target, loadManifest(libraryDir));
+        refreshWorkspaceSystemState(target, libraryDir);
       } catch (err) {
         log(`System state refresh failed: ${(err as Error).message}`);
       }
@@ -575,7 +577,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (!isAutoOptimizeEnabled()) {
           return;
         }
-        if (!assessAttributionHealth(initialTarget, libraryDir).reliable) {
+        const health = assessAttributionHealth(initialTarget, libraryDir);
+        const modeCtx = buildSystemModeContext(health, readPipelineCycle(initialTarget));
+        if (!modeCtx.canAutoApplyOptimizations) {
           return;
         }
         const suggestions = generateOptimizationSuggestions(initialTarget, libraryDir).filter(
@@ -1412,6 +1416,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (isFeatureEnabled("attributionCollector")) {
         await AttributionCollector.getInstance(target, libraryDir).collect(true);
       }
+      refreshRunsIndex(target, loadManifest(libraryDir));
       persistCostAttribution(target, libraryDir);
       const built = buildCostAttribution(target, libraryDir);
       const merged = { ...built.skills, ...built.transcriptSkills };
@@ -1434,11 +1439,22 @@ export function activate(context: vscode.ExtensionContext) {
               return;
             }
             if (msg.command === "applyOptimizations") {
+              const health = assessAttributionHealth(ws, libraryDir);
+              const modeCtx = buildSystemModeContext(health, readPipelineCycle(ws));
+              if (!modeCtx.canApplyOptimizations) {
+                vscode.window.showWarningMessage(
+                  modeCtx.banner ?? "Claude Skills: optimizations paused until attribution pipeline is ready."
+                );
+                return;
+              }
               await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
             } else if (msg.command === "applySuggestion" && msg.skill && msg.type) {
               const health = assessAttributionHealth(ws, libraryDir);
-              if (!health.reliable) {
-                vscode.window.showWarningMessage(`Claude Skills: ${health.summary}`);
+              const modeCtx = buildSystemModeContext(health, readPipelineCycle(ws));
+              if (!modeCtx.canApplyOptimizations) {
+                vscode.window.showWarningMessage(
+                  modeCtx.banner ?? "Claude Skills: optimizations paused until attribution pipeline is ready."
+                );
                 return;
               }
               const result = await applySingleOptimizationSuggestion(
@@ -1506,8 +1522,11 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const health = assessAttributionHealth(target, libraryDir);
-      if (!health.reliable) {
-        vscode.window.showWarningMessage(`Claude Skills: ${health.summary}`);
+      const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+      if (!modeCtx.canApplyOptimizations) {
+        vscode.window.showWarningMessage(
+          modeCtx.banner ?? `Claude Skills: ${health.summary}`
+        );
         return;
       }
       const suggestions = generateOptimizationSuggestions(target, libraryDir);
