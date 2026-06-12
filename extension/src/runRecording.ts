@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { invalidateLearningCache } from "./learningStateIndex";
 
 export type RunAgent = "claude" | "cursor" | "kiro" | "copilot";
 
@@ -149,6 +150,7 @@ export function appendSkillRun(
     duration: entry.duration,
   };
   fs.appendFileSync(file, JSON.stringify(record) + "\n", "utf-8");
+  invalidateLearningCache(target);
   return record;
 }
 

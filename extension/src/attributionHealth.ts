@@ -2,6 +2,7 @@ import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { buildCostAttribution, resolveDisplayAttribution } from "./costAttribution";
 import { topExpensiveSkills } from "./costOptimizer";
 import { countV2HookRuns } from "./runRecording";
+import { assessWorkspaceConfidence } from "./attributionConfidence";
 
 export interface AttributionHealth {
   reliable: boolean;
@@ -9,6 +10,9 @@ export interface AttributionHealth {
   highUnattributedRatio: boolean;
   noPerSkillData: boolean;
   v2HookRuns: number;
+  /** 0–1 graded trust score (see attributionConfidence). */
+  confidenceScore: number;
+  confidenceLevel: "high" | "estimated" | "low";
   summary: string;
 }
 
@@ -38,5 +42,23 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
     summary = `Attribution v2 active (${v2HookRuns} explicit skill invoke(s) logged).`;
   }
 
-  return { reliable, staleEqualSplit, highUnattributedRatio, noPerSkillData, v2HookRuns, summary };
+  const workspaceConf = assessWorkspaceConfidence(target, libraryDir, {
+    reliable,
+    staleEqualSplit,
+    highUnattributedRatio,
+    noPerSkillData,
+    v2HookRuns,
+    summary,
+  }, unattributedTokens);
+
+  return {
+    reliable,
+    staleEqualSplit,
+    highUnattributedRatio,
+    noPerSkillData,
+    v2HookRuns,
+    confidenceScore: workspaceConf.score,
+    confidenceLevel: workspaceConf.level,
+    summary: workspaceConf.summary,
+  };
 }

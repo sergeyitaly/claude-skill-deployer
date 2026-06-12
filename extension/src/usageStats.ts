@@ -4,6 +4,7 @@ import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary } from "./usageCost";
 import { EnrichedRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
+import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { WorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusBannerHtml, HOOK_STATUS_STYLES } from "./workspaceHookStatus";
 
@@ -95,28 +96,7 @@ export function readRunRecords(target: string): RunRecord[] {
 
 /** Normalized runs with attribution fields (agent, session_id, cost, etc.). */
 export function readEnrichedRuns(target: string): EnrichedRunRecord[] {
-  const file = path.join(target, RUNS_LOG_RELATIVE);
-  if (!fs.existsSync(file)) {
-    return [];
-  }
-  const lines = fs.readFileSync(file, "utf-8").split("\n");
-  const records: EnrichedRunRecord[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      const normalized = normalizeRunRecord(obj);
-      if (normalized) {
-        records.push(normalized);
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return records;
+  return readCachedEnrichedRuns(target);
 }
 
 /** Names of skills installed in <target>/.claude/skills/. */

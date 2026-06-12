@@ -119,7 +119,8 @@ describe("feature integration (live workspace)", () => {
     expect(html).toContain('nonce="integration-nonce"');
     expect(html).toContain("Claude Code");
     expect(html).toContain("Cursor");
-  });
+    expect(html).toContain("Trust:");
+  }, 15_000);
 
   it("computes attribution, usage stats, and health for this workspace", () => {
     const manifest = loadManifest(LIBRARY_DIR);

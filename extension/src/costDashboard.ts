@@ -16,11 +16,15 @@ import { loadCostProfile } from "./costProfiles";
 import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills } from "./skillArchival";
 import { assessAttributionHealth } from "./attributionHealth";
+import { assessSkillCostConfidence, formatConfidenceBadge } from "./attributionConfidence";
+import { resolveAttributionStrategy, formatAttributionStrategyLine } from "./attributionStrategy";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
 import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
+import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
+import { buildTeamEconomicsSnapshot } from "./teamEconomics";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
 import { getWorkspaceHookStatus } from "./hookOps";
@@ -108,7 +112,15 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
   const trend = calculateTrend();
   const profile = showPerSkill ? loadCostProfile(target, libraryDir) : undefined;
   const usageStats = computeUsageStats(target, manifest);
+  const usageMap = new Map(usageStats.map((s) => [s.name, s]));
   const hookStatus = getWorkspaceHookStatus(target, libraryDir);
+  const attrStrategy = resolveAttributionStrategy(target, libraryDir);
+  const skillConfidence = assessSkillCostConfidence(target, attribution, {
+    usesV2HookRuns: health.v2HookRuns > 0,
+    staleEqualSplit,
+    transcriptSkills: built.transcriptSkills,
+  });
+  const teamEconomics = showPerSkill ? buildTeamEconomicsSnapshot(target, libraryDir, manifest, attribution) : null;
   const attrByAgent = new Map(
     hookStatus.attribution.agents.filter((a) => a.applicable).map((a) => [a.agent, a.configured])
   );
@@ -140,16 +152,25 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
   const topRows = top
     .map((row, i) => {
       const pct = totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
+      const stat = usageMap.get(row.skill);
+      let roi = computeSkillRoi(row.skill, manifest, stat, row.cost);
+      const v2Runs = stat ? (stat.agentRuns ? Object.values(stat.agentRuns).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) : stat.runs) : 0;
+      roi = upgradeRoiConfidenceFromRuns(roi, health.v2HookRuns > 0 ? v2Runs : 0);
+      const conf = skillConfidence.get(row.skill);
       const hint = [
+        formatRoiDashboardLine(roi, formatCompactUsd(row.cost)),
         hintForSkill(row.skill, suggestions, usageStats),
         formatSkillAgentBreakdown(row.skill, attribution),
         isFeatureEnabled("communityBenchmarks") ? formatBenchmarkLine(row.skill) : undefined,
       ]
         .filter(Boolean)
         .join(" | ");
+      const confClass = conf?.level ?? "estimated";
       return `<div class="skill-row">
         <div class="skill-head"><span class="rank">${i + 1}.</span> <b>${escapeHtml(row.skill)}</b>
+          <span class="roi-${roi.roiBand.toLowerCase()}">${escapeHtml(roi.roiBand)}</span>
           <span class="cost">${formatCompactUsd(row.cost)} (${pct}%)</span>
+          <span class="conf-${confClass}">${escapeHtml(formatConfidenceBadge(conf?.level ?? "estimated"))}</span>
           <span class="bar">${bar(row.cost, maxTop)}</span></div>
         ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
       </div>`;
@@ -201,13 +222,18 @@ ${cspMeta}
   .estimate-banner { background: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.85em; }
   .opt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
   .apply-one { padding: 2px 10px; font-size: 0.8em; }
+  .hook-on { color: var(--vscode-testing-iconPassed); }
+  .conf-high { color: var(--vscode-testing-iconPassed); font-size: 0.8em; }
+  .conf-estimated { color: var(--vscode-editorWarning-foreground); font-size: 0.8em; }
+  .conf-low { color: var(--vscode-descriptionForeground); font-size: 0.8em; }
+  .roi-high { color: var(--vscode-testing-iconPassed); font-weight: 600; }
   ${HOOK_STATUS_STYLES}
 </style>
 </head>
 <body>
   <h1>Claude Skills — Cost Intelligence</h1>
   <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · <b>${ESTIMATE_DISCLAIMER_SHORT}</b></div>
-  <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.</div>
+  <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.<br><br><b>Trust:</b> ${escapeHtml(health.summary)} <span class="conf-${health.confidenceLevel}">(${Math.round(health.confidenceScore * 100)}% — ${formatConfidenceBadge(health.confidenceLevel)})</span><br><span class="note">${escapeHtml(formatAttributionStrategyLine(attrStrategy))}</span></div>
 
   ${formatHookStatusPanelHtml(hookStatus)}
 
@@ -234,6 +260,25 @@ ${cspMeta}
   </div>
 
   ${showPerSkill ? "" : setupChecklistHtml(health)}
+
+  ${showPerSkill && teamEconomics ? `<div class="panel">
+    <h2>Value &amp; ROI (est.)</h2>
+    <p class="summary-line"><span class="metric"><b>Time saved:</b> ~${teamEconomics.estimatedMinutesSaved} min</span>
+    <span class="metric"><b>Value:</b> ${formatCompactUsd(teamEconomics.estimatedValueUsd)} @ $75/hr heuristic</span>
+    <span class="metric"><b>Net ROI:</b> <span class="roi-${teamEconomics.netRoiBand.toLowerCase()}">${teamEconomics.netRoiBand}</span> (${teamEconomics.netRoi}x)</span></p>
+    <p class="note">ROI uses tier-based time-saved heuristics (e.g. deployment-practical ~20 min). Not measured productivity — best-effort model.</p>
+  </div>` : ""}
+
+  ${showPerSkill && teamEconomics && teamEconomics.byRepo.length > 0 ? `<div class="panel">
+    <h2>Cost by repo (from runs.jsonl)</h2>
+    <ul>${teamEconomics.byRepo.slice(0, 8).map((r) => `<li><b>${escapeHtml(r.repoPath)}</b>: ${formatCompactUsd(r.costUsd)} · ${r.runs} run(s) · ${r.skills.length} skill(s)</li>`).join("")}</ul>
+  </div>` : ""}
+
+  ${showPerSkill && teamEconomics && teamEconomics.bySkillOwner.length > 0 ? `<div class="panel">
+    <h2>Cost by skill owner (git proxy)</h2>
+    <p class="note" style="margin-top:0">Attributes cost to who committed each SKILL.md — not who invoked the agent.</p>
+    <ul>${teamEconomics.bySkillOwner.slice(0, 8).map((o) => `<li><b>${escapeHtml(o.author)}</b>: ${formatCompactUsd(o.costUsd)} · ${o.skills.length} skill(s)</li>`).join("")}</ul>
+  </div>` : ""}
 
   <div class="panel">
     <h2>Top expensive skills (est.)</h2>

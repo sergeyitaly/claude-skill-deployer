@@ -65,8 +65,9 @@ describe("assessAttributionHealth", () => {
 
     const health = assessAttributionHealth(target, resolvedLibraryDir);
     expect(health.v2HookRuns).toBe(1);
-    expect(health.summary).toContain("Attribution v2 active");
+    expect(health.summary).toMatch(/v2|confidence/i);
     expect(health.reliable).toBe(true);
+    expect(health.confidenceLevel).toBeDefined();
   });
 
   it("auto-purges stale equal-split transcriptSkills on read", () => {

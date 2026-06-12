@@ -1,0 +1,50 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { invalidateLearningCache, learningCacheSize, readCachedEnrichedRuns } from "./learningStateIndex";
+
+const workspaces: string[] = [];
+
+function makeWorkspace(): string {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "cache-"));
+  workspaces.push(ws);
+  fs.mkdirSync(path.join(ws, ".claude", "learning"), { recursive: true });
+  return ws;
+}
+
+afterEach(() => {
+  invalidateLearningCache();
+  for (const ws of workspaces) {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+  workspaces.length = 0;
+});
+
+describe("learningStateIndex", () => {
+  it("caches runs until file changes", () => {
+    const target = makeWorkspace();
+    const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
+    fs.writeFileSync(
+      runsFile,
+      JSON.stringify({ ts: "2026-06-12T12:00:00Z", skill: "a", action: "run", rc: 0 }) + "\n",
+      "utf-8"
+    );
+
+    const first = readCachedEnrichedRuns(target);
+    expect(first).toHaveLength(1);
+    expect(learningCacheSize()).toBe(1);
+
+    const second = readCachedEnrichedRuns(target);
+    expect(second).toBe(first);
+
+    fs.appendFileSync(
+      runsFile,
+      JSON.stringify({ ts: "2026-06-12T12:01:00Z", skill: "b", action: "run", rc: 0 }) + "\n",
+      "utf-8"
+    );
+    const third = readCachedEnrichedRuns(target);
+    expect(third).toHaveLength(2);
+    expect(third).not.toBe(first);
+  });
+});

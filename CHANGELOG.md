@@ -2,7 +2,11 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12): Marketplace already had **1.0.0** published — VS Code does not allow republishing the same version number. Unpublish obsolete patch releases (1.0.2–1.0.16) manually in the [publisher portal](https://marketplace.visualstudio.com/manage) if desired.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.17** is the current Marketplace publish target — it must exceed the last live version (**1.0.16**) so users receive this build. After publishing, run `scripts/unpublish-marketplace-versions.ps1` (then `-IncludeLatest`) to remove obsolete patch releases.
+
+## [1.0.17] - 2026-06-12
+
+Same content as the consolidated 1.0.0 release below — publishable version that supersedes Marketplace **1.0.16**.
 
 ## [1.0.1] - 2026-06-12
 

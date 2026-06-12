@@ -10,6 +10,7 @@ import {
   runsFilePath,
   tokenCostUsd,
 } from "./runRecording";
+import { invalidateLearningCache } from "./learningStateIndex";
 
 function expandHome(p: string): string {
   if (p.startsWith("~/")) {
@@ -228,6 +229,7 @@ export function enrichV2HookRunTokens(target: string, libraryDir: string): numbe
 
   if (enriched > 0) {
     fs.writeFileSync(runsFile, updated.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
+    invalidateLearningCache(target);
   }
 
   return enriched;
