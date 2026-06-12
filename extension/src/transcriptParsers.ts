@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { AgentId } from "./agentOps";
+import { isPlausibleSkillName } from "./skillPathUtils";
 
 export interface ParsedTranscript {
   agent: AgentId;
@@ -15,24 +16,8 @@ export interface TranscriptParser {
   parseFile(filePath: string, content?: string): ParsedTranscript | null;
 }
 
-const SKILL_PATH_RE = /[\\/]\.(?:claude|cursor)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/gi;
-
-/** Names that must never be attributed as skills. */
-const DENYLIST = new Set([
-  "claude",
-  "cursor",
-  "api",
-  "claude-api",
-  "unknown",
-  "base",
-  "context",
-  "skill",
-  "skills",
-]);
-
-function isPlausibleSkillName(name: string): boolean {
-  return /^[a-z][a-z0-9-]*$/.test(name) && name.length >= 3 && !DENYLIST.has(name);
-}
+const SKILL_PATH_RE = /[\\/](?:\.claude|\.cursor|\.kiro)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/gi;
+const COPILOT_INSTRUCTIONS_RE = /[\\/]\.github[\\/]instructions[\\/]([a-z][a-z0-9-]*)\.instructions\.md/gi;
 
 /**
  * Detect skills actually invoked in a session — NOT the full skill_listing catalog.
@@ -59,9 +44,16 @@ export function parseActiveSkills(content: string): string[] {
       continue;
     }
 
-    if (line.includes("tool_use") || line.includes("tool_result") || line.includes("Read")) {
+    if (line.includes("tool_use") || line.includes("tool_result") || line.includes("Read") || line.includes("instructions")) {
       SKILL_PATH_RE.lastIndex = 0;
       for (const match of line.matchAll(SKILL_PATH_RE)) {
+        const name = match[1].toLowerCase();
+        if (isPlausibleSkillName(name)) {
+          active.add(name);
+        }
+      }
+      COPILOT_INSTRUCTIONS_RE.lastIndex = 0;
+      for (const match of line.matchAll(COPILOT_INSTRUCTIONS_RE)) {
         const name = match[1].toLowerCase();
         if (isPlausibleSkillName(name)) {
           active.add(name);

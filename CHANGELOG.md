@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.0.14] - 2026-06-12
+
+### Added
+
+- **Feature toggle descriptions** — **Manage Feature Toggles** QuickPick shows a detail line per feature (e.g. budget controls, cost intelligence) via `FEATURE_DESCRIPTIONS` in `featureFlags.ts`, matching Extension Settings wording.
+- **Multi-agent Attribution v2** — PostToolUse hooks for Claude, Cursor, Kiro, and GitHub Copilot log skill invokes to `runs.jsonl`; Kiro `USER_PROMPT` and Copilot `.github/instructions/*.instructions.md` reads supported.
+- **`claudeSkills.agents.autoInstallAttributionHooks`** (default on) — installs attribution hooks on extension activate / workspace skill changes.
+- **Workspace hooks status** — Cost Intelligence dashboard and Usage Report show attribution and session/budget hook state per agent.
+- **Official Anthropic skills** — bundled in `skills_library/` (docx, pdf, pptx, xlsx, mcp-builder, webapp-testing, and related skills from anthropics/skills).
+- **Tests** — hook install, skill-invoke hook script, workspace hook status, budget ops, workspace skill sync, and live-workspace feature integration coverage.
+
+### Fixed
+
+- **`autoOptimizer` default** — runtime default now matches `package.json` schema (`false` until attribution is trustworthy).
+- **Cursor v2 token enrichment** — transcript backfill scans Cursor roots and `conversationId` session ids.
+- **Transcript skill detection** — `.kiro/skills/` and Copilot instruction paths in `parseActiveSkills`.
+- **Learning artifact mirror** — skips `cost-attribution.json`, `runs.jsonl`, and related attribution state (avoids stale `.cursor/learning/` copies).
+
+### Changed
+
+- **`.gitignore`** — ignore `.cursor/`, `.kiro/`, and `.vscode/` workspace agent folders (`.github/` remains tracked for CI).
+
 ## [1.0.13] - 2026-06-12
 
 ### Fixed

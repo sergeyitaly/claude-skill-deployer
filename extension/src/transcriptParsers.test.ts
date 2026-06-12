@@ -24,4 +24,16 @@ describe("parseActiveSkills", () => {
     expect(parseActiveSkills('"skill_name": "api"')).toEqual([]);
     expect(parseActiveSkills('"skill_name": "claude-api"')).toEqual([]);
   });
+
+  it("detects kiro skill path reads", () => {
+    const content =
+      '{"tool_use":{"name":"read","input":{"path":"/proj/.kiro/skills/adx-schema-check/SKILL.md"}}}';
+    expect(parseActiveSkills(content)).toEqual(["adx-schema-check"]);
+  });
+
+  it("detects copilot instruction path reads", () => {
+    const content =
+      '{"tool_use":{"name":"Read","input":{"file_path":"/proj/.github/instructions/ci-pipeline-debug.instructions.md"}}}';
+    expect(parseActiveSkills(content)).toEqual(["ci-pipeline-debug"]);
+  });
 });

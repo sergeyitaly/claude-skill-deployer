@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as vscode from "vscode";
 import { discoverBundledSkills, globalSkillsDir, listSkillStatuses } from "./skillOps";
+import { getWorkspaceHookStatus } from "./hookOps";
+import { formatHookStatusPlain } from "./workspaceHookStatus";
 
 function escapeHtml(v: string): string {
   return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -25,7 +27,8 @@ function wizardHtml(
   target: string | undefined,
   libraryDir: string,
   globalCount: number,
-  ws: { installed: number; suggested: number }
+  ws: { installed: number; suggested: number },
+  hookStatusText?: string
 ): string {
   const step1Done = globalCount > 0;
   const step2Done = target !== undefined && ws.installed > 0;
@@ -76,13 +79,13 @@ function wizardHtml(
     </div>
   </div>
 
-  <div class="step">
-    <h2>3. Optional: attribution &amp; budget hooks</h2>
-    <div class="status">Attribution v2 logs each Skill tool invoke to runs.jsonl (recommended for cost dashboard).</div>
+  <div class="step ${hookStatusText && hookStatusText.includes("Attribution v2: enabled") ? "done" : ""}">
+    <h2>3. Hooks &amp; notifications</h2>
+    <div class="status">${escapeHtml(hookStatusText ?? "Open a workspace folder to inspect hook status.")}</div>
     <div class="actions">
-      <button class="secondary" onclick="run('attribution')">Enable attribution hooks</button>
+      <button class="secondary" onclick="run('attributionHooks')">Install attribution hooks</button>
       <button class="secondary" onclick="run('budget')">Budget settings</button>
-      <button class="secondary" onclick="run('hooks')">Enable cost hooks</button>
+      <button class="secondary" onclick="run('hooks')">Enable session/budget hooks</button>
     </div>
   </div>
 
@@ -120,11 +123,14 @@ export async function showOnboardingWizard(
   );
 
   const render = () => {
+    const currentTarget = getTarget();
+    const hookStatusText = currentTarget ? formatHookStatusPlain(getWorkspaceHookStatus(currentTarget, libraryDir)) : undefined;
     panel.webview.html = wizardHtml(
-      getTarget(),
+      currentTarget,
       libraryDir,
       globalSkillCount(),
-      getTarget() ? workspaceSkillSummary(getTarget()!, libraryDir) : { installed: 0, suggested: 0 }
+      currentTarget ? workspaceSkillSummary(currentTarget, libraryDir) : { installed: 0, suggested: 0 },
+      hookStatusText
     );
   };
   render();
@@ -145,14 +151,16 @@ export async function showOnboardingWizard(
         case "preview":
           await vscode.commands.executeCommand("claudeSkills.previewForWorkspace");
           break;
-        case "attribution":
-          await vscode.commands.executeCommand("claudeSkills.installAttributionHooks");
-          break;
         case "budget":
           await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
           break;
+        case "attributionHooks":
+          await vscode.commands.executeCommand("claudeSkills.installAttributionHooks");
+          render();
+          break;
         case "hooks":
           await vscode.commands.executeCommand("claudeSkills.installCostControlHooks");
+          render();
           break;
         case "dashboard":
           await vscode.commands.executeCommand("claudeSkills.showCostDashboard");

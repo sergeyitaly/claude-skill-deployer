@@ -36,6 +36,8 @@ export interface AgentDefinition {
   supportsBranchProfiles: boolean;
   supportsUsageTranscripts: boolean;
   transcriptRoots: string[];
+  /** PostToolUse / postToolUse hook for skill-invoke attribution (Attribution v2). */
+  supportsAttributionHooks?: boolean;
 }
 
 export interface AgentsManifest {
@@ -479,7 +481,15 @@ export function mirrorLearningArtifacts(target: string, libraryDir: string): str
     return [];
   }
 
-  const files = fs.readdirSync(sourceDir).filter((f) => f.endsWith(".md") || f.endsWith(".json"));
+  const skipMirror = new Set([
+    "cost-attribution.json",
+    "skill-invoke-state.json",
+    "attribution-collector-state.json",
+    "runs.jsonl",
+  ]);
+  const files = fs
+    .readdirSync(sourceDir)
+    .filter((f) => (f.endsWith(".md") || f.endsWith(".json")) && !skipMirror.has(f));
   const mirrored: string[] = [];
 
   for (const agentId of ids) {

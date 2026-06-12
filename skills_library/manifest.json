@@ -84,6 +84,91 @@
       "description": "Check github.com/anthropics/skills for new/updated official Anthropic skills and offer to add or update them in skills_library/",
       "detect_globs": ["**/*"],
       "cost_estimate": "low"
+    },
+    "algorithmic-art": {
+      "description": "Create algorithmic/generative art with p5.js using seeded randomness and interactive parameter exploration",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "brand-guidelines": {
+      "description": "Apply Anthropic's official brand colors and typography to artifacts and designs",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "low"
+    },
+    "canvas-design": {
+      "description": "Create visual art (posters, designs) as .png/.pdf using design philosophy guidance",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "claude-api": {
+      "description": "Reference for the Claude API / Anthropic SDK - model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, migration",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "doc-coauthoring": {
+      "description": "Structured workflow for co-authoring docs, proposals, specs, and decision docs",
+      "detect_globs": ["**/*.md", "**/docs/**"],
+      "cost_estimate": "medium"
+    },
+    "docx": {
+      "description": "Create, read, edit, and convert Word (.docx) documents",
+      "detect_globs": ["**/*.docx"],
+      "cost_estimate": "medium"
+    },
+    "frontend-design": {
+      "description": "Guidance for distinctive, intentional visual design when building or reshaping UI",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "internal-comms": {
+      "description": "Templates and guidance for internal communications - status reports, leadership updates, incident reports, FAQs",
+      "detect_globs": ["**/*.md"],
+      "cost_estimate": "low"
+    },
+    "mcp-builder": {
+      "description": "Guide for creating MCP servers (Python FastMCP or Node/TypeScript MCP SDK) that integrate external APIs",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "high"
+    },
+    "pdf": {
+      "description": "Read, extract, merge, split, watermark, fill, encrypt, and OCR PDF files",
+      "detect_globs": ["**/*.pdf"],
+      "cost_estimate": "medium"
+    },
+    "pptx": {
+      "description": "Create, read, edit, and convert PowerPoint (.pptx) presentations",
+      "detect_globs": ["**/*.pptx"],
+      "cost_estimate": "medium"
+    },
+    "skill-creator": {
+      "description": "Create, edit, optimize, and benchmark Claude skills",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "slack-gif-creator": {
+      "description": "Create animated GIFs optimized for Slack with constraints and validation tools",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "theme-factory": {
+      "description": "Apply or generate themes (colors/fonts) for artifacts - slides, docs, HTML pages",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "low"
+    },
+    "web-artifacts-builder": {
+      "description": "Build elaborate multi-component HTML artifacts using React, Tailwind CSS, and shadcn/ui",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "high"
+    },
+    "webapp-testing": {
+      "description": "Test and debug local web apps with Playwright - screenshots, browser logs, UI verification",
+      "detect_globs": ["**/*"],
+      "cost_estimate": "medium"
+    },
+    "xlsx": {
+      "description": "Open, read, edit, create, and convert spreadsheet files (.xlsx, .xlsm, .csv, .tsv)",
+      "detect_globs": ["**/*.xlsx", "**/*.xlsm", "**/*.csv", "**/*.tsv"],
+      "cost_estimate": "medium"
     }
   }
 }

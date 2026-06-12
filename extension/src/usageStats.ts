@@ -4,6 +4,8 @@ import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary } from "./usageCost";
 import { EnrichedRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
+import { WorkspaceHookStatus } from "./hookOps";
+import { formatHookStatusBannerHtml, HOOK_STATUS_STYLES } from "./workspaceHookStatus";
 
 export type { RunAgent };
 
@@ -40,6 +42,10 @@ export interface SkillUsageStat {
   lastUsed: string | null;
   daysSinceLastUse: number | null;
   totalTokens: number | null;
+  /** Runs per agent when recorded in runs.jsonl. */
+  agentRuns?: Partial<Record<RunAgent, number>>;
+  /** Token totals per agent from runs.jsonl rows. */
+  agentTokens?: Partial<Record<RunAgent, number>>;
   rating: UsageRating;
 }
 
@@ -165,9 +171,31 @@ function statForSkill(name: string, recs: RunRecord[], now: number): SkillUsageS
   const tokenVals = recs.map((r) => r.tokens).filter((t): t is number => typeof t === "number");
   const totalTokens = tokenVals.length > 0 ? tokenVals.reduce((a, b) => a + b, 0) : null;
 
+  const agentRuns: Partial<Record<RunAgent, number>> = {};
+  const agentTokens: Partial<Record<RunAgent, number>> = {};
+  for (const rec of recs) {
+    const agent = rec.agent ?? "claude";
+    agentRuns[agent] = (agentRuns[agent] ?? 0) + 1;
+    if (typeof rec.tokens === "number") {
+      agentTokens[agent] = (agentTokens[agent] ?? 0) + rec.tokens;
+    }
+  }
+
   const { lastUsed, daysSinceLastUse } = lastUsedInfo(recs, now);
 
-  return rate({ name, runs, successCount, failureCount, successRate, avgDuration, lastUsed, daysSinceLastUse, totalTokens });
+  return rate({
+    name,
+    runs,
+    successCount,
+    failureCount,
+    successRate,
+    avgDuration,
+    lastUsed,
+    daysSinceLastUse,
+    totalTokens,
+    agentRuns: Object.keys(agentRuns).length > 0 ? agentRuns : undefined,
+    agentTokens: Object.keys(agentTokens).length > 0 ? agentTokens : undefined,
+  });
 }
 
 /** Aggregates .claude/learning/runs.jsonl entries per known skill (manifest
@@ -193,6 +221,31 @@ export function computeUsageStats(target: string, manifest: Manifest): SkillUsag
   const stats = [...names].map((name) => statForSkill(name, byName.get(name) ?? [], now));
   stats.sort((a, b) => b.runs - a.runs || a.name.localeCompare(b.name));
   return stats;
+}
+
+/** Compact per-agent breakdown for tables, e.g. "claude:2, cursor:1". */
+export function formatAgentBreakdown(
+  agentRuns?: Partial<Record<RunAgent, number>>,
+  agentTokens?: Partial<Record<RunAgent, number>>
+): string {
+  const agents = new Set<RunAgent>([
+    ...(agentRuns ? (Object.keys(agentRuns) as RunAgent[]) : []),
+    ...(agentTokens ? (Object.keys(agentTokens) as RunAgent[]) : []),
+  ]);
+  if (agents.size === 0) {
+    return "-";
+  }
+  return [...agents]
+    .sort()
+    .map((agent) => {
+      const runs = agentRuns?.[agent];
+      const tokens = agentTokens?.[agent];
+      if (typeof tokens === "number" && tokens > 0) {
+        return `${agent}:${runs ?? 0} (${formatTokenCount(tokens)})`;
+      }
+      return `${agent}:${runs ?? 0}`;
+    })
+    .join(", ");
 }
 
 function tokensForSkillInAttribution(skill: string, attribution: SkillAttributionMap): number {
@@ -342,13 +395,13 @@ function detailTableLines(stats: SkillUsageStat[]): string[] {
   const lines = [
     "## Per-skill detail",
     "",
-    "| Skill | Runs | Success | Tokens | Last used | Rating |",
-    "|---|---|---|---|---|---|",
+    "| Skill | Runs | Success | Tokens | By agent | Last used | Rating |",
+    "|---|---|---|---|---|---|---|",
   ];
   for (const s of stats) {
     const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
     lines.push(
-      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} |`
+      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} |`
     );
   }
   return lines;
@@ -515,13 +568,14 @@ function htmlDetailTable(stats: SkillUsageStat[]): string {
           <td class="num">${s.runs}</td>
           <td class="num">${successPct}</td>
           <td class="num">${formatTokenCount(s.totalTokens)}</td>
+          <td class="muted">${escapeHtml(formatAgentBreakdown(s.agentRuns, s.agentTokens))}</td>
           <td>${formatRecency(s.daysSinceLastUse)}</td>
           <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
         </tr>`;
     })
     .join("\n");
   return `<table>
-      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>Last used</th><th>Rating</th></tr></thead>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>By agent</th><th>Last used</th><th>Rating</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
@@ -576,7 +630,8 @@ export function formatUsageReportHtml(
   stats: SkillUsageStat[],
   suggested: SuggestedSkill[],
   target: string,
-  creditUsage: CreditUsageSummary
+  creditUsage: CreditUsageSummary,
+  hookStatus?: WorkspaceHookStatus
 ): string {
   const counts = tallyRatings(stats);
 
@@ -632,11 +687,13 @@ export function formatUsageReportHtml(
   .badge.needs-attention { background: #f85149; }
   .note { margin-top: 8px; padding: 10px 14px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textCodeBlock-background); font-size: 0.9em; }
   .note code { font-family: var(--vscode-editor-font-family); }
+  ${HOOK_STATUS_STYLES}
 </style>
 </head>
 <body>
   <h1>Claude Skills Usage Report</h1>
   <div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>
+  ${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}
   <div class="summary">
 ${htmlCards(counts, suggested.length)}
   </div>

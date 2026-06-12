@@ -36,7 +36,11 @@ import {
   shouldSyncWorkspaceToAll,
   syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
-import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
+import {
+  autoInstallAttributionHooksEnabled,
+  ensureAttributionHooksActive,
+  propagateWorkspaceSkillChange,
+} from "./workspaceSkillSync";
 import {
   buildCostAttribution,
   formatAttributionReport,
@@ -63,6 +67,8 @@ import {
   setGitApiCache,
 } from "./branchProfiles";
 import {
+  areAttributionHooksConfigured,
+  getWorkspaceHookStatus,
   installAttributionHooks,
   installCostControlHooks,
   installOfficialSkillsSessionHook,
@@ -89,7 +95,7 @@ import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from 
 import { checkPredictiveCostAlert } from "./costPredictor";
 import { installGitPostCommitHook } from "./commitCost";
 import { isAutoOptimizeEnabled, applyOptimizationSuggestions as applyAutoOptimizations, runArchivalPass } from "./autoOptimizer";
-import { isFeatureEnabled, featureFlagLines, FeatureKey } from "./featureFlags";
+import { isFeatureEnabled, featureFlagLines, FeatureKey, FEATURE_DESCRIPTIONS } from "./featureFlags";
 import { checkEmergencyCutoff, resetEmergencyCutoff } from "./emergencyCutoff";
 import { syncCommunityBenchmarks, updateLocalBenchmarks, uploadAnonymizedStats } from "./communityBenchmarks";
 import { attributeCostToAuthors } from "./teamCostSharing";
@@ -103,6 +109,7 @@ import {
 } from "./criticalFixes";
 import { showOnboardingTour } from "./onboarding";
 import { showOnboardingWizard } from "./onboardingWizard";
+import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
@@ -401,6 +408,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
     if (target) {
       void checkEmergencyCutoff(target, libraryDir);
+      if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
+        ensureAttributionHooksActive(context.extensionPath, target, log);
+      }
     }
   };
 
@@ -764,8 +774,16 @@ export function activate(context: vscode.ExtensionContext) {
       }
       log("\n## Enabled AI agents\n");
       log(agentCapabilityLines(libraryDir).join("\n"));
+      log("\n## Workspace hooks\n");
+      log(formatHookStatusPlain(getWorkspaceHookStatus(target, libraryDir)));
 
-      const html = formatUsageReportHtml(stats, suggested, target, creditUsage);
+      const html = formatUsageReportHtml(
+        stats,
+        suggested,
+        target,
+        creditUsage,
+        getWorkspaceHookStatus(target, libraryDir)
+      );
       if (usagePanel) {
         usagePanel.webview.html = html;
         usagePanel.reveal(vscode.ViewColumn.Active);
@@ -1243,6 +1261,7 @@ export function activate(context: vscode.ExtensionContext) {
         keys.map((k) => ({
           label: k,
           description: isFeatureEnabled(k) ? "enabled" : "disabled",
+          detail: FEATURE_DESCRIPTIONS[k],
           key: k,
         })),
         { title: "Toggle Claude Skills feature", placeHolder: "Select a feature to flip on/off" }

@@ -10,7 +10,8 @@
       "supportsWorkspace": true,
       "supportsBranchProfiles": true,
       "supportsUsageTranscripts": true,
-      "transcriptRoots": ["~/.claude/projects"]
+      "transcriptRoots": ["~/.claude/projects"],
+      "supportsAttributionHooks": true
     },
     "cursor": {
       "displayName": "Cursor",
@@ -22,7 +23,8 @@
       "supportsWorkspace": true,
       "supportsBranchProfiles": true,
       "supportsUsageTranscripts": true,
-      "transcriptRoots": ["~/.cursor/projects"]
+      "transcriptRoots": ["~/.cursor/projects"],
+      "supportsAttributionHooks": true
     },
     "kiro": {
       "displayName": "Kiro",
@@ -34,7 +36,8 @@
       "supportsWorkspace": true,
       "supportsBranchProfiles": true,
       "supportsUsageTranscripts": false,
-      "transcriptRoots": []
+      "transcriptRoots": [],
+      "supportsAttributionHooks": true
     },
     "copilot": {
       "displayName": "GitHub Copilot",
@@ -46,7 +49,8 @@
       "supportsWorkspace": true,
       "supportsBranchProfiles": false,
       "supportsUsageTranscripts": false,
-      "transcriptRoots": []
+      "transcriptRoots": [],
+      "supportsAttributionHooks": true
     }
   }
 }

@@ -21,7 +21,7 @@ const DEFAULTS: Record<FeatureKey, boolean> = {
   multiAgent: true,
   attributionCollector: true,
   costIntelligence: true,
-  autoOptimizer: true,
+  autoOptimizer: false,
   predictiveAlerts: true,
   communityBenchmarks: false,
   teamCostSharing: true,
@@ -29,6 +29,22 @@ const DEFAULTS: Record<FeatureKey, boolean> = {
   emergencyCutoff: true,
   prCostEstimate: false,
   costAwareSearch: true,
+};
+
+export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
+  budgetControls: "Daily budget, economy mode, and cost control hooks.",
+  branchProfiles: "Per-git-branch skill profiles.",
+  multiAgent: "Deploy skills to Cursor, Kiro, and Copilot.",
+  attributionCollector: "Background transcript attribution collector.",
+  costIntelligence: "Cost dashboard, optimization suggestions, and reports.",
+  autoOptimizer: "Enable the auto-optimizer timer (off by default; turn on only after attribution looks reliable).",
+  predictiveAlerts: "Weekly trend warnings when spend is projected over budget.",
+  communityBenchmarks: "Community cost benchmarks (opt-in telemetry).",
+  teamCostSharing: "Attribute skill cost to git authors in shared .claude/skills/.",
+  skillArchival: "Archive idle expensive skills to .claude/skills-archived/.",
+  emergencyCutoff: "Hard daily spend cutoff that disables all workspace skills.",
+  prCostEstimate: "GitHub PR cost estimate via gh CLI.",
+  costAwareSearch: "Show ROI/cost in skills tree and enable cost-based sorting.",
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {

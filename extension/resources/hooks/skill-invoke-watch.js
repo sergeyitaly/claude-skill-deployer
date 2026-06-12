@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 /**
  * PostToolUse hook (Attribution v2): log explicit Skill tool invocations to runs.jsonl.
- * Matcher: Skill only — avoids counting passive SKILL.md reads.
+ * Supports Claude Code, Cursor, Kiro (stdin + USER_PROMPT), and GitHub Copilot.
+ *
+ * Usage: node skill-invoke-watch.js [claude|cursor|kiro|copilot]
  */
 const fs = require("fs");
 const path = require("path");
 
 const SOURCE = "skill-invoke-hook-v2";
 const BLENDED_USD_PER_M_TOKEN = 9;
+const VALID_AGENTS = new Set(["claude", "cursor", "kiro", "copilot"]);
+const DENYLIST = new Set(["claude", "cursor", "api", "claude-api", "unknown", "base", "context", "skill", "skills", "kiro", "copilot"]);
+const SKILL_FILE_PATTERNS = [
+  /[\\/](?:\.claude|\.cursor|\.kiro)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
+  /[\\/]\.github[\\/]instructions[\\/]([a-z][a-z0-9-]*)\.instructions\.md/i,
+];
 
 function readStdin() {
   try {
@@ -17,19 +25,81 @@ function readStdin() {
   }
 }
 
-function plausible(name) {
-  return typeof name === "string" && /^[a-z][a-z0-9-]{2,}$/.test(name);
+function resolveAgent() {
+  const arg = (process.argv[2] || "").toLowerCase();
+  if (VALID_AGENTS.has(arg)) {
+    return arg;
+  }
+  return "claude";
 }
 
-function extractSkillName(input) {
-  const tool = input.tool_name || "";
-  const ti = input.tool_input || {};
+function plausible(name) {
+  return typeof name === "string" && /^[a-z][a-z0-9-]{2,}$/.test(name) && !DENYLIST.has(name);
+}
 
-  if (tool === "Skill") {
-    const candidates = [ti.skill, ti.skill_name, ti.name, ti.skillName];
+function skillFromPath(filePath) {
+  if (typeof filePath !== "string") {
+    return null;
+  }
+  for (const pattern of SKILL_FILE_PATTERNS) {
+    pattern.lastIndex = 0;
+    const match = filePath.match(pattern);
+    if (match && plausible(match[1].toLowerCase())) {
+      return match[1].toLowerCase();
+    }
+  }
+  return null;
+}
+
+function collectPaths(toolInput) {
+  const paths = [];
+  if (!toolInput || typeof toolInput !== "object") {
+    return paths;
+  }
+  if (typeof toolInput.path === "string") {
+    paths.push(toolInput.path);
+  }
+  if (typeof toolInput.file_path === "string") {
+    paths.push(toolInput.file_path);
+  }
+  if (typeof toolInput.filePath === "string") {
+    paths.push(toolInput.filePath);
+  }
+  if (Array.isArray(toolInput.operations)) {
+    for (const op of toolInput.operations) {
+      if (op && typeof op.path === "string") {
+        paths.push(op.path);
+      }
+    }
+  }
+  return paths;
+}
+
+function extractSkillName(toolName, toolInput) {
+  const tool = (toolName || "").trim();
+  const normalized = tool.toLowerCase();
+
+  if (normalized === "skill" || normalized === "useskill") {
+    const ti = toolInput || {};
+    const candidates = [ti.skill, ti.skill_name, ti.name, ti.skillName, ti.skill_id, ti.skillId];
     for (const c of candidates) {
       if (plausible(c)) {
         return c.toLowerCase();
+      }
+    }
+  }
+
+  if (
+    normalized === "read" ||
+    normalized === "fs_read" ||
+    normalized === "fileread" ||
+    normalized === "filereadtool" ||
+    normalized === "readtool"
+  ) {
+    for (const p of collectPaths(toolInput)) {
+      const skill = skillFromPath(p);
+      if (skill) {
+        return skill;
       }
     }
   }
@@ -52,8 +122,8 @@ function sumUsage(usage) {
   );
 }
 
-function extractTokens(input) {
-  const tr = input.tool_response;
+function extractTokens(normalized) {
+  const tr = normalized.toolResponse;
   if (typeof tr === "string") {
     try {
       const parsed = JSON.parse(tr);
@@ -63,9 +133,83 @@ function extractTokens(input) {
     }
   }
   if (tr && typeof tr === "object") {
-    return sumUsage(tr.usage || tr.message?.usage);
+    const usage = tr.usage || tr.message?.usage;
+    if (usage) {
+      return sumUsage(usage);
+    }
+    const text =
+      tr.textResultForLlm ||
+      tr.text_result_for_llm ||
+      (Array.isArray(tr.result) ? tr.result.join("\n") : typeof tr.result === "string" ? tr.result : "");
+    if (typeof text === "string" && text.length > 0) {
+      return Math.max(1, Math.round(text.length / 4));
+    }
   }
-  return sumUsage(input.message?.usage);
+  return sumUsage(normalized.message?.usage);
+}
+
+function normalizeInput(raw) {
+  const cwd =
+    raw.cwd ||
+    raw.workingDirectory ||
+    raw.working_directory ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.cwd();
+  const sessionId =
+    raw.session_id ||
+    raw.sessionId ||
+    raw.conversation_id ||
+    raw.conversationId ||
+    raw.sessionID ||
+    "";
+  return {
+    cwd,
+    sessionId,
+    toolName: raw.tool_name || raw.toolName || "",
+    toolInput: raw.tool_input || raw.toolArgs || raw.toolInput || {},
+    toolUseId: raw.tool_use_id || raw.toolUseId || raw.tool_use?.id || "",
+    toolResponse: raw.tool_response ?? raw.toolResult ?? raw.tool_result,
+    message: raw.message,
+  };
+}
+
+function parseKiroUserPrompt() {
+  const raw = process.env.USER_PROMPT;
+  if (!raw || !raw.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      cwd: process.cwd(),
+      sessionId: parsed.sessionId || parsed.session_id || `kiro_${Date.now()}`,
+      toolName: parsed.toolName || parsed.tool_name || "",
+      toolInput: parsed.toolArgs || parsed.tool_input || parsed.toolInput || {},
+      toolUseId: parsed.toolUseId || parsed.tool_use_id || "",
+      toolResponse: parsed.toolResult ?? parsed.tool_response ?? parsed.tool_result,
+      message: undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseHookPayload(agent) {
+  const stdin = readStdin().trim();
+  if (stdin) {
+    try {
+      return normalizeInput(JSON.parse(stdin));
+    } catch {
+      // fall through to Kiro env
+    }
+  }
+  if (agent === "kiro") {
+    const kiro = parseKiroUserPrompt();
+    if (kiro) {
+      return kiro;
+    }
+  }
+  return null;
 }
 
 const MAX_STATE_KEYS = 3000;
@@ -95,25 +239,24 @@ function appendRun(cwd, record) {
 }
 
 function main() {
-  let input;
-  try {
-    input = JSON.parse(readStdin());
-  } catch {
+  const agent = resolveAgent();
+  const input = parseHookPayload(agent);
+  if (!input) {
     return;
   }
 
   const cwd = input.cwd;
-  const sessionId = input.session_id;
+  const sessionId = input.sessionId;
   if (!cwd || !sessionId) {
     return;
   }
 
-  const skill = extractSkillName(input);
+  const skill = extractSkillName(input.toolName, input.toolInput);
   if (!skill) {
     return;
   }
 
-  const toolUseId = input.tool_use_id || input.tool_use?.id || "";
+  const toolUseId = input.toolUseId;
   const stateFile = path.join(cwd, ".claude", "learning", "skill-invoke-state.json");
   let state = {};
   try {
@@ -134,7 +277,7 @@ function main() {
     timestamp: ts,
     skill,
     action: "skill_invoke",
-    agent: "claude",
+    agent,
     tokens,
     cost: (tokens / 1_000_000) * BLENDED_USD_PER_M_TOKEN,
     rc: 0,
@@ -144,8 +287,9 @@ function main() {
     metadata: {
       source: SOURCE,
       invoked: true,
-      tool_name: input.tool_name,
+      tool_name: input.toolName,
       tool_use_id: toolUseId || undefined,
+      hook_agent: agent,
     },
   };
 

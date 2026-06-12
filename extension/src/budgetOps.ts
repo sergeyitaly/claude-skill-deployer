@@ -8,8 +8,10 @@ const BUDGET_META_KEY = "claudeSkillsBudget";
 interface BudgetMeta {
   /** Skills turned off by economy/budget enforcement (not manual disables). */
   disabledByBudget?: string[];
+  /** Skills turned off by the 95% "restrict to low-tier" fallback. */
+  disabledByBudgetRestrict?: string[];
   /** Why those skills were disabled */
-  disabledReason?: "economy" | "budget-exceeded";
+  disabledReason?: string;
 }
 
 interface LocalSettingsWithBudget {
@@ -48,7 +50,7 @@ function budgetMeta(settings: LocalSettingsWithBudget): BudgetMeta {
 }
 
 function setBudgetMeta(settings: LocalSettingsWithBudget, meta: BudgetMeta): void {
-  if (!meta.disabledByBudget?.length && !meta.disabledReason) {
+  if (!meta.disabledByBudget?.length && !meta.disabledByBudgetRestrict?.length && !meta.disabledReason) {
     delete settings[BUDGET_META_KEY];
     return;
   }
@@ -96,7 +98,7 @@ export function disableHighTierSkills(
 export function restoreBudgetDisabledSkills(target: string): string[] {
   const settings = readLocalSettings(target);
   const meta = budgetMeta(settings);
-  const toRestore = meta.disabledByBudget ?? [];
+  const toRestore = [...(meta.disabledByBudget ?? []), ...(meta.disabledByBudgetRestrict ?? [])];
   if (toRestore.length === 0) {
     return [];
   }
@@ -155,15 +157,30 @@ export function syncAndApplyBudgetMode(
 export function clearBudgetTrackingForSkill(target: string, skillName: string): void {
   const settings = readLocalSettings(target);
   const meta = budgetMeta(settings);
-  if (!meta.disabledByBudget?.includes(skillName)) {
+  const inBudget = meta.disabledByBudget?.includes(skillName) ?? false;
+  const inRestrict = meta.disabledByBudgetRestrict?.includes(skillName) ?? false;
+  if (!inBudget && !inRestrict) {
     return;
   }
-  meta.disabledByBudget = meta.disabledByBudget.filter((s) => s !== skillName);
-  if (meta.disabledByBudget.length === 0) {
-    setBudgetMeta(settings, {});
-  } else {
-    setBudgetMeta(settings, meta);
+
+  const updated: BudgetMeta = { ...meta };
+  if (inBudget) {
+    updated.disabledByBudget = meta.disabledByBudget!.filter((s) => s !== skillName);
+    if (updated.disabledByBudget.length === 0) {
+      delete updated.disabledByBudget;
+    }
   }
+  if (inRestrict) {
+    updated.disabledByBudgetRestrict = meta.disabledByBudgetRestrict!.filter((s) => s !== skillName);
+    if (updated.disabledByBudgetRestrict.length === 0) {
+      delete updated.disabledByBudgetRestrict;
+    }
+  }
+  if (!updated.disabledByBudget?.length && !updated.disabledByBudgetRestrict?.length) {
+    delete updated.disabledReason;
+  }
+
+  setBudgetMeta(settings, updated);
   writeLocalSettings(target, settings);
 }
 
@@ -171,5 +188,7 @@ export function clearBudgetTrackingForSkill(target: string, skillName: string): 
 export function isBudgetDisabled(target: string, skillName: string): boolean {
   const settings = readLocalSettings(target);
   const meta = budgetMeta(settings);
-  return (meta.disabledByBudget ?? []).includes(skillName) && readSkillOverrides(target)[skillName] === "off";
+  const tracked =
+    (meta.disabledByBudget ?? []).includes(skillName) || (meta.disabledByBudgetRestrict ?? []).includes(skillName);
+  return tracked && readSkillOverrides(target)[skillName] === "off";
 }

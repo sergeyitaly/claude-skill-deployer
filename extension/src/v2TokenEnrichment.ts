@@ -133,11 +133,43 @@ function transcriptMatchesSession(content: string, sessionId: string): boolean {
     return false;
   }
   const escaped = sessionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const patterns = [
-    new RegExp(`"sessionId"\\s*:\\s*"${escaped}"`),
-    new RegExp(`"session_id"\\s*:\\s*"${escaped}"`),
-  ];
+  const fields = ["sessionId", "session_id", "conversationId", "conversation_id"];
+  const patterns = fields.map((field) => new RegExp(`"${field}"\\s*:\\s*"${escaped}"`));
   return patterns.some((re) => re.test(content));
+}
+
+function indexTranscriptsForSessions(
+  transcriptRoots: string[],
+  sessionIds: Set<string>,
+  sessionIndexes: Map<string, Map<string, number>>
+): void {
+  for (const root of transcriptRoots) {
+    const expanded = expandHome(root);
+    for (const file of listTranscriptFiles(expanded)) {
+      let content = "";
+      try {
+        content = fs.readFileSync(file, "utf-8");
+      } catch {
+        continue;
+      }
+
+      const matchedSessions = [...sessionIds].filter((sid) => transcriptMatchesSession(content, sid));
+      if (matchedSessions.length === 0) {
+        continue;
+      }
+
+      const fileIndex = buildToolUseTokenIndex(content);
+      if (fileIndex.size === 0) {
+        continue;
+      }
+
+      for (const sid of matchedSessions) {
+        const existing = sessionIndexes.get(sid) ?? new Map<string, number>();
+        mergeIndexes(existing, fileIndex);
+        sessionIndexes.set(sid, existing);
+      }
+    }
+  }
 }
 
 function mergeIndexes(into: Map<string, number>, from: Map<string, number>): void {
@@ -165,35 +197,11 @@ export function enrichV2HookRunTokens(target: string, libraryDir: string): numbe
   const sessionIndexes = new Map<string, Map<string, number>>();
 
   const agents = loadAgentsManifest(libraryDir).agents;
-  const claude = agents.claude;
-  if (claude?.supportsUsageTranscripts) {
-    for (const root of claude.transcriptRoots) {
-      const expanded = expandHome(root);
-      for (const file of listTranscriptFiles(expanded)) {
-        let content = "";
-        try {
-          content = fs.readFileSync(file, "utf-8");
-        } catch {
-          continue;
-        }
-
-        const matchedSessions = [...sessionIds].filter((sid) => transcriptMatchesSession(content, sid));
-        if (matchedSessions.length === 0) {
-          continue;
-        }
-
-        const fileIndex = buildToolUseTokenIndex(content);
-        if (fileIndex.size === 0) {
-          continue;
-        }
-
-        for (const sid of matchedSessions) {
-          const existing = sessionIndexes.get(sid) ?? new Map<string, number>();
-          mergeIndexes(existing, fileIndex);
-          sessionIndexes.set(sid, existing);
-        }
-      }
+  for (const agentDef of Object.values(agents)) {
+    if (!agentDef?.supportsUsageTranscripts || !agentDef.transcriptRoots?.length) {
+      continue;
     }
+    indexTranscriptsForSessions(agentDef.transcriptRoots, sessionIds, sessionIndexes);
   }
 
   let enriched = 0;

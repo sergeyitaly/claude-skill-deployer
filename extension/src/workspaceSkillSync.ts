@@ -7,6 +7,7 @@ import {
   syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
 import {
+  areAttributionHooksConfigured,
   areCostControlHooksConfigured,
   HookInstallStatus,
   installAttributionHooks,
@@ -24,6 +25,27 @@ export interface WorkspaceSkillSyncResult {
 
 function syncHooksOnSkillChangeEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncHooksOnSkillChange", true);
+}
+
+/** When true (default), install Attribution v2 hooks on activate and workspace setup. */
+export function autoInstallAttributionHooksEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("autoInstallAttributionHooks", true);
+}
+
+/** Idempotent: register PostToolUse skill-invoke hook for per-skill cost attribution. */
+export function ensureAttributionHooksActive(
+  extensionPath: string,
+  target: string,
+  log: (line: string) => void
+): HookInstallStatus | undefined {
+  if (!autoInstallAttributionHooksEnabled()) {
+    return undefined;
+  }
+  const status = installAttributionHooks(extensionPath, target);
+  if (status === "installed" || status === "updated") {
+    log(`Attribution v2 hooks ${status} (claude/cursor/kiro/copilot as enabled).`);
+  }
+  return status;
 }
 
 /** After .claude/skills changes: mirror to other agents and refresh/install hooks when appropriate. */
@@ -54,19 +76,20 @@ export function propagateWorkspaceSkillChange(
     }
   }
 
-  if (syncHooksOnSkillChangeEnabled() && listInstalledSkills(target).length > 0) {
-    const attrStatus = installAttributionHooks(extensionPath, target);
-    if (attrStatus === "installed" || attrStatus === "updated") {
-      result.hooksStatus = attrStatus;
-      log(`Attribution v2 hooks ${attrStatus}.`);
-    }
+  const attrStatus = ensureAttributionHooksActive(extensionPath, target, log);
+  if (attrStatus === "installed" || attrStatus === "updated") {
+    result.hooksStatus = attrStatus;
+  }
 
+  if (syncHooksOnSkillChangeEnabled() && listInstalledSkills(target).length > 0) {
     if (areCostControlHooksConfigured(target)) {
       refreshCostControlHookScripts(extensionPath, target);
       if (!result.hooksStatus) {
         result.hooksStatus = "refreshed";
       }
       log("Cost control hook scripts refreshed in .claude/hooks/.");
+    } else if (areAttributionHooksConfigured(target, extensionPath)) {
+      refreshCostControlHookScripts(extensionPath, target);
     }
   }
 

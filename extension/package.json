@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -447,7 +447,12 @@
           "claudeSkills.agents.syncHooksOnSkillChange": {
             "type": "boolean",
             "default": true,
-            "description": "When workspace skills change, refresh cost-control hook scripts in .claude/hooks/ only if hooks were already enabled (never auto-install on checkbox toggle)."
+            "description": "When workspace skills change, refresh hook scripts in .claude/hooks/ (cost-control hooks only if already enabled). Attribution v2 hooks are controlled by autoInstallAttributionHooks."
+          },
+          "claudeSkills.agents.autoInstallAttributionHooks": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically install Attribution v2 hooks (PostToolUse/postToolUse Skill invoke logging) for Claude, Cursor, Kiro, and Copilot when the extension activates or workspace skills change."
           },
           "claudeSkills.agents.syncWorkspaceToAll": {
             "type": "boolean",

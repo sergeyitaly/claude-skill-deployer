@@ -72,7 +72,7 @@ Or Settings → `claudeSkills.features.*`:
 - **Attribution collector** — parses session transcripts; attributes tokens only to **invoked** skills (not the full skill catalog). Sessions with no detected invocation go to `unattributed`.
 - **Stale data guard** — auto-purges equal-split `transcriptSkills` on load; if many skills still share the same cost, per-skill rankings stay hidden until you run **Reset Mis-attributed Cost Data**. Workspace-scoped agent totals remain valid.
 - **Reset Mis-attributed Cost Data** — clears bad collector rows and `transcriptSkills` for re-collection (`scripts/reset_attribution.py` or `py scripts/check_cost_data.py` to diagnose)
-- **Enable Attribution Hooks (v2)** — PostToolUse hook logs explicit Skill invocations to `runs.jsonl` (strongest per-skill attribution)
+- **Enable Attribution Hooks (v2)** — PostToolUse hooks log Skill invocations (and Copilot instruction reads) to `runs.jsonl` for **Claude, Cursor, Kiro, and Copilot** (auto-installed when the extension opens a workspace)
 - **Optimization suggestions** — disable expensive low-use skills, agent-switch hints (thresholds: `claudeSkills.optimizer.disableCostPerUseUsd`, `disableMaxRuns`, `unusedIdleDays`, …)
 - **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (max **3 applies per 30 minutes** when auto; keep `false` until attribution looks sane)
 - **Community benchmarks** — `~/.claude/learning/community-benchmarks.json` (opt-in upload/download URLs)
@@ -296,7 +296,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full v1.0.x release notes (v1.0.10: cro
 ## What this tool does NOT do
 
 - **SKILL.md lint is advisory** — sync-time checks on `.claude/skills` plus Cursor/Kiro SKILL.md mirrors and Copilot `.instructions.md` existence checks; set `claudeSkills.lint.blockSyncOnError` to hard-block multi-agent sync only (hooks and branch profiles still run).
-- **Cost figures are estimates** — not Anthropic/Cursor invoices; per-skill attribution is strongest for Claude Code with Attribution v2 hooks.
+- **Cost figures are estimates** — not Anthropic/Cursor invoices; per-skill attribution is strongest with Attribution v2 hooks across Claude, Cursor, Kiro, and Copilot.
 - Community benchmark upload requires you to configure endpoints (no default public server).
 - PR comments require GitHub CLI and explicit feature enable.
 - Copilot clones are instruction files, not native Copilot skills.

@@ -23,6 +23,11 @@ import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./
 import { formatCompactUsd } from "./skillCost";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
+import { getWorkspaceHookStatus } from "./hookOps";
+import {
+  formatHookStatusPanelHtml,
+  HOOK_STATUS_STYLES,
+} from "./workspaceHookStatus";
 import { loadManifest } from "./skillOps";
 
 function escapeHtml(v: string): string {
@@ -50,14 +55,28 @@ function hintForSkill(skill: string, suggestions: OptimizationSuggestion[], usag
   return "";
 }
 
+function formatSkillAgentBreakdown(skill: string, attribution: SkillAttributionMap): string {
+  const entry = attribution[skill];
+  if (!entry) {
+    return "";
+  }
+  const parts = (["claude", "cursor", "kiro", "copilot"] as const)
+    .filter((agent) => {
+      const row = entry[agent];
+      return row && (row.cost > 0 || row.tokens > 0);
+    })
+    .map((agent) => `${agent}: ${formatCompactUsd(entry[agent]!.cost)}`);
+  return parts.length > 0 ? `By agent: ${parts.join(", ")}` : "";
+}
+
 function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>): string {
   const items = [
     health.staleEqualSplit
       ? "<li>Run <b>Reset Mis-attributed Cost Data</b> (Command Palette)</li>"
       : "<li>Reset mis-attributed data — only if you see identical costs per skill</li>",
-    "<li>Run <b>Enable Attribution Hooks (v2)</b> — logs each Skill tool invoke to runs.jsonl</li>",
+    "<li>Attribution v2 hooks auto-install for <b>Claude, Cursor, Kiro, and Copilot</b> (reload workspace if hook files are missing)</li>",
     "<li>Use the <b>self-learning</b> skill on real tasks (<code>metadata.invoked: true</code>)</li>",
-    "<li>Work in Claude Code or Cursor for a few sessions, then reopen this dashboard</li>",
+    "<li>Work in any enabled agent for a few sessions, then reopen this dashboard</li>",
   ];
   return `<div class="panel"><h2>Per-skill data setup</h2><p>Agent totals above are valid. Per-skill breakdown needs clean attribution:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
 }
@@ -89,6 +108,10 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
   const trend = calculateTrend();
   const profile = showPerSkill ? loadCostProfile(target, libraryDir) : undefined;
   const usageStats = computeUsageStats(target, manifest);
+  const hookStatus = getWorkspaceHookStatus(target, libraryDir);
+  const attrByAgent = new Map(
+    hookStatus.attribution.agents.filter((a) => a.applicable).map((a) => [a.agent, a.configured])
+  );
   const teamLines =
     staleEqualSplit || !isFeatureEnabled("teamCostSharing")
       ? []
@@ -106,6 +129,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
           : `${formatTokenCount(row.tokens)} tokens · ${row.sessions} session(s)`;
       return `<div class="skill-row">
         <div class="skill-head"><b>${escapeHtml(row.displayName)}</b> <span class="agent-id">(${escapeHtml(row.agent)})</span>
+          ${attrByAgent.has(row.agent as AgentId) ? `<span class="hook-badge ${attrByAgent.get(row.agent as AgentId) ? "hook-on" : "hook-off"}">attr ${attrByAgent.get(row.agent as AgentId) ? "on" : "off"}</span>` : ""}
           <span class="cost">${row.cost > 0 ? `${formatCompactUsd(row.cost)}${pct ? ` (${pct}%)` : ""}` : "—"}</span>
           ${row.cost > 0 ? `<span class="bar">${bar(row.cost, maxAgentCost)}</span>` : ""}</div>
         <div class="hint">${escapeHtml(detail)}</div>
@@ -118,6 +142,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
       const pct = totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
       const hint = [
         hintForSkill(row.skill, suggestions, usageStats),
+        formatSkillAgentBreakdown(row.skill, attribution),
         isFeatureEnabled("communityBenchmarks") ? formatBenchmarkLine(row.skill) : undefined,
       ]
         .filter(Boolean)
@@ -176,12 +201,15 @@ ${cspMeta}
   .estimate-banner { background: var(--vscode-editor-inactiveSelectionBackground); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.85em; }
   .opt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
   .apply-one { padding: 2px 10px; font-size: 0.8em; }
+  ${HOOK_STATUS_STYLES}
 </style>
 </head>
 <body>
   <h1>Claude Skills — Cost Intelligence</h1>
   <div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · <b>${ESTIMATE_DISCLAIMER_SHORT}</b></div>
   <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.</div>
+
+  ${formatHookStatusPanelHtml(hookStatus)}
 
   ${
     equalSplitWarn
