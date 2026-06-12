@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.10",
+  "version": "1.0.12",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,17 @@
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "claude",
+    "cursor",
+    "skills",
+    "skill manager",
+    "copilot",
+    "kiro",
+    "ai agents",
+    "budget",
+    "cost"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -169,6 +180,12 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.openExtensionSettings",
+        "title": "Open Extension Settings",
+        "icon": "$(settings-gear)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.saveBranchProfile",
         "title": "Save Branch Skill Profile",
         "icon": "$(save)",
@@ -301,346 +318,458 @@
         "category": "Claude Skills"
       }
     ],
-    "configuration": {
-      "title": "Claude Skills",
-      "properties": {
-        "claudeSkills.budget.mode": {
-          "type": "string",
-          "enum": ["economy", "normal", "unlimited"],
-          "enumDescriptions": [
-            "Disable high-tier skills locally and warn at low spend thresholds.",
-            "Warn at 80% of daily budget; auto-disable high-tier skills when budget is exceeded.",
-            "No restrictions; notify once per day at a high spend threshold."
-          ],
-          "default": "normal",
-          "description": "Token budget mode across all Claude Code projects on this machine."
-        },
-        "claudeSkills.budget.dailyBudgetUsd": {
-          "type": "number",
-          "default": 5,
-          "minimum": 0,
-          "description": "Daily estimated spend cap in USD (0 disables the cap). Uses transcript-based estimates, not an actual bill."
-        },
-        "claudeSkills.budget.warnThresholdPercent": {
-          "type": "number",
-          "default": 80,
-          "minimum": 0,
-          "maximum": 100,
-          "description": "Warn when today's estimated spend reaches this percentage of the daily budget."
-        },
-        "claudeSkills.budget.economyWarnUsd": {
-          "type": "number",
-          "default": 0.1,
-          "minimum": 0,
-          "description": "In economy mode, warn once per day when today's estimated spend crosses this USD amount."
-        },
-        "claudeSkills.budget.unlimitedNotifyUsd": {
-          "type": "number",
-          "default": 10,
-          "minimum": 0,
-          "description": "In unlimited mode, notify once per day when today's estimated spend crosses this USD amount."
-        },
-        "claudeSkills.budget.autoDisableHighTier": {
-          "type": "boolean",
-          "default": true,
-          "description": "When the daily budget is exceeded, auto-disable high-tier skills locally via skillOverrides."
-        },
-        "claudeSkills.branchProfiles.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Store per-git-branch skill layouts in ~/.claude/learning/branch-profiles.json."
-        },
-        "claudeSkills.branchProfiles.autoApplyOnSwitch": {
-          "type": "boolean",
-          "default": true,
-          "description": "When switching git branches, install skills from the saved profile for the new branch."
-        },
-        "claudeSkills.branchProfiles.removeExtraOnApply": {
-          "type": "boolean",
-          "default": false,
-          "description": "When applying a branch profile, remove personal-only skills (not on the branch) that are not in the profile. Branch-committed skills are disabled via skillOverrides instead of deleted."
-        },
-        "claudeSkills.branchProfiles.teamProfilePath": {
-          "type": "string",
-          "default": ".claude/skills-profile.json",
-          "description": "Git-committed team skill layout per branch (export with Export Team Branch Profile to Git)."
-        },
-        "claudeSkills.lint.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Lint SKILL.md frontmatter (name, description, size) on workspace skill sync."
-        },
-        "claudeSkills.lint.blockSyncOnError": {
-          "type": "boolean",
-          "default": false,
-          "description": "Block multi-agent sync when SKILL.md lint reports errors."
-        },
-        "claudeSkills.lint.maxSkillBytes": {
-          "type": "number",
-          "default": 262144,
-          "description": "Warn when SKILL.md exceeds this size (bytes)."
-        },
-        "claudeSkills.officialSkillsCheckOnSession": {
-          "type": "boolean",
-          "default": true,
-          "description": "When skills_library/ exists, install a Claude Code SessionStart hook that checks anthropics/skills for updates and prompts skill-official-updater."
-        },
-        "claudeSkills.lint.maxDescriptionLength": {
-          "type": "number",
-          "default": 500,
-          "description": "Warn when frontmatter description exceeds this length."
-        },
-        "claudeSkills.preferLocalSkillOverrides": {
-          "type": "boolean",
-          "default": true,
-          "description": "When unchecking a skill committed on the current branch, disable it locally via .claude/settings.local.json instead of deleting .claude/skills/ (no git diff)."
-        },
-        "claudeSkills.agents.enabled": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["claude", "cursor", "kiro", "copilot"]
+    "configuration": [
+      {
+        "id": "claudeSkillsManager",
+        "title": "Claude Skills Manager",
+        "order": 0,
+        "properties": {
+          "claudeSkills.officialSkillsCheckOnSession": {
+            "type": "boolean",
+            "default": true,
+            "description": "When skills_library/ exists, install a Claude Code SessionStart hook that checks anthropics/skills for updates and prompts skill-official-updater."
           },
-          "default": ["claude", "cursor", "kiro", "copilot"],
-          "description": "AI agents that receive skill clones from this library (see skills_library/agents.json). Includes copilot (.github/instructions)."
-        },
-        "claudeSkills.agents.syncGlobalToAll": {
-          "type": "boolean",
-          "default": true,
-          "description": "When installing the global library, sync to all enabled agents instead of Claude only. Requires claudeSkills.features.multiAgent."
-        },
-        "claudeSkills.agents.syncWorkspaceToAll": {
-          "type": "boolean",
-          "default": true,
-          "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions). Requires claudeSkills.features.multiAgent."
-        },
-        "claudeSkills.agents.syncHooksOnSkillChange": {
-          "type": "boolean",
-          "default": true,
-          "description": "When workspace skills change, refresh cost-control hook scripts in .claude/hooks/ only if hooks were already enabled (never auto-install on checkbox toggle)."
-        },
-        "claudeSkills.optimizer.autoApply": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically disable expensive rarely-used skills and apply safe optimizations (disable/unused only, max 3 per 30 min)."
-        },
-        "claudeSkills.optimizer.weeklyBudgetUsd": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "description": "Weekly spend cap for predictive alerts (0 = daily budget x 7)."
-        },
-        "claudeSkills.optimizer.disableCostPerUseUsd": {
-          "type": "number",
-          "default": 1,
-          "minimum": 0,
-          "description": "Suggest disabling a skill when attributed cost per use exceeds this (USD)."
-        },
-        "claudeSkills.optimizer.disableMaxRuns": {
-          "type": "number",
-          "default": 5,
-          "minimum": 1,
-          "description": "Pair with disableCostPerUseUsd — only suggest disable when runs are below this count."
-        },
-        "claudeSkills.optimizer.agentSavingsRatio": {
-          "type": "number",
-          "default": 0.7,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Suggest agent switch when alternate agent cost is below this fraction of Claude cost."
-        },
-        "claudeSkills.optimizer.unusedIdleDays": {
-          "type": "number",
-          "default": 7,
-          "minimum": 1,
-          "description": "Suggest disabling skills with no usage for at least this many days."
-        },
-        "claudeSkills.optimizer.unusedMinCostUsd": {
-          "type": "number",
-          "default": 0.5,
-          "minimum": 0,
-          "description": "Minimum attributed cost before idle-day unused suggestions appear."
-        },
-        "claudeSkills.features.budgetControls": {
-          "type": "boolean",
-          "default": true,
-          "description": "Daily budget, economy mode, and cost control hooks."
-        },
-        "claudeSkills.features.branchProfiles": {
-          "type": "boolean",
-          "default": true,
-          "description": "Per-git-branch skill profiles."
-        },
-        "claudeSkills.features.multiAgent": {
-          "type": "boolean",
-          "default": true,
-          "description": "Deploy skills to Cursor, Kiro, and Copilot."
-        },
-        "claudeSkills.features.attributionCollector": {
-          "type": "boolean",
-          "default": true,
-          "description": "Background transcript attribution collector."
-        },
-        "claudeSkills.features.costIntelligence": {
-          "type": "boolean",
-          "default": true,
-          "description": "Cost dashboard, optimization suggestions, and reports."
-        },
-        "claudeSkills.features.autoOptimizer": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable the auto-optimizer timer (off by default; turn on only after attribution looks reliable)."
-        },
-        "claudeSkills.features.predictiveAlerts": {
-          "type": "boolean",
-          "default": true,
-          "description": "Weekly trend warnings when spend is projected over budget."
-        },
-        "claudeSkills.features.communityBenchmarks": {
-          "type": "boolean",
-          "default": false,
-          "description": "Community cost benchmarks (opt-in telemetry)."
-        },
-        "claudeSkills.features.teamCostSharing": {
-          "type": "boolean",
-          "default": true,
-          "description": "Attribute skill cost to git authors in shared .claude/skills/."
-        },
-        "claudeSkills.features.skillArchival": {
-          "type": "boolean",
-          "default": true,
-          "description": "Archive idle expensive skills to .claude/skills-archived/."
-        },
-        "claudeSkills.features.emergencyCutoff": {
-          "type": "boolean",
-          "default": true,
-          "description": "Hard daily spend cutoff that disables all workspace skills."
-        },
-        "claudeSkills.features.prCostEstimate": {
-          "type": "boolean",
-          "default": false,
-          "description": "GitHub PR cost estimate via gh CLI."
-        },
-        "claudeSkills.features.costAwareSearch": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show ROI/cost in skills tree and enable cost-based sorting."
-        },
-        "claudeSkills.search.sortBy": {
-          "type": "string",
-          "enum": ["relevance", "lowest_cost", "highest_roi", "best_value"],
-          "default": "relevance",
-          "description": "Skills library tree sort order."
-        },
-        "claudeSkills.archival.noUsageDays": {
-          "type": "number",
-          "default": 30,
-          "minimum": 7,
-          "description": "Archive skills unused for this many days (when auto-archive enabled)."
-        },
-        "claudeSkills.archival.costPerUse": {
-          "type": "number",
-          "default": 2,
-          "minimum": 0,
-          "description": "Archive if cost per use exceeds this USD and idle 14+ days."
-        },
-        "claudeSkills.archival.autoArchive": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically archive qualifying skills (moves to skills-archived, not deleted)."
-        },
-        "claudeSkills.emergency.hardLimitUsd": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "description": "Absolute daily spend limit that triggers emergency cutoff."
-        },
-        "claudeSkills.emergency.perSkillLimitUsd": {
-          "type": "number",
-          "default": 3,
-          "minimum": 0,
-          "description": "When cutoff triggers, disable only skills with attributed cost at or above this threshold (restores prior overrides on reset)."
-        },
-        "claudeSkills.benchmarks.optIn": {
-          "type": "boolean",
-          "default": false,
-          "description": "Opt in to anonymized benchmark upload."
-        },
-        "claudeSkills.benchmarks.uploadUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Optional HTTPS endpoint for anonymized benchmark upload."
-        },
-        "claudeSkills.benchmarks.downloadUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Optional HTTPS endpoint to download community benchmarks weekly."
-        },
-        "claudeSkills.telemetry.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only — no network upload unless you add your own exporter."
-        },
-        "claudeSkills.weeklyReport.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Send a weekly AI agent usage report (off until you run Configure Weekly Report Email; requires VS Code open at scheduled time)."
-        },
-        "claudeSkills.weeklyReport.dayOfWeek": {
-          "type": "number",
-          "default": 1,
-          "minimum": 0,
-          "maximum": 6,
-          "description": "Day to send the report (0=Sunday, 1=Monday, ...)."
-        },
-        "claudeSkills.weeklyReport.hour": {
-          "type": "number",
-          "default": 9,
-          "minimum": 0,
-          "maximum": 23,
-          "description": "Local hour to send the weekly report."
-        },
-        "claudeSkills.weeklyReport.minute": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "maximum": 59,
-          "description": "Local minute to send the weekly report."
-        },
-        "claudeSkills.weeklyReport.emailTo": {
-          "type": "string",
-          "default": "",
-          "description": "Override email recipient. Empty = discovered via Configure Weekly Report Email (GitHub/GitLab token)."
-        },
-        "claudeSkills.weeklyReport.smtpHost": {
-          "type": "string",
-          "default": "",
-          "description": "SMTP host for direct email (or set CLAUDE_SKILLS_SMTP_HOST)."
-        },
-        "claudeSkills.weeklyReport.smtpPort": {
-          "type": "number",
-          "default": 587,
-          "description": "SMTP port (TLS)."
-        },
-        "claudeSkills.weeklyReport.smtpUser": {
-          "type": "string",
-          "default": "",
-          "description": "SMTP username (or CLAUDE_SKILLS_SMTP_USER)."
-        },
-        "claudeSkills.weeklyReport.smtpPassword": {
-          "type": "string",
-          "default": "",
-          "description": "SMTP password (or CLAUDE_SKILLS_SMTP_PASSWORD). Prefer env vars over storing secrets in settings."
-        },
-        "claudeSkills.weeklyReport.emailSubject": {
-          "type": "string",
-          "default": "Weekly AI Agent Usage Report",
-          "description": "Email subject prefix for the weekly AI usage report."
+          "claudeSkills.preferLocalSkillOverrides": {
+            "type": "boolean",
+            "default": true,
+            "description": "When unchecking a skill committed on the current branch, disable it locally via .claude/settings.local.json instead of deleting .claude/skills/ (no git diff)."
+          }
+        }
+      },
+      {
+        "id": "budget",
+        "title": "Budget",
+        "order": 1,
+        "properties": {
+          "claudeSkills.budget.autoDisableHighTier": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the daily budget is exceeded, auto-disable high-tier skills locally via skillOverrides."
+          },
+          "claudeSkills.budget.dailyBudgetUsd": {
+            "type": "number",
+            "default": 5,
+            "minimum": 0,
+            "description": "Daily estimated spend cap in USD (0 disables the cap). Uses transcript-based estimates, not an actual bill."
+          },
+          "claudeSkills.budget.economyWarnUsd": {
+            "type": "number",
+            "default": 0.1,
+            "minimum": 0,
+            "description": "In economy mode, warn once per day when today's estimated spend crosses this USD amount."
+          },
+          "claudeSkills.budget.mode": {
+            "type": "string",
+            "enum": [
+              "economy",
+              "normal",
+              "unlimited"
+            ],
+            "enumDescriptions": [
+              "Disable high-tier skills locally and warn at low spend thresholds.",
+              "Warn at 80% of daily budget; auto-disable high-tier skills when budget is exceeded.",
+              "No restrictions; notify once per day at a high spend threshold."
+            ],
+            "default": "normal",
+            "description": "Token budget mode across all Claude Code projects on this machine."
+          },
+          "claudeSkills.budget.unlimitedNotifyUsd": {
+            "type": "number",
+            "default": 10,
+            "minimum": 0,
+            "description": "In unlimited mode, notify once per day when today's estimated spend crosses this USD amount."
+          },
+          "claudeSkills.budget.warnThresholdPercent": {
+            "type": "number",
+            "default": 80,
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Warn when today's estimated spend reaches this percentage of the daily budget."
+          }
+        }
+      },
+      {
+        "id": "branchProfiles",
+        "title": "Branch Profiles",
+        "order": 2,
+        "properties": {
+          "claudeSkills.branchProfiles.autoApplyOnSwitch": {
+            "type": "boolean",
+            "default": true,
+            "description": "When switching git branches, install skills from the saved profile for the new branch."
+          },
+          "claudeSkills.branchProfiles.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store per-git-branch skill layouts in ~/.claude/learning/branch-profiles.json."
+          },
+          "claudeSkills.branchProfiles.removeExtraOnApply": {
+            "type": "boolean",
+            "default": false,
+            "description": "When applying a branch profile, remove personal-only skills (not on the branch) that are not in the profile. Branch-committed skills are disabled via skillOverrides instead of deleted."
+          },
+          "claudeSkills.branchProfiles.teamProfilePath": {
+            "type": "string",
+            "default": ".claude/skills-profile.json",
+            "description": "Git-committed team skill layout per branch (export with Export Team Branch Profile to Git)."
+          }
+        }
+      },
+      {
+        "id": "agents",
+        "title": "Agents",
+        "order": 3,
+        "properties": {
+          "claudeSkills.agents.enabled": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "cursor",
+                "kiro",
+                "copilot"
+              ]
+            },
+            "default": [
+              "claude",
+              "cursor",
+              "kiro",
+              "copilot"
+            ],
+            "description": "AI agents that receive skill clones from this library (see skills_library/agents.json). Includes copilot (.github/instructions)."
+          },
+          "claudeSkills.agents.syncGlobalToAll": {
+            "type": "boolean",
+            "default": true,
+            "description": "When installing the global library, sync to all enabled agents instead of Claude only. Requires claudeSkills.features.multiAgent."
+          },
+          "claudeSkills.agents.syncHooksOnSkillChange": {
+            "type": "boolean",
+            "default": true,
+            "description": "When workspace skills change, refresh cost-control hook scripts in .claude/hooks/ only if hooks were already enabled (never auto-install on checkbox toggle)."
+          },
+          "claudeSkills.agents.syncWorkspaceToAll": {
+            "type": "boolean",
+            "default": true,
+            "description": "When installing workspace skills, deploy to all enabled agent paths (.claude, .cursor, .kiro, .github/instructions). Requires claudeSkills.features.multiAgent."
+          }
+        }
+      },
+      {
+        "id": "features",
+        "title": "Features",
+        "order": 4,
+        "properties": {
+          "claudeSkills.features.attributionCollector": {
+            "type": "boolean",
+            "default": true,
+            "description": "Background transcript attribution collector."
+          },
+          "claudeSkills.features.autoOptimizer": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the auto-optimizer timer (off by default; turn on only after attribution looks reliable)."
+          },
+          "claudeSkills.features.branchProfiles": {
+            "type": "boolean",
+            "default": true,
+            "description": "Per-git-branch skill profiles."
+          },
+          "claudeSkills.features.budgetControls": {
+            "type": "boolean",
+            "default": true,
+            "description": "Daily budget, economy mode, and cost control hooks."
+          },
+          "claudeSkills.features.communityBenchmarks": {
+            "type": "boolean",
+            "default": false,
+            "description": "Community cost benchmarks (opt-in telemetry)."
+          },
+          "claudeSkills.features.costAwareSearch": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show ROI/cost in skills tree and enable cost-based sorting."
+          },
+          "claudeSkills.features.costIntelligence": {
+            "type": "boolean",
+            "default": true,
+            "description": "Cost dashboard, optimization suggestions, and reports."
+          },
+          "claudeSkills.features.emergencyCutoff": {
+            "type": "boolean",
+            "default": true,
+            "description": "Hard daily spend cutoff that disables all workspace skills."
+          },
+          "claudeSkills.features.multiAgent": {
+            "type": "boolean",
+            "default": true,
+            "description": "Deploy skills to Cursor, Kiro, and Copilot."
+          },
+          "claudeSkills.features.prCostEstimate": {
+            "type": "boolean",
+            "default": false,
+            "description": "GitHub PR cost estimate via gh CLI."
+          },
+          "claudeSkills.features.predictiveAlerts": {
+            "type": "boolean",
+            "default": true,
+            "description": "Weekly trend warnings when spend is projected over budget."
+          },
+          "claudeSkills.features.skillArchival": {
+            "type": "boolean",
+            "default": true,
+            "description": "Archive idle expensive skills to .claude/skills-archived/."
+          },
+          "claudeSkills.features.teamCostSharing": {
+            "type": "boolean",
+            "default": true,
+            "description": "Attribute skill cost to git authors in shared .claude/skills/."
+          }
+        }
+      },
+      {
+        "id": "lint",
+        "title": "Lint",
+        "order": 5,
+        "properties": {
+          "claudeSkills.lint.blockSyncOnError": {
+            "type": "boolean",
+            "default": false,
+            "description": "Block multi-agent sync when SKILL.md lint reports errors."
+          },
+          "claudeSkills.lint.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Lint SKILL.md frontmatter (name, description, size) on workspace skill sync."
+          },
+          "claudeSkills.lint.maxDescriptionLength": {
+            "type": "number",
+            "default": 500,
+            "description": "Warn when frontmatter description exceeds this length."
+          },
+          "claudeSkills.lint.maxSkillBytes": {
+            "type": "number",
+            "default": 262144,
+            "description": "Warn when SKILL.md exceeds this size (bytes)."
+          }
+        }
+      },
+      {
+        "id": "optimizer",
+        "title": "Optimizer",
+        "order": 6,
+        "properties": {
+          "claudeSkills.optimizer.agentSavingsRatio": {
+            "type": "number",
+            "default": 0.7,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Suggest agent switch when alternate agent cost is below this fraction of Claude cost."
+          },
+          "claudeSkills.optimizer.autoApply": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically disable expensive rarely-used skills and apply safe optimizations (disable/unused only, max 3 per 30 min)."
+          },
+          "claudeSkills.optimizer.disableCostPerUseUsd": {
+            "type": "number",
+            "default": 1,
+            "minimum": 0,
+            "description": "Suggest disabling a skill when attributed cost per use exceeds this (USD)."
+          },
+          "claudeSkills.optimizer.disableMaxRuns": {
+            "type": "number",
+            "default": 5,
+            "minimum": 1,
+            "description": "Pair with disableCostPerUseUsd — only suggest disable when runs are below this count."
+          },
+          "claudeSkills.optimizer.unusedIdleDays": {
+            "type": "number",
+            "default": 7,
+            "minimum": 1,
+            "description": "Suggest disabling skills with no usage for at least this many days."
+          },
+          "claudeSkills.optimizer.unusedMinCostUsd": {
+            "type": "number",
+            "default": 0.5,
+            "minimum": 0,
+            "description": "Minimum attributed cost before idle-day unused suggestions appear."
+          },
+          "claudeSkills.optimizer.weeklyBudgetUsd": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "Weekly spend cap for predictive alerts (0 = daily budget x 7)."
+          }
+        }
+      },
+      {
+        "id": "search",
+        "title": "Search",
+        "order": 7,
+        "properties": {
+          "claudeSkills.search.sortBy": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "lowest_cost",
+              "highest_roi",
+              "best_value"
+            ],
+            "default": "relevance",
+            "description": "Skills library tree sort order."
+          }
+        }
+      },
+      {
+        "id": "archival",
+        "title": "Archival",
+        "order": 8,
+        "properties": {
+          "claudeSkills.archival.autoArchive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically archive qualifying skills (moves to skills-archived, not deleted)."
+          },
+          "claudeSkills.archival.costPerUse": {
+            "type": "number",
+            "default": 2,
+            "minimum": 0,
+            "description": "Archive if cost per use exceeds this USD and idle 14+ days."
+          },
+          "claudeSkills.archival.noUsageDays": {
+            "type": "number",
+            "default": 30,
+            "minimum": 7,
+            "description": "Archive skills unused for this many days (when auto-archive enabled)."
+          }
+        }
+      },
+      {
+        "id": "emergency",
+        "title": "Emergency",
+        "order": 9,
+        "properties": {
+          "claudeSkills.emergency.hardLimitUsd": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "description": "Absolute daily spend limit that triggers emergency cutoff."
+          },
+          "claudeSkills.emergency.perSkillLimitUsd": {
+            "type": "number",
+            "default": 3,
+            "minimum": 0,
+            "description": "When cutoff triggers, disable only skills with attributed cost at or above this threshold (restores prior overrides on reset)."
+          }
+        }
+      },
+      {
+        "id": "benchmarks",
+        "title": "Benchmarks",
+        "order": 10,
+        "properties": {
+          "claudeSkills.benchmarks.downloadUrl": {
+            "type": "string",
+            "default": "",
+            "description": "Optional HTTPS endpoint to download community benchmarks weekly."
+          },
+          "claudeSkills.benchmarks.optIn": {
+            "type": "boolean",
+            "default": false,
+            "description": "Opt in to anonymized benchmark upload."
+          },
+          "claudeSkills.benchmarks.uploadUrl": {
+            "type": "string",
+            "default": "",
+            "description": "Optional HTTPS endpoint for anonymized benchmark upload."
+          }
+        }
+      },
+      {
+        "id": "telemetry",
+        "title": "Telemetry",
+        "order": 11,
+        "properties": {
+          "claudeSkills.telemetry.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only — no network upload unless you add your own exporter."
+          }
+        }
+      },
+      {
+        "id": "weeklyReport",
+        "title": "Weekly Report",
+        "order": 12,
+        "properties": {
+          "claudeSkills.weeklyReport.dayOfWeek": {
+            "type": "number",
+            "default": 1,
+            "minimum": 0,
+            "maximum": 6,
+            "description": "Day to send the report (0=Sunday, 1=Monday, ...)."
+          },
+          "claudeSkills.weeklyReport.emailSubject": {
+            "type": "string",
+            "default": "Weekly AI Agent Usage Report",
+            "description": "Email subject prefix for the weekly AI usage report."
+          },
+          "claudeSkills.weeklyReport.emailTo": {
+            "type": "string",
+            "default": "",
+            "description": "Override email recipient. Empty = discovered via Configure Weekly Report Email (GitHub/GitLab token)."
+          },
+          "claudeSkills.weeklyReport.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send a weekly AI agent usage report (off until you run Configure Weekly Report Email; requires VS Code open at scheduled time)."
+          },
+          "claudeSkills.weeklyReport.hour": {
+            "type": "number",
+            "default": 9,
+            "minimum": 0,
+            "maximum": 23,
+            "description": "Local hour to send the weekly report."
+          },
+          "claudeSkills.weeklyReport.minute": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 59,
+            "description": "Local minute to send the weekly report."
+          },
+          "claudeSkills.weeklyReport.smtpHost": {
+            "type": "string",
+            "default": "",
+            "description": "SMTP host for direct email (or set CLAUDE_SKILLS_SMTP_HOST)."
+          },
+          "claudeSkills.weeklyReport.smtpPassword": {
+            "type": "string",
+            "default": "",
+            "description": "SMTP password (or CLAUDE_SKILLS_SMTP_PASSWORD). Prefer env vars over storing secrets in settings."
+          },
+          "claudeSkills.weeklyReport.smtpPort": {
+            "type": "number",
+            "default": 587,
+            "description": "SMTP port (TLS)."
+          },
+          "claudeSkills.weeklyReport.smtpUser": {
+            "type": "string",
+            "default": "",
+            "description": "SMTP username (or CLAUDE_SKILLS_SMTP_USER)."
+          }
         }
       }
-    },
+    ],
     "menus": {
       "view/title": [
+        {
+          "command": "claudeSkills.openExtensionSettings",
+          "when": "view == claudeSkillsView",
+          "group": "navigation@0"
+        },
         {
           "command": "claudeSkills.refresh",
           "when": "view == claudeSkillsView",
@@ -775,6 +904,7 @@
     "vscode:prepublish": "npm run sync-skills && npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -w -p ./",
+    "pretest": "npm run sync-skills",
     "test": "vitest run",
     "sync-skills": "node ./scripts/sync-skills-library.js",
     "package": "npm run sync-skills && vsce package"

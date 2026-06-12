@@ -99,7 +99,37 @@ npx vsce ls          # lists exactly what will be included
 If the package is unexpectedly large, check `.vscodeignore` for missing
 entries (commonly `node_modules/**` for devDependencies, or `.git/**`).
 
-## 6. Publisher account & access token
+## 6. Pre-publish checklist (release gate)
+
+Run these **before** `vsce publish` (from a bumped `package.json` version).
+In monorepos where the extension lives in `extension/`, `cd` there for
+`npm test` / `npm run package`; run `validate-release.mjs` from the **repo
+root** (it `cd`s into `extension/` internally).
+
+```powershell
+# 1. Verify all tests pass
+cd extension
+npm test
+
+# Output should show:
+#   Tests  N passed (N)
+
+# 2. Validate release (repo root — checks CHANGELOG, compile, tests, smoke, audit)
+cd ..
+node scripts/validate-release.mjs
+
+# 3. Package VSIX
+cd extension
+npm run package
+```
+
+Step 2 is the full gate: semver in `extension/package.json`, a matching
+`## [version]` section in `CHANGELOG.md`, `npm run compile`, `npm test`,
+`scripts/smoke-test.mjs`, and `npm audit --omit=dev`. Fix any `FAIL:` line
+before publishing. Step 1 is a quick local check; step 3 produces
+`<name>-<version>.vsix` for manual install or upload.
+
+## 7. Publisher account & access token
 
 1. Create a Marketplace publisher at
    https://marketplace.visualstudio.com/manage (publisher ID must match
@@ -115,7 +145,7 @@ entries (commonly `node_modules/**` for devDependencies, or `.git/**`).
    - If a PAT does end up in a file (even a gitignored one), tell the user
      to rotate it.
 
-## 7. Version bumps and publishing
+## 8. Version bumps and publishing
 
 The Marketplace **rejects re-publishing an existing version** — bump the
 version first. `vsce publish` can do both in one step:
@@ -135,17 +165,17 @@ unless `--no-git-tag-version` is passed) before uploading.
 publish`** — it's a one-way action visible on the Marketplace and changes
 the repo's `package.json`/git tags.
 
-## 8. Common errors
+## 9. Common errors
 
 | Error | Cause / fix |
 |---|---|
 | `Extension manifest not found` | Running `vsce` from the wrong directory — `cd` into the folder containing the extension's `package.json` (see step 1). |
-| `Version already exists in the marketplace` | The version in `package.json` was already published — bump it (step 7); ask the user which bump (patch/minor/major) if not specified. |
+| `Version already exists in the marketplace` | The version in `package.json` was already published — bump it (step 8); ask the user which bump (patch/minor/major) if not specified. |
 | `Make sure to edit the README.md file before you publish your extension` | Default placeholder README wasn't replaced — write a real one. |
 | `Missing publisher name` | `"publisher"` missing from `package.json`, or doesn't match a publisher you're logged in as. |
 | Icon/banner errors | `icon` must be a PNG (not SVG) at the path given, typically 128x128. |
 
-## 9. Hand-offs
+## 10. Hand-offs
 
 - Cross-platform packaging/build script issues (PS5.1 vs bash vs macOS) →
   `cross-platform-scripting`.

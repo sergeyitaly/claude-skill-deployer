@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.12] - 2026-06-11
+
+### Fixed
+
+- **Extension Settings page empty** — `contributes.configuration` is now an array with unique `id` fields and a default category titled **Claude Skills Manager** (matches `displayName`), so settings appear under Extensions → Claude Skills Manager → Extension Settings in VS Code and Cursor.
+- **Open Extension Settings** — new command and Skills Library toolbar gear opens `@ext:serhiivoinolovych.claude-skill-deployer` filtered settings.
+- **CI unit tests** — `pretest` runs `sync-skills` before `vitest` so Linux CI has `extension/skills_library/manifest.json` (that folder is gitignored and copied from repo-root `skills_library/`).
+
 ## [1.0.10] - 2026-06-11
 
 ### Added

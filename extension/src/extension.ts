@@ -912,6 +912,13 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.commands.executeCommand("workbench.action.openSettings", "claudeSkills.budget");
     }),
 
+    vscode.commands.registerCommand("claudeSkills.openExtensionSettings", async () => {
+      await vscode.commands.executeCommand(
+        "workbench.action.openSettings",
+        "@ext:serhiivoinolovych.claude-skill-deployer"
+      );
+    }),
+
     vscode.commands.registerCommand("claudeSkills.saveBranchProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
