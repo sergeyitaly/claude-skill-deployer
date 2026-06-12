@@ -12,7 +12,7 @@ import { getProfileTip, updateCostProfileFromAttribution } from "./costProfiles"
 import { tierForSkill } from "./skillCost";
 import { loadManifest, Manifest } from "./skillOps";
 import { computeUsageStats, readEnrichedRuns, SkillUsageStat } from "./usageStats";
-import { readPipelineCycle, isPipelineReadyForOptimizer } from "./pipelineCycle";
+import { readPipelineCycle } from "./pipelineCycle";
 import { buildSystemModeContext } from "./systemMode";
 import { applyOptimizerSafetyCaps } from "./optimizerSafety";
 
@@ -82,8 +82,8 @@ export function generateOptimizationSuggestions(
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
   const cycle = readPipelineCycle(target);
-  const modeCtx = buildSystemModeContext(health, cycle);
-  if (!modeCtx.canSuggestOptimizations || !isPipelineReadyForOptimizer(cycle)) {
+  const modeCtx = buildSystemModeContext(health, target, cycle);
+  if (!modeCtx.canSuggestOptimizations) {
     return [];
   }
   if (!health.reliable && health.confidenceScore < 0.45) {

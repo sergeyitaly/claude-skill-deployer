@@ -77,7 +77,7 @@ export function buildWorkspaceSystemState(target: string, libraryDir: string): W
   const hooks = getWorkspaceHookStatus(target, libraryDir);
   const capabilities = detectAgentCapabilities(target, libraryDir);
   const lastCycle = readPipelineCycle(target);
-  const modeCtx = buildSystemModeContext(health, lastCycle);
+  const modeCtx = buildSystemModeContext(health, target, lastCycle);
 
   return {
     version: 1,

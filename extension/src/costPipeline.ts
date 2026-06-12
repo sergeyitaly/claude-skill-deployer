@@ -1,5 +1,5 @@
 import {
-  isPipelineReadyForOptimizer,
+  evaluatePipelineStatus,
   PipelineCycleTimestamps,
   readPipelineCycle,
 } from "./pipelineCycle";
@@ -10,9 +10,11 @@ import { refreshWorkspaceSystemState, WorkspaceSystemState } from "./workspaceSy
 
 export interface CostPipelineResult {
   ready: boolean;
+  fresh: boolean;
   cycle: PipelineCycleTimestamps;
   systemMode: SystemMode;
   state: WorkspaceSystemState;
+  staleMessage?: string;
   /** Transcript sessions processed when collect ran. */
   processedSessions: number;
 }
@@ -22,12 +24,14 @@ export function runCostPipelineSync(target: string, libraryDir: string): CostPip
   const manifest = loadManifest(libraryDir);
   refreshRunsIndex(target, manifest);
   const state = refreshWorkspaceSystemState(target, libraryDir);
-  const cycle = readPipelineCycle(target);
+  const status = evaluatePipelineStatus(target, readPipelineCycle(target));
   return {
-    ready: isPipelineReadyForOptimizer(cycle),
-    cycle,
+    ready: status.ready,
+    fresh: status.fresh,
+    cycle: status.cycle,
     systemMode: state.systemMode,
     state,
+    staleMessage: status.staleMessage,
     processedSessions: 0,
   };
 }
@@ -45,6 +49,5 @@ export async function runCostPipeline(
       opts.forceCollect ?? false
     );
   }
-  const result = runCostPipelineSync(target, libraryDir);
-  return { ...result, processedSessions };
+  return runCostPipelineSync(target, libraryDir);
 }

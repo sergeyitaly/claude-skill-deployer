@@ -127,6 +127,9 @@ import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
 import { setPricingContext } from "./costRates";
 import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
+import {
+  scheduleCostPipelineSync,
+} from "./costPipelineScheduler";
 import { buildSystemModeContext } from "./systemMode";
 import { readPipelineCycle } from "./pipelineCycle";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
@@ -508,11 +511,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }
     if (target) {
-      try {
-        runCostPipelineSync(target, libraryDir);
-      } catch (err) {
-        log(`System state refresh failed: ${(err as Error).message}`);
-      }
+      scheduleCostPipelineSync(target, libraryDir);
       void checkEmergencyCutoff(target, libraryDir);
       if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
         ensureAttributionHooksActive(context.extensionPath, target, log);
@@ -576,9 +575,12 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
         void (async () => {
-          await runCostPipeline(initialTarget, libraryDir);
+          const pipeline = await runCostPipeline(initialTarget, libraryDir);
+          if (!pipeline.fresh) {
+            return;
+          }
           const health = assessAttributionHealth(initialTarget, libraryDir);
-          const modeCtx = buildSystemModeContext(health, readPipelineCycle(initialTarget));
+          const modeCtx = buildSystemModeContext(health, initialTarget, pipeline.cycle);
           if (!modeCtx.canAutoApplyOptimizations) {
             return;
           }
@@ -1419,12 +1421,13 @@ export function activate(context: vscode.ExtensionContext) {
         forceCollect: true,
       });
       persistCostAttribution(target, libraryDir);
+      const pipeline = runCostPipelineSync(target, libraryDir);
       const built = buildCostAttribution(target, libraryDir);
       const merged = { ...built.skills, ...built.transcriptSkills };
       updateLocalBenchmarks(merged);
       void uploadAnonymizedStats(merged);
       const dashboardNonce = crypto.randomBytes(16).toString("base64");
-      const html = formatCostDashboardHtml(target, libraryDir, dashboardNonce);
+      const html = formatCostDashboardHtml(target, libraryDir, dashboardNonce, pipeline);
       if (!costDashboardPanel) {
         costDashboardPanel = vscode.window.createWebviewPanel(
           "claudeSkillsCostDashboard",
@@ -1441,7 +1444,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
             if (msg.command === "applyOptimizations") {
               const health = assessAttributionHealth(ws, libraryDir);
-              const modeCtx = buildSystemModeContext(health, readPipelineCycle(ws));
+              const modeCtx = buildSystemModeContext(health, ws, readPipelineCycle(ws));
               if (!modeCtx.canApplyOptimizations) {
                 vscode.window.showWarningMessage(
                   modeCtx.banner ?? "Claude Skills: optimizations paused until attribution pipeline is ready."
@@ -1451,7 +1454,7 @@ export function activate(context: vscode.ExtensionContext) {
               await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
             } else if (msg.command === "applySuggestion" && msg.skill && msg.type) {
               const health = assessAttributionHealth(ws, libraryDir);
-              const modeCtx = buildSystemModeContext(health, readPipelineCycle(ws));
+              const modeCtx = buildSystemModeContext(health, ws, readPipelineCycle(ws));
               if (!modeCtx.canApplyOptimizations) {
                 vscode.window.showWarningMessage(
                   modeCtx.banner ?? "Claude Skills: optimizations paused until attribution pipeline is ready."
@@ -1468,7 +1471,12 @@ export function activate(context: vscode.ExtensionContext) {
                 propagateWorkspaceSkillChange(context.extensionPath, ws, libraryDir, log);
                 refreshAll();
                 const refreshNonce = crypto.randomBytes(16).toString("base64");
-                costDashboardPanel!.webview.html = formatCostDashboardHtml(ws, libraryDir, refreshNonce);
+                costDashboardPanel!.webview.html = formatCostDashboardHtml(
+                  ws,
+                  libraryDir,
+                  refreshNonce,
+                  runCostPipelineSync(ws, libraryDir)
+                );
                 vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
               } else {
                 vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
@@ -1523,7 +1531,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const health = assessAttributionHealth(target, libraryDir);
-      const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+      const modeCtx = buildSystemModeContext(health, target, readPipelineCycle(target));
       if (!modeCtx.canApplyOptimizations) {
         vscode.window.showWarningMessage(
           modeCtx.banner ?? `Claude Skills: ${health.summary}`
@@ -1871,22 +1879,20 @@ export function activate(context: vscode.ExtensionContext) {
   profileLocalWatcher.onDidCreate(debouncedProfileApply);
   context.subscriptions.push(profileLocalWatcher);
 
-  const debouncedCostPipeline = debounce(() => {
-    const target = getWorkspaceTarget();
-    if (!target) {
-      return;
-    }
-    try {
-      runCostPipelineSync(target, libraryDir);
-    } catch (err) {
-      log(`Cost pipeline refresh failed: ${(err as Error).message}`);
-    }
-  }, 2000);
-
   for (const learningGlob of ["**/.claude/learning/runs.jsonl", "**/.claude/learning/cost-attribution.json"]) {
     const learningWatcher = vscode.workspace.createFileSystemWatcher(learningGlob);
-    learningWatcher.onDidChange(debouncedCostPipeline);
-    learningWatcher.onDidCreate(debouncedCostPipeline);
+    learningWatcher.onDidChange(() => {
+      const target = getWorkspaceTarget();
+      if (target) {
+        scheduleCostPipelineSync(target, libraryDir);
+      }
+    });
+    learningWatcher.onDidCreate(() => {
+      const target = getWorkspaceTarget();
+      if (target) {
+        scheduleCostPipelineSync(target, libraryDir);
+      }
+    });
     context.subscriptions.push(learningWatcher);
   }
 

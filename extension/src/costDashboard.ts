@@ -26,7 +26,7 @@ import { formatCompactUsd } from "./skillCost";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import { buildTeamEconomicsSnapshot } from "./teamEconomics";
 import { buildSystemModeContext } from "./systemMode";
-import { runCostPipelineSync } from "./costPipeline";
+import { CostPipelineResult, runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
@@ -88,18 +88,23 @@ function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>):
   return `<div class="panel"><h2>Per-skill data setup</h2><p>Agent totals above are valid. Per-skill breakdown needs clean attribution:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
 }
 
-export function formatCostDashboardHtml(target: string, libraryDir: string, scriptNonce?: string): string {
+export function formatCostDashboardHtml(
+  target: string,
+  libraryDir: string,
+  scriptNonce?: string,
+  pipelineResult?: CostPipelineResult
+): string {
   const nonce = scriptNonce ?? "";
   const cspMeta = nonce
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">`
     : "";
   enrichV2HookRunTokens(target, libraryDir);
   const manifest = loadManifest(libraryDir);
-  const pipeline = runCostPipelineSync(target, libraryDir);
+  const pipeline = pipelineResult ?? runCostPipelineSync(target, libraryDir);
   const systemState = pipeline.state;
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  const modeCtx = buildSystemModeContext(health, pipeline.cycle);
+  const modeCtx = buildSystemModeContext(health, target, pipeline.cycle);
   const showPerSkill = modeCtx.canShowPerSkillCosts;
   const canApplyOptimizations = modeCtx.canApplyOptimizations;
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
@@ -258,7 +263,7 @@ ${cspMeta}
       <span class="metric"><b>Hooks:</b> ${systemState.hooks.allConfigured ? "all on" : systemState.hooks.installed ? "partial" : "off"}</span>
     </p>
     <p class="note">${escapeHtml(formatCapabilitiesSummary(systemState.capabilities))}</p>
-    <p class="note">Pipeline: collected ${systemState.lastCycle.collectedAt ? escapeHtml(systemState.lastCycle.collectedAt.slice(0, 19)) : "—"} · indexed ${systemState.lastCycle.indexedAt ? escapeHtml(systemState.lastCycle.indexedAt.slice(0, 19)) : "—"} · analyzed ${systemState.lastCycle.analyzedAt ? escapeHtml(systemState.lastCycle.analyzedAt.slice(0, 19)) : "—"}</p>
+    <p class="note">Pipeline: collected ${systemState.lastCycle.collectedAt ? escapeHtml(systemState.lastCycle.collectedAt.slice(0, 19)) : "—"} · indexed ${systemState.lastCycle.indexedAt ? escapeHtml(systemState.lastCycle.indexedAt.slice(0, 19)) : "—"} · analyzed ${systemState.lastCycle.analyzedAt ? escapeHtml(systemState.lastCycle.analyzedAt.slice(0, 19)) : "—"} · <b>fresh:</b> ${pipeline.fresh ? "yes" : "no"}</p>
   </div>
 
   ${
@@ -374,7 +379,7 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
   const pipeline = runCostPipelineSync(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  const modeCtx = buildSystemModeContext(health, pipeline.cycle);
+  const modeCtx = buildSystemModeContext(health, target, pipeline.cycle);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);

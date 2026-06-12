@@ -1,11 +1,17 @@
 import { AttributionHealth } from "./attributionHealth";
-import { isPipelineReadyForOptimizer, PipelineCycleTimestamps, pipelineStaleSummary } from "./pipelineCycle";
+import {
+  isPipelineFresh,
+  isPipelineReadyForOptimizer,
+  PipelineCycleTimestamps,
+  pipelineStaleSummary,
+} from "./pipelineCycle";
 
 export type SystemMode = "normal" | "degraded" | "safe";
 
 export interface SystemModeContext {
   mode: SystemMode;
   pipelineReady: boolean;
+  pipelineFresh: boolean;
   pipelineStaleMessage?: string;
   canShowPerSkillCosts: boolean;
   canSuggestOptimizations: boolean;
@@ -14,9 +20,13 @@ export interface SystemModeContext {
   banner?: string;
 }
 
-export function resolveSystemMode(health: AttributionHealth, cycle: PipelineCycleTimestamps): SystemMode {
-  const pipelineReady = isPipelineReadyForOptimizer(cycle);
-  if (health.staleEqualSplit || health.confidenceScore < 0.45 || !pipelineReady) {
+export function resolveSystemMode(
+  health: AttributionHealth,
+  target: string,
+  cycle: PipelineCycleTimestamps
+): SystemMode {
+  const pipelineFresh = isPipelineFresh(target, cycle);
+  if (health.staleEqualSplit || health.confidenceScore < 0.45 || !pipelineFresh) {
     return "safe";
   }
   if (!health.reliable || health.confidenceScore < 0.75) {
@@ -25,17 +35,22 @@ export function resolveSystemMode(health: AttributionHealth, cycle: PipelineCycl
   return "normal";
 }
 
-export function buildSystemModeContext(health: AttributionHealth, cycle: PipelineCycleTimestamps): SystemModeContext {
+export function buildSystemModeContext(
+  health: AttributionHealth,
+  target: string,
+  cycle: PipelineCycleTimestamps
+): SystemModeContext {
   const pipelineReady = isPipelineReadyForOptimizer(cycle);
-  const pipelineStaleMessage = pipelineStaleSummary(cycle);
-  const mode = resolveSystemMode(health, cycle);
+  const pipelineFresh = isPipelineFresh(target, cycle);
+  const pipelineStaleMessage = pipelineStaleSummary(target, cycle);
+  const mode = resolveSystemMode(health, target, cycle);
 
   let banner: string | undefined;
   if (mode === "safe") {
     if (health.staleEqualSplit) {
       banner = "Safe mode: mis-attributed cost data — reset attribution before trusting per-skill numbers.";
-    } else if (!pipelineReady) {
-      banner = `Safe mode: ${pipelineStaleMessage ?? "pipeline not ready"}`;
+    } else if (!pipelineFresh) {
+      banner = `Safe mode: ${pipelineStaleMessage ?? "pipeline not fresh"}`;
     } else {
       banner = `Safe mode: attribution confidence too low (${Math.round(health.confidenceScore * 100)}%) — suggestions hidden.`;
     }
@@ -46,11 +61,12 @@ export function buildSystemModeContext(health: AttributionHealth, cycle: Pipelin
   return {
     mode,
     pipelineReady,
+    pipelineFresh,
     pipelineStaleMessage,
-    canShowPerSkillCosts: mode !== "safe" && !health.staleEqualSplit,
-    canSuggestOptimizations: mode !== "safe",
-    canApplyOptimizations: mode === "normal" || mode === "degraded",
-    canAutoApplyOptimizations: mode === "normal",
+    canShowPerSkillCosts: mode !== "safe" && !health.staleEqualSplit && pipelineFresh,
+    canSuggestOptimizations: mode !== "safe" && pipelineFresh,
+    canApplyOptimizations: (mode === "normal" || mode === "degraded") && pipelineFresh,
+    canAutoApplyOptimizations: mode === "normal" && pipelineFresh,
     banner,
   };
 }

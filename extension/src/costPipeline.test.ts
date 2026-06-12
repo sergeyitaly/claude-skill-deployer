@@ -50,6 +50,7 @@ describe("costPipeline", () => {
     expect(cycle.analyzedAt).toBeDefined();
     expect(fs.existsSync(systemStatePath(target))).toBe(true);
     expect(result.ready).toBe(true);
+    expect(result.fresh).toBe(true);
   });
 
   it("becomes ready after collect timestamp when sync follows", () => {

@@ -78,7 +78,7 @@ export async function applyOptimizationSuggestions(
   const result: ApplyResult = { applied: [], skipped: [] };
 
   const health = assessAttributionHealth(target, libraryDir);
-  const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+  const modeCtx = buildSystemModeContext(health, target, readPipelineCycle(target));
   if (!modeCtx.canApplyOptimizations) {
     result.skipped.push(...suggestions.map((s) => s.skill));
     return result;
