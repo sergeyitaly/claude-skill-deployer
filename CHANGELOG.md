@@ -4,9 +4,15 @@
 
 ### Added
 
-- **Profile init** — role-based skill setup for new git branches: extension writes `.claude/learning/skills-catalog.json`, agent picks skills via `profile-init` skill, output in gitignored `.claude/profile.local.json`, auto-install and branch profile save.
-- **Commands** — Set Your Position, Refresh Skill Catalog, Init Profile for Current Branch, Apply Local Profile.
+- **Profile init** — agent-driven skill setup for new git branches: extension writes `.claude/learning/skills-catalog.json`; the agent picks skills from the live catalog (no fixed role map) via **`profile-init`**; output in gitignored `.claude/profile.local.json`; auto-install and branch profile save.
+- **Position** — `.claude/position.local.json` stores team role (DevOps, QA, AQA, Backend, Frontend, BA, Resource Manager, Team Lead) locally, not in git.
+- **Commands** — Set Your Position, Refresh Skill Catalog for Agent, Init Profile for Current Branch, Apply Local Profile.
 - **Settings** — `claudeSkills.profileInit.enabled`, `promptOnNewBranch`, `autoApplyProfileFile`.
+- **Multi-agent** — `profile-init` syncs to Cursor (`.cursor/skills/`), Kiro (`.kiro/skills/`), and Copilot (`.github/instructions/`); catalog/apply/branch restore remain extension-side and agent-agnostic.
+
+### Documentation
+
+- Root and extension README: profile init flow, local file contract, and using Cursor/Kiro/Copilot with the same `.claude/` paths.
 
 ## [1.0.15] - 2026-06-12
 

@@ -54,6 +54,7 @@ Or Settings → `claudeSkills.features.*`:
 |---|---|---|
 | `budgetControls` | on | Daily budget, economy mode, hooks |
 | `branchProfiles` | on | Per-branch skill layouts |
+| `profileInit` | on | Role + branch agent-driven profile init (`claudeSkills.profileInit.*`) |
 | `multiAgent` | on | Cursor / Kiro / Copilot deploy |
 | `attributionCollector` | on | Background transcript attribution |
 | `costIntelligence` | on | Dashboard, suggestions, export |
@@ -235,6 +236,47 @@ Setting: `claudeSkills.preferLocalSkillOverrides` (default `true`).
 - Toolbar icons: show / save / apply branch profile (git repos only)
 - Auto-save on skill install/remove; optional auto-apply on branch switch
 
+## Profile init (role + branch, agent-driven)
+
+When you land on a **new git branch** with no saved personal profile, the extension can prompt you to initialize skills for your **position** (DevOps, QA, AQA, Backend, Frontend, BA, Resource Manager, Team Lead). There is **no fixed role→skills map** — your AI agent reads the live catalog and picks what fits this branch and task.
+
+**Flow:**
+
+1. Extension saves your role once → `.claude/position.local.json` (gitignored).
+2. On init, extension writes `.claude/learning/skills-catalog.json` (all skills the library knows now) and `.claude/learning/profile-init-request.json` (branch + position context).
+3. Your AI agent runs the **`profile-init`** skill → writes `.claude/profile.local.json` with the chosen skill names.
+4. Extension auto-applies (default): installs into `.claude/skills/`, mirrors to other agents, saves `~/.claude/learning/branch-profiles.json`.
+
+**Local-only files (never committed):**
+
+| File | Purpose |
+|---|---|
+| `.claude/position.local.json` | Your team role |
+| `.claude/learning/skills-catalog.json` | Extension-generated skill inventory |
+| `.claude/learning/profile-init-request.json` | Init context for the agent |
+| `.claude/profile.local.json` | Agent’s skill selection for this branch |
+
+**Commands:** `Claude Skills: Set Your Position`, `Init Profile for Current Branch`, `Refresh Skill Catalog for Agent`, `Apply Local Profile`.
+
+**Settings:** `claudeSkills.profileInit.enabled`, `promptOnNewBranch`, `autoApplyProfileFile` (see [`extension/README.md`](extension/README.md)).
+
+### Works with Cursor, Kiro, and Copilot
+
+Profile init is **agent-agnostic** at the extension layer: catalog, apply, and branch restore run in VS Code regardless of which agent wrote `profile.local.json`.
+
+When **multi-agent sync** is on, `profile-init` is mirrored like any other skill:
+
+| Agent | Skill copy |
+|---|---|
+| Claude | `.claude/skills/profile-init/SKILL.md` |
+| Cursor | `.cursor/skills/profile-init/SKILL.md` |
+| Kiro | `.kiro/skills/profile-init/SKILL.md` |
+| Copilot | `.github/instructions/profile-init.instructions.md` |
+
+All agents use the same **`.claude/` file contract** for catalog and profile output (extension source of truth). After **Init Profile for Current Branch**, the extension syncs `profile-init` to every enabled agent path. If you use Cursor/Kiro/Copilot immediately after the automatic new-branch prompt, run **Sync Workspace Skills to All Agents** once if the skill is not visible yet.
+
+In chat (any synced agent): *“Initialize my skill profile for this branch using profile-init.”*
+
 ## Library layout
 
 ```
@@ -253,7 +295,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.10** (`serhiivoinolovych`).
+Current extension version: **1.0.16** (`serhiivoinolovych`).
 
 ## Performance impact
 
