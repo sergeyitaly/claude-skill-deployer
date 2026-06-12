@@ -136,7 +136,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
     .map(
       (s) =>
         `<li class="opt-row"><span><b>${escapeHtml(s.skill)}</b> — ${escapeHtml(s.action)}</span>` +
-        `<button class="secondary apply-one" data-skill="${escapeHtml(s.skill)}" data-type="${escapeHtml(s.type)}" onclick="applyOne(this.dataset.skill,this.dataset.type)">Apply</button></li>`
+        `<button type="button" class="secondary apply-one" data-skill="${escapeHtml(s.skill)}" data-type="${escapeHtml(s.type)}">Apply</button></li>`
     )
     .join("");
 
@@ -240,18 +240,33 @@ ${cspMeta}
   ${archived.length > 0 ? `<div class="panel"><h2>Archived skills</h2><p>${archived.map(escapeHtml).join(", ")} — use <b>Restore Archived Skill</b> command.</p></div>` : ""}
 
   <div class="actions">
-    <button onclick="applyOpts()" ${showPerSkill ? "" : "disabled title=\"Complete attribution setup first\""}>Apply optimizations</button>
-    <button class="secondary" onclick="exportReport()">Export report</button>
-    <button class="secondary" onclick="openBudget()">Configure budget</button>
+    <button type="button" id="btn-apply-opts" ${showPerSkill ? "" : "disabled title=\"Complete attribution setup first\""}>Apply optimizations</button>
+    <button type="button" class="secondary" id="btn-export-report">Export report</button>
+    <button type="button" class="secondary" id="btn-open-budget">Configure budget</button>
   </div>
   <div class="note">Estimates from transcripts and runs.jsonl — not an actual API bill.</div>
 
   <script${nonce ? ` nonce="${nonce}"` : ""}>
     const vscode = acquireVsCodeApi();
-    function applyOpts() { vscode.postMessage({ command: "applyOptimizations" }); }
-    function applyOne(skill, type) { vscode.postMessage({ command: "applySuggestion", skill, type }); }
-    function exportReport() { vscode.postMessage({ command: "exportReport" }); }
-    function openBudget() { vscode.postMessage({ command: "openBudget" }); }
+    document.getElementById("btn-apply-opts")?.addEventListener("click", () => {
+      vscode.postMessage({ command: "applyOptimizations" });
+    });
+    document.getElementById("btn-export-report")?.addEventListener("click", () => {
+      vscode.postMessage({ command: "exportReport" });
+    });
+    document.getElementById("btn-open-budget")?.addEventListener("click", () => {
+      vscode.postMessage({ command: "openBudget" });
+    });
+    document.querySelectorAll(".apply-one").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const el = btn;
+        vscode.postMessage({
+          command: "applySuggestion",
+          skill: el.getAttribute("data-skill"),
+          type: el.getAttribute("data-type"),
+        });
+      });
+    });
   </script>
 </body>
 </html>`;

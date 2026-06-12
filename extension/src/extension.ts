@@ -130,6 +130,7 @@ let budgetModeStatusBarItem: vscode.StatusBarItem;
 let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 let costDashboardPanel: vscode.WebviewPanel | undefined;
+let costDashboardMessageSub: vscode.Disposable | undefined;
 
 const BUDGET_MODE_CYCLE: BudgetMode[] = ["economy", "normal", "unlimited"];
 const BUDGET_MODE_LABEL: Record<BudgetMode, string> = {
@@ -1084,51 +1085,58 @@ export function activate(context: vscode.ExtensionContext) {
       void uploadAnonymizedStats(merged);
       const dashboardNonce = crypto.randomBytes(16).toString("base64");
       const html = formatCostDashboardHtml(target, libraryDir, dashboardNonce);
-      if (costDashboardPanel) {
-        costDashboardPanel.webview.html = html;
-        costDashboardPanel.reveal(vscode.ViewColumn.Active);
-      } else {
+      if (!costDashboardPanel) {
         costDashboardPanel = vscode.window.createWebviewPanel(
           "claudeSkillsCostDashboard",
           "Claude Skills Cost Intelligence",
           vscode.ViewColumn.Active,
-          { enableScripts: true }
+          { enableScripts: true, retainContextWhenHidden: true }
         );
-        costDashboardPanel.webview.html = html;
-        costDashboardPanel.webview.onDidReceiveMessage(async (msg: { command?: string; skill?: string; type?: string }) => {
-          if (msg.command === "applyOptimizations") {
-            await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
-          } else if (msg.command === "applySuggestion" && msg.skill && msg.type) {
-            const health = assessAttributionHealth(target, libraryDir);
-            if (!health.reliable) {
-              vscode.window.showWarningMessage(`Claude Skills: ${health.summary}`);
+        costDashboardMessageSub?.dispose();
+        costDashboardMessageSub = costDashboardPanel.webview.onDidReceiveMessage(
+          async (msg: { command?: string; skill?: string; type?: string }) => {
+            const ws = getWorkspaceTarget();
+            if (!ws) {
               return;
             }
-            const result = await applySingleOptimizationSuggestion(
-              target,
-              libraryDir,
-              msg.skill,
-              msg.type as OptimizationType
-            );
-            if (result.applied.length > 0) {
-              propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
-              refreshAll();
-              const refreshNonce = crypto.randomBytes(16).toString("base64");
-              costDashboardPanel!.webview.html = formatCostDashboardHtml(target, libraryDir, refreshNonce);
-              vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
-            } else {
-              vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
+            if (msg.command === "applyOptimizations") {
+              await vscode.commands.executeCommand("claudeSkills.applyOptimizations");
+            } else if (msg.command === "applySuggestion" && msg.skill && msg.type) {
+              const health = assessAttributionHealth(ws, libraryDir);
+              if (!health.reliable) {
+                vscode.window.showWarningMessage(`Claude Skills: ${health.summary}`);
+                return;
+              }
+              const result = await applySingleOptimizationSuggestion(
+                ws,
+                libraryDir,
+                msg.skill,
+                msg.type as OptimizationType
+              );
+              if (result.applied.length > 0) {
+                propagateWorkspaceSkillChange(context.extensionPath, ws, libraryDir, log);
+                refreshAll();
+                const refreshNonce = crypto.randomBytes(16).toString("base64");
+                costDashboardPanel!.webview.html = formatCostDashboardHtml(ws, libraryDir, refreshNonce);
+                vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
+              } else {
+                vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
+              }
+            } else if (msg.command === "exportReport") {
+              await vscode.commands.executeCommand("claudeSkills.exportCostReport");
+            } else if (msg.command === "openBudget") {
+              await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
             }
-          } else if (msg.command === "exportReport") {
-            await vscode.commands.executeCommand("claudeSkills.exportCostReport");
-          } else if (msg.command === "openBudget") {
-            await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
           }
-        });
+        );
         costDashboardPanel.onDidDispose(() => {
+          costDashboardMessageSub?.dispose();
+          costDashboardMessageSub = undefined;
           costDashboardPanel = undefined;
         });
       }
+      costDashboardPanel.webview.html = html;
+      costDashboardPanel.reveal(vscode.ViewColumn.Active);
       outputChannel.show(true);
       log(`\n${formatCostDashboardText(target, libraryDir)}`);
     }),
