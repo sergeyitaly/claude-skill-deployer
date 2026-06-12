@@ -14,7 +14,14 @@ import {
   setSkillOverride,
 } from "./skillOps";
 import { SkillItem, SkillsProvider } from "./skillsProvider";
-import { computeSuggestedSkills, computeUsageStats, ensureLearningDir, formatUsageReport, formatUsageReportHtml } from "./usageStats";
+import {
+  computeSuggestedSkills,
+  computeUsageStats,
+  enrichUsageStatsWithAttribution,
+  ensureLearningDir,
+  formatUsageReport,
+  formatUsageReportHtml,
+} from "./usageStats";
 import {
   agentCapabilityLines,
   formatAgentInstallSummary,
@@ -201,10 +208,10 @@ function refreshStatusBar(libraryDir: string) {
   statusBarItem.show();
 }
 
-function refreshCreditStatusBar(libraryDir: string) {
+function refreshCreditStatusBar(libraryDir: string, target?: string) {
   const manifest = loadManifest(libraryDir);
   const config = configFromVsCodeSettings(manifest);
-  const summary = computeEnabledAgentsCreditUsage(libraryDir, 1);
+  const summary = computeEnabledAgentsCreditUsage(libraryDir, 1, target);
   const today = localDateKey();
   const todayRow = summary.byDay.find((d) => d.date === today);
   const totalTokens = todayRow
@@ -380,7 +387,7 @@ export function activate(context: vscode.ExtensionContext) {
     provider.refresh();
     refreshStatusBar(libraryDir);
     refreshUsageStatusBar(libraryDir);
-    refreshCreditStatusBar(libraryDir);
+    refreshCreditStatusBar(libraryDir, target);
     refreshBudgetModeStatusBar(libraryDir);
     refreshWorkspaceFolderStatusBar();
     if (target) {
@@ -711,24 +718,25 @@ export function activate(context: vscode.ExtensionContext) {
       }
       ensureLearningDir(target);
       const manifest = loadManifest(libraryDir);
-      const stats = computeUsageStats(target, manifest);
-      const suggested = computeSuggestedSkills(target, manifest);
-      const creditUsage = computeEnabledAgentsCreditUsage(libraryDir);
       const mirrored = mirrorLearningArtifacts(target, libraryDir);
       await AttributionCollector.getInstance(target, libraryDir).collect(true);
       persistCostAttribution(target, libraryDir);
-      const attribution = buildCostAttribution(target, libraryDir);
+      const built = buildCostAttribution(target, libraryDir);
+      const { attribution } = resolveDisplayAttribution(built, target);
+      const stats = enrichUsageStatsWithAttribution(computeUsageStats(target, manifest), attribution);
+      const suggested = computeSuggestedSkills(target, manifest);
+      const creditUsage = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
 
       outputChannel.show(true);
       log(`\n=== Skill usage report for ${target} ===`);
       log(formatUsageReport(stats, suggested, target, creditUsage));
       log(
         formatAttributionReport(
-          attribution.skills,
-          attribution.agentTotals,
-          attribution.base_context,
-          attribution.transcriptSkills,
-          attribution.unattributed,
+          built.skills,
+          built.agentTotals,
+          built.base_context,
+          built.transcriptSkills,
+          built.unattributed,
           target
         ).join("\n")
       );
@@ -739,8 +747,8 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const topSkill = stats.filter((s) => s.runs > 0).sort((a, b) => b.runs - a.runs)[0];
       if (topSkill) {
-        const agent = getOptimalAgent(topSkill.name, attribution.skills);
-        log(formatRoutingSuggestion(topSkill.name, attribution.skills, agent));
+        const agent = getOptimalAgent(topSkill.name, attribution);
+        log(formatRoutingSuggestion(topSkill.name, attribution, agent));
       }
       if (mirrored.length > 0) {
         log(`\nMirrored learning artifacts to: ${mirrored.join(", ")}`);

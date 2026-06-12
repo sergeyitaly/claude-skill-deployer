@@ -66,6 +66,8 @@ export interface CreditUsageSummary {
   totalCost: number;
   sessionCount: number;
   daysBack: number;
+  /** True when totals are filtered to a single workspace folder. */
+  workspaceScoped?: boolean;
 }
 
 export function claudeProjectsDir(): string {
@@ -232,6 +234,7 @@ export function computeCreditUsageFromRoots(
     totalCost: byModel.reduce((sum, m) => sum + m.cost, 0),
     sessionCount: sessionIds.size,
     daysBack,
+    workspaceScoped: Boolean(workspaceTarget),
   };
 }
 

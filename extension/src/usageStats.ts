@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary } from "./usageCost";
 import { EnrichedRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
@@ -194,6 +195,27 @@ export function computeUsageStats(target: string, manifest: Manifest): SkillUsag
   return stats;
 }
 
+function tokensForSkillInAttribution(skill: string, attribution: SkillAttributionMap): number {
+  const entry = attribution[skill];
+  if (!entry) {
+    return 0;
+  }
+  return Object.values(entry).reduce((sum, a) => sum + (a?.tokens ?? 0), 0);
+}
+
+/** Fill per-skill token totals from cost attribution when runs.jsonl rows lack tokens. */
+export function enrichUsageStatsWithAttribution(
+  stats: SkillUsageStat[],
+  attribution: SkillAttributionMap
+): SkillUsageStat[] {
+  return stats.map((s) => {
+    const fromRuns = s.totalTokens ?? 0;
+    const fromAttribution = tokensForSkillInAttribution(s.name, attribution);
+    const totalTokens = fromRuns > 0 ? fromRuns : fromAttribution > 0 ? fromAttribution : null;
+    return totalTokens === s.totalTokens ? s : { ...s, totalTokens };
+  });
+}
+
 /** Skills relevant to this workspace (by manifest detect_globs) that aren't
  * installed in <target>/.claude/skills yet - candidates that could help. */
 export function computeSuggestedSkills(target: string, manifest: Manifest): SuggestedSkill[] {
@@ -336,8 +358,15 @@ function tokenSum(usage: { inputTokens: number; outputTokens: number; cacheCreat
   return usage.inputTokens + usage.outputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
 }
 
+function creditUsageScopeLabel(creditUsage: CreditUsageSummary): string {
+  return creditUsage.workspaceScoped ? "this workspace" : "all projects";
+}
+
 function creditUsageLines(creditUsage: CreditUsageSummary): string[] {
-  const lines = [`## Claude Credits Usage (last ${creditUsage.daysBack} days, all projects)`, ""];
+  const lines = [
+    `## Claude Credits Usage (last ${creditUsage.daysBack} days, ${creditUsageScopeLabel(creditUsage)})`,
+    "",
+  ];
 
   if (creditUsage.totalTokens === 0) {
     lines.push("No recorded Claude Code activity in this window.", "");
@@ -498,7 +527,7 @@ function htmlDetailTable(stats: SkillUsageStat[]): string {
 }
 
 function htmlCreditUsageSection(creditUsage: CreditUsageSummary): string {
-  const title = `Claude Credits Usage (last ${creditUsage.daysBack} days, all projects)`;
+  const title = `Claude Credits Usage (last ${creditUsage.daysBack} days, ${creditUsageScopeLabel(creditUsage)})`;
   if (creditUsage.totalTokens === 0) {
     return `<div class="section"><h2>${title}</h2><p>No recorded Claude Code activity in this window.</p></div>`;
   }

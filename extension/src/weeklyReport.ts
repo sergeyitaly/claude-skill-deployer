@@ -250,7 +250,7 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
   const changePercent = priorWeekCost > 0 ? ((thisWeek.cost - priorWeekCost) / priorWeekCost) * 100 : 0;
 
   const trend = calculateTrend();
-  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14);
+  const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const built = buildCostAttribution(target, libraryDir);
   const suggestions = generateOptimizationSuggestions(target, libraryDir).slice(0, 5);
 

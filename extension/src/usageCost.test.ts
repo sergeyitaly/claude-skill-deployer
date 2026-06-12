@@ -79,7 +79,9 @@ describe("computeCreditUsageFromRoots", () => {
     const all = computeCreditUsageFromRoots([root], 7);
 
     expect(scoped.sessionCount).toBe(1);
+    expect(scoped.workspaceScoped).toBe(true);
     expect(all.sessionCount).toBe(2);
+    expect(all.workspaceScoped).toBe(false);
   });
 
   it("ignores all-zero usage lines", () => {
