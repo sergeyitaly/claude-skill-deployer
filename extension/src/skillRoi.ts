@@ -1,4 +1,4 @@
-import { tokenCostUsd } from "./costRates";
+import { tokenCostUsd, hourlyRateUsd } from "./costRates";
 import { ConfidenceLevel } from "./attributionConfidence";
 import { CostEstimateTier, estimateSessionCostUsd, tierForSkill } from "./skillCost";
 import { Manifest } from "./skillOps";
@@ -66,8 +66,9 @@ function confidenceForRoi(dataSource: RoiDataSource, usageStat?: SkillUsageStat)
   return "low";
 }
 
-export function sumRoiValue(metrics: SkillRoiMetrics): number {
-  return (metrics.minutesSaved / 60) * DEFAULT_HOURLY_RATE_USD;
+export function sumRoiValue(metrics: { minutesSaved: number }): number {
+  const rate = hourlyRateUsd() || DEFAULT_HOURLY_RATE_USD;
+  return (metrics.minutesSaved / 60) * rate;
 }
 
 /** Full ROI model for one skill — optional totalCost overrides session average for dashboard rows. */

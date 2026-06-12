@@ -25,6 +25,8 @@ import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./
 import { formatCompactUsd } from "./skillCost";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import { buildTeamEconomicsSnapshot } from "./teamEconomics";
+import { refreshWorkspaceSystemState } from "./workspaceSystemState";
+import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
 import { getWorkspaceHookStatus } from "./hookOps";
@@ -92,6 +94,7 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
     : "";
   enrichV2HookRunTokens(target, libraryDir);
   const manifest = loadManifest(libraryDir);
+  const systemState = refreshWorkspaceSystemState(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
@@ -236,6 +239,16 @@ ${cspMeta}
   <div class="estimate-banner">${escapeHtml(ESTIMATE_DISCLAIMER)} Per-skill costs use model-aware rates when transcript model ids are available; otherwise a Sonnet-like blended default.<br><br><b>Trust:</b> ${escapeHtml(health.summary)} <span class="conf-${health.confidenceLevel}">(${Math.round(health.confidenceScore * 100)}% — ${formatConfidenceBadge(health.confidenceLevel)})</span><br><span class="note">${escapeHtml(formatAttributionStrategyLine(attrStrategy))}</span></div>
 
   ${formatHookStatusPanelHtml(hookStatus)}
+
+  <div class="panel">
+    <h2>System state</h2>
+    <p class="summary-line">
+      <span class="metric"><b>Profile init:</b> ${escapeHtml(systemState.profileInit)}</span>
+      <span class="metric"><b>Attribution:</b> ${escapeHtml(systemState.attribution.status)} (${Math.round(systemState.attribution.confidence * 100)}%)</span>
+      <span class="metric"><b>Hooks:</b> ${systemState.hooks.allConfigured ? "all on" : systemState.hooks.installed ? "partial" : "off"}</span>
+    </p>
+    <p class="note">${escapeHtml(formatCapabilitiesSummary(systemState.capabilities))}</p>
+  </div>
 
   ${
     equalSplitWarn

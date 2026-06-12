@@ -40,9 +40,22 @@ export interface OptimizationSuggestion {
   reason: string;
   action: string;
   savings?: number;
+  /** Heuristic monthly savings (14d data × 2). */
+  monthlySavingsUsd?: number;
   from?: AgentId;
   to?: AgentId;
   priority: number;
+}
+
+/** Extrapolate 14-day workspace cost to a rough monthly figure. */
+const MONTHLY_EXTRAPOLATION = 2;
+
+function monthlyUsd(amount: number): number {
+  return Math.round(amount * MONTHLY_EXTRAPOLATION * 100) / 100;
+}
+
+function formatMonthlyAction(base: string, monthlyUsd: number): string {
+  return `${base} → save ~$${monthlyUsd.toFixed(0)}/month`;
 }
 
 function skillTotalCost(data: Partial<Record<AgentId, AgentAttribution>>): number {
@@ -65,7 +78,7 @@ export function generateOptimizationSuggestions(
   const m = manifest ?? loadManifest(libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  if (!health.reliable) {
+  if (!health.reliable && health.confidenceScore < 0.45) {
     return [];
   }
   const { attribution } = resolveDisplayAttribution(built, target);
@@ -90,12 +103,14 @@ export function generateOptimizationSuggestions(
     const costPerUse = totalCost / runs;
 
     if (costPerUse > thresholds.disableCostPerUseUsd && runs < thresholds.disableMaxRuns) {
+      const monthly = monthlyUsd(totalCost);
       suggestions.push({
         type: "disable",
         skill,
         reason: `$${costPerUse.toFixed(2)} per use, used only ${runs} time(s)`,
-        action: `Disable "${skill}" to save ~$${totalCost.toFixed(2)}`,
+        action: formatMonthlyAction(`Disable "${skill}"`, monthly),
         savings: totalCost,
+        monthlySavingsUsd: monthly,
         priority: 90,
       });
     }
@@ -107,14 +122,17 @@ export function generateOptimizationSuggestions(
       const cursorPer = cursor.cost / cursor.sessions;
       if (cursorPer < claudePer * thresholds.agentSavingsRatio) {
         const savings = claudePer - cursorPer;
+        const pct = Math.round((1 - cursorPer / claudePer) * 100);
+        const monthly = monthlyUsd(savings * runs);
         suggestions.push({
           type: "switch_agent",
           skill,
           from: "claude",
           to: "cursor",
           reason: `Cursor ~$${cursorPer.toFixed(2)}/run vs Claude ~$${claudePer.toFixed(2)}/run`,
-          action: `Prefer Cursor for "${skill}" (stores preference only; save ~$${savings.toFixed(2)}/run est.)`,
+          action: formatMonthlyAction(`Switch "${skill}" to Cursor (~${pct}% per run)`, monthly),
           savings,
+          monthlySavingsUsd: monthly,
           priority: 80,
         });
       }
@@ -127,14 +145,18 @@ export function generateOptimizationSuggestions(
         if (cheap && cheap.sessions > 0) {
           const cheapPer = cheap.cost / cheap.sessions;
           if (cheapPer < claudePer * thresholds.agentSavingsRatio) {
+            const savings = claudePer - cheapPer;
+            const pct = Math.round((1 - cheapPer / claudePer) * 100);
+            const monthly = monthlyUsd(savings * runs);
             suggestions.push({
               type: "switch_agent",
               skill,
               from: "claude",
               to: cheapest,
               reason: `${cheapest} historically cheaper for this skill`,
-              action: `Prefer ${cheapest} for "${skill}" (save ~$${(claudePer - cheapPer).toFixed(2)}/run)`,
-              savings: claudePer - cheapPer,
+              action: formatMonthlyAction(`Switch "${skill}" to ${cheapest} (~${pct}% per run)`, monthly),
+              savings,
+              monthlySavingsUsd: monthly,
               priority: 75,
             });
           }
@@ -144,12 +166,14 @@ export function generateOptimizationSuggestions(
 
     const idleDays = daysSinceLastUse(skill, usageStats);
     if (idleDays !== null && idleDays >= thresholds.unusedIdleDays && totalCost > thresholds.unusedMinCostUsd) {
+      const monthly = monthlyUsd(totalCost * 0.5);
       suggestions.push({
         type: "unused",
         skill,
         reason: `No usage in ${idleDays} days (~$${totalCost.toFixed(2)} attributed)`,
-        action: `Consider disabling "${skill}" — idle ${idleDays}d`,
+        action: formatMonthlyAction(`Disable idle "${skill}"`, monthly),
         savings: totalCost * 0.5,
+        monthlySavingsUsd: monthly,
         priority: 70,
       });
     }
@@ -181,7 +205,9 @@ export function formatSuggestionsReport(
   }
   const lines = ["## Cost optimization suggestions", ""];
   for (const s of suggestions.slice(0, 15)) {
-    lines.push(`- **${s.skill}** (${s.type}): ${s.action}`);
+    const monthly =
+      s.monthlySavingsUsd !== undefined ? ` (~$${s.monthlySavingsUsd.toFixed(0)}/mo est.)` : "";
+    lines.push(`- **${s.skill}** (${s.type}): ${s.action}${monthly}`);
     lines.push(`  _${s.reason}_`);
   }
   lines.push("");

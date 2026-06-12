@@ -125,6 +125,9 @@ import { showOnboardingTour } from "./onboarding";
 import { showOnboardingWizard } from "./onboardingWizard";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
+import { setPricingContext } from "./costRates";
+import { refreshRunsIndex } from "./runsIndex";
+import { refreshWorkspaceSystemState } from "./workspaceSystemState";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
@@ -484,6 +487,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const refreshAll = () => {
     const target = getWorkspaceTarget();
+    setPricingContext(target);
     if (target && isFeatureEnabled("attributionCollector")) {
       AttributionCollector.setActiveTarget(target, libraryDir);
     }
@@ -503,6 +507,12 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }
     if (target) {
+      try {
+        refreshWorkspaceSystemState(target, libraryDir);
+        refreshRunsIndex(target, loadManifest(libraryDir));
+      } catch (err) {
+        log(`System state refresh failed: ${(err as Error).message}`);
+      }
       void checkEmergencyCutoff(target, libraryDir);
       if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
         ensureAttributionHooksActive(context.extensionPath, target, log);

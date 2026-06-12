@@ -1,5 +1,7 @@
 /** Shared cost estimate helpers — not actual API billing. */
 
+import { overridePricingForModel, defaultHourlyRateUsd } from "./pricingOverrides";
+
 export const ESTIMATE_DISCLAIMER =
   "All dollar amounts are model-based estimates from session transcripts and runs.jsonl — not your Anthropic/Cursor invoice. Pro/Max plans are flat-rate.";
 
@@ -20,10 +22,21 @@ const PRICING_TIERS: { match: string; pricing: ModelPricing }[] = [
 
 const DEFAULT_PRICING: ModelPricing = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
 
+/** Active workspace for pricing-overrides.json lookup (set by extension on refresh). */
+let activePricingTarget: string | undefined;
+
+export function setPricingContext(target: string | undefined): void {
+  activePricingTarget = target;
+}
+
 /** @deprecated Blended fallback when model unknown (Sonnet-ish 50/50 input/output). */
 export const BLENDED_USD_PER_M_TOKEN = 9;
 
 export function pricingForModel(model?: string): ModelPricing {
+  const override = overridePricingForModel(model, activePricingTarget);
+  if (override) {
+    return override;
+  }
   const lower = (model ?? "claude-sonnet").toLowerCase();
   for (const tier of PRICING_TIERS) {
     if (lower.includes(tier.match)) {
@@ -62,6 +75,10 @@ export function tokenCostUsd(tokens: number, model?: string): number {
     return 0;
   }
   return (tokens / 1_000_000) * blendedUsdPerMTokens(model);
+}
+
+export function hourlyRateUsd(): number {
+  return defaultHourlyRateUsd(activePricingTarget);
 }
 
 export function formatModelRateHint(model?: string): string {

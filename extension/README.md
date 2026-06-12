@@ -159,8 +159,61 @@ Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
 |---|---|
 | `.claude/position.local.json` | Team role |
 | `.claude/learning/skills-catalog.json` | Live skill inventory |
-| `.claude/learning/profile-init-request.json` | Init context |
+| `.claude/learning/profile-init-request.json` | Init context (`status`: `pending` → `completed`) |
 | `.claude/profile.local.json` | Agent’s selection (`status`: `pending` → `applied`) |
+| `.claude/learning/write-locks.json` | Coordinated write versions (extension vs agent) |
+
+## Cost intelligence & FinOps (v1.0.17+)
+
+The extension tracks **cost** and **estimated value** so optimizations favor high-ROI skills, not blind cutbacks.
+
+### Dashboard panels
+
+| Panel | What it shows |
+|---|---|
+| **Trust banner** | Disclaimer + workspace confidence % + attribution fallback (hooks → transcripts → heuristics) |
+| **System state** | `profileInit` (`idle` / `pending` / `applied` / `failed`), attribution (`healthy` / `degraded` / `broken`), hook status, per-agent capabilities |
+| **Usage by agent** | Claude/Cursor transcript spend for this workspace (14d); Kiro/Copilot deploy-only unless transcripts exist |
+| **Value & ROI** | Total estimated minutes saved, $ value (@ hourly rate), net ROI band |
+| **Cost by repo** | Rollup from `runs.jsonl` `project` field |
+| **Cost by skill owner** | Git author of each `SKILL.md` (proxy — not who invoked the agent) |
+| **Top expensive skills** | Cost + ROI band + confidence per skill |
+| **Optimization** | Apply suggestions with **monthly $** outcomes |
+
+### ROI & confidence
+
+- **Skills tree** — `Cycle Skill Sort (ROI / Cost)`; labels like `ROI: HIGH`, `~20 min saved`
+- **Confidence** — `high` (v2 hooks / strong runs), `estimated` (transcripts or partial data), `low` (tier heuristics only)
+- **Optimizer gate** — suggestions when workspace confidence ≥ 45%; apply-actions still safest when attribution is `healthy`
+
+### Optional pricing overrides
+
+Create `.claude/learning/pricing-overrides.json` to align estimates with your contract or invoice:
+
+```json
+{
+  "version": 1,
+  "defaultHourlyRateUsd": 75,
+  "models": {
+    "opus": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 }
+  }
+}
+```
+
+Rates are USD **per 1M tokens**. Keys match model id substrings (same logic as built-in tiers).
+
+### Learning & index files
+
+| File | Purpose |
+|---|---|
+| `.claude/learning/runs.jsonl` | Hook + self-learning run log |
+| `.claude/learning/skill-stats.json` | Pre-aggregated per-skill stats (refreshed on extension refresh) |
+| `.claude/learning/daily-stats.json` | Cost/tokens/runs by calendar day |
+| `.claude/learning/system-state.json` | Unified snapshot for debugging and UI |
+| `.claude/learning/cost-attribution.json` | Collector merge store |
+| `.claude/learning/pricing-overrides.json` | Optional manual pricing |
+
+Profile-init local files — see [Profile init](#profile-init-role--branch-agent-driven).
 
 ## Commands (Command Palette / view toolbar)
 
@@ -193,9 +246,9 @@ Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
 | `Claude Skills: Reset Mis-attributed Cost Data` | Removes collector-generated transcript rows and clears `transcriptSkills` so cost attribution can be re-collected accurately. |
 | `Claude Skills: Install Skill Library to All Enabled AI Agents` | Copies the bundled library to global dirs for Claude, Cursor, Kiro, and Copilot (per `claudeSkills.agents.enabled`). |
 | `Claude Skills: Show Enabled AI Agent Targets` | Lists which agents are enabled and their deploy paths (`skills_library/agents.json`). |
-| `Claude Skills: Show Cost Intelligence Dashboard` | WebView: agent spend (14d), per-skill costs when attribution is reliable, cross-agent savings, optimizations. Hides per-skill data when equal-split mis-attribution is detected. |
+| `Claude Skills: Show Cost Intelligence Dashboard` | WebView: agent spend (14d), trust/confidence banner, **System state**, Value & ROI, per-skill costs with ROI band + confidence, cost by repo/owner, cross-agent savings, financial optimization hints (`→ save ~$X/month`). Hides per-skill detail when attribution is broken. |
 | `Claude Skills: Sync Workspace Skills to All Agents` | Force mirror effective workspace skills to Cursor, Kiro, Copilot. |
-| `Claude Skills: Show Cost Optimization Suggestions` | Actionable disable / agent-switch / archival hints from attribution data. |
+| `Claude Skills: Show Cost Optimization Suggestions` | Actionable disable / agent-switch / archival hints with estimated monthly savings. |
 | `Claude Skills: Apply Cost Optimizations` | Interactive apply (or auto when `claudeSkills.optimizer.autoApply` is on). |
 | `Claude Skills: Manage Feature Toggles` | Flip major features on/off (`claudeSkills.features.*`). |
 | `Claude Skills: Cycle Skill Sort (ROI / Cost)` | Sort skills tree by relevance, lowest cost, highest ROI, or best value. |
@@ -259,6 +312,8 @@ Find all options under **Settings → Extensions → Claude Skills Manager** (or
 | `claudeSkills.weeklyReport.hour` | `9` | Local hour |
 | `claudeSkills.search.sortBy` | `relevance` | `lowest_cost`, `highest_roi`, `best_value` |
 
+**Pricing overrides** — not a VS Code setting; optional file `.claude/learning/pricing-overrides.json` (see [Cost intelligence](#cost-intelligence--finops-v1017)).
+
 Checkbox toggles your **effective** skill set: enable installs or clears `skillOverrides`; disable on a branch-committed skill sets `skillOverrides: off` locally (files stay on the branch). Personal-only skills are removed from disk and added to `.git/info/exclude`. Changes propagate to other enabled agents automatically.
 
 All results are logged to the **"Claude Skills"** output channel.
@@ -274,21 +329,33 @@ All results are logged to the **"Claude Skills"** output channel.
 
 First activation prompts **Get Started** if `~/.claude/skills/` is empty.
 
-### Cost attribution notes (v1.0.1+)
+### Cost attribution notes (v1.0.17+)
 
 The background collector attributes session tokens only to skills with evidence
 of actual use (SKILL.md reads, Skill tool calls, etc.) — not the full
 `skill_listing` catalog. Unattributed sessions are labeled `unattributed` in
-reports. Record runs with `metadata.invoked: true` via the `self-learning`
-skill for best accuracy. Keep `claudeSkills.optimizer.autoApply` off until
-attribution looks correct.
+reports.
+
+**Confidence labels** on dashboard rows (`high` / `estimated` / `low`) indicate
+how much to trust per-skill costs — not an API invoice. Strongest signal:
+Attribution v2 hooks across Claude, Cursor, Kiro, and Copilot.
+
+Record runs with `metadata.invoked: true` via the `self-learning` skill for
+best accuracy. Keep `claudeSkills.optimizer.autoApply` off until attribution
+looks correct. Optional: `.claude/learning/pricing-overrides.json` for model rates
+and ROI hourly wage.
+
+Inspect `.claude/learning/system-state.json` when debugging profile init,
+hooks, or attribution health.
 
 ## What this tool does NOT do
 
 - SKILL.md lint is advisory by default (`claudeSkills.lint.blockSyncOnError` to hard-block) — covers the `.claude/skills` source of truth plus Cursor/Kiro SKILL.md mirrors and Copilot `.instructions.md` mirror presence.
+- **Cost and ROI are estimates** — confidence scores express uncertainty; not billing-grade without pricing overrides + invoice reconciliation.
 - Community benchmark upload requires you to configure endpoints (no default public server).
 - PR comments require GitHub CLI and explicit feature enable.
 - Copilot clones are instruction files, not native Copilot skills.
+- **Cost by skill owner** attributes to who committed `SKILL.md`, not who ran the agent.
 
 ## Performance & compatibility
 

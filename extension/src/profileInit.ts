@@ -14,6 +14,13 @@ import { installProfileInitSessionHook } from "./hookOps";
 import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
 import { copySkill, ensureGitExcludeEntry, listSkillStatuses, SkillStatus } from "./skillOps";
 import { ensureLearningDir } from "./usageStats";
+import {
+  readJsonFile,
+  writeCoordinatedJson,
+  writeJsonAtomic,
+  acquireWriteLock,
+  releaseWriteLock,
+} from "./fileWriteCoordination";
 
 export const POSITION_OPTIONS = [
   { id: "devops", label: "DevOps" },
@@ -178,6 +185,9 @@ export function ensureProfileInitSessionReady(
   }
 }
 
+const PROFILE_LOCAL_KEY = "profile.local.json";
+const PROFILE_REQUEST_KEY = "profile-init-request.json";
+
 /** Gitignore local profile-init artifacts via .git/info/exclude. */
 export function ensureProfileInitGitIgnored(target: string): void {
   for (const rel of LOCAL_PATHS) {
@@ -185,25 +195,9 @@ export function ensureProfileInitGitIgnored(target: string): void {
   }
 }
 
-function writeJsonAtomic(filePath: string, data: unknown): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmp = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
-  );
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf-8");
-  fs.renameSync(tmp, filePath);
-}
-
-function readJsonFile<T>(filePath: string): T | undefined {
-  if (!fs.existsSync(filePath)) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
-  } catch {
-    return undefined;
-  }
+export function writeBranchProfileInit(target: string, profile: BranchProfileInit): void {
+  ensureProfileInitGitIgnored(target);
+  writeCoordinatedJson(target, profileLocalPath(target), PROFILE_LOCAL_KEY, "extension", profile);
 }
 
 export function readUserPosition(target: string): UserPosition | undefined {
@@ -264,11 +258,6 @@ export function readBranchProfileInit(target: string): BranchProfileInit | undef
   return parsed;
 }
 
-export function writeBranchProfileInit(target: string, profile: BranchProfileInit): void {
-  ensureProfileInitGitIgnored(target);
-  writeJsonAtomic(profileLocalPath(target), profile);
-}
-
 export function readProfileInitRequest(target: string): ProfileInitRequest | undefined {
   const parsed = readJsonFile<ProfileInitRequest>(profileInitRequestPath(target));
   if (!parsed || parsed.version !== 1) {
@@ -300,7 +289,7 @@ export function buildProfileInitRequest(
     status: "pending",
     agentInstructions: buildAgentInstructions(branch, position, relevantSkillNames),
   };
-  writeJsonAtomic(profileInitRequestPath(target), request);
+  writeCoordinatedJson(target, profileInitRequestPath(target), PROFILE_REQUEST_KEY, "extension", request);
   return request;
 }
 
@@ -356,42 +345,49 @@ export function applyLocalProfileInit(
   target: string,
   init?: BranchProfileInit
 ): { result?: ApplyProfileResult; init?: BranchProfileInit; invalid: string[] } {
-  const profile = init ?? readBranchProfileInit(target);
-  if (!profile) {
+  if (!acquireWriteLock(target, PROFILE_LOCAL_KEY, "extension")) {
     return { invalid: [] };
   }
-  if (profile.status === "applied") {
-    return { invalid: [] };
+  try {
+    const profile = init ?? readBranchProfileInit(target);
+    if (!profile) {
+      return { invalid: [] };
+    }
+    if (profile.status === "applied") {
+      return { invalid: [] };
+    }
+    if (!profile.skills.length) {
+      return { invalid: [] };
+    }
+
+    const branch = getCurrentBranch(target);
+    if (branch && profile.branch !== branch) {
+      return { invalid: [] };
+    }
+
+    const catalog = readJsonFile<SkillsCatalog>(skillsCatalogPath(target));
+    const { valid, invalid } = validateProfileSkills(profile.skills, catalog);
+    if (valid.length === 0) {
+      return { invalid };
+    }
+
+    const toApply: BranchProfileInit = { ...profile, skills: valid };
+    const branchProfile = profileInitToBranchProfile(toApply, target);
+    const result = applyBranchProfile(libraryDir, target, branchProfile, { removeExtra: false });
+    saveBranchProfile(target, libraryDir);
+
+    const applied: BranchProfileInit = {
+      ...toApply,
+      status: "applied",
+      appliedAt: new Date().toISOString(),
+    };
+    writeBranchProfileInit(target, applied);
+    markProfileInitRequestCompleted(target);
+
+    return { result, init: applied, invalid };
+  } finally {
+    releaseWriteLock(target, PROFILE_LOCAL_KEY, "extension");
   }
-  if (!profile.skills.length) {
-    return { invalid: [] };
-  }
-
-  const branch = getCurrentBranch(target);
-  if (branch && profile.branch !== branch) {
-    return { invalid: [] };
-  }
-
-  const catalog = readJsonFile<SkillsCatalog>(skillsCatalogPath(target));
-  const { valid, invalid } = validateProfileSkills(profile.skills, catalog);
-  if (valid.length === 0) {
-    return { invalid };
-  }
-
-  const toApply: BranchProfileInit = { ...profile, skills: valid };
-  const branchProfile = profileInitToBranchProfile(toApply, target);
-  const result = applyBranchProfile(libraryDir, target, branchProfile, { removeExtra: false });
-  saveBranchProfile(target, libraryDir);
-
-  const applied: BranchProfileInit = {
-    ...toApply,
-    status: "applied",
-    appliedAt: new Date().toISOString(),
-  };
-  writeBranchProfileInit(target, applied);
-  markProfileInitRequestCompleted(target);
-
-  return { result, init: applied, invalid };
 }
 
 export function markProfileInitPending(

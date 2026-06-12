@@ -6,7 +6,33 @@ Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.17** is the cu
 
 ## [1.0.17] - 2026-06-12
 
-Same content as the consolidated 1.0.0 release below — publishable version that supersedes Marketplace **1.0.16**.
+FinOps and platform-hardening release — extends consolidated **1.0.0** with ROI, explicit system state, and faster cost indexing.
+
+### Cost intelligence & ROI
+
+- **ROI model** — per-skill time-saved heuristics (e.g. `deployment-practical` ~20 min), bands `HIGH` / `MEDIUM` / `LOW`, skills-tree sort and dashboard labels.
+- **Attribution confidence** — graded `high` / `estimated` / `low` per skill and workspace (0–1 score); dashboard trust banner and per-row badges.
+- **Value panel** — estimated minutes saved, dollar value (@ configurable hourly rate), net ROI in Cost Intelligence Dashboard.
+- **Financial optimizer** — suggestions show **monthly savings** (e.g. `Disable "X" → save ~$12/month`, agent-switch % savings).
+- **Team economics (foundation)** — cost by repo and by skill owner (git blame proxy) in dashboard when attribution is reliable.
+
+### System architecture
+
+- **Unified system state** — `.claude/learning/system-state.json` (`profileInit`, `attribution`, `hooks`, agent capabilities).
+- **Write coordination** — atomic JSON writes + `.claude/learning/write-locks.json` for profile-init files; extension lock on apply.
+- **Runs indexing** — `skill-stats.json` and `daily-stats.json` refreshed on extension refresh (avoids full `runs.jsonl` rescans).
+- **In-memory runs cache** — mtime/size keyed cache invalidated on append and token enrichment.
+- **Agent capability map** — deterministic hooks/tokens/transcripts support per agent for fallback debugging.
+- **Attribution strategy** — formal fallback chain: hooks → transcripts → heuristics (shown in dashboard).
+
+### Pricing & audit path
+
+- **Manual pricing overrides** — `.claude/learning/pricing-overrides.json` for model $/M tokens and default hourly rate (ROI); workspace-scoped via extension refresh.
+
+### Marketplace & tooling
+
+- Extension version **1.0.17** supersedes live **1.0.16** on Marketplace.
+- `scripts/unpublish-marketplace-versions.ps1` — per-version delete via Gallery REST API (not `vsce unpublish @version`).
 
 ## [1.0.1] - 2026-06-12
 

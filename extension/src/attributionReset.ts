@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { costAttributionPath, migrateLegacyCostAttribution } from "./costAttribution";
 import { collectorStatePath, LEGACY_COLLECTOR_STATE_PATH } from "./collectorState";
 import { pruneBackupFiles, pruneRunsJsonl } from "./learningPrune";
+import { invalidateLearningCache } from "./learningStateIndex";
 const RUNS_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
 
 export interface ResetResult {
@@ -93,6 +94,7 @@ export function resetMisattributedData(target: string): ResetResult {
   }
 
   pruneRunsJsonl(runsFile);
+  invalidateLearningCache(target);
   pruneBackupFiles(learningDir, "pre-reset-");
   pruneBackupFiles(learningDir, ".bak-");
 
