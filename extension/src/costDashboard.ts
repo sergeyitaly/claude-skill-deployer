@@ -25,10 +25,8 @@ import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./
 import { formatCompactUsd } from "./skillCost";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import { buildTeamEconomicsSnapshot } from "./teamEconomics";
-import { refreshWorkspaceSystemState } from "./workspaceSystemState";
 import { buildSystemModeContext } from "./systemMode";
-import { readPipelineCycle } from "./pipelineCycle";
-import { refreshRunsIndex } from "./runsIndex";
+import { runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
@@ -96,12 +94,12 @@ export function formatCostDashboardHtml(target: string, libraryDir: string, scri
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">`
     : "";
   enrichV2HookRunTokens(target, libraryDir);
-  refreshRunsIndex(target, loadManifest(libraryDir));
   const manifest = loadManifest(libraryDir);
-  const systemState = refreshWorkspaceSystemState(target, libraryDir);
+  const pipeline = runCostPipelineSync(target, libraryDir);
+  const systemState = pipeline.state;
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+  const modeCtx = buildSystemModeContext(health, pipeline.cycle);
   const showPerSkill = modeCtx.canShowPerSkillCosts;
   const canApplyOptimizations = modeCtx.canApplyOptimizations;
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
@@ -373,10 +371,10 @@ ${cspMeta}
 
 export function formatCostDashboardText(target: string, libraryDir: string): string {
   const manifest = loadManifest(libraryDir);
-  refreshRunsIndex(target, manifest);
+  const pipeline = runCostPipelineSync(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
-  const modeCtx = buildSystemModeContext(health, readPipelineCycle(target));
+  const modeCtx = buildSystemModeContext(health, pipeline.cycle);
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);

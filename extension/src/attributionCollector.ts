@@ -7,6 +7,7 @@ import { readCollectorState, writeCollectorState } from "./collectorState";
 import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { markPipelineCollected } from "./pipelineCycle";
+import { runCostPipelineSync } from "./costPipeline";
 import { appendSkillRun, sessionHasV2HookRuns } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace, workspaceFromTranscriptFile } from "./workspaceTranscripts";
@@ -298,6 +299,7 @@ export class AttributionCollector {
     writeCollectorState(this.target, state);
     saveAttribution(this.target, store);
     markPipelineCollected(this.target);
+    runCostPipelineSync(this.target, this.libraryDir);
     this.lastRun = now;
     return processed;
   }

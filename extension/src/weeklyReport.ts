@@ -6,6 +6,7 @@ import { agentCapabilityLines, computeEnabledAgentsCreditUsage } from "./agentOp
 import { buildCostAttribution } from "./costAttribution";
 import { calculateTrend, predictWeeklyCost } from "./costPredictor";
 import { generateOptimizationSuggestions } from "./costOptimizer";
+import { runCostPipelineSync } from "./costPipeline";
 import { fetchVcsIdentity, parseGitRemote, pickAndStoreVcsToken } from "./vcsReportDelivery";
 import { formatCompactUsd } from "./skillCost";
 import { formatTokenCount, readEnrichedRuns } from "./usageStats";
@@ -251,6 +252,7 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
 
   const trend = calculateTrend();
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
+  runCostPipelineSync(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
   const suggestions = generateOptimizationSuggestions(target, libraryDir).slice(0, 5);
 

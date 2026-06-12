@@ -126,10 +126,9 @@ import { showOnboardingWizard } from "./onboardingWizard";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionHealth";
 import { setPricingContext } from "./costRates";
-import { refreshRunsIndex } from "./runsIndex";
+import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
 import { buildSystemModeContext } from "./systemMode";
 import { readPipelineCycle } from "./pipelineCycle";
-import { refreshWorkspaceSystemState } from "./workspaceSystemState";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
@@ -510,8 +509,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
     if (target) {
       try {
-        refreshRunsIndex(target, loadManifest(libraryDir));
-        refreshWorkspaceSystemState(target, libraryDir);
+        runCostPipelineSync(target, libraryDir);
       } catch (err) {
         log(`System state refresh failed: ${(err as Error).message}`);
       }
@@ -577,18 +575,21 @@ export function activate(context: vscode.ExtensionContext) {
         if (!isAutoOptimizeEnabled()) {
           return;
         }
-        const health = assessAttributionHealth(initialTarget, libraryDir);
-        const modeCtx = buildSystemModeContext(health, readPipelineCycle(initialTarget));
-        if (!modeCtx.canAutoApplyOptimizations) {
-          return;
-        }
-        const suggestions = generateOptimizationSuggestions(initialTarget, libraryDir).filter(
-          (s) => s.type === "disable" || s.type === "unused"
-        );
-        if (suggestions.length > 0) {
-          void applyAutoOptimizations(initialTarget, libraryDir, suggestions, { auto: true });
-        }
-        void runArchivalPass(initialTarget, libraryDir);
+        void (async () => {
+          await runCostPipeline(initialTarget, libraryDir);
+          const health = assessAttributionHealth(initialTarget, libraryDir);
+          const modeCtx = buildSystemModeContext(health, readPipelineCycle(initialTarget));
+          if (!modeCtx.canAutoApplyOptimizations) {
+            return;
+          }
+          const suggestions = generateOptimizationSuggestions(initialTarget, libraryDir).filter(
+            (s) => s.type === "disable" || s.type === "unused"
+          );
+          if (suggestions.length > 0) {
+            await applyAutoOptimizations(initialTarget, libraryDir, suggestions, { auto: true });
+          }
+          await runArchivalPass(initialTarget, libraryDir);
+        })();
       }, 30 * 60 * 1000);
       context.subscriptions.push({ dispose: () => clearInterval(autoOptTimer) });
     }
@@ -1413,10 +1414,10 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       ensureLearningDir(target);
-      if (isFeatureEnabled("attributionCollector")) {
-        await AttributionCollector.getInstance(target, libraryDir).collect(true);
-      }
-      refreshRunsIndex(target, loadManifest(libraryDir));
+      await runCostPipeline(target, libraryDir, {
+        collect: isFeatureEnabled("attributionCollector"),
+        forceCollect: true,
+      });
       persistCostAttribution(target, libraryDir);
       const built = buildCostAttribution(target, libraryDir);
       const merged = { ...built.skills, ...built.transcriptSkills };
@@ -1869,6 +1870,25 @@ export function activate(context: vscode.ExtensionContext) {
   profileLocalWatcher.onDidChange(debouncedProfileApply);
   profileLocalWatcher.onDidCreate(debouncedProfileApply);
   context.subscriptions.push(profileLocalWatcher);
+
+  const debouncedCostPipeline = debounce(() => {
+    const target = getWorkspaceTarget();
+    if (!target) {
+      return;
+    }
+    try {
+      runCostPipelineSync(target, libraryDir);
+    } catch (err) {
+      log(`Cost pipeline refresh failed: ${(err as Error).message}`);
+    }
+  }, 2000);
+
+  for (const learningGlob of ["**/.claude/learning/runs.jsonl", "**/.claude/learning/cost-attribution.json"]) {
+    const learningWatcher = vscode.workspace.createFileSystemWatcher(learningGlob);
+    learningWatcher.onDidChange(debouncedCostPipeline);
+    learningWatcher.onDidCreate(debouncedCostPipeline);
+    context.subscriptions.push(learningWatcher);
+  }
 
   const gitExt = vscode.extensions.getExtension("vscode.git");
   if (gitExt) {
