@@ -91,7 +91,7 @@ export function computeSkillRoi(
   }
 
   const minutesSaved = minutesSavedForSkill(skillName, tier, usageStat);
-  const valueUsd = sumRoiValue({ sessionCostUsd, minutesSaved, roi: 0, roiBand: "LOW", confidence: "low", dataSource, successRate: usageStat?.successRate ?? null });
+  const valueUsd = sumRoiValue({ minutesSaved });
   const roi = sessionCostUsd > 0 ? valueUsd / sessionCostUsd : 0;
 
   return {

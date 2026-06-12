@@ -2,9 +2,18 @@ import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { SkillAttributionMap } from "./costAttribution";
 import { countV2HookRuns, isV2HookRun, SKILL_INVOKE_HOOK_SOURCE } from "./runRecording";
 import { readEnrichedRuns } from "./usageStats";
-import { AttributionHealth } from "./attributionHealth";
 
 export type ConfidenceLevel = "high" | "estimated" | "low";
+
+/** Inputs for workspace confidence before graded fields are computed. */
+export interface AttributionHealthSignals {
+  reliable: boolean;
+  staleEqualSplit: boolean;
+  highUnattributedRatio: boolean;
+  noPerSkillData: boolean;
+  v2HookRuns: number;
+  summary: string;
+}
 
 export type SkillCostSource = "v2-hook" | "runs" | "transcript-split" | "heuristic";
 
@@ -107,7 +116,7 @@ export function assessSkillCostConfidence(
 export function assessWorkspaceConfidence(
   target: string,
   libraryDir: string,
-  health: AttributionHealth,
+  health: AttributionHealthSignals,
   unattributedTokens: number
 ): WorkspaceConfidence {
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
