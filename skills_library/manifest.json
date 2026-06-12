@@ -75,6 +75,11 @@
       "detect_globs": ["**/.claude/learning/runs.jsonl", "**/.claude/skills/**"],
       "cost_estimate": "medium"
     },
+    "skill-feedback-adaptation": {
+      "description": "Register user negative feedback on agent/skill behavior; propose skills for new tasks via task-skill-proposals.json",
+      "detect_globs": ["**/.claude/learning/skill-feedback.jsonl", "**/.claude/learning/task-skill-proposals.json", "**/.claude/learning/**"],
+      "cost_estimate": "low"
+    },
     "drawio-diagrams": {
       "description": "Create/edit architecture diagrams as .drawio files via the draw.io MCP server, including Azure architecture diagrams using the official Azure icon set",
       "detect_globs": ["**/*.drawio", "**/*.drawio.xml", "**/diagrams/**", "**/docs/diagrams/**", "**/docs/architecture/**"],

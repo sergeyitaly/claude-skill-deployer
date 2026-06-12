@@ -120,6 +120,12 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.applyTaskSkillProposals",
+        "title": "Apply Suggested Skills for Current Task",
+        "icon": "$(lightbulb-autofix)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.installSessionWatchHook",
         "title": "Enable Session Size Notifications",
         "icon": "$(bell-dot)",
@@ -449,6 +455,31 @@
         }
       },
       {
+        "id": "skillFeedback",
+        "title": "Skill feedback & proposals",
+        "order": 1.25,
+        "properties": {
+          "claudeSkills.skillFeedback.promptOnHighUsage": {
+            "type": "boolean",
+            "default": true,
+            "description": "When a git branch or active task exceeds the monthly credit threshold, show a notification offering to install suggested skills from task-skill-proposals.json."
+          },
+          "claudeSkills.skillFeedback.monthlyCreditThresholdPercent": {
+            "type": "number",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Prompt when branch/task spend reaches this percentage of the monthly credit budget."
+          },
+          "claudeSkills.skillFeedback.monthlyCreditsUsd": {
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget × 30, or 30-day workspace spend if daily budget is off."
+          }
+        }
+      },
+      {
         "id": "contextFocus",
         "title": "Context Focus",
         "order": 1.5,
@@ -593,6 +624,26 @@
             "type": "boolean",
             "default": true,
             "description": "Install a Claude Code SessionStart hook and sync profile-init to all agents when a branch profile request is pending."
+          },
+          "claudeSkills.profileInit.requiredSkills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "self-learning",
+              "file-style-conventions",
+              "skill-creator",
+              "skill-usage-insights",
+              "skill-feedback-adaptation",
+              "skill-official-updater"
+            ],
+            "description": "Platform skills always merged into every profile-init skill set (learning, usage KPIs, feedback, skill authoring, official sync)."
+          },
+          "claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch": {
+            "type": "boolean",
+            "default": true,
+            "description": "When switching to a git branch with no saved skill profile (or on first open when required skills are missing), reinstall required platform skills from the library if they were deleted or locally disabled."
           }
         }
       },

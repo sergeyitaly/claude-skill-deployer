@@ -154,6 +154,31 @@ export const DASHBOARD_USAGE_EXTRA_STYLES = `
   .card.unused { border-color: color-mix(in srgb, #8b949e 55%, var(--vscode-panel-border)); }
   .card.needs-attention { border-color: color-mix(in srgb, #f85149 55%, var(--vscode-panel-border)); }
   .card.suggested { border-color: color-mix(in srgb, #58a6ff 55%, var(--vscode-panel-border)); }
+  .card.inefficient { border-color: color-mix(in srgb, #da3633 55%, var(--vscode-panel-border)); }
+  .inefficiency-panel { border-color: color-mix(in srgb, #f85149 35%, var(--vscode-panel-border)); }
+  .inefficiency-list { list-style: none; padding-left: 0; margin: 0; }
+  .inefficiency-row { padding: 6px 8px; margin-bottom: 4px; border-radius: 5px; border: 1px solid var(--vscode-panel-border); }
+  .inefficiency-row.heat-1 { background: color-mix(in srgb, #f85149 8%, var(--vscode-editor-background)); }
+  .inefficiency-row.heat-2 { background: color-mix(in srgb, #f85149 16%, var(--vscode-editor-background)); }
+  .inefficiency-row.heat-3 { background: color-mix(in srgb, #f85149 28%, var(--vscode-editor-background)); }
+  .inefficiency-row.heat-4 { background: color-mix(in srgb, #f85149 42%, var(--vscode-editor-background)); }
+  .inefficiency-row.heat-5 { background: color-mix(in srgb, #f85149 58%, var(--vscode-editor-background)); }
+  .inefficiency-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .inefficiency-pct { font-weight: 700; font-variant-numeric: tabular-nums; color: #f85149; }
+  .inefficiency-bar-wrap { height: 4px; background: var(--vscode-panel-border); border-radius: 2px; margin: 4px 0; overflow: hidden; }
+  .inefficiency-bar { height: 100%; border-radius: 2px; background: #f85149; }
+  .inefficiency-bar.heat-1 { background: color-mix(in srgb, #f85149 45%, #d29922); }
+  .inefficiency-bar.heat-2 { background: color-mix(in srgb, #f85149 60%, #d29922); }
+  .inefficiency-bar.heat-3 { background: #f85149; }
+  .inefficiency-bar.heat-4 { background: color-mix(in srgb, #f85149 85%, #da3633); }
+  .inefficiency-bar.heat-5 { background: #da3633; }
+  .badge.inefficiency { background: #f85149; }
+  .badge.inefficiency.heat-1 { background: color-mix(in srgb, #f85149 70%, #d29922); }
+  .badge.inefficiency.heat-2 { background: #f85149; }
+  .badge.inefficiency.heat-3 { background: color-mix(in srgb, #f85149 90%, #da3633); }
+  .badge.inefficiency.heat-4, .badge.inefficiency.heat-5 { background: #da3633; }
+  .badge.task-conf { background: #58a6ff; }
+  .task-summary { font-size: 0.82em; margin: 0 0 6px; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.72em; font-weight: 600; color: #fff; white-space: nowrap; }
   .badge.active { background: #3fb950; }
   .badge.low-usage { background: #d29922; }

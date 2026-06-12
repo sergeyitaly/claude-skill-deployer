@@ -1,15 +1,10 @@
 ---
-name: self-learning
-description: Maintain a project-local self-learning base of task/command outcomes — record successes and failures with timestamps, durations, and fixes; generate a patterns report (pass rates, recurring errors, known fixes); and surface a learned hint before retrying something that failed before. Use at the start of a session to check learned hints, after running a non-trivial command/skill to record the outcome, when asked "what failed before" or "what did we learn", or to record a manual decision/learning.
-user-invocable: true
-allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
+name: "self-learning"
+description: "Maintain a project-local self-learning base of task/command outcomes — record successes and failures with timestamps, durations, and fixes; generate a patterns report (pass rates, recurring errors, known fixes); and surface a learned hint before retrying something that failed before. Use at the start of a session to check learned hints, after running a non-trivial command/skill to record the outcome, when asked \"what failed before\" or \"what did we learn\", or to record a manual decision/learning."
+applyTo: "**/*"
 ---
+
+# self-learning
 
 # Self-Learning
 
@@ -41,16 +36,12 @@ durable, reviewable output.
 ## Run record schema (one JSON object per line in runs.jsonl)
 
 ```json
-{"ts": "2026-06-11T14:32:00", "skill": "terraform-plan-review", "action": "plan",
- "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345,
- "metadata": {"invoked": true}}
+{"ts": "2026-06-11T14:32:00", "skill": "terraform", "action": "validate",
+ "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345}
 ```
 
 - `skill`/`action`: a short identifier for what was run (e.g. skill name +
   subcommand, or `"task"` + a short task name).
-- `metadata.invoked`: set to `true` when this skill was **actually invoked**
-  in the session (not merely listed in context). Cost attribution uses this to
-  distinguish active skills from enabled-but-unused skills.
 - `rc`: 0 for success, non-zero for failure.
 - `error`: first meaningful error line (truncate to ~200 chars), empty on
   success.
@@ -139,19 +130,8 @@ work.
 
 ## 3. After running something non-trivial
 
-Append a record to `runs.jsonl` with the outcome. When token/cost data is
-available, also record prediction accuracy via the repo helper (from project
-root):
-
-```bash
-py -c "from cost_learning import record_cost_outcome; record_cost_outcome('skill-name', expected_cost=0.25, actual_cost=0.31, success=True)"
-```
-
-This writes to `.claude/learning/cost-learning.jsonl` and updates
-`~/.claude/learning/cost-models.json` multipliers for future estimates.
-
-Then regenerate `patterns.md` (see structure below) by aggregating all
-records:
+Append a record to `runs.jsonl` with the outcome. Then regenerate
+`patterns.md` (see structure below) by aggregating all records:
 
 - **Reliable commands** — 100% pass rate over 3+ runs: list as
   `skill | action | runs | avg duration`.

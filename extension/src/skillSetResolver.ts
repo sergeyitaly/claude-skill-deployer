@@ -79,6 +79,7 @@ const LAST_RUN_WEEK_KEY = "claudeSkills.lastSkillSetResolverWeek";
 const DEFAULT_PROTECTED = [
   "self-learning",
   "skill-usage-insights",
+  "skill-feedback-adaptation",
   "file-style-conventions",
   "skill-official-updater",
 ];

@@ -6,14 +6,19 @@ import { describe, expect, it } from "vitest";
 import {
   applyLocalProfileInit,
   BranchProfileInit,
+  DEFAULT_PROFILE_INIT_REQUIRED_SKILLS,
+  findMissingRequiredProfileSkills,
+  mergeProfileInitSkills,
   profileInitToBranchProfile,
   profileLocalPath,
   readUserPosition,
+  recoverRequiredProfileSkills,
   refreshSkillsCatalog,
   SkillsCatalog,
   validateProfileSkills,
   writeUserPosition,
 } from "./profileInit";
+import { setSkillOverride } from "./skillOps";
 
 function makeWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "profile-init-"));
@@ -31,6 +36,18 @@ function makeGitWorkspace(branch = "feature/test"): string {
 function positionLocalPath(target: string): string {
   return path.join(target, ".claude", "position.local.json");
 }
+
+describe("mergeProfileInitSkills", () => {
+  it("prepends required platform skills and dedupes", () => {
+    const merged = mergeProfileInitSkills(["ci-pipeline-debug", "self-learning", "terraform-plan-review"]);
+    expect(merged.slice(0, DEFAULT_PROFILE_INIT_REQUIRED_SKILLS.length)).toEqual([
+      ...DEFAULT_PROFILE_INIT_REQUIRED_SKILLS,
+    ]);
+    expect(merged).toContain("ci-pipeline-debug");
+    expect(merged).toContain("terraform-plan-review");
+    expect(merged.filter((s) => s === "self-learning")).toHaveLength(1);
+  });
+});
 
 describe("validateProfileSkills", () => {
   const catalog: SkillsCatalog = {
@@ -123,6 +140,7 @@ describe("applyLocalProfileInit", () => {
 
     const onDisk = JSON.parse(fs.readFileSync(profileLocalPath(target), "utf-8")) as BranchProfileInit;
     expect(onDisk.status).toBe("applied");
+    expect(onDisk.skills).toContain("self-learning");
   });
 });
 
@@ -141,6 +159,43 @@ describe("profileInitToBranchProfile", () => {
     };
     const bp = profileInitToBranchProfile(init, target);
     expect(bp.branch).toBe("main");
-    expect(bp.skills).toEqual(["doc-coauthoring"]);
+    expect(bp.skills).toEqual(mergeProfileInitSkills(["doc-coauthoring"]));
+  });
+});
+
+describe("recoverRequiredProfileSkills", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("detects missing required skills", () => {
+    const target = makeGitWorkspace("feature/recover");
+    expect(findMissingRequiredProfileSkills(target).length).toBeGreaterThan(0);
+  });
+
+  it("reinstalls accidentally deleted required skills", () => {
+    const target = makeGitWorkspace("feature/recover-delete");
+    const skillDir = path.join(target, ".claude", "skills", "skill-creator");
+    fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+
+    const { recovered } = recoverRequiredProfileSkills(libraryDir, target);
+    expect(recovered).toContain("skill-creator");
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
+
+    fs.rmSync(skillDir, { recursive: true, force: true });
+    expect(findMissingRequiredProfileSkills(target)).toContain("skill-creator");
+
+    const again = recoverRequiredProfileSkills(libraryDir, target);
+    expect(again.recovered).toContain("skill-creator");
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
+  });
+
+  it("re-enables locally disabled required skills", () => {
+    const target = makeGitWorkspace("feature/recover-off");
+    recoverRequiredProfileSkills(libraryDir, target);
+    setSkillOverride(target, "self-learning", "off");
+    expect(findMissingRequiredProfileSkills(target)).toContain("self-learning");
+
+    const { reEnabled } = recoverRequiredProfileSkills(libraryDir, target);
+    expect(reEnabled).toContain("self-learning");
+    expect(findMissingRequiredProfileSkills(target)).not.toContain("self-learning");
   });
 });

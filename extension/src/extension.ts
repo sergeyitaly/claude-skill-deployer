@@ -21,7 +21,14 @@ import {
   ensureLearningDir,
   formatUsageReport,
   formatUsageReportHtml,
+  listInstalledSkills,
 } from "./usageStats";
+import { computeSkillInefficiencyStats } from "./skillFeedback";
+import { readTaskSkillProposals, resolveTaskSkillProposals } from "./taskSkillProposals";
+import {
+  evaluateHighUsageSkillProposalAlert,
+  maybePromptHighUsageSkillProposals,
+} from "./skillProposalAlert";
 import {
   agentCapabilityLines,
   agentMirrorsNeedSync,
@@ -161,11 +168,15 @@ import {
   applyLocalProfileInit,
   autoApplyProfileFileEnabled,
   ensureProfileInitSessionReady,
+  findMissingRequiredProfileSkills,
   maybePromptProfileInitOnNewBranch,
+  mergeProfileInitSkills,
   profileInitEnabled,
   profileInitRequestPending,
   promptForPosition,
   readUserPosition,
+  recoverRequiredProfileSkills,
+  recoverRequiredSkillsOnNewBranchEnabled,
   refreshSkillsCatalog,
   startProfileInitFlow,
 } from "./profileInit";
@@ -204,6 +215,31 @@ function branchChangeOpts(extensionPath: string, libraryDir: string, target: str
   return {
     onNewBranchWithoutProfile: (branch: string) =>
       maybePromptProfileInitOnNewBranch(extensionPath, libraryDir, target, branch, log),
+    mergeProfileSkills: mergeProfileInitSkills,
+    recoverRequiredSkills: async (
+      branch: string,
+      context: { isFirstSync: boolean; hasSavedProfile: boolean }
+    ): Promise<boolean> => {
+      if (!recoverRequiredSkillsOnNewBranchEnabled()) {
+        return false;
+      }
+      const shouldRecover =
+        !context.hasSavedProfile || (context.isFirstSync && findMissingRequiredProfileSkills(target).length > 0);
+      if (!shouldRecover) {
+        return false;
+      }
+      const { recovered, reEnabled, skipped } = recoverRequiredProfileSkills(libraryDir, target);
+      if (recovered.length > 0 || reEnabled.length > 0) {
+        log(
+          `Required platform skills for \`${branch}\`: restored ${recovered.join(", ") || "(none)"}` +
+            (reEnabled.length ? `; re-enabled ${reEnabled.join(", ")}` : "") +
+            (skipped.length ? `; skipped (not in library): ${skipped.join(", ")}` : "") +
+            "."
+        );
+        return true;
+      }
+      return false;
+    },
   };
 }
 
@@ -387,20 +423,33 @@ function refreshUsageStatusBar(libraryDir: string) {
   const stats = computeUsageStats(target, manifest);
   const tracked = stats.filter((s) => s.runs > 0);
   const issues = stats.filter((s) => s.rating === "needs-attention" || s.rating === "unused").length;
+  const inefficient = computeSkillInefficiencyStats(target, listInstalledSkills(target)).length;
 
-  if (tracked.length === 0) {
+  if (tracked.length === 0 && inefficient === 0) {
     usageStatusBarItem.text = "$(graph) Skill usage: no data";
     usageStatusBarItem.tooltip =
       "No recorded skill runs yet (.claude/learning/runs.jsonl). Use the self-learning skill to start tracking outcomes.\n\nClick for the full report.";
   } else {
     const active = stats.filter((s) => s.rating === "active").length;
-    const issuesSuffix = issues > 0 ? `, ${issues} to review` : "";
-    usageStatusBarItem.text = `$(graph) Skill usage: ${active} active${issuesSuffix}`;
+    const parts: string[] = [];
+    if (tracked.length > 0) {
+      parts.push(`${active} active`);
+    }
+    if (issues > 0) {
+      parts.push(`${issues} to review`);
+    }
+    if (inefficient > 0) {
+      parts.push(`${inefficient} inefficient`);
+    }
+    usageStatusBarItem.text = `$(graph) Skill usage: ${parts.join(", ")}`;
     usageStatusBarItem.tooltip = "Click for the per-skill usage and KPI report.";
   }
   usageStatusBarItem.command = "claudeSkills.showUsageStats";
   usageStatusBarItem.show();
 }
+
+let lastHighUsageAlertCheckMs = 0;
+const HIGH_USAGE_ALERT_INTERVAL_MS = 5 * 60 * 1000;
 
 export function activate(context: vscode.ExtensionContext) {
   const libraryDir = path.join(context.extensionPath, "skills_library");
@@ -491,6 +540,31 @@ export function activate(context: vscode.ExtensionContext) {
     workspaceFolderStatusBarItem.show();
   };
 
+  async function applyProposalSkillNames(target: string, names: string[]): Promise<string[]> {
+    const installed: string[] = [];
+    for (const name of names) {
+      const results = installSkillToAllWorkspaceAgents(libraryDir, target, name, libraryDir, false, false);
+      if (results.some((r) => r.status === "installed" || r.status === "written")) {
+        installed.push(name);
+      }
+    }
+    if (installed.length > 0) {
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: true,
+      });
+    }
+    return installed;
+  }
+
+  function scheduleHighUsageSkillProposalCheck(target: string): void {
+    const now = Date.now();
+    if (now - lastHighUsageAlertCheckMs < HIGH_USAGE_ALERT_INTERVAL_MS) {
+      return;
+    }
+    lastHighUsageAlertCheckMs = now;
+    void maybePromptHighUsageSkillProposals(target, libraryDir, (names) => applyProposalSkillNames(target, names));
+  }
+
   const refreshAll = () => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
@@ -528,6 +602,7 @@ export function activate(context: vscode.ExtensionContext) {
           log(`Skill catalog refresh failed: ${(err as Error).message}`);
         }
       }
+      scheduleHighUsageSkillProposalCheck(target);
     }
   };
 
@@ -603,7 +678,11 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("claudeSkills.budget")) {
-        applyBudgetSettings(libraryDir, true);
+        applyBudgetSettings(libraryDir, false);
+        refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.skillFeedback")) {
+        lastHighUsageAlertCheckMs = 0;
         refreshAll();
       }
       if (e.affectsConfiguration("claudeSkills.contextFocus") && isFeatureEnabled("contextFocus")) {
@@ -885,6 +964,10 @@ export function activate(context: vscode.ExtensionContext) {
       const health = assessAttributionHealth(target, libraryDir);
       const stats = enrichUsageStatsWithAttribution(readSkillStatsIndex(target, manifest), attribution);
       const suggested = computeSuggestedSkills(target, manifest);
+      const installedNames = listInstalledSkills(target);
+      const inefficiency = computeSkillInefficiencyStats(target, installedNames);
+      const savedProposals = readTaskSkillProposals(target);
+      const taskProposals = resolveTaskSkillProposals(target, manifest);
       const creditUsage = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
       const skillConfidence = buildUsageSkillConfidenceMap(
         target,
@@ -898,6 +981,9 @@ export function activate(context: vscode.ExtensionContext) {
           summary: health.summary,
           v2Coverage: 0,
         },
+        inefficiency,
+        taskProposals,
+        taskSummary: savedProposals?.taskSummary,
       };
 
       outputChannel.show(true);
@@ -953,6 +1039,35 @@ export function activate(context: vscode.ExtensionContext) {
         usagePanel.onDidDispose(() => {
           usagePanel = undefined;
         });
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.applyTaskSkillProposals", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const manifest = loadManifest(libraryDir);
+      const proposals = resolveTaskSkillProposals(target, manifest);
+      const toInstall = proposals.filter((p) => !p.installed);
+      if (toInstall.length === 0) {
+        vscode.window.showInformationMessage(
+          "Claude Skills: no uninstalled suggested skills — run skill-feedback-adaptation on a new task first."
+        );
+        return;
+      }
+      const installed = await applyProposalSkillNames(
+        target,
+        toInstall.map((p) => p.name)
+      );
+      refreshAll();
+      if (installed.length > 0) {
+        vscode.window.showInformationMessage(
+          `Claude Skills: installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`
+        );
+      } else {
+        vscode.window.showInformationMessage("Claude Skills: could not install suggested skills.");
       }
     }),
 

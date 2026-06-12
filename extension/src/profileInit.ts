@@ -12,8 +12,8 @@ import {
 } from "./branchProfiles";
 import { installProfileInitSessionHook } from "./hookOps";
 import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
-import { copySkill, ensureGitExcludeEntry, listSkillStatuses, SkillStatus } from "./skillOps";
-import { ensureLearningDir } from "./usageStats";
+import { copySkill, ensureGitExcludeEntry, listSkillStatuses, readSkillOverrides, SkillStatus } from "./skillOps";
+import { ensureLearningDir, listInstalledSkills } from "./usageStats";
 import {
   readJsonFile,
   writeCoordinatedJson,
@@ -52,6 +52,8 @@ export interface SkillsCatalogEntry {
   installedInWorkspace: boolean;
   availableInGlobal: boolean;
   inLibrary: boolean;
+  /** Included in every profile-init apply (extension platform skills). */
+  requiredForProfileInit?: boolean;
 }
 
 export interface SkillsCatalog {
@@ -83,6 +85,7 @@ export interface ProfileInitRequest {
   catalogPath: string;
   outputPath: string;
   relevantSkillNames: string[];
+  requiredSkillNames: string[];
   skillCount: number;
   status: "pending" | "completed";
   agentInstructions: string;
@@ -96,6 +99,103 @@ const LOCAL_PATHS = [
 ] as const;
 
 export const PROFILE_INIT_SKILL = "profile-init";
+
+/** Always active after profile init — extension platform / skill-management skills. */
+export const DEFAULT_PROFILE_INIT_REQUIRED_SKILLS = [
+  "self-learning",
+  "file-style-conventions",
+  "skill-creator",
+  "skill-usage-insights",
+  "skill-feedback-adaptation",
+  "skill-official-updater",
+] as const;
+
+export function profileInitRequiredSkills(): string[] {
+  const cfg = vscode.workspace.getConfiguration("claudeSkills.profileInit");
+  const configured = cfg.get<string[]>("requiredSkills");
+  if (Array.isArray(configured) && configured.length > 0) {
+    return [...new Set(configured.map((s) => s.trim()).filter(Boolean))];
+  }
+  return [...DEFAULT_PROFILE_INIT_REQUIRED_SKILLS];
+}
+
+/** Merge role/branch picks with required platform skills (required first, deduped). */
+export function mergeProfileInitSkills(selected: string[]): string[] {
+  const required = profileInitRequiredSkills();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of [...required, ...selected]) {
+    if (!name || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+export interface RequiredSkillRecoveryResult {
+  recovered: string[];
+  reEnabled: string[];
+  skipped: string[];
+}
+
+export function recoverRequiredSkillsOnNewBranchEnabled(): boolean {
+  return vscode.workspace
+    .getConfiguration("claudeSkills.profileInit")
+    .get<boolean>("recoverRequiredSkillsOnNewBranch", true);
+}
+
+/** Required platform skills missing from disk or locally disabled via skillOverrides. */
+export function findMissingRequiredProfileSkills(target: string): string[] {
+  const required = profileInitRequiredSkills();
+  const installed = new Set(listInstalledSkills(target));
+  const overrides = readSkillOverrides(target);
+  return required.filter((name) => !installed.has(name) || overrides[name] === "off");
+}
+
+/** Reinstall missing required platform skills from library/global (no branch profile save). */
+export function recoverRequiredProfileSkills(
+  libraryDir: string,
+  target: string
+): RequiredSkillRecoveryResult {
+  const missing = findMissingRequiredProfileSkills(target);
+  const result: RequiredSkillRecoveryResult = { recovered: [], reEnabled: [], skipped: [] };
+  if (missing.length === 0) {
+    return result;
+  }
+
+  const installedBefore = new Set(listInstalledSkills(target));
+  const overridesBefore = readSkillOverrides(target);
+  const branch = getCurrentBranch(target) ?? "";
+  const applyResult = applyBranchProfile(
+    libraryDir,
+    target,
+    {
+      branch,
+      skills: missing,
+      skillOverrides: {},
+      updatedAt: new Date().toISOString(),
+      workspacePath: path.normalize(target),
+    },
+    { removeExtra: false }
+  );
+
+  for (const name of missing) {
+    if (applyResult.skipped.includes(name)) {
+      result.skipped.push(name);
+      continue;
+    }
+    if (!installedBefore.has(name) && applyResult.installed.includes(name)) {
+      result.recovered.push(name);
+    }
+    if (overridesBefore[name] === "off") {
+      result.reEnabled.push(name);
+    }
+  }
+
+  return result;
+}
 
 export function positionLocalPath(target: string): string {
   return path.join(target, ".claude", "position.local.json");
@@ -145,7 +245,12 @@ export function markProfileInitRequestCompleted(target: string): void {
   writeJsonAtomic(profileInitRequestPath(target), { ...request, status: "completed" as const });
 }
 
-function buildAgentInstructions(branch: string, position: UserPosition, relevantSkillNames: string[]): string {
+function buildAgentInstructions(
+  branch: string,
+  position: UserPosition,
+  relevantSkillNames: string[],
+  requiredSkillNames: string[]
+): string {
   const relevant =
     relevantSkillNames.length > 0
       ? `Prioritize workspace-relevant skills: ${relevantSkillNames.join(", ")}.`
@@ -153,9 +258,11 @@ function buildAgentInstructions(branch: string, position: UserPosition, relevant
   return [
     "Read and follow the profile-init skill immediately — do not wait for the user to ask.",
     `Pick skills for git branch "${branch}" as a ${position.label}.`,
+    `Always include these required platform skills in skills[] (mandatory): ${requiredSkillNames.join(", ")}.`,
     relevant,
-    "Write .claude/profile.local.json with status \"pending\" and a focused skills[] list from the catalog.",
-    "The extension auto-installs when the file is saved.",
+    "Add role/branch-specific skills on top of the required set (often 5–15 total).",
+    "Write .claude/profile.local.json with status \"pending\" and skills[] from the catalog.",
+    "The extension auto-installs when the file is saved (required skills are merged even if omitted).",
   ].join(" ");
 }
 
@@ -221,7 +328,7 @@ export function writeUserPosition(target: string, role: PositionRole): UserPosit
   return position;
 }
 
-function statusToCatalogEntry(s: SkillStatus): SkillsCatalogEntry {
+function statusToCatalogEntry(s: SkillStatus, requiredNames: Set<string>): SkillsCatalogEntry {
   return {
     name: s.name,
     description: s.description,
@@ -232,6 +339,7 @@ function statusToCatalogEntry(s: SkillStatus): SkillsCatalogEntry {
     installedInWorkspace: s.installedInWorkspace,
     availableInGlobal: s.availableInGlobal,
     inLibrary: s.inLibrary,
+    requiredForProfileInit: requiredNames.has(s.name),
   };
 }
 
@@ -239,12 +347,13 @@ function statusToCatalogEntry(s: SkillStatus): SkillsCatalogEntry {
 export function refreshSkillsCatalog(target: string, libraryDir: string): SkillsCatalog {
   ensureLearningDir(target);
   ensureProfileInitGitIgnored(target);
+  const requiredNames = new Set(profileInitRequiredSkills());
   const catalog: SkillsCatalog = {
     version: 1,
     generatedAt: new Date().toISOString(),
     workspacePath: path.normalize(target),
     branch: getCurrentBranch(target),
-    skills: listSkillStatuses(libraryDir, target).map(statusToCatalogEntry),
+    skills: listSkillStatuses(libraryDir, target).map((s) => statusToCatalogEntry(s, requiredNames)),
   };
   writeJsonAtomic(skillsCatalogPath(target), catalog);
   return catalog;
@@ -277,6 +386,7 @@ export function buildProfileInitRequest(
 ): ProfileInitRequest {
   const catalog = refreshSkillsCatalog(target, libraryDir);
   const relevantSkillNames = catalog.skills.filter((s) => s.isRelevant).map((s) => s.name);
+  const requiredSkillNames = profileInitRequiredSkills();
   const request: ProfileInitRequest = {
     version: 1,
     requestedAt: new Date().toISOString(),
@@ -285,9 +395,10 @@ export function buildProfileInitRequest(
     catalogPath: ".claude/learning/skills-catalog.json",
     outputPath: ".claude/profile.local.json",
     relevantSkillNames,
+    requiredSkillNames,
     skillCount: catalog.skills.length,
     status: "pending",
-    agentInstructions: buildAgentInstructions(branch, position, relevantSkillNames),
+    agentInstructions: buildAgentInstructions(branch, position, relevantSkillNames, requiredSkillNames),
   };
   writeCoordinatedJson(target, profileInitRequestPath(target), PROFILE_REQUEST_KEY, "extension", request);
   return request;
@@ -332,7 +443,7 @@ export function profileInitToBranchProfile(
 ): BranchSkillProfile {
   return {
     branch: init.branch,
-    skills: [...init.skills],
+    skills: mergeProfileInitSkills(init.skills),
     skillOverrides: {},
     updatedAt: new Date().toISOString(),
     workspacePath: path.normalize(target),
@@ -366,7 +477,8 @@ export function applyLocalProfileInit(
     }
 
     const catalog = readJsonFile<SkillsCatalog>(skillsCatalogPath(target));
-    const { valid, invalid } = validateProfileSkills(profile.skills, catalog);
+    const mergedSkills = mergeProfileInitSkills(profile.skills);
+    const { valid, invalid } = validateProfileSkills(mergedSkills, catalog);
     if (valid.length === 0) {
       return { invalid };
     }
@@ -464,6 +576,7 @@ export async function startProfileInitFlow(
   log(`Position: ${position.label}`);
   log(`Catalog: ${skillsCatalogPath(target)} (${request.skillCount} skills)`);
   log(`Relevant to workspace: ${request.relevantSkillNames.join(", ") || "(none detected)"}`);
+  log(`Required platform skills: ${request.requiredSkillNames.join(", ")}`);
   log(`SessionStart hook will inject profile-init on the next AI agent session.`);
 
   void vscode.window.showInformationMessage(

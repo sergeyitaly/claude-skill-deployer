@@ -1,0 +1,37 @@
+# AI agent instructions (Claude Skills Manager)
+
+This repository deploys **native GitHub Copilot instructions** under `.github/instructions/*.instructions.md`.
+When you work on files matching a skill's `applyTo` globs, follow that skill's instruction file fully.
+
+## Installed skills
+
+| Skill | Applies when |
+|---|---|
+| brand-guidelines | `**/*` |
+| canvas-design | `**/*` |
+| ci-preflight | `**/.gitlab-ci.yml, **/.gitlab/ci/*.yml, **/.github/workflows/*.yml, **/.github/workflows/*.yaml, **/azure-pipelines.yml` — Reproduce a CI pipeline's pre-merge stages (lint, test, validate, build) locally before pushing, by mapping each CI job to its exact local-equivalent command and running them in order. Use when asked to "run CI checks locally", "preflight", "what would fail in the pipeline", or before committing/pushing a change. |
+| cross-platform-scripting | `**/*.ps1, **/*.psm1, **/*.sh, **/*.cmd, **/*.bat` — Detect the host OS (Windows/macOS/Linux) and PowerShell version (5.1 Desktop vs 7+ Core) before writing or editing scripts, and write/adapt .ps1, .sh, and .cmd scripts to match what's actually available — avoiding PS7-only syntax on PS5.1, GNU-only flags on macOS/BSD tools, and Windows-only assumptions on POSIX shells. Use before writing a new script, when a script fails with a syntax/parameter error that looks version- or OS-specific, or when asked to make a script cross-platform. |
+| deployment-practical | `**/*.tf, **/*.bicep, **/azure.yaml, **/azure.yml, **/Dockerfile, **/Dockerfile.*, **/docker-compose*.yml, **/.gitlab-ci.yml, **/.github/workflows/*.yml, **/.github/workflows/*.yaml, **/azure-pipelines.yml` — Deployment-first delivery — concrete architecture and IaC over theoretical advice. Use when deploying, provisioning infra, debugging first-apply failures, or when the user wants advice that works on the first attempt (not hand-wavy theory). Pair with Practical Focus toggle (architecture-first / deploy-ready). |
+| doc-coauthoring | `**/*.md, **/docs/**` — Guide users through a structured workflow for co-authoring documentation. Use when user wants to write documentation, proposals, technical specs, decision docs, or similar structured content. This workflow helps users efficiently transfer context, refine content through iteration, and verify the doc works for readers. Trigger when user mentions writing docs, creating proposals, drafting specs, or similar documentation tasks. |
+| file-style-conventions | `**/*` — Apply two lightweight file-hygiene conventions when writing or editing files - no emoji characters outside Markdown (.md) files, and YAML files (.yml/.yaml) end with exactly one trailing newline. Use whenever creating or editing non-Markdown files that might contain emoji, or any .yml/.yaml file. |
+| frontend-design | `**/*` |
+| gitlab-pipeline-ops | `**/.gitlab-ci.yml, **/.gitlab/ci/*.yml, **/.gitlab/**` — Work with a GitLab CI/CD project structured like a typical multi-stage pipeline (root .gitlab-ci.yml with stages/workflow/include, per-area job files under .gitlab/ci/*.yml, shared templates and rules in common.yml, manual gates on main for plan/apply/deploy). Use when reading, editing, or debugging .gitlab-ci.yml / .gitlab/ci/*.yml, inspecting pipeline/job status with glab, or working with GitLab CI/CD variables. |
+| internal-comms | `**/*.md` |
+| pdf | `**/*.pdf` |
+| profile-init | `**/.claude/learning/profile-init-request.json, **/.claude/profile.local.json` — Initialize a personal skill profile for the current git branch based on the user's team position (DevOps, QA, AQA, Backend, Frontend, BA, Resource Manager, Team Lead). Reads the extension-generated skill catalog, selects skills for this branch/task, writes .claude/profile.local.json, and lets the extension install them locally (not committed to git). Use when starting work on a new branch, when asked to "init profile", or when .claude/learning/profile-init-request.json exists. |
+| self-learning | `**/*` — Maintain a project-local self-learning base of task/command outcomes — record successes and failures with timestamps, durations, and fixes; generate a patterns report (pass rates, recurring errors, known fixes); and surface a learned hint before retrying something that failed before. Use at the start of a session to check learned hints, after running a non-trivial command/skill to record the outcome, when asked "what failed before" or "what did we learn", or to record a manual decision/learning. |
+| skill-creator | `**/*` — Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. |
+| skill-official-updater | `**/*` — At the start of a new session, do a cheap check for new or updated official Anthropic skills (github.com/anthropics/skills) and offer to add or update them in skills_library/. Also use on explicit request ("check for official skill updates", "sync official skills"). |
+| skill-feedback-adaptation | `**/.claude/learning/skill-feedback.jsonl, **/.claude/learning/task-skill-proposals.json, **/.claude/learning/**` — Register user disagreement on agent/skill behavior; propose skills for new tasks; surfaces inefficiency in the Usage Report. Use when the user says no/wrong/stop, starts a new task, or asks about skill inefficiency or which skills fit this task. |
+| skill-usage-insights | `**/.claude/learning/runs.jsonl, **/.claude/skills/**` — Analyze recorded skill usage in this project (.claude/learning/runs.jsonl, written by self-learning) and the skills installed in .claude/skills/ to produce a usage and KPI report - which skills are actively used and reliable, which are failing, and which are unused or low-value, with recommendations on what to add or remove. Use when asked for "skill usage stats", "skill KPIs", "which skills should we add or remove", or "are our installed skills still useful". |
+| slack-gif-creator | `**/*` |
+| theme-factory | `**/*` |
+| vscode-extension-publishing | `**/.vscodeignore, **/vsc-extension-quickstart.md, **/*.vsix, **/src/extension.ts, **/src/extension.js` — Create, package, test, and publish a VS Code extension to the Marketplace using @vscode/vsce. Covers package.json manifest fields, .vscodeignore, local debugging (Extension Development Host), vsce package/publish, version bumps, publisher/PAT setup, and common publish errors. Use when building a new VS Code extension, preparing a release, or debugging `vsce package`/`vsce publish` failures. |
+| webapp-testing | `**/*` |
+
+## How to use in agent mode
+
+1. Prefer instructions whose `applyTo` matches the files you are editing.
+2. If multiple match, combine them; if they conflict, ask the user.
+3. Do not invent procedures — use the installed `.instructions.md` files.
+4. Claude Code skills live under `.claude/skills/`; Copilot uses this folder.

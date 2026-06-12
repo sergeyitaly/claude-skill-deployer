@@ -487,6 +487,7 @@ export function mirrorLearningArtifacts(target: string, libraryDir: string): str
     "skill-invoke-state.json",
     "attribution-collector-state.json",
     "runs.jsonl",
+    "skill-feedback.jsonl",
   ]);
   const files = fs
     .readdirSync(sourceDir)

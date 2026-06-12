@@ -1,13 +1,13 @@
 ---
-name: skill-usage-insights
-description: Analyze recorded skill usage in this project (.claude/learning/runs.jsonl, written by self-learning) and the skills installed in .claude/skills/ to produce a usage and KPI report - which skills are actively used and reliable, which are failing, and which are unused or low-value, with recommendations on what to add or remove. Use when asked for "skill usage stats", "skill KPIs", "which skills should we add or remove", or "are our installed skills still useful".
-user-invocable: true
-allowed-tools:
-  - Read
-  - Bash
-  - Grep
-  - Glob
+name: "skill-usage-insights"
+description: "Analyze recorded skill usage in this project (.claude/learning/runs.jsonl, written by self-learning) and the skills installed in .claude/skills/ to produce a usage and KPI report - which skills are actively used and reliable, which are failing, and which are unused or low-value, with recommendations on what to add or remove. Use when asked for \"skill usage stats\", \"skill KPIs\", \"which skills should we add or remove\", or \"are our installed skills still useful\"."
+applyTo:
+  - **/.claude/learning/runs.jsonl
+  - **/.claude/learning/skill-feedback.jsonl
+  - **/.claude/skills/**
 ---
+
+# skill-usage-insights
 
 # Skill Usage Insights
 
@@ -107,6 +107,8 @@ table.
 
 - Investigating a specific failing skill's errors → [[self-learning]]
   (`patterns.md`, `session-learnings.md`).
+- Recording user pushback or proposing skills for a new task →
+  [[skill-feedback-adaptation]] (`skill-feedback.jsonl`, `task-skill-proposals.json`).
 - Installing a recommended-to-add skill, or removing one → the
   `claude-skills-deployer` CLI (`generate_skills.py`) or its VS Code
   extension's tree view / "Install to Workspace" command.

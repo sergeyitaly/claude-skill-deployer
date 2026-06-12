@@ -117,18 +117,21 @@ Missing Claude data shows empty sections or informational messages — the exten
   closed-eye icon; the checkbox is unchecked while files remain on the branch.
 - **Status bar items**:
   - How many relevant skills are pending install; click it to install them.
-  - A skill *usage* summary (active / needs review / unused), based on
-    hook + self-learning rows in `.claude/learning/runs.jsonl`;
-    click it to open the full usage/KPI report.
+  - A skill *usage* summary (active / needs review / inefficient / unused), based on
+    hook + self-learning rows in `.claude/learning/runs.jsonl` and user feedback in
+    `skill-feedback.jsonl`; click it to open the full usage/KPI report.
   - **Today's estimated Claude spend** (tokens + USD, with % of daily budget
     when configured); click for the full usage report.
   - **Budget mode** (Economy / Normal / Unlimited); click to cycle modes.
 - **Claude Credits Usage report** — the usage report also includes a
   **Credits · 14d** section: workspace-scoped tokens and estimated cost by day
-  and model from session transcripts (Claude + Cursor when enabled). The
-  **Skills detail** table counts **hook invocations and self-learning runs**
-  only (runs, success rate, tokens, last used, rating) — not transcript
-  cost estimates. Enable Attribution v2 hooks for accurate per-skill run counts.
+  and model from session transcripts (Claude + Cursor when enabled). Additional panels:
+  **Inefficient skills (user feedback)** — heat-colored inefficiency % and update
+  suggestions from `skill-feedback.jsonl`; **Proposed for current task** — ranked
+  skills from `task-skill-proposals.json`. The **Skills detail** table counts hook
+  invocations and self-learning runs (runs, success rate, tokens, feedback %, last
+  used, rating) — not transcript cost estimates. Enable Attribution v2 hooks for
+  accurate per-skill run counts.
 - Click any skill to open its `SKILL.md` (workspace copy if installed, else
   global copy, else the bundled copy).
 
@@ -161,6 +164,8 @@ Missing Claude data shows empty sections or informational messages — the exten
 
 Personal skill setup when you start work on a **new git branch**. Your **position** is stable; the **skill list** is chosen by the AI agent from the live catalog (no hardcoded role map).
 
+**Required platform skills** (always installed on every profile init): `self-learning`, `file-style-conventions`, `skill-creator`, `skill-usage-insights`, `skill-feedback-adaptation`, `skill-official-updater`. Override via `claudeSkills.profileInit.requiredSkills`. If any are accidentally deleted or locally disabled, they are **auto-recovered** when you create/switch to a new git branch without a saved profile (default on; `claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`).
+
 ### Steps
 
 1. **Set position** (once) — **Set Your Position** or the init prompt → `.claude/position.local.json`.
@@ -180,6 +185,22 @@ Personal skill setup when you start work on a **new git branch**. Your **positio
 `profile-init` syncs to `.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`. Catalog and profile paths stay under **`.claude/`**.
 
 Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
+
+## Skill feedback & task proposals
+
+Personal learning loop when agent answers miss the mark or a new task needs the right skills.
+
+| File | Purpose |
+|---|---|
+| `.claude/learning/skill-feedback.jsonl` | User negative/correction feedback per skill |
+| `.claude/learning/task-skill-proposals.json` | Ranked skills for the current task |
+| `.claude/learning/skill-proposal-alert-state.json` | Notification dedup (month / branch / task) |
+
+**Agent skill:** install `skill-feedback-adaptation` — records disagreement (`no`, `wrong`, …), writes task proposals on new work, deprioritizes inefficient skills.
+
+**Extension:** Usage Report **Inefficient skills** panel; high branch/task spend popup (default when usage exceeds **50%** of monthly credits — `claudeSkills.skillFeedback.*`).
+
+**CLI:** `py record_feedback.py <skill> --signal "no" --context "..."`
 
 ### Local files (gitignored)
 
@@ -203,6 +224,8 @@ The extension tracks **cost** and **estimated value** so optimizations favor hig
 |---|---|---|
 | **Credits · 14d** | Session transcripts (this workspace) | Total estimated spend — like a mini invoice preview |
 | **Skills detail** | `runs.jsonl` hooks + self-learning | Actual skill invocations / logged runs — not equal-split transcript guesses |
+| **Inefficient skills** | `skill-feedback.jsonl` | User negative reactions; inefficiency % and SKILL.md update hints |
+| **Proposed for current task** | `task-skill-proposals.json` | Agent/heuristic skill set for the active task |
 | **Cost Dashboard per-skill** | Hooks in `runs.jsonl` when v2 active; else `cost-attribution.json` | Dollar attribution with confidence labels |
 
 If Skills detail shows many skills with identical run counts and millions of tokens, run **Reset Mis-attributed Cost Data** once after upgrading to v1.0.18+, then reopen the report.
@@ -258,6 +281,9 @@ Rates are USD **per 1M tokens**. Keys match model id substrings (same logic as b
 | File | Purpose |
 |---|---|
 | `.claude/learning/runs.jsonl` | Attribution v2 hook invocations + self-learning run log (not transcript estimates) |
+| `.claude/learning/skill-feedback.jsonl` | User negative/correction feedback per skill |
+| `.claude/learning/task-skill-proposals.json` | Latest task-scoped skill proposals (confidence + install status) |
+| `.claude/learning/skill-proposal-alert-state.json` | Dedup keys for high-usage proposal notifications (per month/branch/task) |
 | `.claude/learning/skill-stats.json` | Pre-aggregated per-skill stats from hook/self-learning runs |
 | `.claude/learning/daily-stats.json` | Cost/tokens/runs by calendar day |
 | `.claude/learning/system-state.json` | Unified snapshot for debugging and UI |
@@ -277,7 +303,8 @@ Profile-init local files — see [Profile init](#profile-init-role--branch-agent
 | `Claude Skills: Install to Workspace .claude/skills` (per-skill, right-click in the tree) | Installs a single skill into the current workspace, prompting before overwrite. |
 | `Claude Skills: Disable Skill Locally (this workspace only)` (per-skill, eye icon) | Adds `"<skill>": "off"` to `<workspace>/.claude/settings.local.json` (`skillOverrides`) — turns the skill off for you only, without changing `<workspace>/.claude/skills/`. |
 | `Claude Skills: Enable Skill Locally` (per-skill, eye icon) | Removes the local override, reverting the skill to the project default ("on"). |
-| `Claude Skills: Show Skill Usage Report` | WebView KPI report: **Skills detail** from hook + self-learning rows in `runs.jsonl`; **Credits · 14d** from session transcripts for this workspace (by day and model). |
+| `Claude Skills: Show Skill Usage Report` | WebView KPI report: **Skills detail** from hook + self-learning rows in `runs.jsonl`; **Inefficient skills** from feedback; **Proposed for current task**; **Credits · 14d** from session transcripts for this workspace (by day and model). |
+| `Claude Skills: Apply Suggested Skills for Current Task` | Installs uninstalled skills from `task-skill-proposals.json` to all enabled agent paths. Also offered automatically when branch/task token use exceeds the monthly credit threshold. |
 | `Claude Skills: Enable Session Size Notifications` | Alias for **Enable Cost Control Hooks** (session size + budget). |
 | `Claude Skills: Enable Cost Control Hooks (Budget + Session + Focus)` | Installs session-size, budget, context-focus, and practical-focus hooks; syncs `~/.claude/learning/budget.json`, `context-focus.json`, and `practical-focus.json` from VS Code settings. |
 | `Claude Skills: Cycle Budget Mode (Economy / Normal / Unlimited)` | Cycles global budget mode. Economy disables high-tier skills locally; Normal enforces the daily cap; Unlimited only notifies at a high spend threshold. |
@@ -337,10 +364,13 @@ Advanced: `claudeSkills.weeklyReport.emailTo` or `CLAUDE_SKILLS_SMTP_*` env vars
 
 ### Settings highlights
 
-Find all options under **Settings → Extensions → Claude Skills Manager** (or search `@ext:serhiivoinolovych.claude-skill-deployer`). Sections: Budget, Agents, Features, Lint, Optimizer, Weekly Report, and more.
+Find all options under **Settings → Extensions → Claude Skills Manager** (or search `@ext:serhiivoinolovych.claude-skill-deployer`). Sections: Budget, Skill feedback & proposals, Agents, Features, Lint, Optimizer, Weekly Report, and more.
 
 | Setting | Default | Purpose |
 |---|---|---|
+| `claudeSkills.skillFeedback.promptOnHighUsage` | `true` | Popup when branch/task exceeds monthly credit threshold, offering to install suggested skills |
+| `claudeSkills.skillFeedback.monthlyCreditThresholdPercent` | `50` | Branch/task must reach this % of monthly credits before prompting |
+| `claudeSkills.skillFeedback.monthlyCreditsUsd` | `0` | Monthly credit budget (USD); `0` = daily budget × 30, or 30-day workspace spend |
 | `claudeSkills.budget.mode` | `normal` | Economy / Normal / Unlimited token budget mode |
 | `claudeSkills.budget.dailyBudgetUsd` | `5` | Daily estimated spend cap (USD) |
 | `claudeSkills.branchProfiles.enabled` | `true` | Per-git-branch skill profiles in `~/.claude/learning/branch-profiles.json` |
@@ -348,6 +378,8 @@ Find all options under **Settings → Extensions → Claude Skills Manager** (or
 | `claudeSkills.profileInit.promptOnNewBranch` | `true` | Prompt when switching to a branch with no saved profile |
 | `claudeSkills.profileInit.autoApplyProfileFile` | `true` | Auto-install when agent writes `.claude/profile.local.json` |
 | `claudeSkills.profileInit.autoStartOnSession` | `true` | SessionStart hook + agent sync when profile init is pending |
+| `claudeSkills.profileInit.requiredSkills` | see below | Platform skills always merged into every profile-init set |
+| `claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch` | `true` | Reinstall missing/disabled required platform skills on new branch (no saved profile) |
 | `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro`, `copilot` | Agents that receive skill clones |
 | `claudeSkills.agents.syncWorkspaceToAll` | `true` | Fan out workspace install to all enabled agent paths (requires `multiAgent` feature) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Fan out global library install to all enabled agent paths |

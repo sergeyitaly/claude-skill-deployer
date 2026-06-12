@@ -67,6 +67,7 @@ py generate_skills.py generate --target .
 py generate_skills.py generate --target . --dry-run
 py generate_skills.py cost-report --target .
 py generate_skills.py cost-report --weekly
+py record_feedback.py <skill-name> --signal "no" --context "what went wrong"
 ```
 
 ## Feature toggles (extension)
@@ -108,7 +109,7 @@ Estimates only — not Anthropic/Cursor invoices. Per-skill data is **best-effor
 
 - **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
 - **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open)
-- **Usage Report split** — **Skills detail** (runs, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts for this workspace
+- **Usage Report split** — **Skills detail** (runs, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts for this workspace; **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
 - **Stale data guard** — auto-purges equal-split `transcriptSkills`; per-skill rankings hidden until clean or **Reset Mis-attributed Cost Data**
 - **Indexed stats** — `skill-stats.json` + `daily-stats.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
@@ -122,11 +123,31 @@ Estimates only — not Anthropic/Cursor invoices. Per-skill data is **best-effor
 - **Emergency cutoff**, **skill archival**, **PR cost estimate**, **commit cost hook** — unchanged from 1.0.x
 - **Community benchmarks** — opt-in via `~/.claude/learning/community-benchmarks.json`
 
+### Skill feedback & adaptation
+
+When users disagree with agent output (`no`, `wrong`, `stop`, etc.), the **`skill-feedback-adaptation`** skill records reactions in `.claude/learning/skill-feedback.jsonl`. The Usage Report shows **inefficiency %** per skill (deeper red = more negative feedback) with update suggestions.
+
+On a **new task**, the same skill analyzes the prompt and repo and writes `.claude/learning/task-skill-proposals.json` — a ranked set of skills from the library that should help.
+
+When a **branch or task** exceeds a configurable share of monthly credits (default **50%**), the extension prompts to **Apply suggested skills** (`claudeSkills.skillFeedback.*` settings).
+
+CLI helpers (from repo root):
+
+```bash
+py record_feedback.py <skill> --signal "no" --context "what went wrong"
+py record_runs.py <skill> --tokens 12000 --fail   # existing run log
+```
+
+Install **`skill-feedback-adaptation`**, **`self-learning`**, and **`skill-usage-insights`** together for the full feedback loop.
+
 ### Learning files (workspace)
 
 | File | Purpose |
 |---|---|
 | `.claude/learning/runs.jsonl` | Hook invocations + self-learning run log (not transcript cost estimates) |
+| `.claude/learning/skill-feedback.jsonl` | User negative/correction feedback per skill (machine-local) |
+| `.claude/learning/task-skill-proposals.json` | Latest task-scoped skill proposal set (machine-local) |
+| `.claude/learning/skill-proposal-alert-state.json` | Dedup state for high-usage skill proposal notifications |
 | `.claude/learning/cost-attribution.json` | Transcript-based per-skill estimates (`transcriptSkills`) and unattributed totals |
 | `.claude/learning/skill-stats.json` | Aggregated per-skill stats index (hook/self-learning runs) |
 | `.claude/learning/daily-stats.json` | Cost/tokens/runs by day |
@@ -317,7 +338,7 @@ When you land on a **new git branch** with no saved personal profile:
 1. Extension saves your **position** → `.claude/position.local.json` (gitignored).
 2. On init, writes `.claude/learning/skills-catalog.json` and `.claude/learning/profile-init-request.json` (includes `agentInstructions`).
 3. **SessionStart hook** + synced **`profile-init` skill** auto-run on the **next AI agent session** — no manual prompt copy.
-4. Agent writes `.claude/profile.local.json` → extension auto-installs and saves branch profile.
+4. Agent writes `.claude/profile.local.json` → extension auto-installs (always includes **required platform skills**: `self-learning`, `skill-creator`, `skill-usage-insights`, `skill-feedback-adaptation`, etc.) and saves branch profile.
 
 **Local-only files:** `position.local.json`, `skills-catalog.json`, `profile-init-request.json`, `profile.local.json`.
 

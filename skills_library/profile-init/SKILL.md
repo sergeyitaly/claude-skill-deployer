@@ -43,7 +43,24 @@ If position is missing, ask the user to pick one or run **Claude Skills: Set You
 
 **You decide** — no hardcoded role map.
 
-Use position, branch/task context, catalog descriptions, and `isRelevant` / `matchedGlobs`. Prefer a focused set (often 5–15 skills). Include `self-learning` and `file-style-conventions` when useful.
+Use position, branch/task context, catalog descriptions, and `isRelevant` / `matchedGlobs`. Prefer a focused set (often 5–15 skills **including** the required platform set below).
+
+### Required platform skills (always include)
+
+Every profile **must** include these extension platform skills in `skills[]` (also marked `requiredForProfileInit: true` in the catalog). The extension merges them on apply even if you omit one:
+
+| Skill | Purpose |
+|---|---|
+| `self-learning` | Record run outcomes and learned fixes |
+| `file-style-conventions` | File hygiene (YAML newline, no emoji outside `.md`) |
+| `skill-creator` | Create and optimize skills |
+| `skill-usage-insights` | Usage/KPI reports from `runs.jsonl` |
+| `skill-feedback-adaptation` | User feedback + task skill proposals |
+| `skill-official-updater` | Sync official Anthropic skills |
+
+Add role/branch-specific skills **on top** of this set. Override the list via `claudeSkills.profileInit.requiredSkills` in extension settings.
+
+If required skills are accidentally deleted or locally disabled, the extension **auto-recovers** them when you switch to a new git branch without a saved profile (`claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`, default on).
 
 Do **not** commit skill files or profile JSON to git.
 
@@ -55,8 +72,10 @@ Do **not** commit skill files or profile JSON to git.
   "branch": "feature/my-task",
   "role": "devops",
   "roleLabel": "DevOps",
-  "skills": ["ci-pipeline-debug", "terraform-module-ops"],
+  "skills": ["self-learning", "file-style-conventions", "skill-creator", "skill-usage-insights", "skill-feedback-adaptation", "skill-official-updater", "ci-pipeline-debug", "terraform-module-ops"],
   "rationale": {
+    "self-learning": "Required platform skill — run logging.",
+    "skill-creator": "Required platform skill — skill authoring.",
     "ci-pipeline-debug": "Branch touches GitLab CI."
   },
   "initBy": "agent",

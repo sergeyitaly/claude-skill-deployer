@@ -9,8 +9,10 @@ import { WorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusBannerHtml } from "./workspaceHookStatus";
 import { formatConfidenceBadge, SkillCostConfidence, WorkspaceConfidence } from "./attributionConfidence";
 import { DASHBOARD_USAGE_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
+import { computeSkillInefficiencyStats, SkillInefficiencyStat } from "./skillFeedback";
+import { resolveTaskSkillProposals, TaskSkillProposal } from "./taskSkillProposals";
 
-export type { RunAgent };
+export type { RunAgent, SkillInefficiencyStat, TaskSkillProposal };
 
 export interface RunRecord {
   ts: string;
@@ -328,6 +330,33 @@ function summaryLine(stats: SkillUsageStat[], suggested: SuggestedSkill[], count
   return parts.join(" - ");
 }
 
+function inefficiencyLines(stats: SkillInefficiencyStat[]): string[] {
+  if (stats.length === 0) {
+    return [];
+  }
+  const lines = ["## Inefficient skills (user feedback)", ""];
+  for (const s of stats) {
+    lines.push(
+      `- **${s.name}**: ${s.inefficiencyPct}% inefficiency (${s.negativeCount} negative reaction(s)) — ${s.updateSuggestion}`
+    );
+  }
+  lines.push("");
+  return lines;
+}
+
+function taskProposalLines(proposals: TaskSkillProposal[]): string[] {
+  if (proposals.length === 0) {
+    return [];
+  }
+  const lines = ["## Proposed for current task", ""];
+  for (const p of proposals.slice(0, 8)) {
+    const installed = p.installed ? "installed" : "not installed";
+    lines.push(`- **${p.name}** (${p.confidence}% · ${installed}) — ${p.reason}`);
+  }
+  lines.push("");
+  return lines;
+}
+
 function misusedLines(stats: SkillUsageStat[]): string[] {
   const misused = stats.filter((s) => s.rating === "needs-attention");
   if (misused.length === 0) {
@@ -443,7 +472,12 @@ export function formatUsageReport(
   suggested: SuggestedSkill[],
   target: string,
   creditUsage: CreditUsageSummary,
-  opts?: { skillConfidence?: Map<string, SkillCostConfidence>; workspaceConfidence?: WorkspaceConfidence }
+  opts?: {
+    skillConfidence?: Map<string, SkillCostConfidence>;
+    workspaceConfidence?: WorkspaceConfidence;
+    inefficiency?: SkillInefficiencyStat[];
+    taskProposals?: TaskSkillProposal[];
+  }
 ): string {
   if (stats.length === 0 && suggested.length === 0) {
     return [
@@ -470,6 +504,8 @@ export function formatUsageReport(
     summaryLine(stats, suggested, counts),
     "",
     ...creditUsageLines(creditUsage),
+    ...inefficiencyLines(opts?.inefficiency ?? []),
+    ...taskProposalLines(opts?.taskProposals ?? []),
     ...misusedLines(stats),
     ...suggestedLines(suggested),
     ...removalLines(stats),
@@ -506,6 +542,41 @@ function htmlCards(counts: Record<UsageRating, number>, suggestedCount: number):
     cards.push(`<div class="card suggested"><div class="count">${suggestedCount}</div><div class="label">Suggested</div></div>`);
   }
   return cards.join("\n");
+}
+
+function htmlInefficiencySection(stats: SkillInefficiencyStat[]): string {
+  if (stats.length === 0) {
+    return "";
+  }
+  const items = stats
+    .map((s) => {
+      const heatClass = s.heatLevel > 0 ? `heat-${s.heatLevel}` : "";
+      return `<li class="inefficiency-row ${heatClass}">
+        <div class="inefficiency-head">
+          <b>${escapeHtml(s.name)}</b>
+          <span class="inefficiency-pct">${s.inefficiencyPct}%</span>
+        </div>
+        <div class="inefficiency-bar-wrap"><div class="inefficiency-bar ${heatClass}" style="width:${s.inefficiencyPct}%"></div></div>
+        <div class="hint">${s.negativeCount} negative reaction(s) · ${escapeHtml(s.updateSuggestion)}</div>
+      </li>`;
+    })
+    .join("\n");
+  return `<div class="panel inefficiency-panel"><h2>Inefficient skills (user feedback)</h2><ul class="inefficiency-list">${items}</ul><div class="note">Deeper red = more negative feedback. Update SKILL.md or review <code>skill-feedback.jsonl</code>.</div></div>`;
+}
+
+function htmlTaskProposalsSection(proposals: TaskSkillProposal[], taskSummary?: string): string {
+  if (proposals.length === 0) {
+    return "";
+  }
+  const summary = taskSummary ? `<p class="muted task-summary">${escapeHtml(taskSummary)}</p>` : "";
+  const items = proposals
+    .slice(0, 8)
+    .map(
+      (p) =>
+        `<li><b>${escapeHtml(p.name)}</b> <span class="badge task-conf">${p.confidence}%</span> ${p.installed ? '<span class="badge active">installed</span>' : '<span class="badge low-usage">install</span>'} — ${escapeHtml(p.reason)}</li>`
+    )
+    .join("\n");
+  return `<div class="panel"><h2>Proposed for current task</h2>${summary}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes.</div></div>`;
 }
 
 function htmlMisusedSection(stats: SkillUsageStat[]): string {
@@ -549,7 +620,11 @@ function htmlRemovalSection(stats: SkillUsageStat[]): string {
   return `<div class="panel"><h2>Removal candidates</h2><ul>${items}</ul><div class="note">Delete <code>.claude/skills/&lt;name&gt;/</code> or use <code>skill-usage-insights</code>.</div></div>`;
 }
 
-function htmlDetailTable(stats: SkillUsageStat[], confidence?: Map<string, SkillCostConfidence>): string {
+function htmlDetailTable(
+  stats: SkillUsageStat[],
+  confidence?: Map<string, SkillCostConfidence>,
+  inefficiency?: Map<string, SkillInefficiencyStat>
+): string {
   if (stats.length === 0) {
     return "";
   }
@@ -560,11 +635,17 @@ function htmlDetailTable(stats: SkillUsageStat[], confidence?: Map<string, Skill
       const confBadge = conf
         ? `<span class="badge conf-${conf.level}">${escapeHtml(formatConfidenceBadge(conf.level))}</span>`
         : `<span class="badge conf-estimated">estimated</span>`;
+      const ineff = inefficiency?.get(s.name);
+      const ineffCell =
+        ineff && ineff.negativeCount > 0
+          ? `<span class="badge inefficiency heat-${ineff.heatLevel}">${ineff.inefficiencyPct}%</span>`
+          : `<span class="muted">-</span>`;
       return `<tr>
           <td>${escapeHtml(s.name)}</td>
           <td class="num">${s.runs}</td>
           <td class="num">${successPct}</td>
           <td class="num">${formatTokenCount(s.totalTokens)}</td>
+          <td class="num">${ineffCell}</td>
           <td class="muted">${escapeHtml(formatAgentBreakdown(s.agentRuns, s.agentTokens))}</td>
           <td>${formatRecency(s.daysSinceLastUse)}</td>
           <td><span class="badge ${RATING_CLASS[s.rating]}">${RATING_LABEL[s.rating]}</span></td>
@@ -573,7 +654,7 @@ function htmlDetailTable(stats: SkillUsageStat[], confidence?: Map<string, Skill
     })
     .join("\n");
   const rowsTable = `<table>
-      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>By agent</th><th>Last used</th><th>Rating</th><th>Confidence</th></tr></thead>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>Feedback</th><th>By agent</th><th>Last used</th><th>Rating</th><th>Confidence</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   return `<div class="panel">
@@ -639,16 +720,28 @@ export function formatUsageReportHtml(
   target: string,
   creditUsage: CreditUsageSummary,
   hookStatus?: WorkspaceHookStatus,
-  opts?: { skillConfidence?: Map<string, SkillCostConfidence>; workspaceConfidence?: WorkspaceConfidence }
+  opts?: {
+    skillConfidence?: Map<string, SkillCostConfidence>;
+    workspaceConfidence?: WorkspaceConfidence;
+    inefficiency?: SkillInefficiencyStat[];
+    taskProposals?: TaskSkillProposal[];
+    taskSummary?: string;
+  }
 ): string {
   const counts = tallyRatings(stats);
+  const inefficiency = opts?.inefficiency ?? [];
+  const inefficiencyMap = new Map(inefficiency.map((s) => [s.name, s]));
+  const inefficiencyCard =
+    inefficiency.length > 0
+      ? `<div class="card inefficient"><div class="count">${inefficiency.length}</div><div class="label">Inefficient</div></div>`
+      : "";
   const confBanner =
     opts?.workspaceConfidence != null
       ? `<div class="estimate-banner"><b>Trust</b> ${escapeHtml(opts.workspaceConfidence.summary)} <span class="conf-${opts.workspaceConfidence.level}">(${Math.round(opts.workspaceConfidence.score * 100)}% · ${escapeHtml(formatConfidenceBadge(opts.workspaceConfidence.level))})</span></div>`
       : "";
 
   let body: string;
-  if (stats.length === 0 && suggested.length === 0) {
+  if (stats.length === 0 && suggested.length === 0 && inefficiency.length === 0) {
     body = [
       htmlCreditUsageSection(creditUsage),
       "<p>No installed skills, no recorded skill runs, and no relevant skills detected for this workspace.</p>",
@@ -656,18 +749,22 @@ export function formatUsageReportHtml(
   } else {
     body = [
       htmlCreditUsageSection(creditUsage),
+      htmlInefficiencySection(inefficiency),
+      htmlTaskProposalsSection(opts?.taskProposals ?? [], opts?.taskSummary),
       htmlMisusedSection(stats),
       htmlSuggestedSection(suggested),
       htmlRemovalSection(stats),
-      htmlDetailTable(stats, opts?.skillConfidence),
+      htmlDetailTable(stats, opts?.skillConfidence, inefficiencyMap),
     ]
       .filter((s) => s.length > 0)
       .join("\n");
   }
 
+  const summaryCards = htmlCards(counts, suggested.length) + inefficiencyCard;
+
   return wrapDashboardHtml({
     title: "Usage Report",
-    headerHtml: `${confBanner}<div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}<div class="summary">${htmlCards(counts, suggested.length)}</div>`,
+    headerHtml: `${confBanner}<div class="meta">Workspace: <code>${escapeHtml(target)}</code></div>${hookStatus ? formatHookStatusBannerHtml(hookStatus) : ""}<div class="summary">${summaryCards}</div>`,
     extraStyles: DASHBOARD_USAGE_EXTRA_STYLES,
     body,
   });

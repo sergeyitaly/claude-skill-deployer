@@ -478,6 +478,32 @@ let lastKnownBranch: string | undefined;
 export interface BranchChangeOptions {
   /** When set, called instead of auto-saving a snapshot for branches with no saved profile. */
   onNewBranchWithoutProfile?: (branch: string) => Promise<void>;
+  /** Merge required platform skills into a saved branch profile before apply. */
+  mergeProfileSkills?: (skills: string[]) => string[];
+  /**
+   * Reinstall missing required platform skills (e.g. accidental deletion).
+   * Return true when anything was recovered or re-enabled.
+   */
+  recoverRequiredSkills?: (
+    branch: string,
+    context: { isFirstSync: boolean; hasSavedProfile: boolean }
+  ) => Promise<boolean>;
+}
+
+async function maybeRecoverRequiredSkills(
+  branch: string,
+  hasSavedProfile: boolean,
+  isFirstSync: boolean,
+  opts: BranchChangeOptions | undefined,
+  log: (line: string) => void
+): Promise<void> {
+  if (!opts?.recoverRequiredSkills) {
+    return;
+  }
+  const recovered = await opts.recoverRequiredSkills(branch, { isFirstSync, hasSavedProfile });
+  if (recovered) {
+    log(`Recovered required platform skill(s) for \`${branch}\`.`);
+  }
 }
 
 /** Call on extension activate and after git branch changes. */
@@ -498,7 +524,9 @@ export async function handleBranchChange(
 
   if (lastKnownBranch === undefined) {
     lastKnownBranch = branch;
-    if (!loadBranchProfile(target, branch)) {
+    const hasSavedProfile = !!loadBranchProfile(target, branch);
+    await maybeRecoverRequiredSkills(branch, hasSavedProfile, true, opts, log);
+    if (!hasSavedProfile) {
       if (opts?.onNewBranchWithoutProfile) {
         await opts.onNewBranchWithoutProfile(branch);
       } else {
@@ -519,6 +547,7 @@ export async function handleBranchChange(
 
   const incoming = loadBranchProfile(target, branch);
   if (!incoming) {
+    await maybeRecoverRequiredSkills(branch, false, false, opts, log);
     if (opts?.onNewBranchWithoutProfile) {
       log(`No saved skill profile for \`${branch}\` — offering profile init.`);
       await opts.onNewBranchWithoutProfile(branch);
@@ -534,7 +563,10 @@ export async function handleBranchChange(
     return;
   }
 
-  const result = applyBranchProfile(libraryDir, target, incoming);
+  const mergedSkills = opts?.mergeProfileSkills?.(incoming.skills) ?? incoming.skills;
+  const profileToApply =
+    mergedSkills === incoming.skills ? incoming : { ...incoming, skills: mergedSkills };
+  const result = applyBranchProfile(libraryDir, target, profileToApply);
   log(
     `Switched to \`${branch}\` — applied profile: +${result.installed.length} skill(s)` +
       (result.removed.length ? `, -${result.removed.length} removed` : "") +

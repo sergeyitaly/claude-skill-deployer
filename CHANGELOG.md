@@ -4,6 +4,19 @@ All notable changes to **Claude Skills Manager** (VS Code extension) are documen
 
 Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.19** is the current Marketplace publish target.
 
+## [Unreleased]
+
+### Skill feedback adaptation
+
+- **`skill-feedback-adaptation` skill** — records user disagreement in `skill-feedback.jsonl`; writes `task-skill-proposals.json` when a new task starts.
+- **Usage Report** — **Inefficient skills** panel (heat-colored inefficiency % + update suggestions); **Proposed for current task** panel; **Feedback** column in skills detail table; status bar shows inefficient count.
+- **High token usage notification** — when a branch or task exceeds `claudeSkills.skillFeedback.monthlyCreditThresholdPercent` (default 50%) of monthly credits, popup offers to install suggested skills.
+- **CLI** — `record_feedback.py` appends feedback rows.
+- **Command** — `Claude Skills: Apply Suggested Skills for Current Task`.
+- **Settings** — `claudeSkills.skillFeedback.promptOnHighUsage`, `monthlyCreditThresholdPercent`, `monthlyCreditsUsd`.
+- **Profile init required skills** — every branch profile auto-includes platform skills (`self-learning`, `skill-creator`, `skill-usage-insights`, etc.); configurable via `claudeSkills.profileInit.requiredSkills`.
+- **Required skill auto-recovery** — on a new git branch (no saved profile) or first workspace open when required skills are missing, the extension reinstalls them from the library; toggle via `claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`.
+
 ## [1.0.19] - 2026-06-12
 
 Pipeline index, confidence propagation, and real-time optimizer.
