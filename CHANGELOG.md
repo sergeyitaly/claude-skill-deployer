@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.16] - 2026-06-12
+
+### Added
+
+- **Profile init** — role-based skill setup for new git branches: extension writes `.claude/learning/skills-catalog.json`, agent picks skills via `profile-init` skill, output in gitignored `.claude/profile.local.json`, auto-install and branch profile save.
+- **Commands** — Set Your Position, Refresh Skill Catalog, Init Profile for Current Branch, Apply Local Profile.
+- **Settings** — `claudeSkills.profileInit.enabled`, `promptOnNewBranch`, `autoApplyProfileFile`.
+
 ## [1.0.15] - 2026-06-12
 
 ### Added

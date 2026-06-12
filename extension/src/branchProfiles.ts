@@ -122,11 +122,11 @@ function getGitApi(): GitApi | undefined {
   if (cachedGitApi) {
     return cachedGitApi;
   }
-  const ext = vscode.extensions.getExtension<{ getAPI(version: number): GitApi }>("vscode.git");
-  if (!ext?.isActive) {
-    return undefined;
-  }
   try {
+    const ext = vscode.extensions?.getExtension<{ getAPI(version: number): GitApi }>("vscode.git");
+    if (!ext?.isActive) {
+      return undefined;
+    }
     cachedGitApi = ext.exports.getAPI(1);
     return cachedGitApi;
   } catch {
@@ -475,11 +475,17 @@ export function formatBranchProfilesReport(target: string): string {
 
 let lastKnownBranch: string | undefined;
 
+export interface BranchChangeOptions {
+  /** When set, called instead of auto-saving a snapshot for branches with no saved profile. */
+  onNewBranchWithoutProfile?: (branch: string) => Promise<void>;
+}
+
 /** Call on extension activate and after git branch changes. */
 export async function handleBranchChange(
   libraryDir: string,
   target: string,
-  log: (line: string) => void
+  log: (line: string) => void,
+  opts?: BranchChangeOptions
 ): Promise<void> {
   if (!branchProfilesEnabled()) {
     return;
@@ -493,8 +499,12 @@ export async function handleBranchChange(
   if (lastKnownBranch === undefined) {
     lastKnownBranch = branch;
     if (!loadBranchProfile(target, branch)) {
-      saveBranchProfile(target);
-      log(`Initialized branch skill profile for \`${branch}\`.`);
+      if (opts?.onNewBranchWithoutProfile) {
+        await opts.onNewBranchWithoutProfile(branch);
+      } else {
+        saveBranchProfile(target);
+        log(`Initialized branch skill profile for \`${branch}\`.`);
+      }
     }
     return;
   }
@@ -509,6 +519,11 @@ export async function handleBranchChange(
 
   const incoming = loadBranchProfile(target, branch);
   if (!incoming) {
+    if (opts?.onNewBranchWithoutProfile) {
+      log(`No saved skill profile for \`${branch}\` — offering profile init.`);
+      await opts.onNewBranchWithoutProfile(branch);
+      return;
+    }
     log(`No saved skill profile for \`${branch}\` — using git checkout state. Saving snapshot now.`);
     saveBranchProfile(target);
     return;

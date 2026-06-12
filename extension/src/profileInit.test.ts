@@ -1,0 +1,146 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { execSync } from "node:child_process";
+import { describe, expect, it } from "vitest";
+import {
+  applyLocalProfileInit,
+  BranchProfileInit,
+  profileInitToBranchProfile,
+  profileLocalPath,
+  readUserPosition,
+  refreshSkillsCatalog,
+  SkillsCatalog,
+  validateProfileSkills,
+  writeUserPosition,
+} from "./profileInit";
+
+function makeWorkspace(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "profile-init-"));
+}
+
+function makeGitWorkspace(branch = "feature/test"): string {
+  const target = makeWorkspace();
+  execSync("git init", { cwd: target, stdio: "ignore" });
+  execSync(`git checkout -b ${branch}`, { cwd: target, stdio: "ignore" });
+  execSync("git config user.email test@test.com", { cwd: target, stdio: "ignore" });
+  execSync("git config user.name Test", { cwd: target, stdio: "ignore" });
+  return target;
+}
+
+function positionLocalPath(target: string): string {
+  return path.join(target, ".claude", "position.local.json");
+}
+
+describe("validateProfileSkills", () => {
+  const catalog: SkillsCatalog = {
+    version: 1,
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    workspacePath: "/tmp/ws",
+    skills: [
+      {
+        name: "ci-pipeline-debug",
+        description: "CI debug",
+        detectGlobs: ["**/.gitlab-ci.yml"],
+        isRelevant: true,
+        matchedGlobs: ["**/.gitlab-ci.yml"],
+        installedInWorkspace: false,
+        availableInGlobal: true,
+        inLibrary: true,
+      },
+      {
+        name: "self-learning",
+        description: "Learning",
+        detectGlobs: ["**/*"],
+        isRelevant: false,
+        matchedGlobs: [],
+        installedInWorkspace: false,
+        availableInGlobal: true,
+        inLibrary: true,
+      },
+    ],
+  };
+
+  it("splits known and unknown skill names", () => {
+    const { valid, invalid } = validateProfileSkills(
+      ["ci-pipeline-debug", "fake-skill", "ci-pipeline-debug"],
+      catalog
+    );
+    expect(valid).toEqual(["ci-pipeline-debug"]);
+    expect(invalid).toEqual(["fake-skill"]);
+  });
+});
+
+describe("position local file", () => {
+  it("writes and reads position", () => {
+    const target = makeWorkspace();
+    fs.mkdirSync(path.join(target, ".git", "info"), { recursive: true });
+    const pos = writeUserPosition(target, "qa");
+    expect(pos.role).toBe("qa");
+    expect(pos.label).toBe("QA");
+    expect(readUserPosition(target)?.role).toBe("qa");
+    expect(fs.existsSync(positionLocalPath(target))).toBe(true);
+  });
+});
+
+describe("refreshSkillsCatalog", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("writes skills-catalog.json", () => {
+    const target = makeWorkspace();
+    const catalog = refreshSkillsCatalog(target, libraryDir);
+    expect(catalog.skills.length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(target, ".claude", "learning", "skills-catalog.json"))).toBe(true);
+  });
+});
+
+describe("applyLocalProfileInit", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("installs skills from profile.local.json and saves branch profile", () => {
+    const target = makeGitWorkspace("feature/test");
+
+    refreshSkillsCatalog(target, libraryDir);
+
+    const init: BranchProfileInit = {
+      version: 1,
+      branch: "feature/test",
+      role: "devops",
+      roleLabel: "DevOps",
+      skills: ["self-learning", "file-style-conventions"],
+      initBy: "agent",
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    fs.mkdirSync(path.dirname(profileLocalPath(target)), { recursive: true });
+    fs.writeFileSync(profileLocalPath(target), JSON.stringify(init, null, 2) + "\n");
+
+    const { result, init: applied, invalid } = applyLocalProfileInit(libraryDir, target);
+    expect(invalid).toEqual([]);
+    expect(applied?.status).toBe("applied");
+    expect(result?.installed.length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(target, ".claude", "skills", "self-learning", "SKILL.md"))).toBe(true);
+
+    const onDisk = JSON.parse(fs.readFileSync(profileLocalPath(target), "utf-8")) as BranchProfileInit;
+    expect(onDisk.status).toBe("applied");
+  });
+});
+
+describe("profileInitToBranchProfile", () => {
+  it("maps init file to branch profile shape", () => {
+    const target = makeWorkspace();
+    const init: BranchProfileInit = {
+      version: 1,
+      branch: "main",
+      role: "ba",
+      roleLabel: "BA",
+      skills: ["doc-coauthoring"],
+      initBy: "agent",
+      status: "pending",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const bp = profileInitToBranchProfile(init, target);
+    expect(bp.branch).toBe("main");
+    expect(bp.skills).toEqual(["doc-coauthoring"]);
+  });
+});

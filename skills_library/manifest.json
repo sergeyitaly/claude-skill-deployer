@@ -145,6 +145,11 @@
       "detect_globs": ["**/*.pptx"],
       "cost_estimate": "medium"
     },
+    "profile-init": {
+      "description": "Initialize a personal skill profile for the current git branch based on team position; agent picks skills from the live catalog",
+      "detect_globs": ["**/.claude/learning/profile-init-request.json", "**/.claude/profile.local.json"],
+      "cost_estimate": "low"
+    },
     "skill-creator": {
       "description": "Create, edit, optimize, and benchmark Claude skills",
       "detect_globs": ["**/*"],

@@ -148,6 +148,16 @@ import {
   workspaceFolderLabel,
 } from "./workspaceTarget";
 import { OptimizationType } from "./costOptimizer";
+import {
+  applyLocalProfileInit,
+  autoApplyProfileFileEnabled,
+  maybePromptProfileInitOnNewBranch,
+  profileInitEnabled,
+  promptForPosition,
+  readUserPosition,
+  refreshSkillsCatalog,
+  startProfileInitFlow,
+} from "./profileInit";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -174,6 +184,16 @@ function getWorkspaceTarget(): string | undefined {
 
 function log(line: string) {
   outputChannel.appendLine(line);
+}
+
+function branchChangeOpts(libraryDir: string, target: string) {
+  if (!profileInitEnabled()) {
+    return undefined;
+  }
+  return {
+    onNewBranchWithoutProfile: (branch: string) =>
+      maybePromptProfileInitOnNewBranch(libraryDir, target, branch, log),
+  };
 }
 
 async function maybeNotifyOfficialSkillUpdates(target: string): Promise<void> {
@@ -484,6 +504,13 @@ export function activate(context: vscode.ExtensionContext) {
       void checkEmergencyCutoff(target, libraryDir);
       if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
         ensureAttributionHooksActive(context.extensionPath, target, log);
+      }
+      if (profileInitEnabled()) {
+        try {
+          refreshSkillsCatalog(target, libraryDir);
+        } catch (err) {
+          log(`Skill catalog refresh failed: ${(err as Error).message}`);
+        }
       }
     }
   };
@@ -1195,6 +1222,80 @@ export function activate(context: vscode.ExtensionContext) {
       log(`\n=== Team branch profiles (git) ===\n${formatTeamProfileReport(target)}`);
     }),
 
+    vscode.commands.registerCommand("claudeSkills.setPosition", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const position = await promptForPosition(target);
+      if (position) {
+        vscode.window.showInformationMessage(`Claude Skills: position saved as ${position.label} (local only).`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.refreshSkillCatalog", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const catalog = refreshSkillsCatalog(target, libraryDir);
+      outputChannel.show(true);
+      log(`\n=== Skill catalog refreshed ===\n${catalog.skills.length} skill(s) -> .claude/learning/skills-catalog.json`);
+      vscode.window.showInformationMessage(
+        `Claude Skills: refreshed skill catalog (${catalog.skills.length} skills).`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.initProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const branch = getCurrentBranch(target);
+      if (!branch) {
+        vscode.window.showWarningMessage("Claude Skills: init profile requires a git branch.");
+        return;
+      }
+      outputChannel.show(true);
+      await startProfileInitFlow(libraryDir, target, branch, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: false,
+      });
+      refreshAll();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.applyLocalProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const { result, init, invalid } = applyLocalProfileInit(libraryDir, target);
+      if (!init || !result) {
+        const pending = readUserPosition(target);
+        vscode.window.showWarningMessage(
+          pending
+            ? "Claude Skills: no pending profile.local.json with skills to apply."
+            : "Claude Skills: write .claude/profile.local.json first (use profile-init skill)."
+        );
+        return;
+      }
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      refreshAll();
+      outputChannel.show(true);
+      log(
+        `\n=== Applied local profile ===\nBranch: ${init.branch}, role: ${init.roleLabel}\n` +
+          `Installed: ${result.installed.join(", ") || "(none)"}\n` +
+          (invalid.length ? `Skipped unknown: ${invalid.join(", ")}\n` : "")
+      );
+      vscode.window.showInformationMessage(
+        `Claude Skills: applied profile for ${init.branch} (+${result.installed.length} skill(s)).`
+      );
+    }),
+
     vscode.commands.registerCommand("claudeSkills.applyBranchProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
@@ -1707,6 +1808,34 @@ export function activate(context: vscode.ExtensionContext) {
   localSettingsWatcher.onDidCreate(debouncedAgentSync);
   context.subscriptions.push(localSettingsWatcher);
 
+  const debouncedProfileApply = debounce(() => {
+    if (!autoApplyProfileFileEnabled()) {
+      return;
+    }
+    const target = getWorkspaceTarget();
+    if (!target) {
+      return;
+    }
+    const { result, init, invalid } = applyLocalProfileInit(libraryDir, target);
+    if (!result || !init) {
+      return;
+    }
+    log(
+      `\n=== Auto-applied profile.local.json ===\nBranch: ${init.branch}, +${result.installed.length} skill(s)` +
+        (invalid.length ? `; skipped unknown: ${invalid.join(", ")}` : "")
+    );
+    propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+    refreshAll();
+    void vscode.window.showInformationMessage(
+      `Claude Skills: profile applied for ${init.branch} (${result.installed.length} skill(s) installed).`
+    );
+  }, 800);
+
+  const profileLocalWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/profile.local.json");
+  profileLocalWatcher.onDidChange(debouncedProfileApply);
+  profileLocalWatcher.onDidCreate(debouncedProfileApply);
+  context.subscriptions.push(profileLocalWatcher);
+
   const gitExt = vscode.extensions.getExtension("vscode.git");
   if (gitExt) {
     const gitDisposables: vscode.Disposable[] = [];
@@ -1719,7 +1848,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (teamResult) {
         log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
       }
-      await handleBranchChange(libraryDir, target, log);
+      await handleBranchChange(libraryDir, target, log, branchChangeOpts(libraryDir, target));
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
       refreshAll();
     };
@@ -1762,7 +1891,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (teamResult) {
             log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
           }
-          await handleBranchChange(libraryDir, target, log);
+          await handleBranchChange(libraryDir, target, log, branchChangeOpts(libraryDir, target));
           propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
             saveBranchProfile: false,
           });

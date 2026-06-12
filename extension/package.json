@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -352,6 +352,30 @@
         "title": "Preview Skill Set Resolver",
         "icon": "$(eye)",
         "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.setPosition",
+        "title": "Set Your Position (local profile)",
+        "icon": "$(person)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.refreshSkillCatalog",
+        "title": "Refresh Skill Catalog for Agent",
+        "icon": "$(refresh)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.initProfile",
+        "title": "Init Profile for Current Branch",
+        "icon": "$(account)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.applyLocalProfile",
+        "title": "Apply Local Profile (.claude/profile.local.json)",
+        "icon": "$(check)",
+        "category": "Claude Skills"
       }
     ],
     "configuration": [
@@ -542,6 +566,28 @@
             "type": "string",
             "default": ".claude/skills-profile.json",
             "description": "Git-committed team skill layout per branch (export with Export Team Branch Profile to Git)."
+          }
+        }
+      },
+      {
+        "id": "profileInit",
+        "title": "Profile Init",
+        "order": 2.5,
+        "properties": {
+          "claudeSkills.profileInit.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Role-based skill profile init: agent picks skills from the live catalog per branch (stored locally, not committed)."
+          },
+          "claudeSkills.profileInit.promptOnNewBranch": {
+            "type": "boolean",
+            "default": true,
+            "description": "When switching to a git branch with no saved skill profile, prompt to run profile init."
+          },
+          "claudeSkills.profileInit.autoApplyProfileFile": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the agent writes .claude/profile.local.json, automatically install the selected skills."
           }
         }
       },
