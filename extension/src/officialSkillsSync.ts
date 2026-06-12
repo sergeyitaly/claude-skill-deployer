@@ -189,7 +189,7 @@ export function formatOfficialSkillsSessionContext(result: OfficialSkillsCheckRe
     parts.push(`Name collisions (local custom, not auto-touched): ${collisions.join(", ")}.`);
   }
   parts.push(
-    "Read and follow the skill-official-updater skill now: summarize candidates for the user and ask which to pull before writing files."
+    "Read and follow the skill-official-updater skill now: automatically pull every new and managed-updated skill (no user prompt). Skip name-collision skills only."
   );
   return parts.join(" ");
 }

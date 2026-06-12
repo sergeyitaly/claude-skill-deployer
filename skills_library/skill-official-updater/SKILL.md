@@ -1,6 +1,6 @@
 ---
 name: skill-official-updater
-description: At the start of a new session, do a cheap check for new or updated official Anthropic skills (github.com/anthropics/skills) and offer to add or update them in skills_library/. Also use on explicit request ("check for official skill updates", "sync official skills").
+description: At the start of a new session, do a cheap check for new or updated official Anthropic skills (github.com/anthropics/skills) and automatically add or update them in skills_library/ (no user prompt). Also use on explicit request ("check for official skill updates", "sync official skills").
 user-invocable: true
 allowed-tools:
   - Read
@@ -43,7 +43,8 @@ explicit user decision.
 has `skills_library/`, it installs a Claude Code `SessionStart` hook
 (`official-skills-watch.js`) that runs the check below on `startup`,
 `resume`, and `clear`. If updates exist, the hook injects context telling
-you to read this skill and summarize candidates for the user.
+you to read this skill and **sync immediately** — do not ask the user which
+skills to pull.
 
 Manual / fallback (same logic):
 
@@ -77,51 +78,68 @@ For each upstream skill name, compare against `skills_library/`:
   state file's `skills` map: skip, and report it as "name collision, not
   touched" so the user is aware but nothing changes automatically.
 
-Summarize candidates for the user (new vs. updated, with each skill's
-one-line `description` from its SKILL.md frontmatter) and ask which to
-pull. Don't write anything before the user confirms - pulling external code
-and adding manifest entries is worth a quick check-in.
+**Auto-sync policy (default — do not ask the user):**
 
-## 3. Pulling selected skills
+- Pull **every** `new` and `managed + changed` candidate automatically.
+- **Never** overwrite an `unmanaged` collision (same local name, not in state
+  `skills` map) — list those in the completion summary only.
+- Do **not** stop to ask "which skills" or "all 17?" — proceed with the sync
+  unless `git`/`gh` is unavailable or the sparse clone fails.
+
+Briefly note what you are syncing (counts + names), then run the pull.
+
+## 3. Pulling skills (all actionable candidates)
 
 Use a temporary shallow sparse clone so only the needed skill directories are
-fetched:
+fetched. On Windows, do **not** pass `-q` to `git sparse-checkout set`.
 
 ```sh
 git clone --depth 1 --filter=blob:none --sparse https://github.com/anthropics/skills.git <tmpdir>
-cd <tmpdir> && git sparse-checkout set skills/<name1> skills/<name2> ...
+cd <tmpdir>
+git sparse-checkout set skills/<name1> skills/<name2> ...
 ```
 
-For each selected skill, copy `<tmpdir>/skills/<name>/` to
-`skills_library/<name>/` (only for "new" or "managed + changed" candidates -
-never for an "unmanaged" collision). Delete `<tmpdir>` afterwards.
+For each actionable skill (`new` or `managed + changed`), copy
+`<tmpdir>/skills/<name>/` to `skills_library/<name>/`. Delete `<tmpdir>`
+afterwards.
+
+To record per-skill SHAs for managed skills, after checkout run
+`git log -1 --format=%H -- skills/<name>` inside `<tmpdir>` for each synced
+skill.
 
 ## 4. Manifest entries
 
 For each newly added skill, add an entry to `skills_library/manifest.json`:
 
 - `description`: the skill's SKILL.md frontmatter `description`, trimmed to
-  one line.
-- `detect_globs`: pick something reasonable for the skill's purpose -
-  file-format skills (`docx`, `pptx`, `xlsx`, `pdf`) should match their
-  extension(s) (e.g. `**/*.docx`); general-purpose/creative skills
-  (`algorithmic-art`, `brand-guidelines`, `theme-factory`,
-  `web-artifacts-builder`, `slack-gif-creator`, `frontend-design`,
-  `canvas-design`) can use `**/*` since they're not file-driven. If unsure,
-  ask the user rather than guessing.
+  one line (unwrap YAML `|-` blocks to a single line).
+- `detect_globs`: use the table below; do not ask the user.
 
-For updated skills, the manifest entry usually doesn't need to change unless
-the description changed meaningfully - update it if so.
+| Skill | `detect_globs` |
+|---|---|
+| `docx` | `["**/*.docx"]` |
+| `pptx` | `["**/*.pptx"]` |
+| `xlsx` | `["**/*.xlsx", "**/*.xlsm", "**/*.csv", "**/*.tsv"]` |
+| `pdf` | `["**/*.pdf"]` |
+| `webapp-testing` | `["**/package.json", "**/playwright.config.*", "**/vite.config.*"]` |
+| `mcp-builder` | `["**/mcp*.json", "**/*mcp*", "**/package.json"]` |
+| `claude-api` | `["**/*.py", "**/*.ts", "**/*.js", "**/package.json"]` |
+| `skill-creator` | `["**/.claude/skills/**", "**/skills_library/**", "**/SKILL.md"]` |
+| all other official skills | `["**/*"]` |
+
+For updated skills, refresh the manifest `description` if the upstream
+frontmatter changed meaningfully.
 
 ## 5. Update state and finish
 
 - Write the new `repoSha` and per-skill SHAs (for every skill added or
   updated) to `skills_library/.official-skills-state.json`.
-- If `extension/` exists in this repo, remind the user to run
-  `npm run sync-skills` inside it to refresh the bundled copy.
-- Remind the user that `py generate_skills.py install` (or the VS Code
-  extension's "Install Skill Library to ~/.claude/skills") re-publishes the
-  updated library to `~/.claude/skills/`.
+- If `extension/` exists, run `npm run sync-skills` inside `extension/` to
+  refresh the bundled copy (or tell the user if you cannot run commands).
+- Summarize what was synced: added count, updated count, skipped collisions.
+- If this workspace uses the deployer extension, note that **Install Skill
+  Library** (or `py generate_skills.py install`) republishes to
+  `~/.claude/skills/` — run or suggest only if skills were actually changed.
 
 ## 6. No `git`/`gh` available
 

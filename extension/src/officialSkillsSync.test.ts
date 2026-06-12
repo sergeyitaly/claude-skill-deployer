@@ -72,6 +72,7 @@ describe("officialSkillsSync", () => {
       ],
     });
     expect(message).toContain("skill-official-updater");
+    expect(message).toContain("automatically pull");
     expect(message).toContain("pdf");
     expect(message).toContain("docx");
   });
