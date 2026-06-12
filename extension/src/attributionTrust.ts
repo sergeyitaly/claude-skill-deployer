@@ -78,7 +78,7 @@ export function formatGlobalTrustStatusBar(badge: GlobalTrustBadge): string {
 
 export function formatGlobalTrustBannerHtml(badge: GlobalTrustBadge): string {
   const cls = badge.tier === "reliable" ? "trust-reliable" : badge.tier === "estimated" ? "trust-estimated" : "trust-low";
-  return `<div class="trust-banner ${cls}"><b>${badge.label}</b> · ${badge.scorePct}% · <span class="trust-detail">${badge.detail}</span></div>`;
+  return `<div class="trust-banner ${cls}"><b>Trust</b> — <b>${badge.label}</b> · ${badge.scorePct}% · <span class="trust-detail">${badge.detail}</span></div>`;
 }
 
 export function skillCostSourceLabel(source: SkillCostSource): string {
