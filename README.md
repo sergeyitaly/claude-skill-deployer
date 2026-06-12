@@ -169,7 +169,7 @@ Background sync runs **collect → index → analyze** on a schedule and after h
 
 Stage timings and errors appear in the Cost Dashboard **System** panel. A circuit breaker trips after more than 10 pipeline runs per minute and forces safe mode (auto-optimize off) until the window clears.
 
-**Pipeline roadmap** (v1.0.19):
+**Pipeline roadmap** (v1.0.20):
 
 | Direction | Status |
 |---|---|

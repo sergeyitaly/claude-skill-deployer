@@ -2,9 +2,11 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.19** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.20** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.20] - 2026-06-13
 
 ### Skill feedback adaptation
 

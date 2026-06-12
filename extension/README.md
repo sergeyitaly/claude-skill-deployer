@@ -280,7 +280,7 @@ If Skills detail shows many skills with identical run counts and millions of tok
 
 Each sync cycle: **collect** (transcripts → `cost-attribution.json`) → **index** (`skill-stats.json`, `daily-stats.json`) → **analyze** (ROI, suggestions, system state, alerts). Timings and errors show in the dashboard **System state** panel.
 
-| Roadmap item | Status (v1.0.19) |
+| Roadmap item | Status (v1.0.20) |
 |---|---|
 | **Confidence everywhere** | Usage Report rows + trust banner; weekly report; predictive alerts; pipeline trace |
 | **In-memory index** | Runs cache + derived v2 stats; transcript credit cache (mtime fingerprint) |
