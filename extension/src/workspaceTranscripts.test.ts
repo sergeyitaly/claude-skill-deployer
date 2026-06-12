@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  encodeCursorWorkspacePath,
   encodeWorkspacePath,
   transcriptFileMatchesWorkspace,
   workspaceFromTranscriptFile,
@@ -31,10 +32,18 @@ describe("transcriptFileMatchesWorkspace", () => {
     expect(transcriptFileMatchesWorkspace(file, target)).toBe(true);
   });
 
+  it("matches Cursor project folder encoding (single dash after drive)", () => {
+    const target = "C:\\Users\\SerhiiVoinolovich\\claude-skills-deployer";
+    expect(encodeCursorWorkspacePath(target)).toBe("c-Users-SerhiiVoinolovich-claude-skills-deployer");
+    const file =
+      "C:/Users/SerhiiVoinolovich/.cursor/projects/c-Users-SerhiiVoinolovich-claude-skills-deployer/agent-transcripts/sess/chat.jsonl";
+    expect(transcriptFileMatchesWorkspace(file, target)).toBe(true);
+  });
+
   it("matches case-insensitively", () => {
     const target = "C:\\Users\\SerhiiVoinolovich\\claude-skills-deployer";
     const file =
-      "C:/Users/SerhiiVoinolovich/.cursor/projects/C--USERS-SERHIIVOINOLOVICH-CLAUDE-SKILLS-DEPLOYER/chat.jsonl";
+      "C:/Users/SerhiiVoinolovich/.cursor/projects/C-Users-SerhiiVoinolovich-claude-skills-deployer/chat.jsonl";
     expect(transcriptFileMatchesWorkspace(file, target)).toBe(true);
   });
 
@@ -55,6 +64,13 @@ describe("workspaceFromTranscriptFile", () => {
     const target = "C:/Users/runner/myrepo";
     const encoded = encodeWorkspacePath(target);
     const file = `C:/Users/runner/.claude/projects/${encoded}/session.jsonl`;
+    expect(workspaceFromTranscriptFile(file)).toBe("C:/Users/runner/myrepo");
+  });
+
+  it("decodes Cursor Windows project folders when segment names have no hyphens", () => {
+    const target = "C:/Users/runner/myrepo";
+    const encoded = encodeCursorWorkspacePath(target);
+    const file = `C:/Users/runner/.cursor/projects/${encoded}/agent-transcripts/uuid/chat.jsonl`;
     expect(workspaceFromTranscriptFile(file)).toBe("C:/Users/runner/myrepo");
   });
 

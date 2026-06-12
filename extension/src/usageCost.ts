@@ -3,8 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { estimateUsageCostUsd } from "./costRates";
 import { localDateKey } from "./localDate";
-import { listTranscriptFiles } from "./transcriptParsers";
-import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
+import { cursorParser, listTranscriptFiles } from "./transcriptParsers";
+import { isCursorTranscriptRoot, transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
+
+/** Model id for Cursor agent transcripts (no per-line model metadata; Sonnet-like default rates). */
+const CURSOR_TRANSCRIPT_MODEL = "cursor-agent";
 
 interface TokenUsage {
   inputTokens: number;
@@ -139,7 +142,59 @@ function recordLine(line: string, windowStartMs: number, buckets: Buckets, sessi
   }
 }
 
-function recordFile(file: string, cutoffMs: number, windowStartMs: number, buckets: Buckets, sessionIds: Set<string>): void {
+function recordCursorFile(
+  file: string,
+  cutoffMs: number,
+  windowStartMs: number,
+  buckets: Buckets,
+  sessionIds: Set<string>
+): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    return;
+  }
+  if (stat.mtimeMs < cutoffMs || stat.mtimeMs < windowStartMs) {
+    return;
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(file, "utf-8");
+  } catch {
+    return;
+  }
+
+  const parsed = cursorParser.parseFile(file, content);
+  if (!parsed || parsed.tokens <= 0) {
+    return;
+  }
+
+  const date = localDateKey(new Date(stat.mtimeMs));
+  const usage: TokenUsage = {
+    inputTokens: Math.round(parsed.tokens * 0.6),
+    outputTokens: parsed.tokens - Math.round(parsed.tokens * 0.6),
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+  };
+  addUsage(getOrCreate(buckets, bucketKey(date, CURSOR_TRANSCRIPT_MODEL)), usage);
+  sessionIds.add(parsed.sessionId);
+}
+
+function recordFile(
+  file: string,
+  cutoffMs: number,
+  windowStartMs: number,
+  buckets: Buckets,
+  sessionIds: Set<string>,
+  cursorFormat: boolean
+): void {
+  if (cursorFormat) {
+    recordCursorFile(file, cutoffMs, windowStartMs, buckets, sessionIds);
+    return;
+  }
+
   let stat: fs.Stats;
   try {
     stat = fs.statSync(file);
@@ -216,11 +271,12 @@ export function computeCreditUsageFromRoots(
 
   for (const root of roots) {
     const dir = expandTranscriptRoot(root);
+    const cursorFormat = isCursorTranscriptRoot(dir);
     for (const file of listTranscriptFiles(dir)) {
       if (workspaceTarget && !transcriptFileMatchesWorkspace(file, workspaceTarget)) {
         continue;
       }
-      recordFile(file, cutoffMs, windowStartMs, buckets, sessionIds);
+      recordFile(file, cutoffMs, windowStartMs, buckets, sessionIds, cursorFormat);
     }
   }
 

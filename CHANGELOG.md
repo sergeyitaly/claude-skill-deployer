@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.13] - 2026-06-12
+
+### Fixed
+
+- **Cursor usage missing in Cost Intelligence** — Cursor stores project folders as `c-Users-...` (single dash after drive) under `~/.cursor/projects`, not Claude's `c--Users-...` encoding; workspace matching now accepts both. Cursor `agent-transcripts/*.jsonl` files are token-estimated from content (no Claude-style `usage` lines).
+
 ## [1.0.12] - 2026-06-11
 
 ### Fixed

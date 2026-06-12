@@ -8,6 +8,7 @@ import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { appendSkillRun, sessionHasV2HookRuns } from "./runRecording";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
+import { transcriptFileMatchesWorkspace, workspaceFromTranscriptFile } from "./workspaceTranscripts";
 
 const COLLECTION_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -90,15 +91,8 @@ function transcriptWorkspace(filePath: string, content: string): string | null {
       // skip
     }
   }
-  const parts = filePath.replace(/\\/g, "/").split("/");
-  const projectsIdx = parts.indexOf("projects");
-  if (projectsIdx >= 0 && parts[projectsIdx + 1]) {
-    const encoded = parts[projectsIdx + 1];
-    if (encoded.startsWith("c--")) {
-      return path.resolve(encoded.slice(2).replace(/-/g, path.sep));
-    }
-  }
-  return null;
+  const fromPath = workspaceFromTranscriptFile(filePath);
+  return fromPath ? path.resolve(fromPath) : null;
 }
 
 function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, target: string): void {
@@ -257,6 +251,9 @@ export class AttributionCollector {
       for (const root of def.transcriptRoots) {
         const expanded = expandHome(root);
         for (const file of listTranscriptFiles(expanded)) {
+          if (!transcriptFileMatchesWorkspace(file, this.target)) {
+            continue;
+          }
           let mtime = 0;
           try {
             mtime = fs.statSync(file).mtimeMs;

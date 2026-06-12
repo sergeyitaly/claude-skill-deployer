@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { encodeWorkspacePath } from "./workspaceTranscripts";
+import { encodeCursorWorkspacePath, encodeWorkspacePath } from "./workspaceTranscripts";
 import { computeCreditUsageFromRoots } from "./usageCost";
 
 const tempDirs: string[] = [];
@@ -82,6 +82,33 @@ describe("computeCreditUsageFromRoots", () => {
     expect(scoped.workspaceScoped).toBe(true);
     expect(all.sessionCount).toBe(2);
     expect(all.workspaceScoped).toBe(false);
+  });
+
+  it("estimates Cursor agent-transcript usage without Claude-style usage lines", () => {
+    const workspace = "C:/Users/runner/claude-skills-deployer";
+    const root = path.join(os.tmpdir(), `usage-cost-cursor-${Date.now()}`);
+    fs.mkdirSync(path.join(root, ".cursor", "projects"), { recursive: true });
+    tempDirs.push(root);
+    const encoded = encodeCursorWorkspacePath(workspace);
+    const sessionDir = path.join(root, ".cursor", "projects", encoded, "agent-transcripts", "uuid-1");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    const sessionFile = path.join(sessionDir, "uuid-1.jsonl");
+    const content = [
+      JSON.stringify({ role: "user", message: { content: [{ type: "text", text: "hello" }] } }),
+      JSON.stringify({
+        role: "assistant",
+        message: { content: [{ type: "text", text: "a".repeat(4000) }] },
+      }),
+    ].join("\n");
+    fs.writeFileSync(sessionFile, content + "\n", "utf-8");
+    fs.utimesSync(sessionFile, new Date(), new Date());
+
+    const cursorProjects = path.join(root, ".cursor", "projects");
+    const scoped = computeCreditUsageFromRoots([cursorProjects], 7, workspace);
+    expect(scoped.workspaceScoped).toBe(true);
+    expect(scoped.sessionCount).toBe(1);
+    expect(scoped.totalTokens).toBeGreaterThan(0);
+    expect(scoped.totalCost).toBeGreaterThan(0);
   });
 
   it("ignores all-zero usage lines", () => {
