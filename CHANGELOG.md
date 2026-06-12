@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.15] - 2026-06-12
+
+### Added
+
+- **Context focus** — toggle and `context-focus-watch.js` hook to balance local workspace grounding vs general LLM knowledge (Knowledge-forward → Strict local); auto-tightens on large sessions; status bar cycle command.
+- **Practical / deployment focus** — toggle and `practical-focus-watch.js` hook for architecture-first and deploy-ready guidance (exact commands, validation, rollback) instead of theoretical advice.
+- **`deployment-practical` skill** — first-try deployment checklist bundled in `skills_library/`; auto-detected on Terraform/CI/Docker repos.
+- **Skill set resolver** — weekly scheduled install/remove of relevant skills with usage-based rules (sessions, tokens, cost, idle days); Preview and Run Now commands.
+- **Hook integration tests** — spawn `context-focus-watch.js` and `practical-focus-watch.js` with isolated config paths (`CLAUDE_SKILLS_*_CONFIG` env vars).
+
+### Fixed
+
+- **Feature toggles** — `contextFocus` and `practicalFocus` appear in Manage Feature Toggles; disabling a feature syncs `enabled: false` to hook config on disk.
+- **Focus cycle commands** — cycling past the strictest level disables focus (instead of wrapping silently).
+- **Workspace hook status** — dashboard/onboarding report context-focus and practical-focus hook state.
+
 ## [1.0.14] - 2026-06-12
 
 ### Added

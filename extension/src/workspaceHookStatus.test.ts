@@ -16,7 +16,13 @@ const allOn: WorkspaceHookStatus = {
       { agent: "cursor", displayName: "Cursor", applicable: true, configured: true },
     ],
   },
-  costControl: { sessionSize: true, budget: true, configured: true },
+  costControl: {
+    sessionSize: true,
+    budget: true,
+    contextFocus: true,
+    practicalFocus: true,
+    configured: true,
+  },
 };
 
 const partial: WorkspaceHookStatus = {
@@ -29,7 +35,13 @@ const partial: WorkspaceHookStatus = {
       { agent: "cursor", displayName: "Cursor", applicable: true, configured: false },
     ],
   },
-  costControl: { sessionSize: false, budget: true, configured: false },
+  costControl: {
+    sessionSize: false,
+    budget: true,
+    contextFocus: false,
+    practicalFocus: false,
+    configured: false,
+  },
 };
 
 describe("workspaceHookStatus formatting", () => {
@@ -38,6 +50,8 @@ describe("workspaceHookStatus formatting", () => {
     expect(html).toContain("Attribution v2: on");
     expect(html).toContain("Session size: on");
     expect(html).toContain("Daily budget: on");
+    expect(html).toContain("Context focus: on");
+    expect(html).toContain("Practical focus: on");
     expect(html).toContain("hook-on");
   });
 
@@ -45,6 +59,8 @@ describe("workspaceHookStatus formatting", () => {
     const html = formatHookStatusPanelHtml(partial);
     expect(html).toContain("attribution missing");
     expect(html).toContain("Session size warnings");
+    expect(html).toContain("Context focus grounding");
+    expect(html).toContain("Practical / deployment focus");
     expect(html).toContain("hook-off");
   });
 
@@ -52,5 +68,7 @@ describe("workspaceHookStatus formatting", () => {
     expect(formatHookStatusPlain(partial)).toContain("Attribution v2: partial (1/2 agents)");
     expect(formatHookStatusPlain(partial)).toContain("Session size warnings: off");
     expect(formatHookStatusPlain(partial)).toContain("Daily budget warnings: on");
+    expect(formatHookStatusPlain(partial)).toContain("Context focus grounding: off");
+    expect(formatHookStatusPlain(partial)).toContain("Practical/deployment focus: off");
   });
 });

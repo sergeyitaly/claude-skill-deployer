@@ -74,6 +74,21 @@ describe("installCostControlHooks", () => {
     installCostControlHooks(EXTENSION_PATH, target);
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
   });
+
+  it("registers session, budget, and focus UserPromptSubmit hooks", () => {
+    const target = makeWorkspace();
+    installCostControlHooks(EXTENSION_PATH, target);
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { UserPromptSubmit?: { hooks: { command: string }[] }[] } };
+    const commands = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) =>
+      m.hooks.map((h) => h.command)
+    );
+    expect(commands.some((c) => c.includes("session-size-watch.js"))).toBe(true);
+    expect(commands.some((c) => c.includes("budget-watch.js"))).toBe(true);
+    expect(commands.some((c) => c.includes("context-focus-watch.js"))).toBe(true);
+    expect(commands.some((c) => c.includes("practical-focus-watch.js"))).toBe(true);
+  });
 });
 
 describe("getWorkspaceHookStatus", () => {
@@ -89,6 +104,8 @@ describe("getWorkspaceHookStatus", () => {
     expect(status.attribution.configuredCount).toBeGreaterThan(0);
     expect(status.costControl.sessionSize).toBe(true);
     expect(status.costControl.budget).toBe(true);
+    expect(status.costControl.contextFocus).toBe(true);
+    expect(status.costControl.practicalFocus).toBe(true);
     expect(status.costControl.configured).toBe(true);
   });
 

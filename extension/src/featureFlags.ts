@@ -13,7 +13,10 @@ export type FeatureKey =
   | "skillArchival"
   | "emergencyCutoff"
   | "prCostEstimate"
-  | "costAwareSearch";
+  | "costAwareSearch"
+  | "skillSetResolver"
+  | "contextFocus"
+  | "practicalFocus";
 
 const DEFAULTS: Record<FeatureKey, boolean> = {
   budgetControls: true,
@@ -29,6 +32,9 @@ const DEFAULTS: Record<FeatureKey, boolean> = {
   emergencyCutoff: true,
   prCostEstimate: false,
   costAwareSearch: true,
+  skillSetResolver: true,
+  contextFocus: true,
+  practicalFocus: true,
 };
 
 export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
@@ -45,6 +51,12 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
   emergencyCutoff: "Hard daily spend cutoff that disables all workspace skills.",
   prCostEstimate: "GitHub PR cost estimate via gh CLI.",
   costAwareSearch: "Show ROI/cost in skills tree and enable cost-based sorting.",
+  skillSetResolver:
+    "Weekly scheduled install of relevant skills and removal of skills that no longer match this workspace.",
+  contextFocus:
+    "Context focus level toggle and grounding hook (local workspace vs general LLM knowledge) to reduce hallucination in long sessions.",
+  practicalFocus:
+    "Practical/deployment focus toggle and hook — concrete architecture and first-try deploy steps over theoretical advice.",
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {

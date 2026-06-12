@@ -53,6 +53,20 @@ import { computeCreditUsage } from "./usageCost";
 import { formatCompactUsd, sumInstallCostEstimate, tierForSkill } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
 import { BudgetMode, budgetUsagePercent, configFromVsCodeSettings, syncBudgetConfigToDisk } from "./budgetConfig";
+import {
+  CONTEXT_FOCUS_LABELS,
+  ContextFocusLevel,
+  configFromVsCodeSettings as contextFocusFromSettings,
+  nextContextFocusLevel,
+  syncContextFocusConfigToDisk,
+} from "./contextFocusConfig";
+import {
+  PRACTICAL_FOCUS_LABELS,
+  PracticalFocusLevel,
+  configFromVsCodeSettings as practicalFocusFromSettings,
+  nextPracticalFocusLevel,
+  syncPracticalFocusConfigToDisk,
+} from "./practicalFocusConfig";
 import { clearBudgetTrackingForSkill, syncAndApplyBudgetMode } from "./budgetOps";
 import {
   applyBranchProfile,
@@ -121,6 +135,12 @@ import {
   startWeeklyReportScheduler,
 } from "./weeklyReport";
 import {
+  executeSkillSetResolution,
+  formatSkillSetResolverPlan,
+  planSkillSetResolution,
+  startSkillSetResolverScheduler,
+} from "./skillSetResolver";
+import {
   isMultiRootWorkspace,
   pickWorkspaceTarget,
   registerWorkspaceTargetListeners,
@@ -134,6 +154,8 @@ let statusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
 let creditStatusBarItem: vscode.StatusBarItem;
 let budgetModeStatusBarItem: vscode.StatusBarItem;
+let contextFocusStatusBarItem: vscode.StatusBarItem;
+let practicalFocusStatusBarItem: vscode.StatusBarItem;
 let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 let costDashboardPanel: vscode.WebviewPanel | undefined;
@@ -264,6 +286,50 @@ function refreshBudgetModeStatusBar(libraryDir: string) {
   budgetModeStatusBarItem.show();
 }
 
+function refreshContextFocusStatusBar() {
+  if (!isFeatureEnabled("contextFocus")) {
+    contextFocusStatusBarItem.hide();
+    return;
+  }
+  const config = contextFocusFromSettings();
+  if (!config.enabled) {
+    contextFocusStatusBarItem.text = "$(eye-closed) Focus: off";
+    contextFocusStatusBarItem.tooltip =
+      "Context focus is disabled. Enable in settings to inject grounding that balances local workspace context vs general LLM knowledge.\n\nClick to cycle focus level.";
+    contextFocusStatusBarItem.command = "claudeSkills.cycleContextFocusLevel";
+    contextFocusStatusBarItem.show();
+    return;
+  }
+  const label = CONTEXT_FOCUS_LABELS[config.level];
+  contextFocusStatusBarItem.text = `$(target) ${label}`;
+  contextFocusStatusBarItem.tooltip =
+    `Context focus: ${label}. ${config.autoEscalateOnSessionSize ? "Auto-tightens on large sessions." : "Fixed level."}\n\nClick to cycle (Knowledge-forward -> Balanced -> Local-first -> Strict local).`;
+  contextFocusStatusBarItem.command = "claudeSkills.cycleContextFocusLevel";
+  contextFocusStatusBarItem.show();
+}
+
+function refreshPracticalFocusStatusBar() {
+  if (!isFeatureEnabled("practicalFocus")) {
+    practicalFocusStatusBarItem.hide();
+    return;
+  }
+  const config = practicalFocusFromSettings();
+  if (!config.enabled) {
+    practicalFocusStatusBarItem.text = "$(light-bulb) Practical: off";
+    practicalFocusStatusBarItem.tooltip =
+      "Practical/deployment focus is off. Enable to favor concrete architecture and first-try deploy steps over theoretical advice.\n\nClick to enable (starts at Architecture-first).";
+    practicalFocusStatusBarItem.command = "claudeSkills.cyclePracticalFocusLevel";
+    practicalFocusStatusBarItem.show();
+    return;
+  }
+  const label = PRACTICAL_FOCUS_LABELS[config.level];
+  practicalFocusStatusBarItem.text = `$(rocket) ${label}`;
+  practicalFocusStatusBarItem.tooltip =
+    `Practical focus: ${label}. Favors provisionable architecture over hand-wavy theory.\n\nClick to cycle (Exploratory -> Balanced -> Architecture-first -> Deploy-ready).`;
+  practicalFocusStatusBarItem.command = "claudeSkills.cyclePracticalFocusLevel";
+  practicalFocusStatusBarItem.show();
+}
+
 function applyBudgetSettings(libraryDir: string, logLines: boolean): void {
   const target = getWorkspaceTarget();
   const manifest = loadManifest(libraryDir);
@@ -372,7 +438,13 @@ export function activate(context: vscode.ExtensionContext) {
   budgetModeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
   context.subscriptions.push(budgetModeStatusBarItem);
 
-  workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+  contextFocusStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+  context.subscriptions.push(contextFocusStatusBarItem);
+
+  practicalFocusStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
+  context.subscriptions.push(practicalFocusStatusBarItem);
+
+  workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
   context.subscriptions.push(workspaceFolderStatusBarItem);
 
   const refreshWorkspaceFolderStatusBar = () => {
@@ -399,6 +471,8 @@ export function activate(context: vscode.ExtensionContext) {
     refreshUsageStatusBar(libraryDir);
     refreshCreditStatusBar(libraryDir, target);
     refreshBudgetModeStatusBar(libraryDir);
+    refreshContextFocusStatusBar();
+    refreshPracticalFocusStatusBar();
     refreshWorkspaceFolderStatusBar();
     if (target && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
       const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
@@ -417,6 +491,12 @@ export function activate(context: vscode.ExtensionContext) {
   registerWorkspaceTargetListeners(() => refreshAll(), context);
 
   applyBudgetSettings(libraryDir, false);
+  if (isFeatureEnabled("contextFocus")) {
+    syncContextFocusConfigToDisk();
+  }
+  if (isFeatureEnabled("practicalFocus")) {
+    syncPracticalFocusConfigToDisk();
+  }
   const initialTarget = getWorkspaceTarget();
 
   void (async () => {
@@ -475,12 +555,35 @@ export function activate(context: vscode.ExtensionContext) {
       void syncCommunityBenchmarks();
     }
     startWeeklyReportScheduler(context, getWorkspaceTarget, libraryDir, log);
+    startSkillSetResolverScheduler(context, getWorkspaceTarget, libraryDir, log, refreshAll, () => {
+      const target = getWorkspaceTarget();
+      if (target) {
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      }
+    });
   }
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("claudeSkills.budget")) {
         applyBudgetSettings(libraryDir, true);
+        refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.contextFocus") && isFeatureEnabled("contextFocus")) {
+        syncContextFocusConfigToDisk();
+        refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.practicalFocus") && isFeatureEnabled("practicalFocus")) {
+        syncPracticalFocusConfigToDisk();
+        refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.features")) {
+        if (e.affectsConfiguration("claudeSkills.features.contextFocus")) {
+          syncContextFocusConfigToDisk();
+        }
+        if (e.affectsConfiguration("claudeSkills.features.practicalFocus")) {
+          syncPracticalFocusConfigToDisk();
+        }
         refreshAll();
       }
     })
@@ -831,14 +934,26 @@ export function activate(context: vscode.ExtensionContext) {
       }
       try {
         applyBudgetSettings(libraryDir, true);
+        if (isFeatureEnabled("contextFocus")) {
+          syncContextFocusConfigToDisk();
+        }
+        if (isFeatureEnabled("practicalFocus")) {
+          syncPracticalFocusConfigToDisk();
+        }
         const status = installCostControlHooks(context.extensionPath, target);
         outputChannel.show(true);
         log(`\n=== Cost control hooks -> ${target} ===`);
         log(status);
         log(`Budget config synced to ~/.claude/learning/budget.json`);
+        if (isFeatureEnabled("contextFocus")) {
+          log(`Context focus config synced to ~/.claude/learning/context-focus.json`);
+        }
+        if (isFeatureEnabled("practicalFocus")) {
+          log(`Practical focus config synced to ~/.claude/learning/practical-focus.json`);
+        }
         if (status === "installed") {
           vscode.window.showInformationMessage(
-            "Claude Skills: cost control hooks enabled (session size + daily budget) for this workspace."
+            "Claude Skills: cost control hooks enabled (session size, budget, context focus, practical focus) for this workspace."
           );
         } else if (status === "updated") {
           vscode.window.showInformationMessage("Claude Skills: cost control hooks updated for this workspace.");
@@ -924,6 +1039,84 @@ export function activate(context: vscode.ExtensionContext) {
       outputChannel.show(true);
       log(`\n=== Budget mode -> ${BUDGET_MODE_LABEL[next]} ===`);
       vscode.window.showInformationMessage(`Claude Skills: budget mode set to ${BUDGET_MODE_LABEL[next]}.`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.cycleContextFocusLevel", async () => {
+      if (!isFeatureEnabled("contextFocus")) {
+        vscode.window.showWarningMessage("Claude Skills: context focus is disabled in feature toggles.");
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration("claudeSkills.contextFocus");
+      const enabled = cfg.get<boolean>("enabled", true);
+      if (!enabled) {
+        await cfg.update("enabled", true, vscode.ConfigurationTarget.Global);
+        await cfg.update("level", "balanced", vscode.ConfigurationTarget.Global);
+        syncContextFocusConfigToDisk();
+        refreshAll();
+        vscode.window.showInformationMessage("Claude Skills: context focus enabled (Balanced).");
+        return;
+      }
+      const current = cfg.get<ContextFocusLevel>("level", "balanced");
+      const next = nextContextFocusLevel(current);
+      if (current === "strict-local" && next === "knowledge") {
+        await cfg.update("enabled", false, vscode.ConfigurationTarget.Global);
+        syncContextFocusConfigToDisk();
+        refreshAll();
+        outputChannel.show(true);
+        log("\n=== Context focus -> disabled ===");
+        vscode.window.showInformationMessage("Claude Skills: context focus disabled.");
+        return;
+      }
+      await cfg.update("level", next, vscode.ConfigurationTarget.Global);
+      syncContextFocusConfigToDisk();
+      refreshAll();
+      outputChannel.show(true);
+      log(`\n=== Context focus -> ${CONTEXT_FOCUS_LABELS[next]} ===`);
+      vscode.window.showInformationMessage(`Claude Skills: context focus set to ${CONTEXT_FOCUS_LABELS[next]}.`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.openContextFocusSettings", async () => {
+      await vscode.commands.executeCommand("workbench.action.openSettings", "claudeSkills.contextFocus");
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.cyclePracticalFocusLevel", async () => {
+      if (!isFeatureEnabled("practicalFocus")) {
+        vscode.window.showWarningMessage("Claude Skills: practical/deployment focus is disabled in feature toggles.");
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration("claudeSkills.practicalFocus");
+      const enabled = cfg.get<boolean>("enabled", false);
+      if (!enabled) {
+        await cfg.update("enabled", true, vscode.ConfigurationTarget.Global);
+        await cfg.update("level", "architecture-first", vscode.ConfigurationTarget.Global);
+        syncPracticalFocusConfigToDisk();
+        refreshAll();
+        vscode.window.showInformationMessage(
+          "Claude Skills: practical focus enabled (Architecture-first). Install deployment-practical skill for full checklist."
+        );
+        return;
+      }
+      const current = cfg.get<PracticalFocusLevel>("level", "architecture-first");
+      const next = nextPracticalFocusLevel(current);
+      if (current === "deploy-ready" && next === "exploratory") {
+        await cfg.update("enabled", false, vscode.ConfigurationTarget.Global);
+        syncPracticalFocusConfigToDisk();
+        refreshAll();
+        outputChannel.show(true);
+        log("\n=== Practical focus -> disabled ===");
+        vscode.window.showInformationMessage("Claude Skills: practical/deployment focus disabled.");
+        return;
+      }
+      await cfg.update("level", next, vscode.ConfigurationTarget.Global);
+      syncPracticalFocusConfigToDisk();
+      refreshAll();
+      outputChannel.show(true);
+      log(`\n=== Practical focus -> ${PRACTICAL_FOCUS_LABELS[next]} ===`);
+      vscode.window.showInformationMessage(`Claude Skills: practical focus set to ${PRACTICAL_FOCUS_LABELS[next]}.`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.openPracticalFocusSettings", async () => {
+      await vscode.commands.executeCommand("workbench.action.openSettings", "claudeSkills.practicalFocus");
     }),
 
     vscode.commands.registerCommand("claudeSkills.openBudgetSettings", async () => {
@@ -1256,6 +1449,9 @@ export function activate(context: vscode.ExtensionContext) {
         "emergencyCutoff",
         "prCostEstimate",
         "costAwareSearch",
+        "skillSetResolver",
+        "contextFocus",
+        "practicalFocus",
       ];
       const pick = await vscode.window.showQuickPick(
         keys.map((k) => ({
@@ -1271,6 +1467,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const next = !isFeatureEnabled(pick.key);
       await cfg.update(pick.key, next, vscode.ConfigurationTarget.Global);
+      if (pick.key === "contextFocus") {
+        syncContextFocusConfigToDisk();
+      }
+      if (pick.key === "practicalFocus") {
+        syncPracticalFocusConfigToDisk();
+      }
+      refreshAll();
       outputChannel.show(true);
       log(`\n=== Feature ${pick.key} -> ${next ? "on" : "off"} ===`);
       log(featureFlagLines().join("\n"));
@@ -1372,6 +1575,60 @@ export function activate(context: vscode.ExtensionContext) {
           result.email.error ?? "Weekly report could not be sent. Run Configure Weekly Report Email."
         );
       }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.previewSkillSetResolver", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const plan = planSkillSetResolution(target, libraryDir);
+      outputChannel.show(true);
+      log("\n=== Skill set resolver preview ===");
+      log(formatSkillSetResolverPlan(plan).join("\n"));
+      vscode.window.showInformationMessage(
+        `Claude Skills: would install ${plan.toInstall.length}, remove ${plan.toRemove.length}, archive ${plan.toArchive.length} — see output.`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.runSkillSetResolver", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const plan = planSkillSetResolution(target, libraryDir);
+      if (plan.toInstall.length === 0 && plan.toRemove.length === 0 && plan.toArchive.length === 0) {
+        vscode.window.showInformationMessage("Claude Skills: skill set already matches this workspace.");
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `Install ${plan.toInstall.length}, remove ${plan.toRemove.length}, archive ${plan.toArchive.length} skill(s)?`,
+        { modal: true },
+        "Run"
+      );
+      if (confirm !== "Run") {
+        return;
+      }
+      outputChannel.show(true);
+      log("\n=== Skill set resolver ===");
+      const result = executeSkillSetResolution(target, libraryDir);
+      log(formatSkillSetResolverPlan(result.plan).join("\n"));
+      if (result.installed.length > 0) {
+        log(`Installed: ${result.installed.join(", ")}`);
+      }
+      if (result.removed.length > 0) {
+        log(`Removed: ${result.removed.join(", ")}`);
+      }
+      if (result.archived.length > 0) {
+        log(`Archived: ${result.archived.join(", ")}`);
+      }
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      refreshAll();
+      vscode.window.showInformationMessage(
+        `Claude Skills: installed ${result.installed.length}, removed ${result.removed.length}, archived ${result.archived.length}.`
+      );
     }),
 
     vscode.commands.registerCommand("claudeSkills.resetAttribution", async () => {

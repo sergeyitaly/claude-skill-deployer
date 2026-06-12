@@ -27,6 +27,8 @@ export function formatHookStatusBannerHtml(status: WorkspaceHookStatus): string 
     hookLabel(attribution.allConfigured && attribution.applicableCount > 0, attrText),
     hookLabel(costControl.sessionSize, costControl.sessionSize ? "Session size: on" : "Session size: off"),
     hookLabel(costControl.budget, costControl.budget ? "Daily budget: on" : "Daily budget: off"),
+    hookLabel(costControl.contextFocus, costControl.contextFocus ? "Context focus: on" : "Context focus: off"),
+    hookLabel(costControl.practicalFocus, costControl.practicalFocus ? "Practical focus: on" : "Practical focus: off"),
   ];
 
   return `<div class="hook-banner">${parts.join(" ")}</div>`;
@@ -54,6 +56,14 @@ export function formatHookStatusPanelHtml(status: WorkspaceHookStatus): string {
     `<div class="hook-row">
       <span>Daily budget warnings <span class="agent-id">(Claude Code)</span></span>
       <span class="hook-badge ${status.costControl.budget ? "hook-on" : "hook-off"}">${status.costControl.budget ? "on" : "off"}</span>
+    </div>`,
+    `<div class="hook-row">
+      <span>Context focus grounding <span class="agent-id">(Claude Code)</span></span>
+      <span class="hook-badge ${status.costControl.contextFocus ? "hook-on" : "hook-off"}">${status.costControl.contextFocus ? "on" : "off"}</span>
+    </div>`,
+    `<div class="hook-row">
+      <span>Practical / deployment focus <span class="agent-id">(Claude Code)</span></span>
+      <span class="hook-badge ${status.costControl.practicalFocus ? "hook-on" : "hook-off"}">${status.costControl.practicalFocus ? "on" : "off"}</span>
     </div>`,
   ].join("");
 
@@ -85,8 +95,12 @@ export function formatHookStatusPlain(status: WorkspaceHookStatus): string {
 
   const session = status.costControl.sessionSize ? "Session size warnings: on" : "Session size warnings: off";
   const budget = status.costControl.budget ? "Daily budget warnings: on" : "Daily budget warnings: off";
+  const focus = status.costControl.contextFocus ? "Context focus grounding: on" : "Context focus grounding: off";
+  const practical = status.costControl.practicalFocus
+    ? "Practical/deployment focus: on"
+    : "Practical/deployment focus: off";
 
-  return `${attr}. ${session}. ${budget}.`;
+  return `${attr}. ${session}. ${budget}. ${focus}. ${practical}.`;
 }
 
 export const HOOK_STATUS_STYLES = `

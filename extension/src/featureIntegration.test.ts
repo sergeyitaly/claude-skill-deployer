@@ -159,7 +159,7 @@ describe("feature integration (live workspace)", () => {
 
   it("has cost-control hook scripts in resources", () => {
     const hooksDir = path.join(__dirname, "..", "resources", "hooks");
-    for (const name of ["budget-watch.js", "session-size-watch.js", "official-skills-watch.js"]) {
+    for (const name of ["budget-watch.js", "session-size-watch.js", "context-focus-watch.js", "practical-focus-watch.js", "official-skills-watch.js"]) {
       expect(fs.existsSync(path.join(hooksDir, name))).toBe(true);
     }
   });

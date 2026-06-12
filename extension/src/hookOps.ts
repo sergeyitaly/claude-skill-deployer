@@ -5,6 +5,8 @@ import { ensureLearningDir } from "./usageStats";
 
 const SESSION_HOOK_FILENAME = "session-size-watch.js";
 const BUDGET_HOOK_FILENAME = "budget-watch.js";
+const CONTEXT_FOCUS_HOOK_FILENAME = "context-focus-watch.js";
+const PRACTICAL_FOCUS_HOOK_FILENAME = "practical-focus-watch.js";
 const SKILL_INVOKE_HOOK_FILENAME = "skill-invoke-watch.js";
 const OFFICIAL_SKILLS_HOOK_FILENAME = "official-skills-watch.js";
 const HOOK_HELPER_FILENAME = "usageParse.js";
@@ -15,6 +17,8 @@ const COPILOT_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.json`;
 
 const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSION_HOOK_FILENAME}"`;
 const BUDGET_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${BUDGET_HOOK_FILENAME}"`;
+const CONTEXT_FOCUS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${CONTEXT_FOCUS_HOOK_FILENAME}"`;
+const PRACTICAL_FOCUS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PRACTICAL_FOCUS_HOOK_FILENAME}"`;
 const CLAUDE_SKILL_INVOKE_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SKILL_INVOKE_HOOK_FILENAME}" claude`;
 const CURSOR_SKILL_INVOKE_COMMAND = `node .cursor/hooks/${SKILL_INVOKE_HOOK_FILENAME} cursor`;
 const KIRO_SKILL_INVOKE_COMMAND = `node .claude/hooks/${SKILL_INVOKE_HOOK_FILENAME} kiro`;
@@ -126,6 +130,24 @@ export function isBudgetHookConfigured(target: string): boolean {
   }
 }
 
+export function isContextFocusHookConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasHook(settings, CONTEXT_FOCUS_HOOK_FILENAME);
+  } catch {
+    return false;
+  }
+}
+
+export function isPracticalFocusHookConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasHook(settings, PRACTICAL_FOCUS_HOOK_FILENAME);
+  } catch {
+    return false;
+  }
+}
+
 function hasHook(settings: Settings, filename: string): boolean {
   const matchers = settings.hooks?.UserPromptSubmit ?? [];
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
@@ -134,6 +156,8 @@ function hasHook(settings: Settings, filename: string): boolean {
 const ALL_HOOK_FILES = [
   SESSION_HOOK_FILENAME,
   BUDGET_HOOK_FILENAME,
+  CONTEXT_FOCUS_HOOK_FILENAME,
+  PRACTICAL_FOCUS_HOOK_FILENAME,
   SKILL_INVOKE_HOOK_FILENAME,
   OFFICIAL_SKILLS_HOOK_FILENAME,
   HOOK_HELPER_FILENAME,
@@ -368,8 +392,8 @@ function agentSupportsAttribution(agent: { supportsAttributionHooks?: boolean })
 }
 
 /** Copies cost-control hook scripts into <target>/.claude/hooks and registers
- * session-size + budget UserPromptSubmit hooks in <target>/.claude/settings.json.
- * Idempotent; refreshes hook file contents on each run. */
+ * session-size, budget, context-focus, and practical-focus UserPromptSubmit hooks in
+ * <target>/.claude/settings.json. Idempotent; refreshes hook file contents on each run. */
 export function installCostControlHooks(extensionPath: string, target: string): HookInstallStatus {
   ensureLearningDir(target);
 
@@ -377,18 +401,30 @@ export function installCostControlHooks(extensionPath: string, target: string): 
   const settings = readSettings(settingsFile);
   const hadSession = hasHook(settings, SESSION_HOOK_FILENAME);
   const hadBudget = hasHook(settings, BUDGET_HOOK_FILENAME);
+  const hadContextFocus = hasHook(settings, CONTEXT_FOCUS_HOOK_FILENAME);
+  const hadPracticalFocus = hasHook(settings, PRACTICAL_FOCUS_HOOK_FILENAME);
 
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
 
   const addedSession = ensureHookRegistered(settings, SESSION_HOOK_FILENAME, SESSION_HOOK_COMMAND);
   const addedBudget = ensureHookRegistered(settings, BUDGET_HOOK_FILENAME, BUDGET_HOOK_COMMAND);
+  const addedContextFocus = ensureHookRegistered(
+    settings,
+    CONTEXT_FOCUS_HOOK_FILENAME,
+    CONTEXT_FOCUS_HOOK_COMMAND
+  );
+  const addedPracticalFocus = ensureHookRegistered(
+    settings,
+    PRACTICAL_FOCUS_HOOK_FILENAME,
+    PRACTICAL_FOCUS_HOOK_COMMAND
+  );
 
-  if (addedSession || addedBudget) {
+  if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus) {
     writeJsonFile(settingsFile, settings);
     return installAttributionHooks(extensionPath, target);
   }
 
-  if (hadSession && hadBudget) {
+  if (hadSession && hadBudget && hadContextFocus && hadPracticalFocus) {
     return installAttributionHooks(extensionPath, target);
   }
   return installAttributionHooks(extensionPath, target);
@@ -524,6 +560,8 @@ export interface WorkspaceHookStatus {
   costControl: {
     sessionSize: boolean;
     budget: boolean;
+    contextFocus: boolean;
+    practicalFocus: boolean;
     configured: boolean;
   };
 }
@@ -572,6 +610,8 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
     costControl: {
       sessionSize: isSessionSizeHookConfigured(target),
       budget: isBudgetHookConfigured(target),
+      contextFocus: isContextFocusHookConfigured(target),
+      practicalFocus: isPracticalFocusHookConfigured(target),
       configured: areCostControlHooksConfigured(target),
     },
   };
