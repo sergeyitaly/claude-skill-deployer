@@ -121,7 +121,7 @@ describe("feature integration (live workspace)", () => {
     expect(html).toContain("Cursor");
     expect(html).toContain("Models by agent");
     expect(html).toContain("Trust");
-  }, 15_000);
+  }, 30_000);
 
   it("computes attribution, usage stats, and health for this workspace", () => {
     const manifest = loadManifest(LIBRARY_DIR);

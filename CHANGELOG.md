@@ -2,9 +2,27 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.28** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.29** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.29] - 2026-06-14
+
+### Added
+
+- **Cross-agent skill usage** — Usage Report and weekly email show per-agent totals (Claude Code, Cursor, Kiro, Copilot) and a matrix for skills invoked across multiple agents on the same workspace.
+- **Task skill focus** — after auto-apply, non-proposed installed skills are set `skillOverrides: off` to reduce agent token load (re-enable via Skills tree).
+- **Deterministic automation** — extension can apply profile init and refresh task proposals without an agent session (`deterministicApply`, `deterministicTaskProposals` settings, default on).
+
+### Changed
+
+- **Extension performance** — manifest/skill-status/detection caches, coalesced workspace refresh, lighter tree updates when sidebar hidden.
+- **Session hooks** — slimmer `profile-init-watch` when proposals are fresh; `session-apply` bugfix; `task-skill-focus` hook.
+- **`skill-usage-insights`** and **`skill-feedback-adaptation`** — document per-agent usage and skip redundant agent work when auto-apply is on.
+
+### Fixed
+
+- **TypeScript compile** — `readSkillStatsIndex` import path, `initBy: "extension"` type, debounced git callback arity, cross-agent `agentRuns` optional typing.
 
 ## [1.0.28] - 2026-06-13
 

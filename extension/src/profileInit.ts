@@ -86,7 +86,7 @@ export interface BranchProfileInit {
   roleLabel: string;
   skills: string[];
   rationale?: Record<string, string>;
-  initBy: "agent" | "manual";
+  initBy: "agent" | "manual" | "extension";
   status: "pending" | "applied";
   createdAt: string;
   appliedAt?: string;

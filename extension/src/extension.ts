@@ -2464,13 +2464,13 @@ export function activate(context: vscode.ExtensionContext) {
   }
 }
 
-function debounce(fn: () => void, ms: number): () => void {
+function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number): (...args: T) => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return () => {
+  return (...args: T) => {
     if (timer) {
       clearTimeout(timer);
     }
-    timer = setTimeout(fn, ms);
+    timer = setTimeout(() => fn(...args), ms);
   };
 }
 

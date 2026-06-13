@@ -12,12 +12,12 @@ import { formatConfidenceBadge } from "./attributionConfidence";
 import { fetchVcsIdentity, parseGitRemote, pickAndStoreVcsToken } from "./vcsReportDelivery";
 import { formatCompactUsd } from "./skillCost";
 import { loadManifest } from "./skillOps";
+import { readSkillStatsIndex } from "./runsIndex";
 import {
   enrichUsageStatsWithAttribution,
   formatCrossAgentUsageBrief,
   formatTokenCount,
   readEnrichedRuns,
-  readSkillStatsIndex,
 } from "./usageStats";
 
 export interface WeeklyReportConfig {

@@ -347,7 +347,7 @@ export function computeCrossAgentUsage(stats: SkillUsageStat[]): CrossAgentUsage
       multiAgentSkills.push({
         name: stat.name,
         totalRuns: stat.runs,
-        agentRuns: stat.agentRuns,
+        agentRuns: stat.agentRuns ?? {},
         agentTokens: stat.agentTokens,
         agents,
       });
