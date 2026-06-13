@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { generateForAllAgents, installLibraryToGlobal } from "./agentOps";
+import { generateForAllAgents } from "./agentOps";
 import {
   installCostControlHooks,
   installOfficialSkillsSessionHook,
   installProfileInitSessionHook,
 } from "./hookOps";
+import { installLibraryToGlobal } from "./skillOps";
 import { syncCliConfigToWorkspace } from "./cliConfig";
 import { ensureLearningDir } from "./usageStats";
 
@@ -39,7 +40,6 @@ export function installGitBranchSyncHook(target: string): boolean {
   }
   fs.mkdirSync(hooksDir, { recursive: true });
   const hookPath = path.join(hooksDir, "post-checkout");
-  const branchSync = path.join(target, ".claude", "hooks", BRANCH_SYNC_HOOK);
   const body = [
     "#!/bin/sh",
     `# ${GIT_HOOK_MARKER}`,
