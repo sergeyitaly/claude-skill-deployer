@@ -18,6 +18,8 @@ export interface CliConfigFile {
 const CLI_RELEVANT_FEATURES: FeatureKey[] = [
   "sessionSkillAdaptation",
   "autoApplyTaskProposals",
+  "deterministicTaskProposals",
+  "taskSkillFocus",
   "branchProfiles",
   "multiAgent",
   "budgetControls",
@@ -53,7 +55,18 @@ export function buildCliConfig(libraryDir: string): CliConfigFile {
 
 export function syncCliConfigToWorkspace(target: string, libraryDir: string): CliConfigFile {
   const config = buildCliConfig(libraryDir);
-  writeJsonAtomic(cliConfigPath(target), config);
+  const file = cliConfigPath(target);
+  const existing = readCliConfig(target);
+  if (existing) {
+    const sameFeatures =
+      JSON.stringify(existing.features ?? {}) === JSON.stringify(config.features ?? {});
+    const sameAgents =
+      JSON.stringify(existing.agents?.enabled ?? []) === JSON.stringify(config.agents.enabled);
+    if (sameFeatures && sameAgents) {
+      return existing;
+    }
+  }
+  writeJsonAtomic(file, config);
   return config;
 }
 

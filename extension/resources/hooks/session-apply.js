@@ -149,12 +149,12 @@ function main() {
   if (!featureEnabled(cwd, "sessionSkillAdaptation")) {
     return;
   }
-  if (!featureEnabled(cwd, "autoApplyTaskProposals") && request.source === "proposals") {
-    return;
-  }
 
   const request = readJsonSafe(path.join(cwd, SESSION_REQUEST));
   if (!request || request.version !== 1 || !Array.isArray(request.skills) || !request.sessionId) {
+    return;
+  }
+  if (!featureEnabled(cwd, "autoApplyTaskProposals") && request.source === "proposals") {
     return;
   }
 
@@ -184,6 +184,19 @@ function main() {
       `[claude-skills] session-apply: installed ${result.installed.join(", ") || "(none)"}; ` +
         `overrides cleared ${result.overridesApplied}\n`
     );
+  }
+
+  try {
+    const focusScript = path.join(cwd, ".claude", "hooks", "task-skill-focus.js");
+    if (fs.existsSync(focusScript)) {
+      require("child_process").spawnSync(
+        process.execPath,
+        [focusScript, cwd, JSON.stringify(mergeRequired(cwd, request.skills))],
+        { cwd, stdio: "ignore", timeout: 30000 }
+      );
+    }
+  } catch {
+    // non-fatal
   }
 }
 

@@ -65,6 +65,37 @@ describe("computeUsageStats", () => {
     expect(profile?.runs).toBe(1);
     expect(profile?.totalTokens).toBe(32_000);
   });
+
+  it("aggregates per-agent runs for the same skill", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "usage-stats-agent-"));
+    installSkill(target, "ci-pipeline-debug");
+    writeRuns(target, [
+      {
+        ts: "2026-06-12T12:00:00.000Z",
+        skill: "ci-pipeline-debug",
+        action: "skill_invoke",
+        agent: "claude",
+        tokens: 12_000,
+        rc: 0,
+        metadata: { source: SKILL_INVOKE_HOOK_SOURCE, invoked: true },
+      },
+      {
+        ts: "2026-06-12T12:05:00.000Z",
+        skill: "ci-pipeline-debug",
+        action: "skill_invoke",
+        agent: "cursor",
+        tokens: 8_000,
+        rc: 0,
+        metadata: { source: SKILL_INVOKE_HOOK_SOURCE, invoked: true },
+      },
+    ]);
+
+    const stats = computeUsageStats(target, manifest);
+    const ci = stats.find((s) => s.name === "ci-pipeline-debug");
+    expect(ci?.runs).toBe(2);
+    expect(ci?.agentRuns).toEqual({ claude: 1, cursor: 1 });
+    expect(ci?.agentTokens).toEqual({ claude: 12_000, cursor: 8_000 });
+  });
 });
 
 describe("resetMisattributedData", () => {

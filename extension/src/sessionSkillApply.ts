@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { syncWorkspaceSkillsToAllAgents } from "./agentOps";
 import {
   applyBranchProfile,
   ApplyProfileResult,
@@ -7,6 +8,7 @@ import {
   saveBranchProfile,
 } from "./branchProfiles";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
+import { isFeatureEnabled } from "./featureFlags";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { listInstalledSkills } from "./usageStats";
 import {
@@ -14,7 +16,10 @@ import {
   TaskSkillProposalsFile,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
-import { isFeatureEnabled } from "./featureFlags";
+import {
+  applyTaskSkillFocus,
+  taskSkillFocusEnabled,
+} from "./taskSkillFocus";
 
 export const SESSION_APPLY_REQUEST_REL = path.join(
   ".claude",
@@ -236,6 +241,19 @@ export function applyProposedSkillsLocally(
   const result = applyBranchProfile(libraryDir, target, profile, { removeExtra: false });
   saveBranchProfile(target, libraryDir);
   refreshProposalInstalledFlags(target, new Set(listInstalledSkills(target)));
+
+  if (taskSkillFocusEnabled()) {
+    const proposals = readTaskSkillProposals(target);
+    const focus = applyTaskSkillFocus(
+      target,
+      unique,
+      "session-apply",
+      proposals?.generatedAt
+    );
+    result.overridesApplied += focus.overridesApplied;
+    syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
+  }
+
   return result;
 }
 

@@ -3,7 +3,7 @@ import * as net from "node:net";
 import * as tls from "node:tls";
 import * as vscode from "vscode";
 import { agentCapabilityLines, computeEnabledAgentsCreditUsage } from "./agentOps";
-import { buildCostAttribution } from "./costAttribution";
+import { buildCostAttribution, resolveDisplayAttribution } from "./costAttribution";
 import { calculateTrend, predictWeeklyCostFromTrend } from "./costPredictor";
 import { generateOptimizationSuggestions } from "./costOptimizer";
 import { runCostPipelineSync } from "./costPipeline";
@@ -11,7 +11,14 @@ import { assessAttributionHealth } from "./attributionHealth";
 import { formatConfidenceBadge } from "./attributionConfidence";
 import { fetchVcsIdentity, parseGitRemote, pickAndStoreVcsToken } from "./vcsReportDelivery";
 import { formatCompactUsd } from "./skillCost";
-import { formatTokenCount, readEnrichedRuns } from "./usageStats";
+import { loadManifest } from "./skillOps";
+import {
+  enrichUsageStatsWithAttribution,
+  formatCrossAgentUsageBrief,
+  formatTokenCount,
+  readEnrichedRuns,
+  readSkillStatsIndex,
+} from "./usageStats";
 
 export interface WeeklyReportConfig {
   enabled: boolean;
@@ -257,6 +264,10 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
   const health = assessAttributionHealth(target, libraryDir);
   runCostPipelineSync(target, libraryDir);
   const built = buildCostAttribution(target, libraryDir);
+  const { attribution } = resolveDisplayAttribution(built, target);
+  const manifest = loadManifest(libraryDir);
+  const usageStats = enrichUsageStatsWithAttribution(readSkillStatsIndex(target, manifest), attribution);
+  const crossAgentLines = formatCrossAgentUsageBrief(usageStats);
   const suggestions = generateOptimizationSuggestions(target, libraryDir).slice(0, 5);
 
   const agentLines: string[] = [];
@@ -296,6 +307,7 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
     "### Agent totals (session transcripts, 14 days)",
     agentLines.length ? agentLines.join("\n") : "- No transcript usage yet",
     "",
+    ...(crossAgentLines.length > 0 ? crossAgentLines : []),
     "### Enabled agents",
     ...agentCapabilityLines(libraryDir),
     "",

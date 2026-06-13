@@ -691,6 +691,11 @@
             "default": true,
             "description": "When the agent writes .claude/profile.local.json, automatically install the selected skills."
           },
+          "claudeSkills.profileInit.deterministicApply": {
+            "type": "boolean",
+            "default": true,
+            "description": "Pick branch skills from role + workspace heuristics in the extension (no agent session). Writes profile.local.json and applies locally."
+          },
           "claudeSkills.profileInit.autoStartOnSession": {
             "type": "boolean",
             "default": true,
@@ -830,6 +835,16 @@
             "type": "boolean",
             "default": true,
             "description": "Auto-install and locally enable every skill in Proposed for current task (task-skill-proposals.json), plus required platform skills, for this workspace only. Requires sessionSkillAdaptation."
+          },
+          "claudeSkills.features.deterministicTaskProposals": {
+            "type": "boolean",
+            "default": true,
+            "description": "Extension refreshes task-skill-proposals.json from workspace heuristics and skips agent regeneration on new sessions when proposals are fresh (<24h)."
+          },
+          "claudeSkills.features.taskSkillFocus": {
+            "type": "boolean",
+            "default": true,
+            "description": "After auto-apply, disable (skillOverrides off) installed skills outside the task proposal set so agents only see the focused skill list. Re-enable via Skills tree checkbox."
           },
           "claudeSkills.features.contextFocus": {
             "type": "boolean",

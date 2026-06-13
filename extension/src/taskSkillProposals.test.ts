@@ -4,7 +4,9 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Manifest } from "./skillOps";
 import {
+  areTaskSkillProposalsFresh,
   computeTaskSkillProposals,
+  ensureWorkspaceTaskProposals,
   readTaskSkillProposals,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
@@ -54,5 +56,28 @@ describe("computeTaskSkillProposals", () => {
     const saved = readTaskSkillProposals(target);
     expect(saved?.taskSummary).toBe("Test task");
     expect(saved?.proposals[0].name).toBe("pdf");
+  });
+
+  it("detects fresh proposals within 24h", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-fresh-"));
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "Fresh",
+      proposals: [{ name: "pdf", reason: "test", confidence: 80, installed: true }],
+    });
+    expect(areTaskSkillProposalsFresh(target)).toBe(true);
+  });
+
+  it("ensureWorkspaceTaskProposals skips refresh when fresh", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-ensure-"));
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "Fresh",
+      proposals: [{ name: "pdf", reason: "test", confidence: 80, installed: true }],
+    });
+    const out = ensureWorkspaceTaskProposals(target, manifest);
+    expect(out.refreshed).toBe(false);
   });
 });

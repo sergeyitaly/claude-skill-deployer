@@ -1,0 +1,207 @@
+---
+name: "self-learning"
+description: "Maintain a project-local self-learning base of task/command outcomes — record successes and failures with timestamps, durations, and fixes; generate a patterns report (pass rates, recurring errors, known fixes); and surface a learned hint before retrying something that failed before. Use at the start of a session to check learned hints, after running a non-trivial command/skill to record the outcome, when asked \"what failed before\" or \"what did we learn\", or to record a manual decision/learning."
+applyTo: "**/*"
+---
+
+# self-learning
+
+# Self-Learning
+
+A small, project-agnostic accumulated-experience store. The goal: the second
+time something fails, fixing it is instant because the fix is already
+written down — and reliable commands don't need re-verifying every session.
+
+## Storage layout
+
+All state lives under `.claude/learning/` in the target project (create it on
+first use):
+
+```
+.claude/learning/
+  runs.jsonl              append-only log of recorded outcomes (gitignore this)
+  patterns.md             auto-generated report (gitignore this)
+  session-learnings.md    human/agent-curated decisions and fixes (commit this)
+  knowledge-cache.md      cached answers to repeated questions (commit this)
+  skill-feedback.jsonl    user negative reactions to agent/skill behavior (gitignore)
+  task-skill-proposals.json  proposed skills for the current task (gitignore)
+```
+
+Add `.claude/learning/runs.jsonl`, `.claude/learning/patterns.md`,
+`.claude/learning/skill-feedback.jsonl`, and `.claude/learning/task-skill-proposals.json` to
+`.gitignore` if not already ignored — they're machine-local history.
+`session-learnings.md` and `knowledge-cache.md` should be committed: they're
+durable, reviewable output.
+
+## Run record schema (one JSON object per line in runs.jsonl)
+
+```json
+{"ts": "2026-06-11T14:32:00", "skill": "terraform-plan-review", "action": "plan",
+ "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345,
+ "metadata": {"invoked": true}}
+```
+
+- `skill`/`action`: a short identifier for what was run (e.g. skill name +
+  subcommand, or `"task"` + a short task name).
+- `metadata.invoked`: set to `true` when this skill was **actually invoked**
+  in the session (not merely listed in context). Cost attribution uses this to
+  distinguish active skills from enabled-but-unused skills.
+- `rc`: 0 for success, non-zero for failure.
+- `error`: first meaningful error line (truncate to ~200 chars), empty on
+  success.
+- `hint`: a short fix description if one is known (see "Deriving hints"
+  below); empty if none.
+- `note`: optional free-text context.
+- `tokens`: optional total token count (input + output + cache write + cache
+  read) attributable to this run — see "Recording token usage" below. Omit
+  if it can't be determined.
+
+### Recording token usage (optional)
+
+If it can be determined cheaply, record the tokens used by the current run:
+
+1. Find the current session's transcript: the most recently modified
+   `*.jsonl` file directly under `~/.claude/projects/<encoded-cwd>/` (NOT the
+   `subagents/` subfolder), where `<encoded-cwd>` is the project's working
+   directory with `:`, `\`, and `/` replaced by `-`.
+2. Sum `input_tokens + output_tokens + cache_creation_input_tokens +
+   cache_read_input_tokens` from `message.usage` across assistant-message
+   lines timestamped after the previous recorded run for this skill (or
+   session start, if there is no previous run).
+3. Include that sum as `tokens` in the new record.
+
+This is best-effort: if the transcript file can't be located or parsed,
+omit `tokens` entirely rather than guessing.
+
+## 1. Before answering a question you might have already answered (knowledge cache)
+
+Many requests repeat across sessions, often worded slightly differently:
+"where is X configured", "how does Y work", "what does this skill check
+for", "what's our pricing table". Re-deriving these from scratch each time —
+multiple greps/reads, or spawning an agent — burns tokens for an answer
+that hasn't changed.
+
+**Before** doing non-trivial exploration to answer an informational/
+explanatory question, scan `.claude/learning/knowledge-cache.md` for an
+entry whose topic overlaps with the current question (keyword match on the
+nouns/identifiers in both).
+
+If a matching entry exists:
+- Quick staleness check: do the listed `Sources` still exist, and does their
+  content/mtime look unchanged since `Last verified`? A `Glob`/mtime check
+  or a single `git log -1 --format=%ct -- <sources>` is enough — far
+  cheaper than redoing the original exploration.
+- If still fresh: answer directly from the cached entry (citing its
+  `Sources`), bump `Hits` and `Last asked`, and skip the exploration.
+- If stale or the sources no longer fit: redo the exploration normally, then
+  update the entry as below.
+
+If nothing matches, answer normally.
+
+**After** answering a non-trivial informational/explanatory question (the
+kind someone might plausibly ask again in similar words), append or update
+an entry in `.claude/learning/knowledge-cache.md`:
+
+```markdown
+### Q-NN — <short topic, e.g. "where is the pricing table defined">
+**Answer:** <concise answer - 1-5 sentences>
+**Sources:** path/to/file.ts:42, path/to/other.ts
+**Last verified:** 2026-06-11
+**Last asked:** 2026-06-11
+**Hits:** 1
+```
+
+Number sequentially (`Q-01`, `Q-02`, ...) like the `S-`/`E-` entries in
+`session-learnings.md`. On a repeat hit, increment `Hits` and refresh
+`Last verified` rather than adding a duplicate entry. Don't cache answers to
+one-off or highly context-specific questions (e.g. "why did this specific
+test just fail") — only cache things likely to be asked again in roughly the
+same form.
+
+## 2. Before running something that might be flaky or previously failed
+
+Before re-running a command/skill, check `.claude/learning/runs.jsonl` (most
+recent matching `skill`+`action`, scan backwards) and `session-learnings.md`
+for a recorded hint. If found, surface it first:
+
+```
+[LEARNED] Previous failure hint for '<skill> <action>':
+          <hint text>
+```
+
+Then proceed — the hint informs the approach, it doesn't replace doing the
+work.
+
+## 3. After running something non-trivial
+
+Append a record to `runs.jsonl` with the outcome. When token/cost data is
+available, also record prediction accuracy via the repo helper (from project
+root):
+
+```bash
+py -c "from cost_learning import record_cost_outcome; record_cost_outcome('skill-name', expected_cost=0.25, actual_cost=0.31, success=True)"
+```
+
+This writes to `.claude/learning/cost-learning.jsonl` and updates
+`~/.claude/learning/cost-models.json` multipliers for future estimates.
+
+Then regenerate `patterns.md` (see structure below) by aggregating all
+records:
+
+- **Reliable commands** — 100% pass rate over 3+ runs: list as
+  `skill | action | runs | avg duration`.
+- **Commands with known failures** — for each `skill action` with at least
+  one failure: pass rate, up to 3 distinct observed error snippets, and any
+  known-fix hints recorded for it.
+- **Recent runs** — last ~20 records as a table (timestamp, skill, action,
+  rc, duration, error).
+
+## 4. Deriving hints for new failures
+
+When recording a failure with no existing hint, check the error text against
+fix patterns already written in `session-learnings.md` (keyword match against
+the "What happened"/"Pattern" text of existing `E-NN` entries). If one
+matches, reuse its fix as the `hint`. If nothing matches, leave `hint` empty
+— a human or a later session can add one via "manual learning" below.
+
+## 5. Manual learning entries
+
+When the user states a decision, a fix, or "we learned X", append a
+structured entry to `session-learnings.md` rather than just replying in
+chat — this is what makes it available to future sessions (load this file
+into context at the start of any session on this project).
+
+When the user expresses **disagreement** with agent output driven by a skill
+(`no`, `wrong`, `not that`, etc.), also record via [[skill-feedback-adaptation]]
+to `.claude/learning/skill-feedback.jsonl` so the Usage Report can flag
+inefficient skills.
+
+- **Successes** (`### S-NN — <label>`): a pattern/decision that worked,
+  with date, the pattern itself, and source.
+- **Errors/fixes** (`### E-NN — <label>`): what happened, with date, a short
+  description, and the fix if known.
+
+Number sequentially per category (`S-01`, `S-02`, ... / `E-01`, `E-02`, ...)
+by scanning existing headers for the highest number used.
+
+## 6. Reporting
+
+On request ("what failed before", "learning status", "what have we
+learned"):
+- Summarize `patterns.md` if it exists (pass rates per command, open known
+  failures with fixes).
+- Summarize `session-learnings.md` (counts of S-/E- entries, most recent
+  few).
+- Summarize `knowledge-cache.md` if it exists (number of cached Q&A entries,
+  the most-hit topics by `Hits`, and any entries flagged stale during this
+  session) — this is the running record of what's being saved by reuse.
+- If `.claude/learning/` doesn't exist yet, say so — there's no history yet,
+  not an error.
+
+## 7. Clearing history
+
+Only clear `runs.jsonl`/`patterns.md` (machine history) on explicit user
+request — never clear `session-learnings.md` or `knowledge-cache.md` without
+explicit confirmation, since both are curated and reviewable. For
+`knowledge-cache.md`, removing individual stale/wrong entries on request is
+fine; clearing the whole file is the same as clearing `session-learnings.md`.

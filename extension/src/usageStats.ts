@@ -210,28 +210,42 @@ export function computeUsageStats(target: string, manifest: Manifest): SkillUsag
   return stats;
 }
 
-/** Compact per-agent breakdown for tables, e.g. "claude:2, cursor:1". */
+function formatAgentCell(
+  agentRuns: Partial<Record<RunAgent, number>> | undefined,
+  agentTokens: Partial<Record<RunAgent, number>> | undefined,
+  agent: RunAgent
+): string {
+  const runs = agentRuns?.[agent];
+  const tokens = agentTokens?.[agent];
+  if (!runs && !(typeof tokens === "number" && tokens > 0)) {
+    return "-";
+  }
+  if (typeof runs === "number" && runs > 0 && typeof tokens === "number" && tokens > 0) {
+    return `${runs} (${formatTokenCount(tokens)})`;
+  }
+  if (typeof runs === "number" && runs > 0) {
+    return `${runs}`;
+  }
+  return formatTokenCount(tokens ?? null);
+}
+
+/** Compact per-agent breakdown for tables, e.g. "Cursor IDE:2, Claude Code:1". */
 export function formatAgentBreakdown(
   agentRuns?: Partial<Record<RunAgent, number>>,
   agentTokens?: Partial<Record<RunAgent, number>>
 ): string {
-  const agents = new Set<RunAgent>([
-    ...(agentRuns ? (Object.keys(agentRuns) as RunAgent[]) : []),
-    ...(agentTokens ? (Object.keys(agentTokens) as RunAgent[]) : []),
-  ]);
-  if (agents.size === 0) {
+  const agents = agentsWithRecordedRuns(agentRuns);
+  const tokenAgents = agentTokens
+    ? RUN_AGENT_ORDER.filter((agent) => (agentTokens[agent] ?? 0) > 0)
+    : [];
+  const merged = [...new Set([...agents, ...tokenAgents])].sort(
+    (a, b) => RUN_AGENT_ORDER.indexOf(a) - RUN_AGENT_ORDER.indexOf(b)
+  );
+  if (merged.length === 0) {
     return "-";
   }
-  return [...agents]
-    .sort()
-    .map((agent) => {
-      const runs = agentRuns?.[agent];
-      const tokens = agentTokens?.[agent];
-      if (typeof tokens === "number" && tokens > 0) {
-        return `${agent}:${runs ?? 0} (${formatTokenCount(tokens)})`;
-      }
-      return `${agent}:${runs ?? 0}`;
-    })
+  return merged
+    .map((agent) => `${runAgentLabel(agent)}:${formatAgentCell(agentRuns, agentTokens, agent)}`)
     .join(", ");
 }
 
@@ -243,7 +257,151 @@ function tokensForSkillInAttribution(skill: string, attribution: SkillAttributio
   return Object.values(entry).reduce((sum, a) => sum + (a?.tokens ?? 0), 0);
 }
 
-/** Fill per-skill token totals from cost attribution when runs.jsonl rows lack tokens. */
+export const RUN_AGENT_ORDER: RunAgent[] = ["claude", "cursor", "kiro", "copilot"];
+
+const RUN_AGENT_LABELS: Record<RunAgent, string> = {
+  claude: "Claude Code",
+  cursor: "Cursor IDE",
+  kiro: "Kiro IDE",
+  copilot: "VS Code (Copilot)",
+};
+
+export function runAgentLabel(agent: RunAgent): string {
+  return RUN_AGENT_LABELS[agent] ?? agent;
+}
+
+export interface AgentUsageTotals {
+  agent: RunAgent;
+  runs: number;
+  skillCount: number;
+  tokens: number;
+}
+
+export interface MultiAgentSkillUsage {
+  name: string;
+  totalRuns: number;
+  agentRuns: Partial<Record<RunAgent, number>>;
+  agentTokens?: Partial<Record<RunAgent, number>>;
+  agents: RunAgent[];
+}
+
+export interface CrossAgentUsageSummary {
+  byAgent: AgentUsageTotals[];
+  multiAgentSkills: MultiAgentSkillUsage[];
+  activeAgents: RunAgent[];
+}
+
+function agentsWithRecordedRuns(agentRuns?: Partial<Record<RunAgent, number>>): RunAgent[] {
+  if (!agentRuns) {
+    return [];
+  }
+  return RUN_AGENT_ORDER.filter((agent) => (agentRuns[agent] ?? 0) > 0);
+}
+
+function agentsWithUsage(
+  agentRuns?: Partial<Record<RunAgent, number>>,
+  agentTokens?: Partial<Record<RunAgent, number>>
+): RunAgent[] {
+  return RUN_AGENT_ORDER.filter(
+    (agent) => (agentRuns?.[agent] ?? 0) > 0 || (agentTokens?.[agent] ?? 0) > 0
+  );
+}
+
+function invocationCountForAgent(
+  agent: RunAgent,
+  agentRuns?: Partial<Record<RunAgent, number>>,
+  agentTokens?: Partial<Record<RunAgent, number>>
+): number {
+  const runs = agentRuns?.[agent];
+  if (typeof runs === "number" && runs > 0) {
+    return runs;
+  }
+  return (agentTokens?.[agent] ?? 0) > 0 ? 1 : 0;
+}
+
+/** Totals per agent and skills invoked by more than one agent on the same workspace. */
+export function computeCrossAgentUsage(stats: SkillUsageStat[]): CrossAgentUsageSummary {
+  const byAgentMap = new Map<RunAgent, { runs: number; skills: Set<string>; tokens: number }>();
+  for (const agent of RUN_AGENT_ORDER) {
+    byAgentMap.set(agent, { runs: 0, skills: new Set(), tokens: 0 });
+  }
+
+  const multiAgentSkills: MultiAgentSkillUsage[] = [];
+
+  for (const stat of stats) {
+    if (stat.runs === 0) {
+      continue;
+    }
+    const agents = agentsWithUsage(stat.agentRuns, stat.agentTokens);
+    if (agents.length === 0) {
+      continue;
+    }
+    for (const agent of agents) {
+      const bucket = byAgentMap.get(agent)!;
+      const runs = invocationCountForAgent(agent, stat.agentRuns, stat.agentTokens);
+      bucket.runs += runs;
+      bucket.skills.add(stat.name);
+      bucket.tokens += stat.agentTokens?.[agent] ?? 0;
+    }
+    if (agents.length >= 2) {
+      multiAgentSkills.push({
+        name: stat.name,
+        totalRuns: stat.runs,
+        agentRuns: stat.agentRuns,
+        agentTokens: stat.agentTokens,
+        agents,
+      });
+    }
+  }
+
+  multiAgentSkills.sort(
+    (a, b) => b.agents.length - a.agents.length || b.totalRuns - a.totalRuns || a.name.localeCompare(b.name)
+  );
+
+  const byAgent = RUN_AGENT_ORDER.map((agent) => {
+    const bucket = byAgentMap.get(agent)!;
+    return { agent, runs: bucket.runs, skillCount: bucket.skills.size, tokens: bucket.tokens };
+  }).filter((row) => row.runs > 0 || row.tokens > 0);
+
+  return { byAgent, multiAgentSkills, activeAgents: byAgent.map((row) => row.agent) };
+}
+
+function mergeAgentBreakdownFromAttribution(
+  stat: SkillUsageStat,
+  attribution: SkillAttributionMap
+): Pick<SkillUsageStat, "agentRuns" | "agentTokens"> {
+  const entry = attribution[stat.name];
+  if (!entry) {
+    return { agentRuns: stat.agentRuns, agentTokens: stat.agentTokens };
+  }
+
+  const agentRuns: Partial<Record<RunAgent, number>> = { ...(stat.agentRuns ?? {}) };
+  const agentTokens: Partial<Record<RunAgent, number>> = { ...(stat.agentTokens ?? {}) };
+
+  for (const [agentId, data] of Object.entries(entry)) {
+    if (!data) {
+      continue;
+    }
+    const agent = agentId as RunAgent;
+    if (typeof data.tokens === "number" && data.tokens > 0 && !agentTokens[agent]) {
+      agentTokens[agent] = data.tokens;
+    }
+    if (!agentRuns[agent]) {
+      if (typeof data.sessions === "number" && data.sessions > 0) {
+        agentRuns[agent] = data.sessions;
+      } else if (typeof data.tokens === "number" && data.tokens > 0) {
+        agentRuns[agent] = 1;
+      }
+    }
+  }
+
+  return {
+    agentRuns: Object.keys(agentRuns).length > 0 ? agentRuns : undefined,
+    agentTokens: Object.keys(agentTokens).length > 0 ? agentTokens : undefined,
+  };
+}
+
+/** Fill per-skill token totals and per-agent breakdown from cost attribution when runs.jsonl rows lack them. */
 export function enrichUsageStatsWithAttribution(
   stats: SkillUsageStat[],
   attribution: SkillAttributionMap
@@ -255,7 +413,12 @@ export function enrichUsageStatsWithAttribution(
     const fromRuns = s.totalTokens ?? 0;
     const fromAttribution = tokensForSkillInAttribution(s.name, attribution);
     const totalTokens = fromRuns > 0 ? fromRuns : fromAttribution > 0 ? fromAttribution : null;
-    return totalTokens === s.totalTokens ? s : { ...s, totalTokens };
+    const agentBreakdown = mergeAgentBreakdownFromAttribution(s, attribution);
+    const changed =
+      totalTokens !== s.totalTokens ||
+      agentBreakdown.agentRuns !== s.agentRuns ||
+      agentBreakdown.agentTokens !== s.agentTokens;
+    return changed ? { ...s, totalTokens, ...agentBreakdown } : s;
   });
 }
 
@@ -431,6 +594,132 @@ function htmlOutdatedSection(statuses: SkillVersionStatus[]): string {
   return `<div class="panel"><h2>Skill lifecycle</h2>${outdated.length ? `<ul>${items}</ul>` : ""}${deprecated.length ? `<h3 class="subhead">Deprecated</h3><ul>${depItems}</ul>` : ""}${upgradeNote}</div>`;
 }
 
+/** Short markdown bullets for weekly report and other summaries. */
+export function formatCrossAgentUsageBrief(stats: SkillUsageStat[]): string[] {
+  const cross = computeCrossAgentUsage(stats);
+  if (cross.byAgent.length === 0) {
+    return [];
+  }
+
+  const lines = [
+    "### Skill invocations by agent (hooks)",
+    "",
+    ...cross.byAgent.map(
+      (row) =>
+        `- **${runAgentLabel(row.agent)}**: ${row.runs} invocation(s), ${row.skillCount} distinct skill(s), ${formatTokenCount(row.tokens)} tokens`
+    ),
+  ];
+
+  if (cross.multiAgentSkills.length > 0) {
+    lines.push("", "**Same skill across multiple agents:**");
+    for (const skill of cross.multiAgentSkills.slice(0, 8)) {
+      const parts = cross.activeAgents
+        .map((agent) => {
+          const cell = formatAgentCell(skill.agentRuns, skill.agentTokens, agent);
+          return cell === "-" ? null : `${runAgentLabel(agent)} ${cell}`;
+        })
+        .filter((part): part is string => part !== null);
+      lines.push(`- **${skill.name}**: ${parts.join(", ")}`);
+    }
+  }
+
+  lines.push("");
+  return lines;
+}
+
+function crossAgentUsageLines(stats: SkillUsageStat[]): string[] {
+  const cross = computeCrossAgentUsage(stats);
+  if (cross.byAgent.length === 0) {
+    return [
+      "## Skill usage by agent",
+      "",
+      "No per-agent skill invocations recorded yet. Install **skill-invoke** hooks for Claude Code, Cursor, Kiro, and Copilot so the same task across IDEs is tracked separately in `runs.jsonl`.",
+      "",
+    ];
+  }
+
+  const lines = [
+    "## Skill usage by agent",
+    "",
+    "Totals when you work on one task with Claude Code, Cursor, Kiro, or Copilot.",
+    "",
+    "| Agent | Invocations | Distinct skills | Tokens |",
+    "|---|---:|---:|---:|",
+  ];
+  for (const row of cross.byAgent) {
+    lines.push(
+      `| ${runAgentLabel(row.agent)} | ${row.runs} | ${row.skillCount} | ${formatTokenCount(row.tokens)} |`
+    );
+  }
+
+  if (cross.multiAgentSkills.length > 0) {
+    lines.push("", "### Same skill across multiple agents", "");
+    const agentCols = cross.activeAgents;
+    lines.push(`| Skill | Total runs | ${agentCols.map(runAgentLabel).join(" | ")} |`);
+    lines.push(`|---|---:|${agentCols.map(() => "---:").join("|")}|`);
+    for (const skill of cross.multiAgentSkills) {
+      const cells = agentCols.map((agent) => formatAgentCell(skill.agentRuns, skill.agentTokens, agent));
+      lines.push(`| ${skill.name} | ${skill.totalRuns} | ${cells.join(" | ")} |`);
+    }
+  } else if (cross.byAgent.length > 1) {
+    lines.push("", "No single skill has been invoked by more than one agent yet in this workspace.");
+  }
+
+  lines.push(
+    "",
+    "Per-agent columns use `runs.jsonl` (skill-invoke hooks). Token cells may include cost-attribution data when hook rows lack tokens.",
+    ""
+  );
+  return lines;
+}
+
+function htmlCrossAgentSection(stats: SkillUsageStat[]): string {
+  const cross = computeCrossAgentUsage(stats);
+  if (cross.byAgent.length === 0) {
+    return `<div class="panel"><h2>Skill usage by agent</h2><p class="note">No per-agent invocations yet. Install skill-invoke hooks for Claude Code, Cursor, Kiro, and Copilot so the same task across IDEs is tracked separately.</p></div>`;
+  }
+
+  const agentPills = cross.byAgent
+    .map(
+      (row) =>
+        `<div class="stat-pill"><b>${escapeHtml(runAgentLabel(row.agent))}</b><span class="val">${row.runs} run(s) · ${row.skillCount} skill(s) · ${formatTokenCount(row.tokens)} tok</span></div>`
+    )
+    .join("\n");
+
+  let matrix = "";
+  if (cross.multiAgentSkills.length > 0) {
+    const head = cross.activeAgents
+      .map((agent) => `<th>${escapeHtml(runAgentLabel(agent))}</th>`)
+      .join("");
+    const body = cross.multiAgentSkills
+      .map((skill) => {
+        const cells = cross.activeAgents
+          .map(
+            (agent) =>
+              `<td class="num">${escapeHtml(formatAgentCell(skill.agentRuns, skill.agentTokens, agent))}</td>`
+          )
+          .join("");
+        return `<tr><td>${escapeHtml(skill.name)}</td><td class="num">${skill.totalRuns}</td>${cells}</tr>`;
+      })
+      .join("\n");
+    matrix = `<h3 class="subhead">Same skill across multiple agents</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Skill</th><th>Total runs</th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
+  } else if (cross.byAgent.length > 1) {
+    matrix = `<p class="note">No single skill has been invoked by more than one agent yet.</p>`;
+  }
+
+  return `<div class="panel">
+    <h2>Skill usage by agent</h2>
+    <p class="note" style="margin-top:0">Track the same workspace task across Claude Code, Cursor, Kiro, and Copilot.</p>
+    <div class="stat-grid">${agentPills}</div>
+    ${matrix}
+    <div class="note">Counts from skill-invoke hooks in <code>runs.jsonl</code>; tokens may include attribution when hooks omit them.</div>
+  </div>`;
+}
+
 function detailTableLines(stats: SkillUsageStat[], confidence?: Map<string, SkillCostConfidence>): string[] {
   if (stats.length === 0) {
     return [];
@@ -538,6 +827,7 @@ export function formatUsageReport(
     summaryLine(stats, suggested, counts),
     "",
     ...creditUsageLines(creditUsage),
+    ...crossAgentUsageLines(stats),
     ...outdatedLines(opts?.versionStatuses ?? []),
     ...inefficiencyLines(opts?.inefficiency ?? []),
     ...taskProposalLines(opts?.taskProposals ?? []),
@@ -794,6 +1084,7 @@ export function formatUsageReportHtml(
   } else {
     body = [
       htmlCreditUsageSection(creditUsage),
+      htmlCrossAgentSection(stats),
       htmlInefficiencySection(inefficiency),
       htmlOutdatedSection(opts?.versionStatuses ?? []),
       htmlTaskProposalsSection(opts?.taskProposals ?? [], opts?.taskSummary),

@@ -173,6 +173,7 @@ const ALL_HOOK_FILES = [
   PROFILE_INIT_HOOK_FILENAME,
   HOOK_HELPER_FILENAME,
   "session-apply.js",
+  "task-skill-focus.js",
   "branch-sync.js",
 ];
 

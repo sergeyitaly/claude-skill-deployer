@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 /** File copies + multi-agent sync can exceed 5s on Windows CI runners. */
 const SLOW_TEST_MS = 30_000;
 import {
+  applyDeterministicProfileInit,
   applyLocalProfileInit,
   BranchProfileInit,
   DEFAULT_PROFILE_INIT_REQUIRED_SKILLS,
@@ -196,6 +197,38 @@ describe("writeProfileInitSkillProposals", () => {
     expect(saved.proposals.length).toBeGreaterThan(0);
     expect(saved.proposals.some((p) => p.name === "self-learning")).toBe(true);
   });
+});
+
+describe("applyDeterministicProfileInit", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("writes and applies profile from heuristics without agent", () => {
+    const target = makeGitWorkspace("feature/deterministic");
+    const position = writeUserPosition(target, "devops");
+    const catalog = refreshSkillsCatalog(target, libraryDir, true);
+    const request = {
+      version: 1 as const,
+      requestedAt: new Date().toISOString(),
+      branch: "feature/deterministic",
+      position,
+      catalogPath: ".claude/learning/skills-catalog.json",
+      outputPath: ".claude/profile.local.json",
+      relevantSkillNames: catalog.skills.filter((s) => s.isRelevant).map((s) => s.name).slice(0, 5),
+      requiredSkillNames: [...DEFAULT_PROFILE_INIT_REQUIRED_SKILLS],
+      skillCount: catalog.skills.length,
+      status: "pending" as const,
+      agentInstructions: "Run profile-init.",
+    };
+
+    const out = applyDeterministicProfileInit(libraryDir, target, request);
+    expect(out.applied).toBe(true);
+    expect(out.skillCount).toBeGreaterThan(0);
+
+    const onDisk = JSON.parse(fs.readFileSync(profileLocalPath(target), "utf-8")) as BranchProfileInit;
+    expect(onDisk.status).toBe("applied");
+    expect(onDisk.initBy).toBe("extension");
+    expect(onDisk.skills).toContain("self-learning");
+  }, SLOW_TEST_MS);
 });
 
 describe("recoverRequiredProfileSkills", () => {

@@ -276,7 +276,7 @@ describe("profile-init-watch.js", () => {
       encoding: "utf-8",
       cwd,
     });
-    expect(result.stdout.trim()).toContain("NEW SESSION");
+    expect(result.stdout.trim()).toContain("Session ready");
     const applyRequest = JSON.parse(
       fs.readFileSync(path.join(cwd, ".claude", "learning", "session-skill-apply-request.json"), "utf-8")
     );
@@ -351,6 +351,45 @@ describe("profile-init-watch.js", () => {
     const context = parsed.hookSpecificOutput?.additionalContext ?? parsed.additional_context;
     expect(context).toContain("PROFILE INIT REQUIRED");
     expect(context).toContain("feature/copilot");
+  });
+
+  it("emits compact session context when proposals are fresh", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "profile.local.json"),
+      JSON.stringify({ version: 1, status: "applied", skills: ["self-learning"] }) + "\n",
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "task-skill-proposals.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          generatedAt: new Date().toISOString(),
+          taskSummary: "Current task",
+          proposals: [{ name: "ci-pipeline-debug", reason: "CI", confidence: 90, installed: true }],
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "cli-config.json"),
+      JSON.stringify({ version: 1, features: { deterministicTaskProposals: true } }, null, 2) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "cursor"], {
+      input: JSON.stringify({ session_id: "cursor-fresh-proposals", is_background_agent: false }),
+      encoding: "utf-8",
+      cwd,
+    });
+    const parsed = JSON.parse(result.stdout.trim()) as { additional_context?: string };
+    expect(parsed.additional_context).toContain("Session ready");
+    expect(parsed.additional_context).toContain("ci-pipeline-debug");
+    expect(parsed.additional_context).not.toContain("overwrite .claude/learning/task-skill-proposals.json");
   });
 
   it("emits NEW SESSION context on Cursor sessionStart when profile is applied", () => {

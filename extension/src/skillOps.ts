@@ -229,16 +229,27 @@ export function loadManifest(libraryDir: string): Manifest {
     throw new Error(`Skill manifest not found: ${file}`);
   }
   try {
+    const mtimeMs = fs.statSync(file).mtimeMs;
+    if (manifestCache && manifestCache.file === file && manifestCache.mtimeMs === mtimeMs) {
+      return manifestCache.data;
+    }
     const raw = fs.readFileSync(file, "utf-8");
     const parsed = JSON.parse(raw) as Manifest;
     if (!parsed.skills || typeof parsed.skills !== "object") {
       throw new Error("manifest.json missing skills map");
     }
+    manifestCache = { file, mtimeMs, data: parsed };
     return parsed;
   } catch (err) {
     throw new Error(`Could not parse ${file}: ${(err as Error).message}`);
   }
 }
+
+export function invalidateManifestCache(): void {
+  manifestCache = undefined;
+}
+
+let manifestCache: { file: string; mtimeMs: number; data: Manifest } | undefined;
 
 export function discoverBundledSkills(libraryDir: string): string[] {
   if (!fs.existsSync(libraryDir)) {
@@ -250,6 +261,81 @@ export function discoverBundledSkills(libraryDir: string): string[] {
     .map((e) => e.name)
     .filter((name) => fs.existsSync(path.join(libraryDir, name, "SKILL.md")))
     .sort();
+}
+
+const DETECTION_CACHE_TTL_MS = 60_000;
+const SKILL_STATUS_CACHE_TTL_MS = 20_000;
+
+interface DetectionCacheEntry {
+  paths: string[];
+  detected: Record<string, string[]>;
+  at: number;
+}
+
+interface SkillStatusCacheEntry {
+  key: string;
+  statuses: SkillStatus[];
+  at: number;
+}
+
+const detectionCache = new Map<string, DetectionCacheEntry>();
+const skillStatusCache = new Map<string, SkillStatusCacheEntry>();
+
+function skillInstallKey(target: string | undefined, libraryDir: string): string {
+  const workspaceDir = target ? path.join(target, ".claude", "skills") : "";
+  const globalDir = globalSkillsDir();
+  let workspaceMtime = 0;
+  let globalMtime = 0;
+  let manifestMtime = 0;
+  let settingsMtime = 0;
+  try {
+    if (workspaceDir && fs.existsSync(workspaceDir)) {
+      workspaceMtime = fs.statSync(workspaceDir).mtimeMs;
+    }
+    if (fs.existsSync(globalDir)) {
+      globalMtime = fs.statSync(globalDir).mtimeMs;
+    }
+    const manifestFile = path.join(libraryDir, "manifest.json");
+    if (fs.existsSync(manifestFile)) {
+      manifestMtime = fs.statSync(manifestFile).mtimeMs;
+    }
+    if (target) {
+      const settingsFile = settingsLocalPath(target);
+      if (fs.existsSync(settingsFile)) {
+        settingsMtime = fs.statSync(settingsFile).mtimeMs;
+      }
+    }
+  } catch {
+    // best-effort fingerprint
+  }
+  return `${path.normalize(target ?? "")}|${workspaceMtime}|${globalMtime}|${manifestMtime}|${settingsMtime}`;
+}
+
+function listSkillNameSet(skillsRoot: string): Set<string> {
+  if (!fs.existsSync(skillsRoot)) {
+    return new Set();
+  }
+  try {
+    return new Set(
+      fs
+        .readdirSync(skillsRoot, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && fs.existsSync(path.join(skillsRoot, e.name, "SKILL.md")))
+        .map((e) => e.name)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function invalidateDetectionCache(target?: string): void {
+  if (target) {
+    const key = path.normalize(target);
+    detectionCache.delete(key);
+    skillStatusCache.delete(key);
+    return;
+  }
+  detectionCache.clear();
+  skillStatusCache.clear();
 }
 
 /** One-pass walk of `target`, returning POSIX-style relative file paths,
@@ -318,6 +404,13 @@ export function detectRelevantSkills(
   target: string,
   manifest: Manifest
 ): Record<string, string[]> {
+  const key = path.normalize(target);
+  const now = Date.now();
+  const cached = detectionCache.get(key);
+  if (cached && now - cached.at < DETECTION_CACHE_TTL_MS) {
+    return cached.detected;
+  }
+
   const paths = collectRelativePaths(target);
   const results: Record<string, string[]> = {};
   for (const [skillName, rule] of Object.entries(manifest.skills)) {
@@ -326,6 +419,7 @@ export function detectRelevantSkills(
       results[skillName] = matched;
     }
   }
+  detectionCache.set(key, { paths, detected: results, at: now });
   return results;
 }
 
@@ -499,12 +593,16 @@ function extractFrontmatterDescription(skillMdPath: string): string | undefined 
 /** Skills present in <target>/.claude/skills/ that aren't part of the
  * bundled manifest - e.g. project-specific skills, or skills installed from
  * elsewhere before this extension was added to the project. */
-function listProjectOnlySkills(target: string, manifest: Manifest, overrides: Record<string, SkillOverrideValue>): SkillStatus[] {
+function listProjectOnlySkills(
+  target: string,
+  manifest: Manifest,
+  overrides: Record<string, SkillOverrideValue>,
+  availableInGlobal: Set<string>
+): SkillStatus[] {
   const skillsDir = path.join(target, ".claude", "skills");
   if (!fs.existsSync(skillsDir)) {
     return [];
   }
-  const globalDir = globalSkillsDir();
   return fs
     .readdirSync(skillsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -521,7 +619,7 @@ function listProjectOnlySkills(target: string, manifest: Manifest, overrides: Re
         matchedGlobs: [],
         isRelevant: false,
         installedInWorkspace: true,
-        availableInGlobal: fs.existsSync(path.join(globalDir, name, "SKILL.md")),
+        availableInGlobal: availableInGlobal.has(name),
         bundledPath: skillMdPath,
         inLibrary: false,
         localOverride: overrides[name],
@@ -536,31 +634,51 @@ export function listSkillStatuses(
   libraryDir: string,
   target: string | undefined
 ): SkillStatus[] {
+  const cacheKey = target ? path.normalize(target) : "";
+  const now = Date.now();
+  if (cacheKey) {
+    const cached = skillStatusCache.get(cacheKey);
+    const fingerprint = skillInstallKey(target, libraryDir);
+    if (
+      cached &&
+      now - cached.at < SKILL_STATUS_CACHE_TTL_MS &&
+      cached.key === fingerprint
+    ) {
+      return cached.statuses;
+    }
+  }
+
   const manifest = loadManifest(libraryDir);
   const detected = target ? detectRelevantSkills(target, manifest) : {};
   const globalDir = globalSkillsDir();
   const overrides = target ? readSkillOverrides(target) : {};
+  const installedInWorkspace = target ? listSkillNameSet(path.join(target, ".claude", "skills")) : new Set<string>();
+  const availableInGlobal = listSkillNameSet(globalDir);
 
   const librarySkills = Object.entries(manifest.skills).map(([name, rule]) => {
     const matched = detected[name] ?? [];
-    const installedInWorkspace = target
-      ? fs.existsSync(path.join(target, ".claude", "skills", name, "SKILL.md"))
-      : false;
-    const availableInGlobal = fs.existsSync(path.join(globalDir, name, "SKILL.md"));
     return {
       name,
       description: rule.description,
       detectGlobs: rule.detect_globs,
       matchedGlobs: matched,
       isRelevant: matched.length > 0,
-      installedInWorkspace,
-      availableInGlobal,
+      installedInWorkspace: installedInWorkspace.has(name),
+      availableInGlobal: availableInGlobal.has(name),
       bundledPath: path.join(libraryDir, name, "SKILL.md"),
       inLibrary: true,
       localOverride: overrides[name],
     };
   });
 
-  const projectOnlySkills = target ? listProjectOnlySkills(target, manifest, overrides) : [];
-  return [...librarySkills, ...projectOnlySkills];
+  const projectOnlySkills = target ? listProjectOnlySkills(target, manifest, overrides, availableInGlobal) : [];
+  const statuses = [...librarySkills, ...projectOnlySkills];
+  if (cacheKey) {
+    skillStatusCache.set(cacheKey, {
+      key: skillInstallKey(target, libraryDir),
+      statuses,
+      at: now,
+    });
+  }
+  return statuses;
 }

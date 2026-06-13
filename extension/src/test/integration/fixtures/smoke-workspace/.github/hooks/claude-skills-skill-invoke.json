@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "matcher": "Skill|Read|read|fs_read|fileread",
+        "bash": "node .claude/hooks/skill-invoke-watch.js copilot",
+        "powershell": "node .claude/hooks/skill-invoke-watch.js copilot"
+      }
+    ]
+  }
+}

@@ -8,6 +8,7 @@ import {
   installLibraryToGlobal,
   listSkillStatuses,
   loadManifest,
+  invalidateDetectionCache,
   disableWorkspaceSkill,
   enableWorkspaceSkill,
   isSkillCommittedOnBranch,
@@ -15,6 +16,7 @@ import {
 } from "./skillOps";
 import { SkillItem, SkillsProvider } from "./skillsProvider";
 import {
+  computeCrossAgentUsage,
   computeSuggestedSkills,
   computeUsageStats,
   enrichUsageStatsWithAttribution,
@@ -22,9 +24,10 @@ import {
   formatUsageReport,
   formatUsageReportHtml,
   listInstalledSkills,
+  runAgentLabel,
 } from "./usageStats";
 import { computeSkillInefficiencyStats } from "./skillFeedback";
-import { readTaskSkillProposals, resolveTaskSkillProposals } from "./taskSkillProposals";
+import { readTaskSkillProposals, resolveTaskSkillProposals, ensureWorkspaceTaskProposals } from "./taskSkillProposals";
 import {
   evaluateHighUsageSkillProposalAlert,
   maybePromptHighUsageSkillProposals,
@@ -190,6 +193,7 @@ import {
   autoApplyProfileFileEnabled,
   ensureProfileInitSessionReady,
   findMissingRequiredProfileSkills,
+  maybeApplyDeterministicProfileInit,
   maybePromptProfileInitOnNewBranch,
   mergeProfileInitSkills,
   profileInitEnabled,
@@ -207,7 +211,9 @@ import {
   processSessionSkillApplyRequest,
   SESSION_APPLY_REQUEST_REL,
 } from "./sessionSkillApply";
+import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { PROPOSALS_FILE_RELATIVE } from "./taskSkillProposals";
+import { createRefreshScheduler, shouldRunWorkspaceState } from "./workspaceRefresh";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -525,7 +531,15 @@ function refreshUsageStatusBar(libraryDir: string) {
       parts.push(`${inefficient} inefficient`);
     }
     usageStatusBarItem.text = `$(graph) Skill usage: ${parts.join(", ")}`;
-    usageStatusBarItem.tooltip = "Click for the per-skill usage and KPI report.";
+    const cross = computeCrossAgentUsage(stats);
+    let tooltip = "Click for the per-skill usage and KPI report.";
+    if (cross.activeAgents.length > 1) {
+      tooltip += `\nAgents with skill invocations: ${cross.activeAgents.map(runAgentLabel).join(", ")}.`;
+    }
+    if (cross.multiAgentSkills.length > 0) {
+      tooltip += `\n${cross.multiAgentSkills.length} skill(s) used across multiple agents on this workspace.`;
+    }
+    usageStatusBarItem.tooltip = tooltip;
   }
   usageStatusBarItem.command = "claudeSkills.showUsageStats";
   usageStatusBarItem.show();
@@ -541,54 +555,6 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(outputChannel);
 
   const provider = new SkillsProvider(libraryDir, getWorkspaceTarget);
-  const treeView = vscode.window.createTreeView("claudeSkillsView", {
-    treeDataProvider: provider,
-  });
-  // Checkbox = "enabled for this workspace": check it to install the skill
-  // into <workspace>/.claude/skills/, uncheck to remove it from there.
-  context.subscriptions.push(
-    treeView,
-    treeView.onDidChangeCheckboxState(async (e) => {
-      const target = getWorkspaceTarget();
-      if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
-        refreshAll();
-        return;
-      }
-      for (const [item, state] of e.items) {
-        if (!(item instanceof SkillItem)) {
-          continue;
-        }
-        const name = item.status.name;
-        const sourceRoot = item.status.availableInGlobal ? globalSkillsDir() : libraryDir;
-        if (state === vscode.TreeItemCheckboxState.Checked) {
-          ensureLearningDir(target);
-          const action = enableWorkspaceSkill(target, name, sourceRoot, libraryDir);
-          if (action === "local-on") {
-            log(`${name}: re-enabled locally (skillOverrides cleared, shared files unchanged)`);
-          } else if (action === "installed") {
-            log(
-              `${name}: enabled for you${isSkillCommittedOnBranch(target, name) ? "" : " (personal-only — added to .git/info/exclude)"}`
-            );
-          }
-        } else {
-          const action = disableWorkspaceSkill(target, name);
-          if (action === "local-off") {
-            log(`${name}: disabled locally (.claude/settings.local.json) — branch .claude/skills/ unchanged`);
-          } else if (action === "removed") {
-            log(`${name}: removed personal-only install from workspace`);
-          } else {
-            log(`${name}: already disabled`);
-          }
-        }
-        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
-          saveBranchProfile: true,
-          forceAgentSync: true,
-        });
-      }
-      refreshAll();
-    })
-  );
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBarItem);
@@ -647,7 +613,9 @@ export function activate(context: vscode.ExtensionContext) {
     void maybePromptHighUsageSkillProposals(target, libraryDir, (names) => applyProposalSkillNames(target, names));
   }
 
-  const refreshAll = () => {
+  let lastWorkspaceStateAt = 0;
+
+  const refreshAllImpl = (opts: { workspaceState: boolean; forceTree: boolean }) => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
     if (integrationTestMode()) {
@@ -658,7 +626,9 @@ export function activate(context: vscode.ExtensionContext) {
       AttributionCollector.setActiveTarget(target, libraryDir);
     }
     syncBranchProfileContext(target);
-    provider.refresh();
+    if (refreshScheduler.isTreeVisible() || opts.forceTree) {
+      provider.refresh();
+    }
     refreshStatusBar(libraryDir);
     refreshUsageStatusBar(libraryDir);
     refreshCreditStatusBar(libraryDir, target);
@@ -673,57 +643,155 @@ export function activate(context: vscode.ExtensionContext) {
         log(`Auto-synced ${synced.length} skill mirror(s) to cursor/kiro/copilot.`);
       }
     }
-    if (target) {
-      scheduleCostPipelineSync(target, libraryDir);
-      void checkEmergencyCutoff(target, libraryDir);
-      if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
-        ensureAttributionHooksActive(context.extensionPath, target, log);
-      }
-      if (profileInitEnabled()) {
-        try {
-          refreshSkillsCatalog(target, libraryDir);
-          if (profileInitRequestPending(target)) {
+    if (!target) {
+      return;
+    }
+
+    scheduleCostPipelineSync(target, libraryDir);
+    void checkEmergencyCutoff(target, libraryDir);
+    if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
+      ensureAttributionHooksActive(context.extensionPath, target, log);
+    }
+
+    if (!shouldRunWorkspaceState(lastWorkspaceStateAt, { workspaceState: opts.workspaceState })) {
+      return;
+    }
+    lastWorkspaceStateAt = Date.now();
+
+    if (profileInitEnabled()) {
+      try {
+        refreshSkillsCatalog(target, libraryDir);
+        if (profileInitRequestPending(target)) {
+          if (maybeApplyDeterministicProfileInit(libraryDir, target)) {
+            propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+              saveBranchProfile: true,
+              forceAgentSync: true,
+            });
+          } else {
             ensureProfileInitSessionReady(context.extensionPath, libraryDir, target, log);
           }
-        } catch (err) {
-          log(`Skill catalog refresh failed: ${(err as Error).message}`);
         }
+      } catch (err) {
+        log(`Skill catalog refresh failed: ${(err as Error).message}`);
+      }
+    }
+    if (isFeatureEnabled("deterministicTaskProposals")) {
+      const manifest = loadManifest(libraryDir);
+      const proposalRefresh = ensureWorkspaceTaskProposals(target, manifest);
+        if (proposalRefresh.refreshed) {
+          log(`Task proposals refreshed locally (${proposalRefresh.file?.proposals.length ?? 0} skills).`);
+        }
+      }
+      const focusApply = applyTaskSkillFocusFromProposals(libraryDir, target);
+      if (focusApply.applied && focusApply.focus) {
+        log(
+          `Task skill focus: ${focusApply.focus.activeSkills.length} active, ${focusApply.focus.ignoredSkills.length} ignored for this task.`
+        );
       }
       scheduleHighUsageSkillProposalCheck(target);
-      syncCliConfigToWorkspace(target, libraryDir);
-      const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
-      if (sessionApply.applied && sessionApply.result && sessionApply.request) {
-        const { result, request } = sessionApply;
-        if (result.installed.length > 0 || result.overridesApplied > 0) {
-          log(
-            `\n=== Session skill apply (${request.source}) ===\n` +
-              `+${result.installed.length} installed, ${result.overridesApplied} enabled locally` +
-              (result.installed.length ? `: ${result.installed.join(", ")}` : "")
-          );
-          propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
-            saveBranchProfile: true,
-            forceAgentSync: true,
-          });
-        }
+    syncCliConfigToWorkspace(target, libraryDir);
+    const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
+    if (sessionApply.applied && sessionApply.result && sessionApply.request) {
+      const { result, request } = sessionApply;
+      if (result.installed.length > 0 || result.overridesApplied > 0) {
+        log(
+          `\n=== Session skill apply (${request.source}) ===\n` +
+            `+${result.installed.length} installed, ${result.overridesApplied} enabled locally` +
+            (result.installed.length ? `: ${result.installed.join(", ")}` : "")
+        );
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          saveBranchProfile: true,
+          forceAgentSync: true,
+        });
       }
-      const taskApply = applyTaskProposalsIfPending(libraryDir, target);
-      if (taskApply.applied && taskApply.result) {
-        const { result } = taskApply;
-        if (result.installed.length > 0 || result.overridesApplied > 0) {
-          log(
-            `\n=== Task proposals auto-apply (local workspace) ===\n` +
-              `+${result.installed.length} installed, ${result.overridesApplied} enabled locally` +
-              (result.installed.length ? `: ${result.installed.join(", ")}` : "")
-          );
-          propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
-            saveBranchProfile: true,
-            forceAgentSync: true,
-          });
-        }
-      }
-      void maybePromptOutdatedSkillUpgrades(libraryDir, target);
     }
+    const taskApply = applyTaskProposalsIfPending(libraryDir, target);
+    if (taskApply.applied && taskApply.result) {
+      const { result } = taskApply;
+      if (result.installed.length > 0 || result.overridesApplied > 0) {
+        log(
+          `\n=== Task proposals auto-apply (local workspace) ===\n` +
+            `+${result.installed.length} installed, ${result.overridesApplied} enabled locally` +
+            (result.installed.length ? `: ${result.installed.join(", ")}` : "")
+        );
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          saveBranchProfile: true,
+          forceAgentSync: true,
+        });
+        void vscode.window.showInformationMessage(
+          `Claude Skills: task proposals applied (${result.installed.length} installed, ${result.overridesApplied} enabled).`
+        );
+      }
+    }
+    void maybePromptOutdatedSkillUpgrades(libraryDir, target);
   };
+
+  const refreshScheduler = createRefreshScheduler(refreshAllImpl);
+
+  const refreshLight = () => {
+    refreshScheduler.schedule({});
+  };
+
+  const refreshAll = (opts?: { workspaceState?: boolean; forceTree?: boolean }) => {
+    refreshScheduler.schedule({
+      workspaceState: opts?.workspaceState ?? true,
+      forceTree: opts?.forceTree ?? true,
+    });
+  };
+
+  const treeView = vscode.window.createTreeView("claudeSkillsView", {
+    treeDataProvider: provider,
+  });
+  context.subscriptions.push(
+    treeView,
+    treeView.onDidChangeVisibility((e) => {
+      refreshScheduler.setTreeVisible(e.visible);
+      if (e.visible) {
+        refreshAll({ forceTree: true, workspaceState: false });
+      }
+    }),
+    treeView.onDidChangeCheckboxState(async (e) => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        refreshAll();
+        return;
+      }
+      for (const [item, state] of e.items) {
+        if (!(item instanceof SkillItem)) {
+          continue;
+        }
+        const name = item.status.name;
+        const sourceRoot = item.status.availableInGlobal ? globalSkillsDir() : libraryDir;
+        if (state === vscode.TreeItemCheckboxState.Checked) {
+          ensureLearningDir(target);
+          const action = enableWorkspaceSkill(target, name, sourceRoot, libraryDir);
+          if (action === "local-on") {
+            log(`${name}: re-enabled locally (skillOverrides cleared, shared files unchanged)`);
+          } else if (action === "installed") {
+            log(
+              `${name}: enabled for you${isSkillCommittedOnBranch(target, name) ? "" : " (personal-only — added to .git/info/exclude)"}`
+            );
+          }
+        } else {
+          const action = disableWorkspaceSkill(target, name);
+          if (action === "local-off") {
+            log(`${name}: disabled locally (.claude/settings.local.json) — branch .claude/skills/ unchanged`);
+          } else if (action === "removed") {
+            log(`${name}: removed personal-only install from workspace`);
+          } else {
+            log(`${name}: already disabled`);
+          }
+        }
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          saveBranchProfile: true,
+          forceAgentSync: true,
+        });
+      }
+      invalidateDetectionCache(target);
+      refreshAll();
+    })
+  );
 
   registerWorkspaceTargetListeners(() => refreshAll(), context);
 
@@ -751,6 +819,7 @@ export function activate(context: vscode.ExtensionContext) {
   })();
 
   refreshAll();
+  refreshScheduler.flush();
 
   if (initialTarget && !integrationTestMode()) {
     propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
@@ -1946,6 +2015,8 @@ export function activate(context: vscode.ExtensionContext) {
         "practicalFocus",
         "sessionSkillAdaptation",
         "autoApplyTaskProposals",
+        "deterministicTaskProposals",
+        "taskSkillFocus",
       ];
       const pick = await vscode.window.showQuickPick(
         keys.map((k) => ({
@@ -2176,7 +2247,13 @@ export function activate(context: vscode.ExtensionContext) {
     "**/aidlc-state.md",
     "**/terraform/**",
   ];
-  const debouncedRefresh = debounce(() => refreshAll(), 2000);
+  const debouncedRefresh = debounce(() => {
+    const target = getWorkspaceTarget();
+    if (target) {
+      invalidateDetectionCache(target);
+    }
+    refreshLight();
+  }, 2000);
   for (const glob of detectionWatchGlobs) {
     const w = vscode.workspace.createFileSystemWatcher(glob);
     w.onDidCreate(debouncedRefresh);
@@ -2188,7 +2265,9 @@ export function activate(context: vscode.ExtensionContext) {
   const debouncedAgentSync = debounce(() => {
     const target = getWorkspaceTarget();
     if (target) {
+      invalidateDetectionCache(target);
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
+      refreshAll({ workspaceState: false, forceTree: true });
     }
   }, 1500);
 
@@ -2304,21 +2383,27 @@ export function activate(context: vscode.ExtensionContext) {
   const gitExt = vscode.extensions.getExtension("vscode.git");
   if (gitExt) {
     const gitDisposables: vscode.Disposable[] = [];
-    const onRepoChange = async (repoRoot: string) => {
-      const target = getWorkspaceTarget();
-      if (!target || !target.startsWith(repoRoot)) {
-        return;
-      }
-      const teamResult = applyTeamBranchProfile(libraryDir, target);
-      if (teamResult) {
-        log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
-      }
-      await handleBranchChange(libraryDir, target, log, branchChangeOpts(context.extensionPath, libraryDir, target));
-      const agentApplied = maybeApplyHostAgentSkillSet(libraryDir, target, log);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
-        saveBranchProfile: !agentApplied,
-      });
-      refreshAll();
+    const debouncedRepoChange = debounce((repoRoot: string) => {
+      void (async () => {
+        const target = getWorkspaceTarget();
+        if (!target || !target.startsWith(repoRoot)) {
+          return;
+        }
+        invalidateDetectionCache(target);
+        const teamResult = applyTeamBranchProfile(libraryDir, target);
+        if (teamResult) {
+          log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
+        }
+        await handleBranchChange(libraryDir, target, log, branchChangeOpts(context.extensionPath, libraryDir, target));
+        const agentApplied = maybeApplyHostAgentSkillSet(libraryDir, target, log);
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          saveBranchProfile: !agentApplied,
+        });
+        refreshAll({ workspaceState: true, forceTree: true });
+      })();
+    }, 400);
+    const onRepoChange = (repoRoot: string) => {
+      debouncedRepoChange(repoRoot);
     };
     const subscribeGit = () => {
       try {

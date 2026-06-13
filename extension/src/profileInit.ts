@@ -28,6 +28,7 @@ import {
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
 import { queueSessionSkillApplyRequest, sessionSkillAdaptationEnabled } from "./sessionSkillApply";
+import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
 import {
   readJsonFile,
   writeCoordinatedJson,
@@ -392,6 +393,14 @@ export function autoApplyProfileFileEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.profileInit").get<boolean>("autoApplyProfileFile", true);
 }
 
+/** Apply branch profile from heuristics without an agent session (default on). */
+export function deterministicProfileInitEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.profileInit").get<boolean>("deterministicApply", true);
+}
+
+const catalogRefreshAt = new Map<string, number>();
+const CATALOG_REFRESH_MIN_MS = 60_000;
+
 /** Per-workspace latch: avoid re-syncing profile-init hooks on every tree refresh. */
 const profileInitSessionReadyTargets = new Set<string>();
 
@@ -497,7 +506,19 @@ function statusToCatalogEntry(s: SkillStatus, requiredNames: Set<string>): Skill
 }
 
 /** Snapshot of skills the extension knows about (library + project-local). */
-export function refreshSkillsCatalog(target: string, libraryDir: string): SkillsCatalog {
+export function refreshSkillsCatalog(target: string, libraryDir: string, force = false): SkillsCatalog {
+  const key = path.normalize(target);
+  const now = Date.now();
+  if (!force) {
+    const last = catalogRefreshAt.get(key) ?? 0;
+    if (now - last < CATALOG_REFRESH_MIN_MS) {
+      const existing = readJsonFile<SkillsCatalog>(skillsCatalogPath(target));
+      if (existing?.version === 1 && Array.isArray(existing.skills)) {
+        return existing;
+      }
+    }
+  }
+  catalogRefreshAt.set(key, now);
   ensureLearningDir(target);
   ensureProfileInitGitIgnored(target);
   const requiredNames = new Set(profileInitRequiredSkills());
@@ -537,7 +558,7 @@ export function buildProfileInitRequest(
   position: UserPosition,
   branch: string
 ): ProfileInitRequest {
-  const catalog = refreshSkillsCatalog(target, libraryDir);
+  const catalog = refreshSkillsCatalog(target, libraryDir, true);
   const relevantSkillNames = catalog.skills.filter((s) => s.isRelevant).map((s) => s.name);
   const requiredSkillNames = profileInitRequiredSkills();
   const request: ProfileInitRequest = {
@@ -556,6 +577,59 @@ export function buildProfileInitRequest(
   writeCoordinatedJson(target, profileInitRequestPath(target), PROFILE_REQUEST_KEY, "extension", request);
   writeProfileInitSkillProposals(target, catalog, request);
   return request;
+}
+
+/** Write profile.local.json from heuristics and apply locally — no agent tokens. */
+export function applyDeterministicProfileInit(
+  libraryDir: string,
+  target: string,
+  request: ProfileInitRequest
+): { applied: boolean; result?: ApplyProfileResult; skillCount: number } {
+  const catalog = readJsonFile<SkillsCatalog>(skillsCatalogPath(target));
+  if (!catalog) {
+    return { applied: false, skillCount: 0 };
+  }
+  const proposals = computeProfileInitProposals(target, catalog, request);
+  const skills = proposals.map((p) => p.name);
+  if (skills.length === 0) {
+    return { applied: false, skillCount: 0 };
+  }
+
+  const profile: BranchProfileInit = {
+    version: 1,
+    branch: request.branch,
+    role: request.position.role,
+    roleLabel: request.position.label,
+    skills,
+    initBy: "extension",
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  writeBranchProfileInit(target, profile);
+  const { result } = applyLocalProfileInit(libraryDir, target);
+  if (!result) {
+    return { applied: false, skillCount: skills.length };
+  }
+  return { applied: true, result, skillCount: skills.length };
+}
+
+/** Complete a pending profile-init request locally when deterministic mode is on. */
+export function maybeApplyDeterministicProfileInit(libraryDir: string, target: string): boolean {
+  if (!profileInitEnabled() || !deterministicProfileInitEnabled()) {
+    return false;
+  }
+  const request = readProfileInitRequest(target);
+  if (!request || request.status !== "pending") {
+    return false;
+  }
+  const existing = readBranchProfileInit(target);
+  if (existing?.status === "applied") {
+    return false;
+  }
+  if (existing?.skills && existing.skills.length > 0) {
+    return false;
+  }
+  return applyDeterministicProfileInit(libraryDir, target, request).applied;
 }
 
 export function validateProfileSkills(
@@ -727,6 +801,23 @@ export async function startProfileInitFlow(
   markProfileInitPending(target, branch, position);
   const request = buildProfileInitRequest(target, libraryDir, position, branch);
   ensureProfileInitSessionReady(extensionPath, libraryDir, target, log);
+
+  if (deterministicProfileInitEnabled()) {
+    const deterministic = applyDeterministicProfileInit(libraryDir, target, request);
+    if (deterministic.applied && deterministic.result) {
+      propagateWorkspaceSkillChange(extensionPath, target, libraryDir, log, {
+        saveBranchProfile: true,
+        forceAgentSync: true,
+      });
+      log(`\n=== Profile init (deterministic) for branch \`${branch}\` ===`);
+      log(`Position: ${position.label}`);
+      log(`+${deterministic.result.installed.length} installed, ${deterministic.skillCount} skills in profile`);
+      void vscode.window.showInformationMessage(
+        `Profile applied for "${branch}" (${position.label}) — ${deterministic.skillCount} skills enabled locally.`
+      );
+      return true;
+    }
+  }
 
   log(`\n=== Profile init for branch \`${branch}\` ===`);
   log(`Position: ${position.label}`);

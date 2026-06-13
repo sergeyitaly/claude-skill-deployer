@@ -18,7 +18,9 @@ export type FeatureKey =
   | "contextFocus"
   | "practicalFocus"
   | "sessionSkillAdaptation"
-  | "autoApplyTaskProposals";
+  | "autoApplyTaskProposals"
+  | "deterministicTaskProposals"
+  | "taskSkillFocus";
 
 export const DEFAULTS: Record<FeatureKey, boolean> = {
   budgetControls: true,
@@ -39,6 +41,8 @@ export const DEFAULTS: Record<FeatureKey, boolean> = {
   practicalFocus: true,
   sessionSkillAdaptation: true,
   autoApplyTaskProposals: true,
+  deterministicTaskProposals: true,
+  taskSkillFocus: true,
 };
 
 export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
@@ -65,6 +69,10 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
     "On each new AI agent session or window, install and locally enable proposed skills from the branch profile and task-skill-proposals.json.",
   autoApplyTaskProposals:
     "Auto-install and locally enable all skills listed in Proposed for current task (plus required platform skills) for this workspace only.",
+  deterministicTaskProposals:
+    "Extension refreshes task-skill-proposals.json from workspace heuristics and skips agent regeneration on new sessions when proposals are fresh (<24h).",
+  taskSkillFocus:
+    "After auto-apply, set skillOverrides off for installed skills outside the task proposal set so agents only see the focused skill list (saves tokens).",
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {

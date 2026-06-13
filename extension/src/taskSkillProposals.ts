@@ -4,6 +4,54 @@ import { detectRelevantSkills, Manifest } from "./skillOps";
 import { invalidateLearningCache } from "./learningStateIndex";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
+export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function areTaskSkillProposalsFresh(
+  target: string,
+  maxAgeMs = PROPOSALS_MAX_AGE_MS
+): boolean {
+  const saved = readTaskSkillProposals(target);
+  if (!saved?.proposals.length || !saved.generatedAt) {
+    return false;
+  }
+  const ageMs = Date.now() - new Date(saved.generatedAt).getTime();
+  return ageMs >= 0 && ageMs < maxAgeMs;
+}
+
+/**
+ * Extension-owned proposal refresh — avoids agent Glob/Grep/manifest reads.
+ * Refreshes when proposals are missing/stale, or when a new prompt excerpt is supplied.
+ */
+export function ensureWorkspaceTaskProposals(
+  target: string,
+  manifest: Manifest,
+  promptText = ""
+): { refreshed: boolean; file?: TaskSkillProposalsFile } {
+  const trimmedPrompt = promptText.trim();
+  if (!trimmedPrompt && areTaskSkillProposalsFresh(target)) {
+    return { refreshed: false };
+  }
+
+  const proposals = computeTaskSkillProposals(
+    target,
+    manifest,
+    trimmedPrompt || "workspace",
+    trimmedPrompt ? "User task" : "Workspace-detected skills"
+  );
+  if (proposals.length === 0) {
+    return { refreshed: false };
+  }
+
+  const data: TaskSkillProposalsFile = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    taskSummary: trimmedPrompt ? "User task" : "Workspace-detected skills",
+    promptExcerpt: trimmedPrompt ? trimmedPrompt.slice(0, 240) : undefined,
+    proposals,
+  };
+  writeTaskSkillProposals(target, data);
+  return { refreshed: true, file: data };
+}
 
 export interface TaskSkillProposal {
   name: string;
@@ -192,7 +240,7 @@ export function resolveTaskSkillProposals(
   if (saved && saved.proposals.length > 0) {
     const ageMs = Date.now() - new Date(saved.generatedAt).getTime();
     // Use saved proposals if generated within 24h
-    if (ageMs < 24 * 60 * 60 * 1000) {
+    if (ageMs >= 0 && ageMs < PROPOSALS_MAX_AGE_MS) {
       return saved.proposals;
     }
   }

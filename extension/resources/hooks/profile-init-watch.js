@@ -11,6 +11,7 @@ const SESSION_SOURCES = new Set(["startup", "resume", "clear", "new"]);
 const REQUEST_REL = ".claude/learning/profile-init-request.json";
 const PROFILE_REL = ".claude/profile.local.json";
 const PROPOSALS_REL = ".claude/learning/task-skill-proposals.json";
+const ACTIVE_REL = ".claude/learning/task-active-skills.json";
 const APPLY_REQUEST_REL = ".claude/learning/session-skill-apply-request.json";
 const CLI_CONFIG = ".claude/learning/cli-config.json";
 const DEFAULT_REQUIRED_SKILLS = [
@@ -21,6 +22,8 @@ const DEFAULT_REQUIRED_SKILLS = [
   "skill-feedback-adaptation",
   "skill-official-updater",
 ];
+
+const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function readRequiredSkills(cwd) {
   const request = readJsonSafe(path.join(cwd, REQUEST_REL));
@@ -46,6 +49,59 @@ function taskProposalsAutoApply(cwd) {
     return false;
   }
   return true;
+}
+
+function deterministicTaskProposalsEnabled(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  const features = cfg && cfg.features;
+  if (features && features.deterministicTaskProposals === false) {
+    return false;
+  }
+  return true;
+}
+
+function taskProposalsFresh(cwd) {
+  const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
+  if (!proposals || !proposals.generatedAt || !Array.isArray(proposals.proposals) || !proposals.proposals.length) {
+    return false;
+  }
+  const ageMs = Date.now() - new Date(proposals.generatedAt).getTime();
+  return ageMs >= 0 && ageMs < PROPOSALS_MAX_AGE_MS;
+}
+
+function formatFreshSessionContext(cwd) {
+  const active = readJsonSafe(path.join(cwd, ACTIVE_REL));
+  if (active && Array.isArray(active.activeSkills) && active.activeSkills.length) {
+    const list = active.activeSkills.slice(0, 12).join(", ");
+    const ignored =
+      Array.isArray(active.ignoredSkills) && active.ignoredSkills.length
+        ? ` Ignored for this task (${active.ignoredSkills.length}): ${active.ignoredSkills.slice(0, 8).join(", ")}${active.ignoredSkills.length > 8 ? ", ..." : ""}.`
+        : "";
+    return [
+      "[Claude Skills] Task skill focus ON — use only the active skill set below; other installed skills are on your ignore list (skillOverrides off).",
+      `Active skills: ${list}.`,
+      ignored,
+      "Do not load or read SKILL.md for ignored skills unless the user explicitly asks.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
+  const top = (proposals?.proposals ?? [])
+    .filter((p) => p && typeof p.name === "string")
+    .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+    .slice(0, 8)
+    .map((p) => `${p.name} (${p.confidence ?? "?"}%)`)
+    .join(", ");
+  return [
+    "[Claude Skills] Session ready — task skills set by the extension (auto-apply on).",
+    top ? `Enabled proposals: ${top}.` : "",
+    "Skip skill-feedback-adaptation section 3 unless the user starts a clearly new task.",
+    "Do not read SKILL.md files unless the task needs a skill you have not used before.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function readStdin() {
@@ -240,6 +296,17 @@ function emitOutput(context, platform) {
   );
 }
 
+function emitSessionStartContext(cwd, platform) {
+  if (!sessionSkillAdaptationEnabled(cwd)) {
+    return;
+  }
+  const context =
+    deterministicTaskProposalsEnabled(cwd) && taskProposalsFresh(cwd)
+      ? formatFreshSessionContext(cwd)
+      : formatNewSessionTaskContext();
+  emitOutput(context, platform);
+}
+
 function main() {
   const raw = readStdin();
   let input = {};
@@ -267,23 +334,27 @@ function main() {
         timeout: 60000,
       });
     }
+    const focusScript = path.join(cwd, ".claude", "hooks", "task-skill-focus.js");
+    if (fs.existsSync(focusScript)) {
+      require("child_process").spawnSync(
+        process.execPath,
+        [focusScript, cwd, JSON.stringify(resolved.skills)],
+        { cwd, stdio: "ignore", timeout: 30000 }
+      );
+    }
   } catch {
     // Non-fatal — extension or CLI can apply later
   }
 
   if (profileInitComplete(cwd)) {
-    if (sessionSkillAdaptationEnabled(cwd)) {
-      emitOutput(formatNewSessionTaskContext(), platform);
-    }
+    emitSessionStartContext(cwd, platform);
     return;
   }
 
   const requestPath = path.join(cwd, REQUEST_REL);
   const request = readJsonSafe(requestPath);
   if (!request || request.status === "completed") {
-    if (sessionSkillAdaptationEnabled(cwd)) {
-      emitOutput(formatNewSessionTaskContext(), platform);
-    }
+    emitSessionStartContext(cwd, platform);
     return;
   }
 
