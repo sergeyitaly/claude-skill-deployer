@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId, enabledAgents, loadAgentsManifest } from "./agentOps";
+import { listEffectiveEnabledSkills } from "./skillOps";
 
 export interface SkillLintIssue {
   severity: "error" | "warning";
@@ -39,14 +40,37 @@ function requireFrontmatter(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("requireFrontmatter", true);
 }
 
+const BLOCK_SCALAR_RE = /^([a-zA-Z0-9_-]+):\s*(\||\|-|\>|\>-)\s*$/;
+
 function parseFrontmatterBlock(raw: string): Record<string, string> | null {
   const match = raw.match(FRONTMATTER_RE);
   if (!match) {
     return null;
   }
   const out: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
-    const m = line.match(/^([a-zA-Z0-9_-]+):\s*(.+)$/);
+  const lines = match[1].split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd();
+    const block = line.match(BLOCK_SCALAR_RE);
+    if (block) {
+      const blockLines: string[] = [];
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1];
+        if (/^[a-zA-Z0-9_-]+:\s*/.test(next)) {
+          break;
+        }
+        const indent = next.match(/^(\s+)/);
+        if (!indent) {
+          break;
+        }
+        i++;
+        blockLines.push(next.slice(indent[1].length).trimEnd());
+      }
+      out[block[1]] = blockLines.join("\n").trim();
+      continue;
+    }
+
+    const m = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
     if (!m) {
       continue;
     }
@@ -288,7 +312,8 @@ export function lintAgentMirrorsOnSync(target: string, libraryDir: string, log: 
   if (!vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("enabled", true)) {
     return;
   }
-  const skills = lintWorkspaceSkills(target).map((r) => r.skill);
+  // Only expect mirrors for skills enabled for this user (not skillOverrides "off").
+  const skills = listEffectiveEnabledSkills(target);
   if (skills.length === 0) {
     return;
   }

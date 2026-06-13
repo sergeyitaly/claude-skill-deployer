@@ -2,9 +2,16 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.22** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.23** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.23] - 2026-06-13
+
+### Fixed
+
+- **SKILL lint false positives on Windows** — frontmatter parser handles CRLF line endings and YAML block-scalar descriptions (`description: |-`). Fixes spurious `Frontmatter description is required` / `name field recommended` errors for valid skills.
+- **Copilot mirror lint for disabled skills** — mirror lint only checks skills that are effectively enabled (`skillOverrides` not `"off"`), so economy-mode / personally disabled skills no longer warn about missing `.github/instructions/*.instructions.md`.
 
 ## [1.0.22] - 2026-06-13
 

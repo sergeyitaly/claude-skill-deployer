@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { CostEstimateTier } from "./skillCost";
+import { parseSkillFrontmatter } from "./skillLint";
 
 export interface SkillRule {
   description: string;
@@ -488,12 +489,7 @@ export interface SkillStatus {
 function extractFrontmatterDescription(skillMdPath: string): string | undefined {
   try {
     const raw = fs.readFileSync(skillMdPath, "utf-8");
-    const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!frontmatter) {
-      return undefined;
-    }
-    const line = frontmatter[1].split(/\r?\n/).find((l) => l.trim().startsWith("description:"));
-    return line?.replace(/^\s*description:\s*/, "").trim();
+    return parseSkillFrontmatter(raw)?.description?.trim();
   } catch {
     return undefined;
   }
