@@ -78,6 +78,7 @@ project-local skills show as *project-only* in the tree. `.claude/skills/` remai
 | Extension user guide | [extension/README.md](extension/README.md) |
 | Publish releases | [extension/PUBLISHING.md](extension/PUBLISHING.md) |
 | Runtime architecture (Mermaid) | [diagram/README.md](diagram/README.md) |
+| IDE / agent skill profiles (Mermaid + draw.io) | [diagram/06-ide-agent-skill-profiles.md](diagram/06-ide-agent-skill-profiles.md) |
 
 ## Quick start (CLI)
 

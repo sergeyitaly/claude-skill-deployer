@@ -76,6 +76,16 @@ import {
 } from "./practicalFocusConfig";
 import { clearBudgetTrackingForSkill, syncAndApplyBudgetMode } from "./budgetOps";
 import {
+  agentProfilesFeatureActive,
+  detectHostAgentId,
+  formatAgentSkillSetsReport,
+  hostAgentLabel,
+  maybeApplyHostAgentSkillSet,
+  maybeSaveHostAgentSetWithBranchProfile,
+  promptSwitchAgentSkillSet,
+  saveAgentSkillSet,
+} from "./agentSkillProfiles";
+import {
   applyBranchProfile,
   branchProfilesFeatureActive,
   formatBranchProfilesReport,
@@ -288,6 +298,11 @@ function syncBranchProfileContext(target: string | undefined): void {
   const enabled = branchProfilesFeatureActive() && git;
   void vscode.commands.executeCommand("setContext", "claudeSkills.isGitRepo", git);
   void vscode.commands.executeCommand("setContext", "claudeSkills.branchProfilesEnabled", enabled);
+  void vscode.commands.executeCommand(
+    "setContext",
+    "claudeSkills.agentProfilesEnabled",
+    agentProfilesFeatureActive() && git
+  );
 }
 
 function refreshStatusBar(libraryDir: string) {
@@ -300,12 +315,13 @@ function refreshStatusBar(libraryDir: string) {
   const pending = statuses.filter((s) => s.isRelevant && !s.installedInWorkspace);
   const branch = getCurrentBranch(target);
   const branchSuffix = branch ? ` [${branch}]` : "";
+  const hostSuffix = agentProfilesFeatureActive() ? ` · ${hostAgentLabel(detectHostAgentId())}` : "";
   if (pending.length === 0) {
-    statusBarItem.text = `$(check) Claude Skills${branchSuffix}`;
+    statusBarItem.text = `$(check) Claude Skills${branchSuffix}${hostSuffix}`;
     statusBarItem.tooltip =
-      `All relevant Claude skills are installed for this workspace${branch ? ` (branch: ${branch})` : ""}.`;
+      `All relevant Claude skills are installed for this workspace${branch ? ` (branch: ${branch})` : ""}${hostSuffix ? `\nActive IDE profile: ${hostAgentLabel(detectHostAgentId())}` : ""}.`;
   } else {
-    statusBarItem.text = `$(lightbulb) Claude Skills: ${pending.length} suggested${branchSuffix}`;
+    statusBarItem.text = `$(lightbulb) Claude Skills: ${pending.length} suggested${branchSuffix}${hostSuffix}`;
     statusBarItem.tooltip =
       `${pending.length} relevant skill(s) not yet installed:\n` +
       pending.map((s) => `- ${s.name}`).join("\n") +
@@ -1405,9 +1421,56 @@ export function activate(context: vscode.ExtensionContext) {
       }
       log(`\n=== Save branch profile -> ${profile.branch} ===`);
       log(`${profile.skills.length} skill(s), ${Object.keys(profile.skillOverrides).length} override(s)`);
+      maybeSaveHostAgentSetWithBranchProfile(target);
       vscode.window.showInformationMessage(
         `Claude Skills: saved skill profile for branch "${profile.branch}" (${profile.skills.length} skills).`
       );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.saveAgentSkillSet", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const agent = detectHostAgentId();
+      const saved = saveAgentSkillSet(target, agent);
+      outputChannel.show(true);
+      if (!saved) {
+        log("\n=== Save IDE skill set ===\nGit branch required or agent profiles disabled.");
+        vscode.window.showWarningMessage("Claude Skills: could not save IDE skill set.");
+        return;
+      }
+      log(`\n=== Save IDE skill set -> ${hostAgentLabel(agent)} (${saved.branch}) ===`);
+      log(`${saved.skills.length} skill(s), ${Object.keys(saved.skillOverrides).length} override(s)`);
+      vscode.window.showInformationMessage(
+        `Claude Skills: saved ${hostAgentLabel(agent)} skill set for "${saved.branch}" (${saved.skills.length} skills).`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.switchAgentSkillSet", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const result = await promptSwitchAgentSkillSet(libraryDir, target, log);
+      if (!result) {
+        return;
+      }
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: false,
+      });
+      refreshAll();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.showAgentSkillSets", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      outputChannel.show(true);
+      log(`\n=== IDE / agent skill sets ===\n${formatAgentSkillSetsReport(target)}`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.exportTeamBranchProfile", async () => {
@@ -2122,7 +2185,10 @@ export function activate(context: vscode.ExtensionContext) {
         log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
       }
       await handleBranchChange(libraryDir, target, log, branchChangeOpts(context.extensionPath, libraryDir, target));
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      const agentApplied = maybeApplyHostAgentSkillSet(libraryDir, target, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: !agentApplied,
+      });
       refreshAll();
     };
     const subscribeGit = () => {
@@ -2165,9 +2231,11 @@ export function activate(context: vscode.ExtensionContext) {
             log(`Applied team git profile (baseline): +${teamResult.installed.length}, -${teamResult.removed.length}`);
           }
           await handleBranchChange(libraryDir, target, log, branchChangeOpts(context.extensionPath, libraryDir, target));
+          const agentApplied = maybeApplyHostAgentSkillSet(libraryDir, target, log);
           propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
-            saveBranchProfile: false,
+            saveBranchProfile: !agentApplied,
           });
+          refreshAll();
         })();
       }
     };

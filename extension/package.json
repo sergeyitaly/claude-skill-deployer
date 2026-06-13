@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -237,6 +237,24 @@
         "command": "claudeSkills.showBranchProfiles",
         "title": "Show Branch Skill Profiles",
         "icon": "$(git-branch)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.saveAgentSkillSet",
+        "title": "Save Skill Set for Current IDE",
+        "icon": "$(save-all)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.switchAgentSkillSet",
+        "title": "Switch IDE / Agent Skill Set",
+        "icon": "$(arrow-swap)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.showAgentSkillSets",
+        "title": "Show IDE / Agent Skill Sets",
+        "icon": "$(layers-active)",
         "category": "Claude Skills"
       },
       {
@@ -603,6 +621,47 @@
             "type": "string",
             "default": ".claude/skills-profile.json",
             "description": "Git-committed team skill layout per branch (export with Export Team Branch Profile to Git)."
+          }
+        }
+      },
+      {
+        "id": "agentProfiles",
+        "title": "IDE / Agent Skill Sets",
+        "order": 2.2,
+        "properties": {
+          "claudeSkills.agentProfiles.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store separate skill layouts per IDE/agent (Cursor, Kiro, VS Code/Copilot, Claude Code) per git branch in ~/.claude/learning/agent-skill-profiles.json. Requires claudeSkills.features.multiAgent."
+          },
+          "claudeSkills.agentProfiles.autoApplyOnActivate": {
+            "type": "boolean",
+            "default": true,
+            "description": "When opening a workspace, apply the saved skill set for the current IDE (detected from the editor) and git branch."
+          },
+          "claudeSkills.agentProfiles.saveOnBranchProfileSave": {
+            "type": "boolean",
+            "default": true,
+            "description": "When the branch skill profile is saved (skill checkbox changes), also update the saved set for the current IDE."
+          },
+          "claudeSkills.agentProfiles.vscodeAgent": {
+            "type": "string",
+            "enum": [
+              "copilot",
+              "claude"
+            ],
+            "default": "copilot",
+            "description": "When running in plain VS Code (not Cursor/Kiro), which agent id to use for IDE skill sets."
+          },
+          "claudeSkills.agentProfiles.hostAgentOverride": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "cursor",
+              "kiro",
+              "copilot"
+            ],
+            "description": "Optional: force which agent/IDE profile is active instead of auto-detecting from the editor name."
           }
         }
       },
@@ -1297,6 +1356,21 @@
           "command": "claudeSkills.applyBranchProfile",
           "when": "view == claudeSkillsView && claudeSkills.branchProfilesEnabled",
           "group": "navigation@6"
+        },
+        {
+          "command": "claudeSkills.showAgentSkillSets",
+          "when": "view == claudeSkillsView && claudeSkills.agentProfilesEnabled",
+          "group": "navigation@7"
+        },
+        {
+          "command": "claudeSkills.saveAgentSkillSet",
+          "when": "view == claudeSkillsView && claudeSkills.agentProfilesEnabled",
+          "group": "navigation@8"
+        },
+        {
+          "command": "claudeSkills.switchAgentSkillSet",
+          "when": "view == claudeSkillsView && claudeSkills.agentProfilesEnabled",
+          "group": "navigation@9"
         },
         {
           "command": "claudeSkills.installSessionWatchHook",

@@ -22,4 +22,6 @@ flowchart TD
   Sync --> End
 ```
 
+See also: [06-ide-agent-skill-profiles.md](06-ide-agent-skill-profiles.md) for per-IDE skill sets on the same branch.
+
 ← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Diagram index](README.md)

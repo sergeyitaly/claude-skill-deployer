@@ -114,6 +114,15 @@ Missing Claude data shows empty sections or informational messages — the exten
   - **Uncheck a personal-only skill** → removes the directory from your workspace.
   Branch profiles in `~/.claude/learning/branch-profiles.json` store this
   per-branch *effective* set (including overrides), restored on branch switch.
+- **IDE / agent skill sets** — when you use the same repo in **VS Code**, **Cursor**,
+  and **Kiro**, each IDE can keep its own saved skill layout per git branch
+  (`~/.claude/learning/agent-skill-profiles.json`). The extension detects Cursor/Kiro
+  from the editor name; plain VS Code maps to Copilot or Claude Code via
+  `claudeSkills.agentProfiles.vscodeAgent`. On workspace open, the saved set for
+  the current IDE is applied automatically. Commands: **Save Skill Set for Current IDE**,
+  **Switch IDE / Agent Skill Set**, **Show IDE / Agent Skill Sets**. Diagram:
+  [diagram/06-ide-agent-skill-profiles.md](../diagram/06-ide-agent-skill-profiles.md)
+  ([draw.io](../docs/diagrams/skill-profiles-ide-branch-flow.drawio)).
 - **Profile init (role + branch)** — on a new git branch with no saved profile,
   pick your **position** once; extension writes catalog + request files; **SessionStart hook**
   and the **`profile-init` skill** auto-run on the next AI agent session (Claude Code hook;

@@ -2,9 +2,19 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.21** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.22** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.22] - 2026-06-13
+
+### IDE / agent skill sets
+
+- **Per-IDE skill layouts** — save and switch skill sets per git branch for **Cursor**, **Kiro**, **VS Code (Copilot)**, and **Claude Code** (`~/.claude/learning/agent-skill-profiles.json`).
+- **Auto-detect host IDE** from editor name (Cursor/Kiro) or `claudeSkills.agentProfiles.vscodeAgent` for plain VS Code.
+- **Commands** — Save Skill Set for Current IDE, Switch IDE / Agent Skill Set, Show IDE / Agent Skill Sets.
+- **Auto-apply on workspace open** when a saved set exists for the current IDE + branch (`claudeSkills.agentProfiles.autoApplyOnActivate`).
+- Diagram: [diagram/06-ide-agent-skill-profiles.md](diagram/06-ide-agent-skill-profiles.md) · [draw.io](docs/diagrams/skill-profiles-ide-branch-flow.drawio)
 
 ## [1.0.21] - 2026-06-13
 

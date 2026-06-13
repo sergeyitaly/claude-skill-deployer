@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { saveBranchProfile } from "./branchProfiles";
+import { maybeSaveHostAgentSetWithBranchProfile } from "./agentSkillProfiles";
 import {
   agentMirrorsNeedSync,
   missingAgentMirrorSkills,
@@ -63,6 +64,7 @@ export function propagateWorkspaceSkillChange(
 
   if (opts?.saveBranchProfile !== false) {
     saveBranchProfile(target, libraryDir);
+    maybeSaveHostAgentSetWithBranchProfile(target);
   }
 
   if (
