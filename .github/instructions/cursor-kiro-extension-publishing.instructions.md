@@ -2,10 +2,10 @@
 name: "cursor-kiro-extension-publishing"
 description: "Publish a VS Code-compatible extension to Open VSX for Cursor and Kiro IDE using ovsx. Covers same VSIX as VS Marketplace, OVSX_PAT setup, namespace ownership verification, publish scripts, GitHub Actions, wrong-VSIX pitfalls, and cross-links between registries. Use when publishing to Open VSX, Cursor gallery, Kiro extension registry, or debugging `ovsx publish` failures. Pair with vscode-extension-publishing for packaging and VS Marketplace."
 applyTo:
-  - "**/PUBLISHING.md"
-  - "**/publish-openvsx.js"
-  - "**/.github/workflows/publish-extension.yml"
-  - "**/00-extension-registries.md"
+  - **/PUBLISHING.md
+  - **/publish-openvsx.js
+  - **/.github/workflows/publish-extension.yml
+  - **/00-extension-registries.md
 ---
 
 # cursor-kiro-extension-publishing
@@ -32,15 +32,23 @@ Same as VS Code publishing: run `ovsx` / publish scripts from the directory whos
 ## 3. One-time Open VSX setup
 
 1. Sign in at [open-vsx.org](https://open-vsx.org/) (GitHub OAuth).
-2. Create namespace matching `package.json` → `"publisher"`.
-3. Profile → **Access Tokens** → create token → store as **`OVSX_PAT`**. Never commit tokens.
+2. Create namespace **`serhiivoinolovych`** — must match `package.json` → `"publisher"`.
+3. Profile → **Access Tokens** → create token → store as **`OVSX_PAT`** (env var or GitHub Actions secret). Never commit tokens.
 4. First publish may need [Eclipse Foundation review](https://github.com/EclipseFdn/open-vsx.org/wiki/Publishing-Extensions).
 
 ### Verify namespace (remove unverified warning)
 
-Creating a namespace makes you a **contributor**, not an **owner**. Claim ownership via [Claim namespace form](https://github.com/EclipseFdn/open-vsx.org/issues/new?template=claim-namespace-ownership.yml&namespace=serhiivoinolovych&title=Claiming%20namespace%20%60serhiivoinolovych%60) ([Namespace Access](https://github.com/eclipse-openvsx/openvsx/wiki/Namespace-Access)).
+Creating a namespace makes you a **contributor**, not an **owner**. Extensions show verified only when the namespace has an owner ([Namespace Access](https://github.com/eclipse-openvsx/openvsx/wiki/Namespace-Access)).
+
+Claim ownership via the official form: [Claim namespace `serhiivoinolovych`](https://github.com/EclipseFdn/open-vsx.org/issues/new?template=claim-namespace-ownership.yml&namespace=serhiivoinolovych&title=Claiming%20namespace%20%60serhiivoinolovych%60)
+
+Fastest path when also on VS Marketplace: **Option 1** — VS Code publisher with repo in `package.json`; include Marketplace publisher + extension URLs in **Claim evidence**.
+
+Publishing works while unverified; Cursor/Kiro may show a warning banner until ownership is approved.
 
 ## 4. Pre-publish checklist
+
+From the extension directory, after `vscode-extension-publishing` release gate:
 
 ```powershell
 cd extension
@@ -50,7 +58,13 @@ npm test
 npm run package
 ```
 
-Confirm `{name}-{version}.vsix`. Remove stale `.vsix` files with different names before publishing.
+Confirm the VSIX name matches `package.json`:
+
+```text
+{name}-{version}.vsix    # e.g. claude-skill-deployer-1.0.20.vsix
+```
+
+**Remove stale `.vsix` files** with different names/versions in `extension/` before publishing — scripts may pick the wrong file if the expected name is missing.
 
 ## 5. Publish to Open VSX
 
@@ -59,38 +73,54 @@ $env:OVSX_PAT = "<token-from-open-vsx.org>"
 npm run publish:openvsx
 ```
 
-Or: `npx ovsx publish {name}-{version}.vsix -p $env:OVSX_PAT`
+Or manually:
 
-Both registries: `npm run publish:all` with `VSCE_PAT` and `OVSX_PAT`.
+```powershell
+npx ovsx publish claude-skill-deployer-1.0.20.vsix -p $env:OVSX_PAT
+```
 
-**Confirm version bump with the user** before publishing.
+Project script `scripts/publish-openvsx.js` publishes **`{package.json name}-{version}.vsix`** only (falls back to newest matching prefix with a warning).
+
+Publish both registries in one release:
+
+```powershell
+$env:VSCE_PAT = "<azure-devops-marketplace-pat>"
+$env:OVSX_PAT = "<open-vsx-pat>"
+npm run publish:all
+```
+
+**Always confirm the version bump with the user** before publishing — both registries are one-way for that semver.
 
 ## 6. GitHub Actions (optional)
 
-Workflow target **`both`** — secrets `VSCE_PAT`, `OVSX_PAT`. See `extension/PUBLISHING.md` and `diagram/00-extension-registries.md`.
+Workflow target **`both`** runs `vsce publish` and `ovsx publish` after `npm run package`. Secrets: `VSCE_PAT`, `OVSX_PAT`. Tag push `v*` or manual dispatch.
+
+See repo `extension/PUBLISHING.md`, `diagram/00-extension-registries.md`, and skill **`cursor-kiro-extension-publishing`** for full cross-links and agent guidance.
 
 ## 7. Install paths (for users)
 
 | Editor | Install from |
 |--------|----------------|
 | VS Code | [VS Marketplace listing](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |
-| Cursor / Kiro | [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| Cursor / Kiro | [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) — Extensions → search display name |
 
 Install `.vsix` via **VS Code / Cursor / Kiro** → Extensions → **Install from VSIX…** — not Visual Studio's VSIX Installer.
+
+Kiro can use **synced skill files** (`.kiro/skills/`) without the extension UI; Open VSX install is needed for the full manager sidebar in Kiro IDE.
 
 ## 8. Common errors
 
 | Error | Cause / fix |
 |-------|-------------|
 | `OVSX_PAT is not set` | Export token before `npm run publish:openvsx`. |
-| Wrong extension published | Delete stale `.vsix`; run `npm run package`; verify `{name}-{version}.vsix`. |
-| Version already exists | Bump version; publish same semver to both registries. |
-| Unverified namespace | Claim ownership on EclipseFdn/open-vsx.org; republish after approval. |
-| Works in VS Code but not Cursor | Publish to Open VSX, not Marketplace-only. |
+| Wrong extension published | Old `.vsix` with different `name` in folder — delete stale files; run `npm run package`; verify `{name}-{version}.vsix`. |
+| Version already exists | Bump `package.json` version; publish same version to **both** registries in one release. |
+| Unverified namespace | Claim ownership on [EclipseFdn/open-vsx.org](https://github.com/EclipseFdn/open-vsx.org/issues); republish after approval. |
+| Extension installs in VS but not Cursor | Cursor uses Open VSX — publish there, not Marketplace-only. |
 
 ## 9. Hand-offs
 
-- Package, test, VS Marketplace → **`vscode-extension-publishing`**.
-- Cross-platform scripts → **`cross-platform-scripting`**.
-- CI failures → **`ci-pipeline-debug`** / **`ci-preflight`**.
-- Record quirks → **`self-learning`**.
+- Package, test, VS Marketplace, manifest, `.vscodeignore` → **`vscode-extension-publishing`**.
+- Cross-platform scripts (PS5.1 vs bash) → **`cross-platform-scripting`**.
+- CI workflow failures → **`ci-pipeline-debug`** / **`ci-preflight`**.
+- Record namespace/PAT quirks via **`self-learning`**.

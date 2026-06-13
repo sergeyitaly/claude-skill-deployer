@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "bash": "node .claude/hooks/profile-init-watch.js copilot",
+        "powershell": "node .claude/hooks/profile-init-watch.js copilot",
+        "timeoutSec": 20
+      }
+    ],
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "node .claude/hooks/profile-init-watch.js copilot",
+        "powershell": "node .claude/hooks/profile-init-watch.js copilot",
+        "timeoutSec": 20
+      }
+    ]
+  }
+}

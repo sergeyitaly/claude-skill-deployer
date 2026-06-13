@@ -16,6 +16,7 @@ import {
   refreshSkillsCatalog,
   SkillsCatalog,
   validateProfileSkills,
+  writeProfileInitSkillProposals,
   writeUserPosition,
 } from "./profileInit";
 import { setSkillOverride } from "./skillOps";
@@ -160,6 +161,37 @@ describe("profileInitToBranchProfile", () => {
     const bp = profileInitToBranchProfile(init, target);
     expect(bp.branch).toBe("main");
     expect(bp.skills).toEqual(mergeProfileInitSkills(["doc-coauthoring"]));
+  });
+});
+
+describe("writeProfileInitSkillProposals", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("writes task-skill-proposals.json for a pending branch profile", () => {
+    const target = makeGitWorkspace("feature/proposals");
+    const position = writeUserPosition(target, "devops");
+    const catalog = refreshSkillsCatalog(target, libraryDir);
+    const request = {
+      version: 1 as const,
+      requestedAt: new Date().toISOString(),
+      branch: "feature/proposals",
+      position,
+      catalogPath: ".claude/learning/skills-catalog.json",
+      outputPath: ".claude/profile.local.json",
+      relevantSkillNames: catalog.skills.filter((s) => s.isRelevant).map((s) => s.name).slice(0, 5),
+      requiredSkillNames: [...DEFAULT_PROFILE_INIT_REQUIRED_SKILLS],
+      skillCount: catalog.skills.length,
+      status: "pending" as const,
+      agentInstructions: "Run profile-init.",
+    };
+
+    writeProfileInitSkillProposals(target, catalog, request);
+
+    const proposalsPath = path.join(target, ".claude", "learning", "task-skill-proposals.json");
+    expect(fs.existsSync(proposalsPath)).toBe(true);
+    const saved = JSON.parse(fs.readFileSync(proposalsPath, "utf-8")) as { proposals: { name: string }[] };
+    expect(saved.proposals.length).toBeGreaterThan(0);
+    expect(saved.proposals.some((p) => p.name === "self-learning")).toBe(true);
   });
 });
 

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("vscode", () => ({
+const vscodeMock = vi.hoisted(() => ({
   env: { appName: "Cursor" },
   workspace: {
     getConfiguration: (section: string) => ({
@@ -12,12 +12,17 @@ vi.mock("vscode", () => ({
           if (key === "enabled") {
             return true as T;
           }
+          if (key === "vscodeAgent") {
+            return "copilot" as T;
+          }
         }
         return defaultValue;
       },
     }),
   },
 }));
+
+vi.mock("vscode", () => vscodeMock);
 
 vi.mock("./featureFlags", () => ({
   isFeatureEnabled: () => true,
@@ -43,7 +48,9 @@ vi.mock("./branchProfiles", () => ({
 import {
   AGENT_SKILL_PROFILES_PATH,
   detectHostAgentId,
+  formatHostSkillSetActiveMessage,
   hostAgentLabel,
+  hostAgentMirrorDir,
   loadAgentSkillSet,
   saveAgentSkillSet,
 } from "./agentSkillProfiles";
@@ -63,6 +70,7 @@ describe("agentSkillProfiles", () => {
   let backupPath: string | undefined;
 
   beforeEach(() => {
+    vscodeMock.env.appName = "Cursor";
     if (fs.existsSync(AGENT_SKILL_PROFILES_PATH)) {
       backupPath = `${AGENT_SKILL_PROFILES_PATH}.bak-${Date.now()}`;
       fs.copyFileSync(AGENT_SKILL_PROFILES_PATH, backupPath);
@@ -82,8 +90,31 @@ describe("agentSkillProfiles", () => {
   });
 
   it("detectHostAgentId maps Cursor app name", () => {
+    vscodeMock.env.appName = "Cursor";
     expect(detectHostAgentId()).toBe("cursor");
-    expect(hostAgentLabel("kiro")).toBe("Kiro IDE");
+  });
+
+  it("detectHostAgentId maps Kiro app name", () => {
+    vscodeMock.env.appName = "Kiro";
+    expect(detectHostAgentId()).toBe("kiro");
+  });
+
+  it("detectHostAgentId maps VS Code to copilot by default", () => {
+    vscodeMock.env.appName = "Visual Studio Code";
+    expect(detectHostAgentId()).toBe("copilot");
+  });
+
+  it("hostAgentMirrorDir returns per-IDE mirror paths", () => {
+    expect(hostAgentMirrorDir("cursor")).toBe(".cursor/skills/");
+    expect(hostAgentMirrorDir("kiro")).toBe(".kiro/skills/");
+    expect(hostAgentMirrorDir("copilot")).toBe(".github/instructions/");
+    expect(hostAgentMirrorDir("claude")).toBe(".claude/skills/");
+  });
+
+  it("formatHostSkillSetActiveMessage names the host mirror", () => {
+    const msg = formatHostSkillSetActiveMessage("kiro", "main", 12);
+    expect(msg).toContain("Kiro IDE");
+    expect(msg).toContain(".kiro/skills/");
   });
 
   it("saveAgentSkillSet persists per agent on branch", () => {
@@ -95,5 +126,13 @@ describe("agentSkillProfiles", () => {
 
     const loaded = loadAgentSkillSet(target, branch, "cursor");
     expect(loaded?.skills).toEqual(saved?.skills);
+
+    const kiroSaved = saveAgentSkillSet(target, "kiro");
+    expect(kiroSaved?.agent).toBe("kiro");
+    expect(loadAgentSkillSet(target, branch, "kiro")?.agent).toBe("kiro");
+
+    const copilotSaved = saveAgentSkillSet(target, "copilot");
+    expect(copilotSaved?.agent).toBe("copilot");
+    expect(hostAgentLabel("copilot")).toBe("VS Code (Copilot)");
   });
 });

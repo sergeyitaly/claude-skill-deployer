@@ -198,6 +198,11 @@ import {
   refreshSkillsCatalog,
   startProfileInitFlow,
 } from "./profileInit";
+import {
+  applyProposedSkillsLocally,
+  processSessionSkillApplyRequest,
+  SESSION_APPLY_REQUEST_REL,
+} from "./sessionSkillApply";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -618,19 +623,14 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   async function applyProposalSkillNames(target: string, names: string[]): Promise<string[]> {
-    const installed: string[] = [];
-    for (const name of names) {
-      const results = installSkillToAllWorkspaceAgents(libraryDir, target, name, libraryDir, false, false);
-      if (results.some((r) => r.status === "installed" || r.status === "written")) {
-        installed.push(name);
-      }
-    }
-    if (installed.length > 0) {
+    const result = applyProposedSkillsLocally(libraryDir, target, names);
+    if (result.installed.length > 0 || result.overridesApplied > 0) {
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
         saveBranchProfile: true,
+        forceAgentSync: true,
       });
     }
-    return installed;
+    return result.installed;
   }
 
   function scheduleHighUsageSkillProposalCheck(target: string): void {
@@ -681,6 +681,21 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       scheduleHighUsageSkillProposalCheck(target);
+      const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
+      if (sessionApply.applied && sessionApply.result && sessionApply.request) {
+        const { result, request } = sessionApply;
+        if (result.installed.length > 0 || result.overridesApplied > 0) {
+          log(
+            `\n=== Session skill apply (${request.source}) ===\n` +
+              `+${result.installed.length} installed, ${result.overridesApplied} enabled locally` +
+              (result.installed.length ? `: ${result.installed.join(", ")}` : "")
+          );
+          propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+            saveBranchProfile: true,
+            forceAgentSync: true,
+          });
+        }
+      }
       void maybePromptOutdatedSkillUpgrades(libraryDir, target);
     }
   };
@@ -1579,7 +1594,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
         return;
       }
-      const { result, init, invalid } = applyLocalProfileInit(libraryDir, target);
+      const { result, init, invalid, hostAgentSkillSet } = applyLocalProfileInit(libraryDir, target);
       if (!init || !result) {
         const pending = readUserPosition(target);
         vscode.window.showWarningMessage(
@@ -1595,6 +1610,9 @@ export function activate(context: vscode.ExtensionContext) {
       log(
         `\n=== Applied local profile ===\nBranch: ${init.branch}, role: ${init.roleLabel}\n` +
           `Installed: ${result.installed.join(", ") || "(none)"}\n` +
+          (hostAgentSkillSet
+            ? `IDE skill set (${hostAgentLabel(hostAgentSkillSet.agent)}): ${hostAgentSkillSet.skills.length} skill(s) saved.\n`
+            : "") +
           (invalid.length ? `Skipped unknown: ${invalid.join(", ")}\n` : "")
       );
       vscode.window.showInformationMessage(
@@ -1880,6 +1898,7 @@ export function activate(context: vscode.ExtensionContext) {
         "skillSetResolver",
         "contextFocus",
         "practicalFocus",
+        "sessionSkillAdaptation",
       ];
       const pick = await vscode.window.showQuickPick(
         keys.map((k) => ({
@@ -2145,15 +2164,18 @@ export function activate(context: vscode.ExtensionContext) {
     if (!target) {
       return;
     }
-    const { result, init, invalid } = applyLocalProfileInit(libraryDir, target);
+    const { result, init, invalid, hostAgentSkillSet } = applyLocalProfileInit(libraryDir, target);
     if (!result || !init) {
       return;
     }
     log(
       `\n=== Auto-applied profile.local.json ===\nBranch: ${init.branch}, +${result.installed.length} skill(s)` +
+        (hostAgentSkillSet
+          ? `; ${hostAgentLabel(hostAgentSkillSet.agent)} skill set updated (${hostAgentSkillSet.skills.length} skills)`
+          : "") +
         (invalid.length ? `; skipped unknown: ${invalid.join(", ")}` : "")
     );
-    propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+    propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
     refreshAll();
     void vscode.window.showInformationMessage(
       `Claude Skills: profile applied for ${init.branch} (${result.installed.length} skill(s) installed).`
@@ -2164,6 +2186,30 @@ export function activate(context: vscode.ExtensionContext) {
   profileLocalWatcher.onDidChange(debouncedProfileApply);
   profileLocalWatcher.onDidCreate(debouncedProfileApply);
   context.subscriptions.push(profileLocalWatcher);
+
+  const debouncedSessionSkillApply = debounce(() => {
+    const target = getWorkspaceTarget();
+    if (!target) {
+      return;
+    }
+    const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
+    if (sessionApply.applied && sessionApply.result) {
+      log(
+        `\n=== Session skill apply (hook) ===\n` +
+          `+${sessionApply.result.installed.length} installed, ${sessionApply.result.overridesApplied} enabled locally`
+      );
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: true,
+        forceAgentSync: true,
+      });
+      refreshAll();
+    }
+  }, 600);
+
+  const sessionApplyWatcher = vscode.workspace.createFileSystemWatcher(`**/${SESSION_APPLY_REQUEST_REL.replace(/\\/g, "/")}`);
+  sessionApplyWatcher.onDidChange(debouncedSessionSkillApply);
+  sessionApplyWatcher.onDidCreate(debouncedSessionSkillApply);
+  context.subscriptions.push(sessionApplyWatcher);
 
   for (const learningGlob of ["**/.claude/learning/runs.jsonl", "**/.claude/learning/cost-attribution.json"]) {
     const learningWatcher = vscode.workspace.createFileSystemWatcher(learningGlob);

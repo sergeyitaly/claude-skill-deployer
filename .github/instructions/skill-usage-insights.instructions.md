@@ -3,7 +3,6 @@ name: "skill-usage-insights"
 description: "Analyze recorded skill usage in this project (.claude/learning/runs.jsonl, written by self-learning) and the skills installed in .claude/skills/ to produce a usage and KPI report - which skills are actively used and reliable, which are failing, and which are unused or low-value, with recommendations on what to add or remove. Use when asked for \"skill usage stats\", \"skill KPIs\", \"which skills should we add or remove\", or \"are our installed skills still useful\"."
 applyTo:
   - **/.claude/learning/runs.jsonl
-  - **/.claude/learning/skill-feedback.jsonl
   - **/.claude/skills/**
 ---
 
@@ -25,11 +24,6 @@ add/remove recommendations.
   not an error. Recommendations in that case are limited to "not yet
   measurable; check back after the self-learning skill has recorded some
   runs".
-- `.claude/learning/skill-feedback.jsonl` — user negative reactions per skill
-  (written by [[skill-feedback-adaptation]]). Use for **inefficiency %** and
-  update suggestions alongside run-based KPIs.
-- Optionally, `.claude/learning/task-skill-proposals.json` — latest task-scoped
-  skill proposals (also from [[skill-feedback-adaptation]]).
 - Optionally, the library's `manifest.json` (wherever the skill library
   lives, e.g. `~/.claude/skills/` or a synced `skills_library/`) — useful to
   see a skill's `detect_globs`/description when judging relevance.
@@ -59,19 +53,6 @@ for consistency):
 | **Needs attention** | `runs >= 3` and `success_rate < 60%` |
 | **Low usage** | `runs >= 1` but doesn't qualify as Active (rare or stale) |
 | **Unused** | Installed, but zero matching records in `runs.jsonl` |
-
-### Inefficiency (user feedback)
-
-For each skill with entries in `skill-feedback.jsonl`:
-
-- `negative_count` — number of negative/correction records.
-- `inefficiency_pct` — higher when more feedback relative to other skills
-  (extension scales 0–100%; more feedback → deeper red in Usage Report).
-- **Update suggestion** — recommend SKILL.md edits when `negative_count >= 3`,
-  or point at `session-learnings.md` / feedback `context` fields for fixes.
-
-Deprioritize skills with high inefficiency when recommending additions unless
-no alternative exists.
 
 ## 4. Recommendations
 
@@ -107,8 +88,6 @@ table.
 
 - Investigating a specific failing skill's errors → [[self-learning]]
   (`patterns.md`, `session-learnings.md`).
-- Recording user pushback or proposing skills for a new task →
-  [[skill-feedback-adaptation]] (`skill-feedback.jsonl`, `task-skill-proposals.json`).
 - Installing a recommended-to-add skill, or removing one → the
   `claude-skills-deployer` CLI (`generate_skills.py`) or its VS Code
   extension's tree view / "Install to Workspace" command.

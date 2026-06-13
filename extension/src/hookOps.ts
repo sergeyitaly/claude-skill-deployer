@@ -15,6 +15,8 @@ const HOOK_HELPER_FILENAME = "usageParse.js";
 
 const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
 const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
+const KIRO_PROFILE_INIT_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}-profile-init.kiro.hook`;
+const PROFILE_INIT_HOOK_MARKER = `${ATTRIBUTION_HOOK_MARKER}-profile-init`;
 const COPILOT_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.json`;
 
 const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSION_HOOK_FILENAME}"`;
@@ -25,8 +27,12 @@ const CLAUDE_SKILL_INVOKE_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/
 const CURSOR_SKILL_INVOKE_COMMAND = `node .cursor/hooks/${SKILL_INVOKE_HOOK_FILENAME} cursor`;
 const KIRO_SKILL_INVOKE_COMMAND = `node .claude/hooks/${SKILL_INVOKE_HOOK_FILENAME} kiro`;
 const COPILOT_SKILL_INVOKE_COMMAND = `node .claude/hooks/${SKILL_INVOKE_HOOK_FILENAME} copilot`;
+const COPILOT_PROFILE_INIT_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}-profile-init.json`;
+const COPILOT_PROFILE_INIT_HOOK_COMMAND = `node .claude/hooks/${PROFILE_INIT_HOOK_FILENAME} copilot`;
 const OFFICIAL_SKILLS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${OFFICIAL_SKILLS_HOOK_FILENAME}"`;
 const PROFILE_INIT_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PROFILE_INIT_HOOK_FILENAME}"`;
+const CURSOR_PROFILE_INIT_HOOK_COMMAND = `node .cursor/hooks/${PROFILE_INIT_HOOK_FILENAME} cursor`;
+const KIRO_PROFILE_INIT_HOOK_COMMAND = `node .claude/hooks/${PROFILE_INIT_HOOK_FILENAME} kiro`;
 const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
 const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread";
 
@@ -63,6 +69,7 @@ interface CopilotHooksFile {
       bash?: string;
       powershell?: string;
       command?: string;
+      timeoutSec?: number;
     }>
   >;
 }
@@ -181,6 +188,84 @@ function copyAttributionHookScript(extensionPath: string, hooksDir: string): voi
   copyFileWithRetry(hooksSource, path.join(hooksDir, SKILL_INVOKE_HOOK_FILENAME));
 }
 
+function copyProfileInitHookScript(extensionPath: string, hooksDir: string): void {
+  const hooksSource = path.join(extensionPath, "resources", "hooks", PROFILE_INIT_HOOK_FILENAME);
+  fs.mkdirSync(hooksDir, { recursive: true });
+  copyFileWithRetry(hooksSource, path.join(hooksDir, PROFILE_INIT_HOOK_FILENAME));
+}
+
+function isCursorProfileInitHookConfigured(target: string): boolean {
+  const hooksFile = path.join(target, ".cursor", "hooks.json");
+  const raw = readJsonFile<CursorHooksFile>(hooksFile);
+  if (!raw?.hooks?.sessionStart) {
+    return false;
+  }
+  return raw.hooks.sessionStart.some((entry) => (entry.command ?? "").includes(PROFILE_INIT_HOOK_FILENAME));
+}
+
+function installCursorProfileInitHook(extensionPath: string, target: string): boolean {
+  copyProfileInitHookScript(extensionPath, path.join(target, ".cursor", "hooks"));
+  const hooksFile = path.join(target, ".cursor", "hooks.json");
+  const existing = readJsonFile<CursorHooksFile>(hooksFile) ?? { version: 1, hooks: {} };
+  existing.version = 1;
+  existing.hooks = existing.hooks ?? {};
+  const entries = existing.hooks.sessionStart ?? [];
+  const idx = entries.findIndex((e) => (e.command ?? "").includes(PROFILE_INIT_HOOK_FILENAME));
+  const desired = {
+    command: CURSOR_PROFILE_INIT_HOOK_COMMAND,
+    timeout: 20,
+  };
+  if (idx >= 0) {
+    const prev = entries[idx];
+    if (prev.command === desired.command && prev.timeout === desired.timeout) {
+      return false;
+    }
+    entries[idx] = { ...prev, ...desired };
+    existing.hooks.sessionStart = entries;
+    writeJsonFile(hooksFile, existing);
+    return true;
+  }
+  existing.hooks.sessionStart = [...entries, desired];
+  writeJsonFile(hooksFile, existing);
+  return true;
+}
+
+function isKiroProfileInitHookConfigured(target: string): boolean {
+  const hookPath = path.join(target, ".kiro", "hooks", KIRO_PROFILE_INIT_HOOK_FILE);
+  const existing = readJsonFile<KiroHookFile>(hookPath);
+  return Boolean(existing?.description?.includes(PROFILE_INIT_HOOK_MARKER));
+}
+
+function kiroProfileInitHookPayload(): KiroHookFile {
+  return {
+    name: "Claude Skills — profile init & session skill adaptation",
+    description: `Managed by Claude Skills Manager (${PROFILE_INIT_HOOK_MARKER})`,
+    version: "1",
+    enabled: true,
+    when: { type: "agentSpawn" },
+    then: {
+      type: "runCommand",
+      command: KIRO_PROFILE_INIT_HOOK_COMMAND,
+      timeout: 20,
+    },
+  };
+}
+
+function installKiroProfileInitHook(extensionPath: string, target: string): boolean {
+  copyProfileInitHookScript(extensionPath, path.join(target, ".claude", "hooks"));
+  const hookPath = path.join(target, ".kiro", "hooks", KIRO_PROFILE_INIT_HOOK_FILE);
+  const desired = kiroProfileInitHookPayload();
+  const existing = readJsonFile<KiroHookFile>(hookPath);
+  if (existing?.description?.includes(PROFILE_INIT_HOOK_MARKER)) {
+    const same = JSON.stringify(existing) === JSON.stringify(desired);
+    if (same) {
+      return false;
+    }
+  }
+  writeJsonFile(hookPath, desired);
+  return true;
+}
+
 function hasPostToolHook(settings: Settings, filename: string): boolean {
   const matchers = settings.hooks?.PostToolUse ?? [];
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
@@ -237,6 +322,19 @@ function isKiroAttributionHookConfigured(target: string): boolean {
 
 function isCopilotAttributionHookConfigured(target: string): boolean {
   return fs.existsSync(path.join(target, ".github", "hooks", COPILOT_ATTRIBUTION_HOOK_FILE));
+}
+
+function isCopilotProfileInitHookConfigured(target: string): boolean {
+  const hookPath = path.join(target, ".github", "hooks", COPILOT_PROFILE_INIT_HOOK_FILE);
+  if (!fs.existsSync(hookPath)) {
+    return false;
+  }
+  const raw = readJsonFile<CopilotHooksFile>(hookPath);
+  const entries = raw?.hooks?.SessionStart ?? raw?.hooks?.sessionStart ?? [];
+  return entries.some(
+    (entry) =>
+      (entry.bash ?? entry.powershell ?? entry.command ?? "").includes(PROFILE_INIT_HOOK_FILENAME)
+  );
 }
 
 /** True when attribution hooks are installed for every enabled agent that supports them. */
@@ -380,6 +478,37 @@ function installCopilotAttributionHook(extensionPath: string, target: string): b
   copyAttributionHookScript(extensionPath, path.join(target, ".claude", "hooks"));
   const hookPath = path.join(target, ".github", "hooks", COPILOT_ATTRIBUTION_HOOK_FILE);
   const desired = copilotAttributionHookPayload();
+  const existing = readJsonFile<CopilotHooksFile>(hookPath);
+  if (existing) {
+    const same = JSON.stringify(existing) === JSON.stringify(desired);
+    if (same) {
+      return false;
+    }
+  }
+  writeJsonFile(hookPath, desired);
+  return true;
+}
+
+function copilotProfileInitHookPayload(): CopilotHooksFile {
+  const command = {
+    type: "command" as const,
+    bash: COPILOT_PROFILE_INIT_HOOK_COMMAND,
+    powershell: COPILOT_PROFILE_INIT_HOOK_COMMAND,
+    timeoutSec: 20,
+  };
+  return {
+    version: 1,
+    hooks: {
+      SessionStart: [command],
+      sessionStart: [command],
+    },
+  };
+}
+
+function installCopilotProfileInitHook(extensionPath: string, target: string): boolean {
+  copyProfileInitHookScript(extensionPath, path.join(target, ".claude", "hooks"));
+  const hookPath = path.join(target, ".github", "hooks", COPILOT_PROFILE_INIT_HOOK_FILE);
+  const desired = copilotProfileInitHookPayload();
   const existing = readJsonFile<CopilotHooksFile>(hookPath);
   if (existing) {
     const same = JSON.stringify(existing) === JSON.stringify(desired);
@@ -536,35 +665,78 @@ export function installOfficialSkillsSessionHook(extensionPath: string, target: 
   return had ? "already-configured" : "updated";
 }
 
-export function areProfileInitHooksConfigured(target: string): boolean {
+export function areProfileInitHooksConfigured(target: string, libraryDir?: string): boolean {
+  const lib = libraryDir ?? "";
+  const cursorEnabled = lib ? enabledAgents(lib).includes("cursor") : isCursorProfileInitHookConfigured(target);
+  const kiroEnabled = lib ? enabledAgents(lib).includes("kiro") : isKiroProfileInitHookConfigured(target);
+  const copilotEnabled = lib ? enabledAgents(lib).includes("copilot") : isCopilotProfileInitHookConfigured(target);
+  const cursorOk = !cursorEnabled || isCursorProfileInitHookConfigured(target);
+  const kiroOk = !kiroEnabled || isKiroProfileInitHookConfigured(target);
+  const copilotOk = !copilotEnabled || isCopilotProfileInitHookConfigured(target);
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));
-    return hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
+    const claudeEnabled = !lib || enabledAgents(lib).includes("claude");
+    const claudeOk = !claudeEnabled || hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
+    return claudeOk && cursorOk && kiroOk && copilotOk;
   } catch {
-    return false;
+    return cursorOk && kiroOk && copilotOk;
   }
 }
 
 /** SessionStart hook: inject profile-init when a branch profile request is pending. */
-export function installProfileInitSessionHook(extensionPath: string, target: string): HookInstallStatus {
+export function installProfileInitSessionHook(
+  extensionPath: string,
+  target: string,
+  libraryDir?: string
+): HookInstallStatus {
   ensureLearningDir(target);
-  const settingsFile = path.join(target, ".claude", "settings.json");
-  const settings = readSettings(settingsFile);
-  const had = hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
+  const lib = libraryDir ?? libraryDirFromExtension(extensionPath);
+  const agents = enabledAgents(lib);
 
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
-  const added = ensureSessionStartHookRegistered(
-    settings,
-    OFFICIAL_SKILLS_SESSION_MATCHER,
-    PROFILE_INIT_HOOK_FILENAME,
-    PROFILE_INIT_HOOK_COMMAND
-  );
 
-  if (added) {
-    writeJsonFile(settingsFile, settings);
-    return had ? "updated" : "installed";
+  let changed = false;
+  let hadAny = false;
+
+  if (agents.includes("claude")) {
+    const settingsFile = path.join(target, ".claude", "settings.json");
+    const settings = readSettings(settingsFile);
+    const had = hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
+    hadAny = hadAny || had;
+    const added = ensureSessionStartHookRegistered(
+      settings,
+      OFFICIAL_SKILLS_SESSION_MATCHER,
+      PROFILE_INIT_HOOK_FILENAME,
+      PROFILE_INIT_HOOK_COMMAND
+    );
+    if (added) {
+      writeJsonFile(settingsFile, settings);
+      changed = true;
+    }
   }
-  return had ? "already-configured" : "updated";
+
+  if (agents.includes("cursor")) {
+    const had = isCursorProfileInitHookConfigured(target);
+    hadAny = hadAny || had;
+    changed = installCursorProfileInitHook(extensionPath, target) || changed;
+  }
+
+  if (agents.includes("kiro")) {
+    const had = isKiroProfileInitHookConfigured(target);
+    hadAny = hadAny || had;
+    changed = installKiroProfileInitHook(extensionPath, target) || changed;
+  }
+
+  if (agents.includes("copilot")) {
+    const had = isCopilotProfileInitHookConfigured(target);
+    hadAny = hadAny || had;
+    changed = installCopilotProfileInitHook(extensionPath, target) || changed;
+  }
+
+  if (changed) {
+    return hadAny ? "updated" : "installed";
+  }
+  return hadAny ? "already-configured" : "updated";
 }
 
 /** Copy latest hook scripts into workspace agent hook directories. */

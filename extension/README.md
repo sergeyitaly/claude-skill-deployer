@@ -38,6 +38,7 @@ for skills and learning data, not a requirement that Claude Code is installed.
 | Cost dashboard / ROI | Yes; Cursor transcript spend when Cursor is used | + Claude transcript spend |
 | Budget / session / focus hooks | Not active (Claude Code runs them) | Yes |
 | Profile-init SessionStart hook | Uses synced `profile-init` skill + request file | + Claude SessionStart hook |
+| Session skill adaptation hook | Cursor `sessionStart` + Kiro `agentSpawn` + Copilot `SessionStart` | Same (when enabled agents include those hosts) |
 
 Missing Claude data shows empty sections or informational messages — the extension does not error on startup.
 
@@ -214,7 +215,7 @@ Personal learning loop when agent answers miss the mark or a new task needs the 
 
 **Agent skill:** install `skill-feedback-adaptation` — records disagreement (`no`, `wrong`, …), writes task proposals on new work, deprioritizes inefficient skills.
 
-**Extension:** Usage Report **Inefficient skills** panel; high branch/task spend popup (default when usage exceeds **50%** of monthly credits — `claudeSkills.skillFeedback.*`).
+**Extension:** Usage Report **Inefficient skills** panel; high branch/task spend popup (default when usage exceeds **50%** of monthly credits — `claudeSkills.skillFeedback.*`). **Session skill adaptation** (`claudeSkills.features.sessionSkillAdaptation`, default on) installs and locally enables the proposed set on each new agent session/window — toggle via **Manage Feature Toggles**.
 
 ### Skill lifecycle (versioning)
 
@@ -434,6 +435,7 @@ Find all options under **Settings → Extensions → Claude Skills Manager** (or
 | `claudeSkills.features.predictiveAlerts` | `true` | Workspace spend vs weekly budget warning (sanitized WoW trend) |
 | `claudeSkills.features.emergencyCutoff` | `true` | Hard daily limit (`claudeSkills.emergency.hardLimitUsd`, default $10) |
 | `claudeSkills.features.communityBenchmarks` | `false` | Opt-in community benchmarks |
+| `claudeSkills.features.sessionSkillAdaptation` | `true` | Auto install/enable proposed skills on new agent session or window |
 | `claudeSkills.optimizer.autoApply` | `false` | Auto-disable expensive idle skills |
 | `claudeSkills.weeklyReport.enabled` | `true` | Monday-morning AI usage report (local time) |
 | `claudeSkills.weeklyReport.dayOfWeek` | `1` | 0=Sun, 1=Mon, … |

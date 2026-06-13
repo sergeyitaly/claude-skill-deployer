@@ -109,7 +109,7 @@ function saveOnBranchProfileSave(): boolean {
 
 /** Map the running editor to the agent id used for skill-set storage. */
 export function detectHostAgentId(): AgentId {
-  const app = (vscode.env.appName || "").toLowerCase();
+  const app = (vscode.env?.appName || "").toLowerCase();
   if (app.includes("cursor")) {
     return "cursor";
   }
@@ -130,6 +130,40 @@ export function detectHostAgentId(): AgentId {
 
 export function hostAgentLabel(agent: AgentId = detectHostAgentId()): string {
   return AGENT_LABELS[agent];
+}
+
+/** Workspace mirror path for the host IDE's skill layout. */
+export function hostAgentMirrorDir(agent: AgentId): string {
+  switch (agent) {
+    case "cursor":
+      return ".cursor/skills/";
+    case "kiro":
+      return ".kiro/skills/";
+    case "copilot":
+      return ".github/instructions/";
+    default:
+      return ".claude/skills/";
+  }
+}
+
+export function formatHostSkillSetActiveMessage(agent: AgentId, branch: string, skillCount: number): string {
+  return (
+    `IDE skill set (${hostAgentLabel(agent)}) already active for \`${branch}\` (${skillCount} skill(s); ` +
+    `source: .claude/skills → ${hostAgentMirrorDir(agent)}).`
+  );
+}
+
+export function formatHostSkillSetAppliedMessage(
+  agent: AgentId,
+  branch: string,
+  installed: number,
+  removed: number,
+  overridesApplied: number
+): string {
+  return (
+    `Applied ${hostAgentLabel(agent)} skill set for \`${branch}\`: +${installed}, -${removed}, ` +
+    `${overridesApplied} override(s); mirrored to ${hostAgentMirrorDir(agent)}.`
+  );
 }
 
 export function captureAgentSkillSet(target: string, agent: AgentId): AgentSkillSet | undefined {
@@ -256,13 +290,19 @@ export function maybeApplyHostAgentSkillSet(
   const sameSkills =
     current.size === savedSet.size && [...current].every((s) => savedSet.has(s));
   if (sameSkills) {
-    log(`IDE skill set (${hostAgentLabel(agent)}) already active for \`${branch}\` (${saved.skills.length} skill(s)).`);
+    log(formatHostSkillSetActiveMessage(agent, branch, saved.skills.length));
     return false;
   }
 
   const result = applyAgentSkillSet(libraryDir, target, saved);
   log(
-    `Applied ${hostAgentLabel(agent)} skill set for \`${branch}\`: +${result.installed.length}, -${result.removed.length}, ${result.overridesApplied} override(s).`
+    formatHostSkillSetAppliedMessage(
+      agent,
+      branch,
+      result.installed.length,
+      result.removed.length,
+      result.overridesApplied
+    )
   );
   return true;
 }
@@ -304,11 +344,11 @@ export function formatAgentSkillSetsReport(target: string): string {
 }
 
 /** Also persist host agent set when branch profile is saved (optional setting). */
-export function maybeSaveHostAgentSetWithBranchProfile(target: string): void {
-  if (!saveOnBranchProfileSave()) {
-    return;
+export function maybeSaveHostAgentSetWithBranchProfile(target: string): AgentSkillSet | undefined {
+  if (!saveOnBranchProfileSave() || !agentProfilesEnabled()) {
+    return undefined;
   }
-  saveAgentSkillSet(target, detectHostAgentId());
+  return saveAgentSkillSet(target, detectHostAgentId());
 }
 
 export async function promptSwitchAgentSkillSet(

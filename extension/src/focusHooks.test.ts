@@ -151,7 +151,7 @@ describe("practical-focus-watch.js", () => {
 });
 
 describe("profile-init-watch.js", () => {
-  it("emits SessionStart context when profile-init request is pending", () => {
+  it("emits Claude SessionStart context when profile-init request is pending", () => {
     const cwd = makeWorkspace();
     fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
     fs.writeFileSync(
@@ -184,6 +184,40 @@ describe("profile-init-watch.js", () => {
     expect(parsed.hookSpecificOutput?.additionalContext).toContain("feature/test");
   });
 
+  it("emits Cursor sessionStart additional_context when profile-init request is pending", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "profile-init-request.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          status: "pending",
+          branch: "feature/cursor",
+          position: { role: "devops", label: "DevOps" },
+          agentInstructions: "Run profile-init now.",
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "cursor"], {
+      input: JSON.stringify({ session_id: "sess-1", is_background_agent: false, composer_mode: "agent" }),
+      encoding: "utf-8",
+      cwd,
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as {
+      additional_context?: string;
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    expect(parsed.additional_context).toContain("PROFILE INIT REQUIRED");
+    expect(parsed.additional_context).toContain("feature/cursor");
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+  });
+
   it("outputs nothing when profile is already applied", () => {
     const cwd = makeWorkspace();
     fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
@@ -204,5 +238,112 @@ describe("profile-init-watch.js", () => {
       encoding: "utf-8",
     });
     expect(result.stdout.trim()).toBe("");
+    const applyRequest = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "learning", "session-skill-apply-request.json"), "utf-8")
+    );
+    expect(applyRequest.skills).toContain("self-learning");
+  });
+
+  it("writes session apply request from task-skill-proposals on session start", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "task-skill-proposals.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          generatedAt: new Date().toISOString(),
+          taskSummary: "Profile init for branch dev",
+          proposals: [
+            { name: "ci-pipeline-debug", reason: "CI", confidence: 90, installed: false },
+            { name: "self-learning", reason: "platform", confidence: 95, installed: true },
+          ],
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "cursor"], {
+      input: JSON.stringify({ session_id: "sess-proposals", is_background_agent: false }),
+      encoding: "utf-8",
+      cwd,
+    });
+    expect(result.stdout.trim()).toBe("");
+    const applyRequest = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude", "learning", "session-skill-apply-request.json"), "utf-8")
+    );
+    expect(applyRequest.sessionId).toBe("sess-proposals");
+    expect(applyRequest.skills).toContain("ci-pipeline-debug");
+    expect(applyRequest.skills).toContain("self-learning");
+  });
+
+  it("emits Kiro agentSpawn additional_context when profile-init request is pending", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "profile-init-request.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          status: "pending",
+          branch: "feature/kiro",
+          position: { role: "devops", label: "DevOps" },
+          agentInstructions: "Run profile-init now.",
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "kiro"], {
+      input: JSON.stringify({ hook_event_name: "agentSpawn", session_id: "kiro-sess-1" }),
+      encoding: "utf-8",
+      cwd,
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as { additional_context?: string };
+    expect(parsed.additional_context).toContain("PROFILE INIT REQUIRED");
+    expect(parsed.additional_context).toContain("feature/kiro");
+  });
+
+  it("emits Copilot SessionStart hookSpecificOutput when profile-init request is pending", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "learning", "profile-init-request.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          status: "pending",
+          branch: "feature/copilot",
+          position: { role: "qa", label: "QA" },
+          agentInstructions: "Run profile-init now.",
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "copilot"], {
+      input: JSON.stringify({
+        hook_event_name: "SessionStart",
+        session_id: "copilot-sess-1",
+        cwd,
+        source: "startup",
+      }),
+      encoding: "utf-8",
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as {
+      hookSpecificOutput?: { additionalContext?: string };
+      additional_context?: string;
+    };
+    const context = parsed.hookSpecificOutput?.additionalContext ?? parsed.additional_context;
+    expect(context).toContain("PROFILE INIT REQUIRED");
+    expect(context).toContain("feature/copilot");
   });
 });

@@ -11,9 +11,23 @@ import {
   saveBranchProfile,
 } from "./branchProfiles";
 import { installProfileInitSessionHook } from "./hookOps";
-import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
+import { installSkillToAllWorkspaceAgents, shouldSyncWorkspaceToAll } from "./agentOps";
+import {
+  AgentSkillSet,
+  detectHostAgentId,
+  hostAgentLabel,
+  hostAgentMirrorDir,
+  maybeSaveHostAgentSetWithBranchProfile,
+} from "./agentSkillProfiles";
 import { copySkill, ensureGitExcludeEntry, listSkillStatuses, readSkillOverrides, SkillStatus } from "./skillOps";
 import { ensureLearningDir, listInstalledSkills } from "./usageStats";
+import {
+  readTaskSkillProposals,
+  TaskSkillProposal,
+  TaskSkillProposalsFile,
+  writeTaskSkillProposals,
+} from "./taskSkillProposals";
+import { queueSessionSkillApplyRequest, sessionSkillAdaptationEnabled } from "./sessionSkillApply";
 import {
   readJsonFile,
   writeCoordinatedJson,
@@ -99,6 +113,25 @@ const LOCAL_PATHS = [
 ] as const;
 
 export const PROFILE_INIT_SKILL = "profile-init";
+
+/** Role-based skill hints for profile-init proposal seeding (agent refines the set). */
+const ROLE_SKILL_HINTS: Record<PositionRole, string[]> = {
+  devops: [
+    "terraform-plan-review",
+    "terraform-module-ops",
+    "ci-pipeline-debug",
+    "gitlab-pipeline-ops",
+    "deployment-practical",
+    "cross-platform-scripting",
+  ],
+  qa: ["webapp-testing", "ci-preflight", "ci-pipeline-debug"],
+  aqa: ["webapp-testing", "ci-preflight", "ci-pipeline-debug"],
+  "backend-developer": ["mcp-builder", "adx-schema-check", "deployment-practical"],
+  "frontend-developer": ["frontend-design", "webapp-testing", "web-artifacts-builder"],
+  ba: ["doc-coauthoring", "xlsx", "drawio-diagrams"],
+  "resource-manager": ["doc-coauthoring", "internal-comms", "xlsx"],
+  "team-lead": ["skill-usage-insights", "doc-coauthoring", "aidlc-tracker"],
+};
 
 /** Always active after profile init — extension platform / skill-management skills. */
 export const DEFAULT_PROFILE_INIT_REQUIRED_SKILLS = [
@@ -262,15 +295,115 @@ function buildAgentInstructions(
     relevant,
     "Add role/branch-specific skills on top of the required set (often 5–15 total).",
     "Write .claude/profile.local.json with status \"pending\" and skills[] from the catalog.",
+    "Write or refine .claude/learning/task-skill-proposals.json with ranked proposals for this branch profile.",
     "The extension auto-installs when the file is saved (required skills are merged even if omitted).",
   ].join(" ");
+}
+
+export function computeProfileInitProposals(
+  target: string,
+  catalog: SkillsCatalog,
+  request: ProfileInitRequest
+): TaskSkillProposal[] {
+  const installed = new Set(listInstalledSkills(target));
+  const known = new Map(catalog.skills.map((s) => [s.name, s]));
+  const proposals = new Map<string, TaskSkillProposal>();
+
+  const add = (name: string, confidence: number, reason: string): void => {
+    if (!known.has(name) || proposals.has(name)) {
+      return;
+    }
+    const entry = known.get(name)!;
+    proposals.set(name, {
+      name,
+      reason,
+      confidence,
+      installed: installed.has(name),
+      matchedGlobs: entry.matchedGlobs.length > 0 ? entry.matchedGlobs : undefined,
+    });
+  };
+
+  for (const name of request.requiredSkillNames) {
+    add(name, 95, "Required platform skill for every branch profile");
+  }
+
+  for (const name of request.relevantSkillNames) {
+    if (request.requiredSkillNames.includes(name)) {
+      continue;
+    }
+    add(name, 80, "Workspace file patterns match this skill");
+  }
+
+  for (const name of ROLE_SKILL_HINTS[request.position.role] ?? []) {
+    add(name, 70, `Typical skill for ${request.position.label} role`);
+  }
+
+  return [...proposals.values()]
+    .sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name))
+    .slice(0, 15);
+}
+
+export function writeProfileInitSkillProposals(
+  target: string,
+  catalog: SkillsCatalog,
+  request: ProfileInitRequest
+): void {
+  const proposals = computeProfileInitProposals(target, catalog, request);
+  if (proposals.length === 0) {
+    return;
+  }
+  const data: TaskSkillProposalsFile = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    taskSummary: `Profile init for branch "${request.branch}" (${request.position.label})`,
+    promptExcerpt: request.agentInstructions.slice(0, 240),
+    proposals,
+  };
+  writeTaskSkillProposals(target, data);
+  if (sessionSkillAdaptationEnabled()) {
+    queueSessionSkillApplyRequest(
+      target,
+      proposals.map((p) => p.name),
+      "proposals",
+      `profile-init-${request.branch}-${Date.now()}`
+    );
+  }
+}
+
+/** Seed learning proposals when profile init is pending but proposals are missing/stale. */
+export function seedProfileInitSkillProposals(target: string): void {
+  const request = readProfileInitRequest(target);
+  if (!request || request.status !== "pending") {
+    return;
+  }
+  const catalog = readJsonFile<SkillsCatalog>(skillsCatalogPath(target));
+  if (!catalog) {
+    return;
+  }
+  const existing = readTaskSkillProposals(target);
+  const branchTag = `branch "${request.branch}"`;
+  if (existing?.taskSummary.includes(branchTag) && existing.proposals.length > 0) {
+    return;
+  }
+  writeProfileInitSkillProposals(target, catalog, request);
 }
 
 export function autoApplyProfileFileEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.profileInit").get<boolean>("autoApplyProfileFile", true);
 }
 
-/** Install SessionStart hook and sync profile-init skill to enabled agents. */
+/** Per-workspace latch: avoid re-syncing profile-init hooks on every tree refresh. */
+const profileInitSessionReadyTargets = new Set<string>();
+
+export function resetProfileInitSessionReadyLatch(target?: string): void {
+  if (target) {
+    profileInitSessionReadyTargets.delete(path.normalize(target));
+  } else {
+    profileInitSessionReadyTargets.clear();
+  }
+}
+
+/** Install SessionStart hook and ensure profile-init exists on enabled agent paths. */
 export function ensureProfileInitSessionReady(
   extensionPath: string,
   libraryDir: string,
@@ -280,16 +413,36 @@ export function ensureProfileInitSessionReady(
   if (!profileInitEnabled() || !autoStartOnSessionEnabled() || !profileInitRequestPending(target)) {
     return;
   }
-  const hookStatus = installProfileInitSessionHook(extensionPath, target);
-  if (hookStatus === "installed" || hookStatus === "updated") {
-    log(`Profile init SessionStart hook ${hookStatus}.`);
+  const key = path.normalize(target);
+  if (profileInitSessionReadyTargets.has(key)) {
+    return;
   }
+  const hookStatus = installProfileInitSessionHook(extensionPath, target, libraryDir);
+  if (hookStatus === "installed" || hookStatus === "updated") {
+    log(`Profile init session hook ${hookStatus} (Claude SessionStart + Cursor sessionStart + Kiro agentSpawn + Copilot SessionStart when enabled).`);
+  }
+  seedProfileInitSkillProposals(target);
+  installProfileInitSkill(libraryDir, target);
+  const host = detectHostAgentId();
   if (shouldSyncWorkspaceToAll()) {
-    const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
-    if (synced.length > 0) {
-      log(`Synced profile-init to ${synced.length} agent path(s).`);
+    const results = installSkillToAllWorkspaceAgents(
+      libraryDir,
+      target,
+      PROFILE_INIT_SKILL,
+      libraryDir,
+      false,
+      false
+    );
+    const deployed = results.filter(
+      (r) => r.status === "installed" || r.status === "written" || r.status === "skipped-exists"
+    ).length;
+    if (deployed > 0) {
+      log(
+        `Deployed profile-init for ${hostAgentLabel(host)} (+ ${deployed - 1} other agent mirror(s); host mirror: ${hostAgentMirrorDir(host)}).`
+      );
     }
   }
+  profileInitSessionReadyTargets.add(key);
 }
 
 const PROFILE_LOCAL_KEY = "profile.local.json";
@@ -401,6 +554,7 @@ export function buildProfileInitRequest(
     agentInstructions: buildAgentInstructions(branch, position, relevantSkillNames, requiredSkillNames),
   };
   writeCoordinatedJson(target, profileInitRequestPath(target), PROFILE_REQUEST_KEY, "extension", request);
+  writeProfileInitSkillProposals(target, catalog, request);
   return request;
 }
 
@@ -455,7 +609,7 @@ export function applyLocalProfileInit(
   libraryDir: string,
   target: string,
   init?: BranchProfileInit
-): { result?: ApplyProfileResult; init?: BranchProfileInit; invalid: string[] } {
+): { result?: ApplyProfileResult; init?: BranchProfileInit; invalid: string[]; hostAgentSkillSet?: AgentSkillSet } {
   if (!acquireWriteLock(target, PROFILE_LOCAL_KEY, "extension")) {
     return { invalid: [] };
   }
@@ -495,8 +649,10 @@ export function applyLocalProfileInit(
     };
     writeBranchProfileInit(target, applied);
     markProfileInitRequestCompleted(target);
+    resetProfileInitSessionReadyLatch(target);
+    const hostSet = maybeSaveHostAgentSetWithBranchProfile(target);
 
-    return { result, init: applied, invalid };
+    return { result, init: applied, invalid, hostAgentSkillSet: hostSet };
   } finally {
     releaseWriteLock(target, PROFILE_LOCAL_KEY, "extension");
   }
@@ -577,7 +733,8 @@ export async function startProfileInitFlow(
   log(`Catalog: ${skillsCatalogPath(target)} (${request.skillCount} skills)`);
   log(`Relevant to workspace: ${request.relevantSkillNames.join(", ") || "(none detected)"}`);
   log(`Required platform skills: ${request.requiredSkillNames.join(", ")}`);
-  log(`SessionStart hook will inject profile-init on the next AI agent session.`);
+  log(`SessionStart / sessionStart / agentSpawn hooks will inject profile-init on the next AI agent session.`);
+  log(`Skill proposals seeded to .claude/learning/task-skill-proposals.json (agent refines on session start).`);
 
   void vscode.window.showInformationMessage(
     `Profile init ready for "${branch}" (${position.label}). Start a new AI agent session — profile-init runs automatically.`

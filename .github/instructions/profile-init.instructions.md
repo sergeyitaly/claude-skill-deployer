@@ -1,6 +1,6 @@
 ---
 name: "profile-init"
-description: "Initialize a personal skill profile for the current git branch based on the user's team position (DevOps, QA, AQA, Backend, Frontend, BA, Resource Manager, Team Lead). Reads the extension-generated skill catalog, selects skills for this branch/task, writes .claude/profile.local.json, and lets the extension install them locally (not committed to git). Use when starting work on a new branch, when asked to \"init profile\", or when .claude/learning/profile-init-request.json exists."
+description: "AUTO-START when .claude/learning/profile-init-request.json exists with status pending, on a new git branch, or at SessionStart hook injection. Initialize a personal skill profile for the current branch based on team position (DevOps, QA, AQA, Backend, Frontend, BA, Resource Manager, Team Lead). Reads the extension skill catalog, selects skills, writes .claude/profile.local.json (gitignored). Do not wait for the user to ask — run immediately when triggered."
 applyTo:
   - **/.claude/learning/profile-init-request.json
   - **/.claude/profile.local.json
@@ -12,55 +12,55 @@ applyTo:
 
 Set up a **personal, local-only** skill profile for the **current git branch** and the user's **position on the team**. You choose which skills to enable by reading the live catalog — there is no fixed role-to-skills map.
 
-## When to run
+## Automatic start (do not wait for the user)
 
-- The user asks to initialize their profile, init skills for this branch, or set up skills for their role.
-- `.claude/learning/profile-init-request.json` exists (extension wrote it after the user started init).
-- A new branch has no skill profile yet and the user wants agent-guided setup.
+Run this skill **immediately** when any of these is true:
+
+1. **SessionStart hook** injected context starting with `[Claude Skills] PROFILE INIT REQUIRED`.
+2. **`.claude/learning/profile-init-request.json`** exists with `"status": "pending"`.
+3. The user switched to a **new git branch** with no applied profile yet.
+
+When auto-started, read `agentInstructions` from the request file and execute without asking "should I run profile-init?".
+
+## When to run manually
+
+- The user asks to initialize their profile or init skills for this branch.
+- **Claude Skills: Init Profile for Current Branch** was just used.
 
 ## Inputs (read in order)
 
-1. **`.claude/learning/profile-init-request.json`** (if present) — branch name, position, paths, and a short prompt.
-2. **`.claude/position.local.json`** — saved role (`devops`, `qa`, `aqa`, `backend-developer`, `frontend-developer`, `ba`, `resource-manager`, `team-lead`).
-3. **`.claude/learning/skills-catalog.json`** — extension snapshot of all available skills (`name`, `description`, `detectGlobs`, `isRelevant`, `installedInWorkspace`, `costEstimate`). Refresh with command **Claude Skills: Refresh Skill Catalog** if missing or stale.
-4. **Branch context** — current branch name (`git branch --show-current`), recent files or diff vs main if helpful for task scope.
-5. **Optional** — ask one clarifying question if the branch name is ambiguous (e.g. "Is this branch mainly infra, app code, or docs?").
+1. **`.claude/learning/profile-init-request.json`** — branch, position, `agentInstructions`, paths, relevant skill names, `status`.
+2. **`.claude/position.local.json`** — saved role.
+3. **`.claude/learning/skills-catalog.json`** — extension snapshot of all available skills. Refresh with **Claude Skills: Refresh Skill Catalog** if missing.
+4. **Branch context** — `git branch --show-current`, diff vs main if helpful.
+5. **Optional** — one clarifying question only if the branch name is ambiguous.
 
-If position is missing, ask the user to pick one:
-
-- DevOps, QA, AQA, Backend Developer, Frontend Developer, BA, Resource Manager, Team Lead
-
-Or tell them to run **Claude Skills: Set Your Position**.
+If position is missing, ask the user to pick one or run **Claude Skills: Set Your Position**.
 
 ## How to select skills
 
-**You decide** which skills fit — do not use a hardcoded list.
+**You decide** — no hardcoded role map.
 
-Use:
-
-- **Position** — primary lens (e.g. QA → testing/CI skills; BA → docs/comms/spreadsheet skills).
-- **Branch / task** — what this branch is likely about (feature name, paths, `isRelevant` + `matchedGlobs` in the catalog).
-- **Descriptions** in the catalog — match intent, not just keywords.
-- **Restraint** — prefer a focused set (often 5–15 skills **including** the required platform set) over installing everything.
+Use position, branch/task context, catalog descriptions, and `isRelevant` / `matchedGlobs`. Prefer a focused set (often 5–15 skills **including** the required platform set below).
 
 ### Required platform skills (always include)
 
-Every profile **must** include these extension platform skills in `skills[]` (catalog entries have `requiredForProfileInit: true`). The extension merges them on apply even if omitted:
+Every profile **must** include these extension platform skills in `skills[]` (also marked `requiredForProfileInit: true` in the catalog). The extension merges them on apply even if you omit one:
 
-- `self-learning` — run outcomes and learned fixes
-- `file-style-conventions` — file hygiene
-- `skill-creator` — create and optimize skills
-- `skill-usage-insights` — usage/KPI reports
-- `skill-feedback-adaptation` — user feedback and task proposals
-- `skill-official-updater` — sync official Anthropic skills
+| Skill | Purpose |
+|---|---|
+| `self-learning` | Record run outcomes and learned fixes |
+| `file-style-conventions` | File hygiene (YAML newline, no emoji outside `.md`) |
+| `skill-creator` | Create and optimize skills |
+| `skill-usage-insights` | Usage/KPI reports from `runs.jsonl` |
+| `skill-feedback-adaptation` | User feedback + task skill proposals |
+| `skill-official-updater` | Sync official Anthropic skills |
 
-Add role/branch-specific skills on top. Configurable via `claudeSkills.profileInit.requiredSkills`.
+Add role/branch-specific skills **on top** of this set. Override the list via `claudeSkills.profileInit.requiredSkills` in extension settings.
 
-If required skills are deleted or locally disabled, the extension reinstalls them on a new git branch without a saved profile (`claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`, default on).
+If required skills are accidentally deleted or locally disabled, the extension **auto-recovers** them when you switch to a new git branch without a saved profile (`claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`, default on).
 
-Always include **`profile-init`** only until init completes; you may omit it from the final profile if the user prefers a minimal set.
-
-Do **not** commit skill files or profile JSON to git. Output goes only to `.claude/profile.local.json`.
+Do **not** commit skill files or profile JSON to git.
 
 ## Output — write `.claude/profile.local.json`
 
@@ -72,10 +72,9 @@ Do **not** commit skill files or profile JSON to git. Output goes only to `.clau
   "roleLabel": "DevOps",
   "skills": ["self-learning", "file-style-conventions", "skill-creator", "skill-usage-insights", "skill-feedback-adaptation", "skill-official-updater", "ci-pipeline-debug", "terraform-module-ops"],
   "rationale": {
-    "self-learning": "Required platform skill.",
-    "skill-creator": "Required platform skill.",
-    "ci-pipeline-debug": "Branch touches GitLab CI; primary debugging skill for this task.",
-    "terraform-module-ops": "Repo has .tf files and role is DevOps."
+    "self-learning": "Required platform skill — run logging.",
+    "skill-creator": "Required platform skill — skill authoring.",
+    "ci-pipeline-debug": "Branch touches GitLab CI."
   },
   "initBy": "agent",
   "status": "pending",
@@ -83,26 +82,16 @@ Do **not** commit skill files or profile JSON to git. Output goes only to `.clau
 }
 ```
 
-Rules:
-
 - `branch` must match the current git branch.
-- `role` / `roleLabel` must match `.claude/position.local.json`.
-- `skills` — only names that exist in `skills-catalog.json`.
-- `status` — always `"pending"` when writing; the extension sets `"applied"` after install.
-- `rationale` — brief per-skill reason (helps the user review).
+- `skills` — only names from `skills-catalog.json`.
+- `status` — `"pending"` when writing; extension sets `"applied"`.
 
-After writing the file, tell the user:
+The extension auto-applies when `claudeSkills.profileInit.autoApplyProfileFile` is on (default).
 
-1. The extension will auto-apply if `claudeSkills.profileInit.autoApplyProfileFile` is on (default).
-2. Or they can run **Claude Skills: Apply Local Profile**.
-3. List the chosen skills and one-line why each fits position + branch.
+## Multi-agent note
 
-## Verify
-
-- Confirm `.claude/profile.local.json` was written and lists only catalog skill names.
-- If auto-apply is enabled, skills should appear under `.claude/skills/` shortly.
-- Branch profile is saved in `~/.claude/learning/branch-profiles.json` by the extension (personal, not in the repo).
+Catalog and profile paths are always under **`.claude/`** (extension contract). This skill is synced to Cursor, Kiro, and Copilot; the same files apply regardless of which agent runs this skill.
 
 ## Re-init
 
-To change skills on the same branch, re-run this skill and overwrite `.claude/profile.local.json` with a new `skills` array and `"status": "pending"`.
+Overwrite `.claude/profile.local.json` with a new `skills` array and `"status": "pending"`. Reset request file `status` to `"pending"` if needed.

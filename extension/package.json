@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -688,7 +688,7 @@
           "claudeSkills.profileInit.autoStartOnSession": {
             "type": "boolean",
             "default": true,
-            "description": "Install a Claude Code SessionStart hook and sync profile-init to all agents when a branch profile request is pending."
+            "description": "Install session hooks (Claude SessionStart, Cursor sessionStart, Kiro agentSpawn, Copilot SessionStart) and sync profile-init to all agents when a branch profile request is pending."
           },
           "claudeSkills.profileInit.requiredSkills": {
             "type": "array",
@@ -814,6 +814,11 @@
             "type": "boolean",
             "default": true,
             "description": "Enable the weekly skill set resolver scheduler (also requires claudeSkills.skillSetResolver.enabled)."
+          },
+          "claudeSkills.features.sessionSkillAdaptation": {
+            "type": "boolean",
+            "default": true,
+            "description": "On each new AI agent session or window, install and locally enable the proposed skill set from the branch profile and task-skill-proposals.json (Claude SessionStart, Cursor sessionStart, Kiro agentSpawn, Copilot SessionStart hooks). Toggle via Claude Skills: Manage Feature Toggles."
           },
           "claudeSkills.features.contextFocus": {
             "type": "boolean",

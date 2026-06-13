@@ -7,6 +7,8 @@ import {
   getWorkspaceHookStatus,
   installAttributionHooks,
   installCostControlHooks,
+  installProfileInitSessionHook,
+  areProfileInitHooksConfigured,
 } from "./hookOps";
 
 vi.mock("vscode", () => ({
@@ -88,6 +90,56 @@ describe("installCostControlHooks", () => {
     expect(commands.some((c) => c.includes("budget-watch.js"))).toBe(true);
     expect(commands.some((c) => c.includes("context-focus-watch.js"))).toBe(true);
     expect(commands.some((c) => c.includes("practical-focus-watch.js"))).toBe(true);
+  });
+});
+
+describe("installProfileInitSessionHook", () => {
+  it("registers profile-init hooks for Claude, Cursor, Kiro, and Copilot", () => {
+    const target = makeWorkspace();
+    fs.mkdirSync(path.join(target, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(target, ".claude", "learning", "profile-init-request.json"),
+      JSON.stringify({ version: 1, status: "pending", branch: "feature/test" }) + "\n",
+      "utf-8"
+    );
+
+    const libraryDir = path.join(EXTENSION_PATH, "skills_library");
+    const status = installProfileInitSessionHook(EXTENSION_PATH, target, libraryDir);
+    expect(status === "installed" || status === "updated").toBe(true);
+    expect(areProfileInitHooksConfigured(target, libraryDir)).toBe(true);
+
+    const claudeSettings = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { SessionStart?: { hooks: { command: string }[] }[] } };
+    expect(
+      (claudeSettings.hooks?.SessionStart ?? []).some((m) =>
+        m.hooks.some((h) => h.command.includes("profile-init-watch.js"))
+      )
+    ).toBe(true);
+
+    const cursorHooks = JSON.parse(fs.readFileSync(path.join(target, ".cursor", "hooks.json"), "utf-8")) as {
+      hooks?: { sessionStart?: { command?: string }[] };
+    };
+    expect(cursorHooks.hooks?.sessionStart?.some((h) => h.command?.includes("profile-init-watch.js"))).toBe(true);
+
+    const kiroHook = JSON.parse(
+      fs.readFileSync(
+        path.join(target, ".kiro", "hooks", "claude-skills-skill-invoke-profile-init.kiro.hook"),
+        "utf-8"
+      )
+    ) as { when?: { type?: string }; then?: { command?: string } };
+    expect(kiroHook.when?.type).toBe("agentSpawn");
+    expect(kiroHook.then?.command).toContain("profile-init-watch.js kiro");
+    expect(fs.existsSync(path.join(target, ".claude", "hooks", "profile-init-watch.js"))).toBe(true);
+
+    const copilotHook = JSON.parse(
+      fs.readFileSync(
+        path.join(target, ".github", "hooks", "claude-skills-skill-invoke-profile-init.json"),
+        "utf-8"
+      )
+    ) as { hooks?: { SessionStart?: { bash?: string }[]; sessionStart?: { bash?: string }[] } };
+    const sessionStart = copilotHook.hooks?.SessionStart ?? copilotHook.hooks?.sessionStart ?? [];
+    expect(sessionStart.some((h) => h.bash?.includes("profile-init-watch.js copilot"))).toBe(true);
   });
 });
 

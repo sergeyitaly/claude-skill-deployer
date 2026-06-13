@@ -23,12 +23,9 @@ first use):
   patterns.md             auto-generated report (gitignore this)
   session-learnings.md    human/agent-curated decisions and fixes (commit this)
   knowledge-cache.md      cached answers to repeated questions (commit this)
-  skill-feedback.jsonl    user negative reactions to agent/skill behavior (gitignore)
-  task-skill-proposals.json  proposed skills for the current task (gitignore)
 ```
 
-Add `.claude/learning/runs.jsonl`, `.claude/learning/patterns.md`,
-`.claude/learning/skill-feedback.jsonl`, and `.claude/learning/task-skill-proposals.json` to
+Add `.claude/learning/runs.jsonl` and `.claude/learning/patterns.md` to
 `.gitignore` if not already ignored — they're machine-local history.
 `session-learnings.md` and `knowledge-cache.md` should be committed: they're
 durable, reviewable output.
@@ -155,11 +152,6 @@ When the user states a decision, a fix, or "we learned X", append a
 structured entry to `session-learnings.md` rather than just replying in
 chat — this is what makes it available to future sessions (load this file
 into context at the start of any session on this project).
-
-When the user expresses **disagreement** with agent output driven by a skill
-(`no`, `wrong`, `not that`, etc.), also record via [[skill-feedback-adaptation]]
-to `.claude/learning/skill-feedback.jsonl` so the Usage Report can flag
-inefficient skills.
 
 - **Successes** (`### S-NN — <label>`): a pattern/decision that worked,
   with date, the pattern itself, and source.

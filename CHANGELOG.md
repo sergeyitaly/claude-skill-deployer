@@ -2,13 +2,23 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.24** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.25** is the current Marketplace publish target.
 
 ## [Unreleased]
 
+## [1.0.25] - 2026-06-13
+
+### Added
+
+- **Session skill adaptation** — on each new agent session/window, install and locally enable skills from `profile.local.json` and/or `task-skill-proposals.json`. Toggle via `claudeSkills.features.sessionSkillAdaptation` (default on) or **Manage Feature Toggles**.
+- **Multi-agent profile-init hooks** — SessionStart / sessionStart hooks for **Cursor** (`.cursor/hooks.json`), **Kiro** (`.kiro/hooks/`), and **GitHub Copilot** (`.github/hooks/`); `profile-init-watch.js` accepts `cursor`, `kiro`, and `copilot` platform args.
+
 ### Fixed
 
+- **Per-IDE profile-init skill sets** — after profile-init applies, the host IDE skill set (Cursor, Kiro, or VS Code/Copilot) is saved via `detectHostAgentId()`, not only the shared branch profile. Logs show the correct mirror path (`.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`).
+- **Profile-init deploy noise** — pending profile-init deploys only the `profile-init` skill (latched once per workspace), not a full force-sync of every skill on each refresh.
 - **Open VSX publish after Marketplace** — `publish:openvsx` runs `npm run package` when the versioned VSIX is missing (instead of falling back to an older `.vsix`). `publish:all` now packages between Marketplace and Open VSX steps.
+- **Copilot attribution hook constant** — restore `COPILOT_SKILL_INVOKE_COMMAND` after profile-init hook work so Copilot skill-invoke hooks install correctly.
 
 ## [1.0.24] - 2026-06-13
 

@@ -32,7 +32,7 @@ Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout conve
 
 - **Cost control hooks** (budget, session size, context/practical focus) — installed into `.claude/settings.json` for Claude Code to run
 - **Claude transcript spend** in the status bar and usage report — shows *“No recorded Claude Code token usage”* when `~/.claude/projects/` is absent
-- **SessionStart hooks** for profile-init and official Anthropic skill checks — Claude only; Cursor/Kiro/Copilot use the synced `profile-init` skill + request file instead
+- **SessionStart hooks** for profile-init and official Anthropic skill checks — Claude Code uses `.claude/settings.json`; Cursor/Kiro/Copilot use their agent hook formats (see [Profile init](#profile-init-role--branch-agent-driven))
 
 **Cursor-only tip:** set `claudeSkills.agents.enabled` to `["cursor"]` (Settings) if you do not want global/workspace installs under Claude paths. Workspace skills still use `.claude/skills/` as the git-tracked source of truth; the extension mirrors from there to your enabled agents.
 
@@ -116,6 +116,7 @@ Or Settings → `claudeSkills.features.*`:
 | `emergencyCutoff` | on | Hard daily spend limit ($10 default) |
 | `prCostEstimate` | off | PR cost comment via `gh` CLI |
 | `costAwareSearch` | on | ROI/cost labels and sort in skills tree |
+| `sessionSkillAdaptation` | on | Auto install/enable proposed skills on new agent session or window |
 
 ## Cost intelligence
 
@@ -374,8 +375,8 @@ Profile init is **agent-agnostic** for apply/catalog. **`profile-init`** syncs t
 |---|---|
 | Claude | `.claude/skills/profile-init/SKILL.md` + SessionStart hook |
 | Cursor | `.cursor/skills/profile-init/SKILL.md` |
-| Kiro | `.kiro/skills/profile-init/SKILL.md` |
-| Copilot | `.github/instructions/profile-init.instructions.md` |
+| Kiro | `.kiro/skills/profile-init/SKILL.md` + `agentSpawn` hook (`.kiro/hooks/*.kiro.hook`) |
+| Copilot | `.github/instructions/profile-init.instructions.md` + `SessionStart` hook (`.github/hooks/*.json`) |
 
 ## Library layout
 

@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-// Claude Code SessionStart hook: when profile-init is pending for this branch,
-// inject context so the agent runs profile-init immediately (no manual prompt).
+// Profile-init + session skill apply hook for Claude Code (SessionStart), Cursor (sessionStart),
+// Kiro IDE (agentSpawn), and GitHub Copilot in VS Code (SessionStart / sessionStart).
+// 1. When profile-init is pending, inject context so the agent runs profile-init.
+// 2. On every new session, queue proposed/profile skills for local enablement via the extension.
 
 const fs = require("fs");
 const path = require("path");
 
-const SESSION_SOURCES = new Set(["startup", "resume", "clear"]);
+const SESSION_SOURCES = new Set(["startup", "resume", "clear", "new"]);
 const REQUEST_REL = ".claude/learning/profile-init-request.json";
 const PROFILE_REL = ".claude/profile.local.json";
+const PROPOSALS_REL = ".claude/learning/task-skill-proposals.json";
+const APPLY_REQUEST_REL = ".claude/learning/session-skill-apply-request.json";
 
 function readStdin() {
   try {
@@ -37,6 +41,8 @@ function formatContext(request) {
     `Position: ${request.position?.label ?? request.position?.role ?? "unknown"}`,
     `Catalog: ${request.catalogPath ?? ".claude/learning/skills-catalog.json"}`,
     `Output: ${request.outputPath ?? ".claude/profile.local.json"}`,
+    "Learning: refine .claude/learning/task-skill-proposals.json if the extension seed is present.",
+    "Proposed skills from the profile seed are being enabled locally for this session.",
   ];
   if (request.relevantSkillNames && request.relevantSkillNames.length) {
     lines.push(`Workspace-relevant skills: ${request.relevantSkillNames.join(", ")}.`);
@@ -51,19 +57,149 @@ function formatContext(request) {
   return lines.join(" ");
 }
 
+function resolveSkillsToEnable(cwd) {
+  const names = new Set();
+  let fromProfile = false;
+  let fromProposals = false;
+
+  const profile = readJsonSafe(path.join(cwd, PROFILE_REL));
+  if (profile && profile.status === "applied" && Array.isArray(profile.skills) && profile.skills.length) {
+    profile.skills.forEach((s) => names.add(s));
+    fromProfile = true;
+  }
+
+  const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
+  if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length) {
+    const ranked = proposals.proposals
+      .filter((p) => p && typeof p.name === "string")
+      .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+    for (const p of ranked) {
+      if ((p.confidence ?? 0) >= 50) {
+        names.add(p.name);
+        fromProposals = true;
+      }
+    }
+    if (names.size === 0) {
+      ranked.slice(0, 15).forEach((p) => {
+        names.add(p.name);
+        fromProposals = true;
+      });
+    }
+  }
+
+  const source =
+    fromProfile && fromProposals ? "profile+proposals" : fromProfile ? "profile" : "proposals";
+
+  return { skills: [...names].slice(0, 20), source };
+}
+
+function writeSessionApplyRequest(cwd, input, platform, resolved) {
+  if (!resolved.skills.length) {
+    return;
+  }
+  const sessionId =
+    input.session_id ||
+    input.sessionId ||
+    input.conversation_id ||
+    input.conversationId ||
+    `${platform}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const request = {
+    version: 1,
+    requestedAt: new Date().toISOString(),
+    sessionId,
+    platform,
+    skills: resolved.skills,
+    source: resolved.source,
+  };
+  const dir = path.join(cwd, ".claude", "learning");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(cwd, APPLY_REQUEST_REL), JSON.stringify(request, null, 2) + "\n", "utf-8");
+}
+
+function resolvePlatform(input, argvPlatform) {
+  if (argvPlatform === "cursor" || argvPlatform === "claude" || argvPlatform === "kiro" || argvPlatform === "copilot") {
+    return argvPlatform;
+  }
+  if (input && (input.hook_event_name === "agentSpawn" || input.event === "agentSpawn")) {
+    return "kiro";
+  }
+  if (
+    input &&
+    (input.hook_event_name === "SessionStart" ||
+      input.hookEventName === "SessionStart" ||
+      input.hook_event_name === "sessionStart")
+  ) {
+    return "copilot";
+  }
+  if (input && typeof input.session_id === "string") {
+    return "cursor";
+  }
+  if (input && typeof input.cwd === "string") {
+    return "claude";
+  }
+  return "cursor";
+}
+
+function resolveCwd(input, platform) {
+  if ((platform === "claude" || platform === "copilot") && input.cwd) {
+    return input.cwd;
+  }
+  if (Array.isArray(input.workspace_roots) && input.workspace_roots[0]) {
+    return input.workspace_roots[0];
+  }
+  if (input.workingDirectory || input.working_directory) {
+    return input.workingDirectory || input.working_directory;
+  }
+  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
+}
+
+function shouldRun(input, platform) {
+  if (platform === "claude" || platform === "copilot") {
+    const source = input.source || "startup";
+    return SESSION_SOURCES.has(source);
+  }
+  return true;
+}
+
+function emitOutput(context, platform) {
+  if (platform === "cursor" || platform === "kiro") {
+    process.stdout.write(
+      JSON.stringify({
+        additional_context: context,
+        additionalContext: context,
+        continue: true,
+      })
+    );
+    return;
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: context,
+      },
+    })
+  );
+}
+
 function main() {
-  let input;
+  const raw = readStdin();
+  let input = {};
   try {
-    input = JSON.parse(readStdin());
+    input = raw.trim() ? JSON.parse(raw) : {};
   } catch {
     return;
   }
 
-  const cwd = input.cwd;
-  const source = input.source || "startup";
-  if (!cwd || !SESSION_SOURCES.has(source)) {
+  const platform = resolvePlatform(input, (process.argv[2] || "").toLowerCase());
+  const cwd = resolveCwd(input, platform);
+  if (!cwd || !shouldRun(input, platform)) {
     return;
   }
+
+  const resolved = resolveSkillsToEnable(cwd);
+  writeSessionApplyRequest(cwd, input, platform, resolved);
 
   if (profileInitComplete(cwd)) {
     return;
@@ -75,15 +211,7 @@ function main() {
     return;
   }
 
-  const context = formatContext(request);
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "SessionStart",
-        additionalContext: context,
-      },
-    })
-  );
+  emitOutput(formatContext(request), platform);
 }
 
 main();

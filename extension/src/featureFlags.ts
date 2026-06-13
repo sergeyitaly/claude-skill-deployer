@@ -16,7 +16,8 @@ export type FeatureKey =
   | "costAwareSearch"
   | "skillSetResolver"
   | "contextFocus"
-  | "practicalFocus";
+  | "practicalFocus"
+  | "sessionSkillAdaptation";
 
 const DEFAULTS: Record<FeatureKey, boolean> = {
   budgetControls: true,
@@ -35,6 +36,7 @@ const DEFAULTS: Record<FeatureKey, boolean> = {
   skillSetResolver: true,
   contextFocus: true,
   practicalFocus: true,
+  sessionSkillAdaptation: true,
 };
 
 export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
@@ -57,6 +59,8 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
     "Context focus level toggle and grounding hook (local workspace vs general LLM knowledge) to reduce hallucination in long sessions.",
   practicalFocus:
     "Practical/deployment focus toggle and hook — concrete architecture and first-try deploy steps over theoretical advice.",
+  sessionSkillAdaptation:
+    "On each new AI agent session or window, install and locally enable proposed skills from the branch profile and task-skill-proposals.json.",
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {
