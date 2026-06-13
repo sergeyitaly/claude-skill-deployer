@@ -7,6 +7,7 @@ import {
   saveBranchProfile,
 } from "./branchProfiles";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
+import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { listInstalledSkills } from "./usageStats";
 import {
   readTaskSkillProposals,
@@ -21,6 +22,11 @@ export const SESSION_APPLY_REQUEST_REL = path.join(
   "session-skill-apply-request.json"
 );
 export const SESSION_APPLY_STATE_REL = path.join(".claude", "learning", "session-skill-apply-state.json");
+export const TASK_PROPOSALS_APPLY_STATE_REL = path.join(
+  ".claude",
+  "learning",
+  "task-proposals-apply-state.json"
+);
 
 export interface SessionSkillApplyRequest {
   version: 1;
@@ -38,14 +44,26 @@ interface SessionSkillApplyState {
   lastSkillCount?: number;
 }
 
+interface TaskProposalsApplyState {
+  version: 1;
+  lastGeneratedAt?: string;
+  lastAppliedAt?: string;
+  lastSkillCount?: number;
+}
+
 /** Feature toggle: claudeSkills.features.sessionSkillAdaptation */
 export function sessionSkillAdaptationEnabled(): boolean {
   return isFeatureEnabled("sessionSkillAdaptation");
 }
 
+/** Feature toggle: claudeSkills.features.autoApplyTaskProposals (default on) */
+export function taskProposalsAutoApplyEnabled(): boolean {
+  return isFeatureEnabled("autoApplyTaskProposals");
+}
+
 /** @deprecated Use sessionSkillAdaptationEnabled — kept for setting migration. */
 export function autoApplyProposalsOnSessionEnabled(): boolean {
-  return sessionSkillAdaptationEnabled();
+  return sessionSkillAdaptationEnabled() && taskProposalsAutoApplyEnabled();
 }
 
 function sessionApplyRequestPath(target: string): string {
@@ -56,13 +74,21 @@ function sessionApplyStatePath(target: string): string {
   return path.join(target, SESSION_APPLY_STATE_REL);
 }
 
+function taskProposalsApplyStatePath(target: string): string {
+  return path.join(target, TASK_PROPOSALS_APPLY_STATE_REL);
+}
+
+export function mergeWithRequiredPlatformSkills(skillNames: string[]): string[] {
+  return mergeProfileInitSkills(skillNames);
+}
+
 export function queueSessionSkillApplyRequest(
   target: string,
   skills: string[],
   source: SessionSkillApplyRequest["source"],
   sessionId?: string
 ): void {
-  const unique = [...new Set(skills.filter(Boolean))];
+  const unique = mergeWithRequiredPlatformSkills([...new Set(skills.filter(Boolean))]);
   if (unique.length === 0) {
     return;
   }
@@ -97,6 +123,18 @@ function writeSessionApplyState(target: string, state: SessionSkillApplyState): 
   writeJsonAtomic(sessionApplyStatePath(target), state);
 }
 
+function readTaskProposalsApplyState(target: string): TaskProposalsApplyState {
+  const parsed = readJsonFile<TaskProposalsApplyState>(taskProposalsApplyStatePath(target));
+  if (parsed?.version === 1) {
+    return parsed;
+  }
+  return { version: 1 };
+}
+
+function writeTaskProposalsApplyState(target: string, state: TaskProposalsApplyState): void {
+  writeJsonAtomic(taskProposalsApplyStatePath(target), state);
+}
+
 function readAppliedProfileSkillNames(target: string): string[] {
   const parsed = readJsonFile<{ status?: string; skills?: string[] }>(
     path.join(target, ".claude", "profile.local.json")
@@ -105,6 +143,24 @@ function readAppliedProfileSkillNames(target: string): string[] {
     return parsed.skills.filter((s) => typeof s === "string" && s.length > 0);
   }
   return [];
+}
+
+function proposalNamesForApply(proposals: TaskSkillProposalsFile): string[] {
+  if (taskProposalsAutoApplyEnabled()) {
+    return proposals.proposals.map((p) => p.name).filter(Boolean);
+  }
+  const names = new Set<string>();
+  for (const p of proposals.proposals) {
+    if (p.confidence >= 50) {
+      names.add(p.name);
+    }
+  }
+  if (names.size === 0) {
+    for (const p of proposals.proposals.slice(0, 15)) {
+      names.add(p.name);
+    }
+  }
+  return [...names];
 }
 
 /** Skill names from applied branch profile and/or task-skill-proposals.json. */
@@ -122,24 +178,17 @@ export function resolveProposedSkillNamesWithSource(
 
   const proposals = readTaskSkillProposals(target);
   if (proposals?.proposals.length) {
-    for (const p of proposals.proposals) {
-      if (p.confidence >= 50) {
-        names.add(p.name);
-        fromProposals = true;
-      }
-    }
-    if (names.size === 0) {
-      for (const p of proposals.proposals.slice(0, 15)) {
-        names.add(p.name);
-        fromProposals = true;
-      }
+    for (const name of proposalNamesForApply(proposals)) {
+      names.add(name);
+      fromProposals = true;
     }
   }
 
+  const merged = mergeWithRequiredPlatformSkills([...names]);
   const source: SessionSkillApplyRequest["source"] =
     fromProfile && fromProposals ? "profile+proposals" : fromProfile ? "profile" : "proposals";
 
-  return { skills: [...names].slice(0, 20), source };
+  return { skills: merged, source };
 }
 
 function refreshProposalInstalledFlags(target: string, installedNames: Set<string>): void {
@@ -164,13 +213,13 @@ function refreshProposalInstalledFlags(target: string, installedNames: Set<strin
   }
 }
 
-/** Install missing proposed skills and clear local skillOverrides "off" for them. */
+/** Install missing proposed skills and clear local skillOverrides "off" for them (workspace-local). */
 export function applyProposedSkillsLocally(
   libraryDir: string,
   target: string,
   skillNames: string[]
 ): ApplyProfileResult {
-  const unique = [...new Set(skillNames.filter(Boolean))];
+  const unique = mergeWithRequiredPlatformSkills([...new Set(skillNames.filter(Boolean))]);
   if (unique.length === 0) {
     return { installed: [], removed: [], overridesApplied: 0, skipped: [] };
   }
@@ -190,6 +239,33 @@ export function applyProposedSkillsLocally(
   return result;
 }
 
+/** Apply task-skill-proposals.json when the file changes (local workspace only). */
+export function applyTaskProposalsIfPending(
+  libraryDir: string,
+  target: string
+): { applied: boolean; result?: ApplyProfileResult } {
+  if (!sessionSkillAdaptationEnabled() || !taskProposalsAutoApplyEnabled()) {
+    return { applied: false };
+  }
+  const proposals = readTaskSkillProposals(target);
+  if (!proposals?.proposals.length) {
+    return { applied: false };
+  }
+  const state = readTaskProposalsApplyState(target);
+  if (state.lastGeneratedAt === proposals.generatedAt) {
+    return { applied: false };
+  }
+  const names = proposalNamesForApply(proposals);
+  const result = applyProposedSkillsLocally(libraryDir, target, names);
+  writeTaskProposalsApplyState(target, {
+    version: 1,
+    lastGeneratedAt: proposals.generatedAt,
+    lastAppliedAt: new Date().toISOString(),
+    lastSkillCount: names.length,
+  });
+  return { applied: true, result };
+}
+
 export function shouldApplySessionSkillRequest(
   target: string,
   request: SessionSkillApplyRequest
@@ -207,21 +283,39 @@ export function processSessionSkillApplyRequest(
   target: string,
   request?: SessionSkillApplyRequest | null
 ): { applied: boolean; result?: ApplyProfileResult; request?: SessionSkillApplyRequest } {
+  if (!sessionSkillAdaptationEnabled()) {
+    return { applied: false };
+  }
   const req = request ?? readSessionSkillApplyRequest(target);
-  if (!req || !sessionSkillAdaptationEnabled()) {
+  if (!req) {
     return { applied: false };
   }
   if (!shouldApplySessionSkillRequest(target, req)) {
     return { applied: false, request: req };
   }
 
-  const result = applyProposedSkillsLocally(libraryDir, target, req.skills);
+  const skills = mergeWithRequiredPlatformSkills(req.skills);
+  const result = applyProposedSkillsLocally(libraryDir, target, skills);
   writeSessionApplyState(target, {
     version: 1,
     lastSessionId: req.sessionId,
     lastAppliedAt: new Date().toISOString(),
-    lastSkillCount: req.skills.length,
+    lastSkillCount: skills.length,
   });
 
+  const proposals = readTaskSkillProposals(target);
+  if (proposals) {
+    writeTaskProposalsApplyState(target, {
+      version: 1,
+      lastGeneratedAt: proposals.generatedAt,
+      lastAppliedAt: new Date().toISOString(),
+      lastSkillCount: skills.length,
+    });
+  }
+
   return { applied: true, result, request: req };
+}
+
+export function requiredPlatformSkillNames(): string[] {
+  return profileInitRequiredSkills();
 }

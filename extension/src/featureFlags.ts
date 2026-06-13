@@ -17,7 +17,8 @@ export type FeatureKey =
   | "skillSetResolver"
   | "contextFocus"
   | "practicalFocus"
-  | "sessionSkillAdaptation";
+  | "sessionSkillAdaptation"
+  | "autoApplyTaskProposals";
 
 export const DEFAULTS: Record<FeatureKey, boolean> = {
   budgetControls: true,
@@ -37,6 +38,7 @@ export const DEFAULTS: Record<FeatureKey, boolean> = {
   contextFocus: true,
   practicalFocus: true,
   sessionSkillAdaptation: true,
+  autoApplyTaskProposals: true,
 };
 
 export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
@@ -61,6 +63,8 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
     "Practical/deployment focus toggle and hook — concrete architecture and first-try deploy steps over theoretical advice.",
   sessionSkillAdaptation:
     "On each new AI agent session or window, install and locally enable proposed skills from the branch profile and task-skill-proposals.json.",
+  autoApplyTaskProposals:
+    "Auto-install and locally enable all skills listed in Proposed for current task (plus required platform skills) for this workspace only.",
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {

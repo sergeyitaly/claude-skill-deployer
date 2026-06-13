@@ -202,9 +202,11 @@ import {
 } from "./profileInit";
 import {
   applyProposedSkillsLocally,
+  applyTaskProposalsIfPending,
   processSessionSkillApplyRequest,
   SESSION_APPLY_REQUEST_REL,
 } from "./sessionSkillApply";
+import { PROPOSALS_FILE_RELATIVE } from "./taskSkillProposals";
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -699,6 +701,21 @@ export function activate(context: vscode.ExtensionContext) {
           });
         }
       }
+      const taskApply = applyTaskProposalsIfPending(libraryDir, target);
+      if (taskApply.applied && taskApply.result) {
+        const { result } = taskApply;
+        if (result.installed.length > 0 || result.overridesApplied > 0) {
+          log(
+            `\n=== Task proposals auto-apply (local workspace) ===\n` +
+              `+${result.installed.length} installed, ${result.overridesApplied} enabled locally` +
+              (result.installed.length ? `: ${result.installed.join(", ")}` : "")
+          );
+          propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+            saveBranchProfile: true,
+            forceAgentSync: true,
+          });
+        }
+      }
       void maybePromptOutdatedSkillUpgrades(libraryDir, target);
     }
   };
@@ -1170,7 +1187,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const installed = await applyProposalSkillNames(
         target,
-        toInstall.map((p) => p.name)
+        proposals.map((p) => p.name)
       );
       refreshAll();
       if (installed.length > 0) {
@@ -1923,6 +1940,7 @@ export function activate(context: vscode.ExtensionContext) {
         "contextFocus",
         "practicalFocus",
         "sessionSkillAdaptation",
+        "autoApplyTaskProposals",
       ];
       const pick = await vscode.window.showQuickPick(
         keys.map((k) => ({
@@ -2234,6 +2252,32 @@ export function activate(context: vscode.ExtensionContext) {
   sessionApplyWatcher.onDidChange(debouncedSessionSkillApply);
   sessionApplyWatcher.onDidCreate(debouncedSessionSkillApply);
   context.subscriptions.push(sessionApplyWatcher);
+
+  const debouncedTaskProposalsApply = debounce(() => {
+    const target = getWorkspaceTarget();
+    if (!target) {
+      return;
+    }
+    const taskApply = applyTaskProposalsIfPending(libraryDir, target);
+    if (taskApply.applied && taskApply.result) {
+      log(
+        `\n=== Task proposals auto-apply (file change) ===\n` +
+          `+${taskApply.result.installed.length} installed, ${taskApply.result.overridesApplied} enabled locally`
+      );
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: true,
+        forceAgentSync: true,
+      });
+      refreshAll();
+    }
+  }, 600);
+
+  const proposalsWatcher = vscode.workspace.createFileSystemWatcher(
+    `**/${PROPOSALS_FILE_RELATIVE.replace(/\\/g, "/")}`
+  );
+  proposalsWatcher.onDidChange(debouncedTaskProposalsApply);
+  proposalsWatcher.onDidCreate(debouncedTaskProposalsApply);
+  context.subscriptions.push(proposalsWatcher);
 
   for (const learningGlob of ["**/.claude/learning/runs.jsonl", "**/.claude/learning/cost-attribution.json"]) {
     const learningWatcher = vscode.workspace.createFileSystemWatcher(learningGlob);

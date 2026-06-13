@@ -2,9 +2,22 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.26** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.27** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.27] - 2026-06-13
+
+### Added
+
+- **`autoApplyTaskProposals` toggle (default on)** — auto-install and locally enable every skill in **Proposed for current task**, plus required platform skills (`self-learning`, `skill-creator`, etc.), for this workspace only.
+- **Task proposals file watcher** — applies when `task-skill-proposals.json` is created or updated (deduped by `generatedAt`).
+- Hooks and CLI merge required platform skills into session apply requests.
+
+### Changed
+
+- **Session skill apply** no longer caps at 20 skills when merging profile + proposals + required set.
+- **Apply Suggested Skills for Current Task** installs the full proposal list (with required skills merged), not only uninstalled rows.
 
 ## [1.0.26] - 2026-06-13
 

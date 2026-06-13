@@ -7,9 +7,11 @@ import * as featureFlags from "./featureFlags";
 import { setSkillOverride } from "./skillOps";
 import {
   applyProposedSkillsLocally,
+  applyTaskProposalsIfPending,
   processSessionSkillApplyRequest,
   queueSessionSkillApplyRequest,
   readSessionSkillApplyRequest,
+  resolveProposedSkillNamesWithSource,
   SESSION_APPLY_REQUEST_REL,
 } from "./sessionSkillApply";
 import { writeTaskSkillProposals } from "./taskSkillProposals";
@@ -95,5 +97,39 @@ describe("processSessionSkillApplyRequest", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("applyTaskProposalsIfPending", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("installs all proposals plus required platform skills", { timeout: 15000 }, () => {
+    const target = makeGitWorkspace();
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "test task",
+      proposals: [
+        { name: "ci-preflight", reason: "test", confidence: 40, installed: false },
+        { name: "self-learning", reason: "required", confidence: 95, installed: false },
+      ],
+    });
+    const out = applyTaskProposalsIfPending(libraryDir, target);
+    expect(out.applied).toBe(true);
+    expect(fs.existsSync(path.join(target, ".claude", "skills", "ci-preflight", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(target, ".claude", "skills", "skill-creator", "SKILL.md"))).toBe(true);
+  });
+
+  it("resolveProposedSkillNamesWithSource merges required skills", () => {
+    const target = makeGitWorkspace();
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "test",
+      proposals: [{ name: "ci-preflight", reason: "test", confidence: 80, installed: false }],
+    });
+    const resolved = resolveProposedSkillNamesWithSource(target);
+    expect(resolved.skills).toContain("ci-preflight");
+    expect(resolved.skills).toContain("skill-creator");
   });
 });

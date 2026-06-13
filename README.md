@@ -167,6 +167,7 @@ Or Settings → `claudeSkills.features.*`:
 | `prCostEstimate` | off | PR cost comment via `gh` CLI |
 | `costAwareSearch` | on | ROI/cost labels and sort in skills tree |
 | `sessionSkillAdaptation` | on | Auto install/enable proposed skills on new agent session or window |
+| `autoApplyTaskProposals` | on | Auto-install all **Proposed for current task** skills (+ required platform skills) locally |
 
 ## Cost intelligence
 

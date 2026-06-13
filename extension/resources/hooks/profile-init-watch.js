@@ -12,6 +12,35 @@ const REQUEST_REL = ".claude/learning/profile-init-request.json";
 const PROFILE_REL = ".claude/profile.local.json";
 const PROPOSALS_REL = ".claude/learning/task-skill-proposals.json";
 const APPLY_REQUEST_REL = ".claude/learning/session-skill-apply-request.json";
+const CLI_CONFIG = ".claude/learning/cli-config.json";
+const DEFAULT_REQUIRED_SKILLS = [
+  "self-learning",
+  "file-style-conventions",
+  "skill-creator",
+  "skill-usage-insights",
+  "skill-feedback-adaptation",
+  "skill-official-updater",
+];
+
+function readRequiredSkills(cwd) {
+  const request = readJsonSafe(path.join(cwd, REQUEST_REL));
+  if (request && Array.isArray(request.requiredSkillNames) && request.requiredSkillNames.length) {
+    return request.requiredSkillNames;
+  }
+  return DEFAULT_REQUIRED_SKILLS;
+}
+
+function taskProposalsAutoApply(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  const features = cfg && cfg.features;
+  if (features && features.autoApplyTaskProposals === false) {
+    return false;
+  }
+  if (features && features.sessionSkillAdaptation === false) {
+    return false;
+  }
+  return true;
+}
 
 function readStdin() {
   try {
@@ -69,7 +98,15 @@ function resolveSkillsToEnable(cwd) {
   }
 
   const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
-  if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length) {
+  if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length && taskProposalsAutoApply(cwd)) {
+    const ranked = proposals.proposals
+      .filter((p) => p && typeof p.name === "string")
+      .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+    for (const p of ranked) {
+      names.add(p.name);
+      fromProposals = true;
+    }
+  } else if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length) {
     const ranked = proposals.proposals
       .filter((p) => p && typeof p.name === "string")
       .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
@@ -87,10 +124,14 @@ function resolveSkillsToEnable(cwd) {
     }
   }
 
-  const source =
-    fromProfile && fromProposals ? "profile+proposals" : fromProfile ? "profile" : "proposals";
+  for (const skill of readRequiredSkills(cwd)) {
+    names.add(skill);
+  }
 
-  return { skills: [...names].slice(0, 20), source };
+  const source =
+    fromProfile && fromProposals ? "profile+proposals" : fromProfile ? "profile" : fromProposals ? "proposals" : "profile";
+
+  return { skills: [...names], source };
 }
 
 function writeSessionApplyRequest(cwd, input, platform, resolved) {

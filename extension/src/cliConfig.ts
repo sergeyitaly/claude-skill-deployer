@@ -17,6 +17,7 @@ export interface CliConfigFile {
 
 const CLI_RELEVANT_FEATURES: FeatureKey[] = [
   "sessionSkillAdaptation",
+  "autoApplyTaskProposals",
   "branchProfiles",
   "multiAgent",
   "budgetControls",

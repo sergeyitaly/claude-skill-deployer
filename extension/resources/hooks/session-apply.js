@@ -26,7 +26,34 @@ function featureEnabled(cwd, key) {
   if (features && Object.prototype.hasOwnProperty.call(features, key)) {
     return !!features[key];
   }
-  return key === "sessionSkillAdaptation";
+  if (key === "autoApplyTaskProposals" || key === "sessionSkillAdaptation") {
+    return true;
+  }
+  return false;
+}
+
+function readRequiredSkills(cwd) {
+  const requestPath = path.join(cwd, ".claude/learning/profile-init-request.json");
+  const request = readJsonSafe(requestPath);
+  if (request && Array.isArray(request.requiredSkillNames) && request.requiredSkillNames.length) {
+    return request.requiredSkillNames;
+  }
+  return [
+    "self-learning",
+    "file-style-conventions",
+    "skill-creator",
+    "skill-usage-insights",
+    "skill-feedback-adaptation",
+    "skill-official-updater",
+  ];
+}
+
+function mergeRequired(cwd, skills) {
+  const out = new Set(skills);
+  for (const s of readRequiredSkills(cwd)) {
+    out.add(s);
+  }
+  return [...out];
 }
 
 function readOverrides(cwd) {
@@ -122,6 +149,9 @@ function main() {
   if (!featureEnabled(cwd, "sessionSkillAdaptation")) {
     return;
   }
+  if (!featureEnabled(cwd, "autoApplyTaskProposals") && request.source === "proposals") {
+    return;
+  }
 
   const request = readJsonSafe(path.join(cwd, SESSION_REQUEST));
   if (!request || request.version !== 1 || !Array.isArray(request.skills) || !request.sessionId) {
@@ -133,7 +163,7 @@ function main() {
     return;
   }
 
-  const result = applySkills(cwd, request.skills);
+  const result = applySkills(cwd, mergeRequired(cwd, request.skills));
   fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
   fs.writeFileSync(
     path.join(cwd, SESSION_STATE),

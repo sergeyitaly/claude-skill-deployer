@@ -28,6 +28,7 @@ DEFAULT_REQUIRED_SKILLS = [
 
 DEFAULT_FEATURES = {
     "sessionSkillAdaptation": True,
+    "autoApplyTaskProposals": True,
     "branchProfiles": True,
     "multiAgent": True,
 }
@@ -85,6 +86,16 @@ def load_cli_config(target: Path) -> dict:
     if not isinstance(parsed, dict):
         return {}
     return parsed
+
+
+def merge_required_skills(skill_names: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in [*DEFAULT_REQUIRED_SKILLS, *skill_names]:
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
 
 
 def feature_enabled(target: Path, key: str) -> bool:
@@ -401,7 +412,7 @@ def should_apply_session_request(target: Path, request: dict) -> bool:
 
 
 def apply_proposed_skills(library_dir: Path, target: Path, skill_names: list[str]) -> dict:
-    unique = list(dict.fromkeys(s for s in skill_names if s))
+    unique = merge_required_skills(list(dict.fromkeys(s for s in skill_names if s)))
     if not unique:
         return {"installed": [], "removed": [], "overrides_applied": 0, "skipped": []}
     branch = get_git_branch(target) or "unknown"
