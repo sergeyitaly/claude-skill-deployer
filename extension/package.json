@@ -1432,7 +1432,7 @@
     "package": "npm run sync-skills && vsce package",
     "publish:marketplace": "vsce publish",
     "publish:openvsx": "node ./scripts/publish-openvsx.js",
-    "publish:all": "npm run publish:marketplace && npm run publish:openvsx"
+    "publish:all": "npm run publish:marketplace && npm run package && npm run publish:openvsx"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

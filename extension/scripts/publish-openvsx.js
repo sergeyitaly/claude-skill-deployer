@@ -18,30 +18,14 @@ const pkg = JSON.parse(fs.readFileSync(path.join(extDir, "package.json"), "utf-8
 const expectedName = `${pkg.name}-${pkg.version}.vsix`;
 const expectedPath = path.join(extDir, expectedName);
 
-let vsixPath;
-if (fs.existsSync(expectedPath)) {
-  vsixPath = expectedPath;
-} else {
-  const prefix = `${pkg.name}-`;
-  const candidates = fs
-    .readdirSync(extDir)
-    .filter((f) => f.endsWith(".vsix") && f.startsWith(prefix))
-    .map((f) => {
-      const full = path.join(extDir, f);
-      return { name: f, full, mtime: fs.statSync(full).mtimeMs };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-
-  if (candidates.length === 0) {
-    console.error(
-      `No VSIX matching ${prefix}*.vsix — run: npm run package (expected ${expectedName})`
-    );
-    process.exit(1);
-  }
-  vsixPath = candidates[0].full;
-  console.warn(
-    `Warning: ${expectedName} not found; using newest match ${candidates[0].name}`
-  );
+let vsixPath = expectedPath;
+if (!fs.existsSync(vsixPath)) {
+  console.log(`${expectedName} not found — running npm run package…`);
+  execSync("npm run package", { cwd: extDir, stdio: "inherit", shell: true });
+}
+if (!fs.existsSync(vsixPath)) {
+  console.error(`Expected VSIX missing after package: ${expectedPath}`);
+  process.exit(1);
 }
 
 console.log(`Publishing to Open VSX: ${path.basename(vsixPath)}`);

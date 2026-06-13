@@ -6,6 +6,10 @@ Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.24** is the cu
 
 ## [Unreleased]
 
+### Fixed
+
+- **Open VSX publish after Marketplace** — `publish:openvsx` runs `npm run package` when the versioned VSIX is missing (instead of falling back to an older `.vsix`). `publish:all` now packages between Marketplace and Open VSX steps.
+
 ## [1.0.24] - 2026-06-13
 
 ### Fixed
