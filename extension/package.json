@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -1444,6 +1444,10 @@
     "watch": "tsc -w -p ./",
     "pretest": "npm run sync-skills",
     "test": "vitest run",
+    "test:unit": "vitest run",
+    "pretest:integration": "npm run sync-skills && npm run compile",
+    "test:integration": "node ./out/test/integration/runTest.js",
+    "test:all": "npm run test:unit && npm run test:integration",
     "sync-skills": "node ./scripts/sync-skills-library.js",
     "package": "npm run sync-skills && vsce package",
     "publish:marketplace": "vsce publish",
@@ -1451,9 +1455,12 @@
     "publish:all": "npm run publish:marketplace && npm run package && npm run publish:openvsx"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.2.0",
+    "mocha": "^11.1.0",
     "ovsx": "^0.10.12",
     "typescript": "^5.4.0",
     "vitest": "^3.2.4"

@@ -5,6 +5,12 @@ import { isGitWorkspace } from "./branchProfiles";
 
 const GLOBAL_SETUP_PROMPTED = "claudeSkills.globalSetupPrompted";
 
+function integrationTestMode(): boolean {
+  return process.env.CLAUDE_SKILLS_INTEGRATION_TEST === "1";
+}
+
+export { integrationTestMode };
+
 export function directoryExists(dir: string): boolean {
   try {
     return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
@@ -22,6 +28,9 @@ export function detectGitRepository(context: vscode.ExtensionContext, target?: s
 
 /** Friendly first-run prompt when ~/.claude/skills/ is missing. */
 export async function checkFirstTimeGlobalSetup(context: vscode.ExtensionContext): Promise<void> {
+  if (integrationTestMode()) {
+    return;
+  }
   const globalPath = globalSkillsDir();
   if (directoryExists(globalPath)) {
     return;
@@ -45,6 +54,9 @@ export async function checkFirstTimeGlobalSetup(context: vscode.ExtensionContext
 
 /** Prompt 3-minute setup on first extension activation. */
 export async function promptGetStarted(context: vscode.ExtensionContext): Promise<void> {
+  if (integrationTestMode()) {
+    return;
+  }
   if (context.globalState.get<boolean>("claudeSkills.hasRunBefore", false)) {
     return;
   }

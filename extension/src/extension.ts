@@ -138,6 +138,7 @@ import { SkillSortMode } from "./skillRoi";
 import {
   checkFirstTimeGlobalSetup,
   detectGitRepository,
+  integrationTestMode,
   promptGetStarted,
 } from "./criticalFixes";
 import { showOnboardingTour } from "./onboarding";
@@ -649,6 +650,10 @@ export function activate(context: vscode.ExtensionContext) {
   const refreshAll = () => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
+    if (integrationTestMode()) {
+      provider.refresh();
+      return;
+    }
     if (target && isFeatureEnabled("attributionCollector")) {
       AttributionCollector.setActiveTarget(target, libraryDir);
     }
@@ -747,14 +752,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   refreshAll();
 
-  if (initialTarget) {
+  if (initialTarget && !integrationTestMode()) {
     propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
       saveBranchProfile: false,
     });
     void maybeNotifyOfficialSkillUpdates(initialTarget);
   }
 
-  if (initialTarget) {
+  if (initialTarget && !integrationTestMode()) {
     if (isFeatureEnabled("attributionCollector")) {
       const collector = AttributionCollector.getInstance(initialTarget, libraryDir);
       collector.start();

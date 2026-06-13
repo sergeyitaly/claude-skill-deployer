@@ -30,13 +30,19 @@ function readRequiredSkills(cwd) {
   return DEFAULT_REQUIRED_SKILLS;
 }
 
+function sessionSkillAdaptationEnabled(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  const features = cfg && cfg.features;
+  return !(features && features.sessionSkillAdaptation === false);
+}
+
 function taskProposalsAutoApply(cwd) {
+  if (!sessionSkillAdaptationEnabled(cwd)) {
+    return false;
+  }
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
   const features = cfg && cfg.features;
   if (features && features.autoApplyTaskProposals === false) {
-    return false;
-  }
-  if (features && features.sessionSkillAdaptation === false) {
     return false;
   }
   return true;
@@ -61,6 +67,16 @@ function readJsonSafe(file) {
 function profileInitComplete(cwd) {
   const profile = readJsonSafe(path.join(cwd, PROFILE_REL));
   return profile && profile.status === "applied" && Array.isArray(profile.skills) && profile.skills.length > 0;
+}
+
+function formatNewSessionTaskContext() {
+  return [
+    "[Claude Skills] NEW SESSION — update task skills before other work.",
+    "Read and follow skill-feedback-adaptation section 3 (Propose skills for a new task) immediately — do not wait for the user to ask.",
+    "Use the user's first message (or latest task scope) to overwrite .claude/learning/task-skill-proposals.json.",
+    "Existing proposals may be a stale profile-init seed — replace them when the user starts a new task.",
+    "Propose only skills that match this task (typically 3–8, not the whole library). Read and apply the top proposed skills, then answer the user.",
+  ].join(" ");
 }
 
 function formatContext(request) {
@@ -256,12 +272,18 @@ function main() {
   }
 
   if (profileInitComplete(cwd)) {
+    if (sessionSkillAdaptationEnabled(cwd)) {
+      emitOutput(formatNewSessionTaskContext(), platform);
+    }
     return;
   }
 
   const requestPath = path.join(cwd, REQUEST_REL);
   const request = readJsonSafe(requestPath);
   if (!request || request.status === "completed") {
+    if (sessionSkillAdaptationEnabled(cwd)) {
+      emitOutput(formatNewSessionTaskContext(), platform);
+    }
     return;
   }
 

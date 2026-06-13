@@ -51,6 +51,12 @@ jobs:
       - name: Compile TypeScript
         run: npm run compile
 
+      - name: Unit tests
+        run: npm test
+
+      - name: Integration smoke test
+        run: xvfb-run -a npm run test:integration
+
       - name: Package VSIX
         run: npm run package
 

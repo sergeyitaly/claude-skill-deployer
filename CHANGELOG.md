@@ -2,9 +2,27 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.27** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.28** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.28] - 2026-06-13
+
+### Added
+
+- **NEW SESSION task-proposal hook** — `profile-init-watch.js` injects skill-feedback-adaptation guidance on every new session for Claude, Cursor, Kiro, and Copilot (after profile-init completes).
+- **VS Code integration smoke test** — `@vscode/test-electron` activates the extension, runs `claudeSkills.refresh`, and verifies bundled skills load (`npm run test:integration`). Uses `CLAUDE_SKILLS_INTEGRATION_TEST=1` to skip first-run modals and heavy startup sync.
+- **Release cadence policy** — weekly batch releases documented in `PUBLISHING.md`; Open VSX namespace ownership checklist added.
+
+### Changed
+
+- **`skill-feedback-adaptation`** — AUTO-START section for new sessions/tasks; stronger frontmatter description.
+- **Publish workflow** — runs unit tests and integration smoke before packaging/upload.
+- **CI** — split unit and integration jobs; integration uses `xvfb-run` on Ubuntu.
+
+### Fixed
+
+- **`profileInit` unit tests** — 30s timeout on slow file-copy tests (Windows CI flake).
 
 ## [1.0.27] - 2026-06-13
 

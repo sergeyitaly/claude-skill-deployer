@@ -116,6 +116,42 @@ npm run publish:all
 
 `publish:openvsx` uploads **`{package.json name}-{version}.vsix`** only (e.g. `claude-skill-deployer-1.0.20.vsix`). Remove unrelated old `.vsix` files in `extension/` before publishing.
 
+## Release cadence (production policy)
+
+After the initial **1.0.x stabilization burst**, batch non-critical fixes into **weekly** releases instead of multiple patches per day.
+
+| Rule | Detail |
+|------|--------|
+| **Weekly window** | Target **one semver patch per week** (e.g. ship `1.0.29` on Tuesday after QA). |
+| **Hotfix exception** | Ship an out-of-band patch only for regressions, broken publish, or data-loss risk. |
+| **Pre-release gate** | `npm test` + `npm run test:integration` must pass locally or in CI before tagging `v*`. |
+| **Publish workflow** | Tag push runs unit tests, integration smoke, then packages and uploads to both registries. |
+| **Changelog** | Every release gets a dated `[x.y.z]` section in `CHANGELOG.md` before tag. |
+
+Local full gate before a release tag:
+
+```powershell
+cd extension
+npm ci
+npm run test:all
+npm run package
+```
+
+## Open VSX namespace ownership checklist
+
+Publishing works while the namespace is **unverified**, but Cursor/Kiro may show a trust warning until ownership is claimed.
+
+| Step | Action | Status |
+|------|--------|--------|
+| 1 | Confirm extension live on [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | Check listing |
+| 2 | Log in at [open-vsx.org](https://open-vsx.org/) with the GitHub account used to publish | One-time |
+| 3 | Open [Claim namespace `serhiivoinolovych`](https://github.com/EclipseFdn/open-vsx.org/issues/new?template=claim-namespace-ownership.yml&namespace=serhiivoinolovych&title=Claiming%20namespace%20%60serhiivoinolovych%60) | Submit once |
+| 4 | Evidence: [VS Marketplace publisher](https://marketplace.visualstudio.com/publishers/serhiivoinolovych) + [repo](https://github.com/sergeyitaly/claude-skill-deployer) commit URL if not in org | In issue body |
+| 5 | After approval: **Settings → Namespaces → `serhiivoinolovych`** shows **Owner** | Verify shield on listing |
+| 6 | Republish current version if badge did not refresh automatically | Optional |
+
+This cannot be automated from the repo — a human with the publishing GitHub account must submit the Eclipse claim form.
+
 ## Version bumps
 
 Each registry rejects duplicate versions. Always bump `extension/package.json` → `version` before publishing (e.g. `1.0.20` → `1.0.21`).

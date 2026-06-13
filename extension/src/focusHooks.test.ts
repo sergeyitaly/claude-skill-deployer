@@ -218,7 +218,7 @@ describe("profile-init-watch.js", () => {
     expect(parsed.hookSpecificOutput).toBeUndefined();
   });
 
-  it("outputs nothing when profile is already applied", () => {
+  it("emits NEW SESSION task-proposal context when profile is already applied", () => {
     const cwd = makeWorkspace();
     fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
     fs.writeFileSync(
@@ -237,7 +237,13 @@ describe("profile-init-watch.js", () => {
       input: JSON.stringify({ cwd, source: "startup" }),
       encoding: "utf-8",
     });
-    expect(result.stdout.trim()).toBe("");
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as {
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    const context = parsed.hookSpecificOutput?.additionalContext ?? "";
+    expect(context).toContain("NEW SESSION");
+    expect(context).toContain("skill-feedback-adaptation");
     const applyRequest = JSON.parse(
       fs.readFileSync(path.join(cwd, ".claude", "learning", "session-skill-apply-request.json"), "utf-8")
     );
@@ -270,7 +276,7 @@ describe("profile-init-watch.js", () => {
       encoding: "utf-8",
       cwd,
     });
-    expect(result.stdout.trim()).toBe("");
+    expect(result.stdout.trim()).toContain("NEW SESSION");
     const applyRequest = JSON.parse(
       fs.readFileSync(path.join(cwd, ".claude", "learning", "session-skill-apply-request.json"), "utf-8")
     );
@@ -345,5 +351,69 @@ describe("profile-init-watch.js", () => {
     const context = parsed.hookSpecificOutput?.additionalContext ?? parsed.additional_context;
     expect(context).toContain("PROFILE INIT REQUIRED");
     expect(context).toContain("feature/copilot");
+  });
+
+  it("emits NEW SESSION context on Cursor sessionStart when profile is applied", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "profile.local.json"),
+      JSON.stringify({ version: 1, status: "applied", skills: ["self-learning"] }) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "cursor"], {
+      input: JSON.stringify({ session_id: "cursor-new-session", is_background_agent: false }),
+      encoding: "utf-8",
+      cwd,
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as { additional_context?: string };
+    expect(parsed.additional_context).toContain("NEW SESSION");
+    expect(parsed.additional_context).toContain("task-skill-proposals.json");
+  });
+
+  it("emits NEW SESSION context on Kiro agentSpawn when profile is applied", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "profile.local.json"),
+      JSON.stringify({ version: 1, status: "applied", skills: ["self-learning"] }) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "kiro"], {
+      input: JSON.stringify({ hook_event_name: "agentSpawn", session_id: "kiro-new-session" }),
+      encoding: "utf-8",
+      cwd,
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as { additional_context?: string };
+    expect(parsed.additional_context).toContain("NEW SESSION");
+  });
+
+  it("emits NEW SESSION context on Copilot SessionStart when profile is applied", () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, ".claude", "profile.local.json"),
+      JSON.stringify({ version: 1, status: "applied", skills: ["self-learning"] }) + "\n",
+      "utf-8"
+    );
+
+    const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "copilot"], {
+      input: JSON.stringify({
+        hook_event_name: "SessionStart",
+        session_id: "copilot-new-session",
+        cwd,
+        source: "startup",
+      }),
+      encoding: "utf-8",
+    });
+    expect(result.stdout.trim()).not.toBe("");
+    const parsed = JSON.parse(result.stdout.trim()) as {
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("NEW SESSION");
   });
 });

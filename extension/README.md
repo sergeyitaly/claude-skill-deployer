@@ -515,6 +515,9 @@ See root [README.md](../README.md#performance-impact) and [CHANGELOG.md](../CHAN
 npm install
 npm run sync-skills   # copy ../skills_library -> ./skills_library
 npm run compile       # or: npm run watch
+npm test              # unit tests (vitest)
+npm run test:integration   # VS Code host smoke test (@vscode/test-electron)
+npm run test:all      # unit + integration
 ```
 
 Press `F5` in VS Code (with this folder open) to launch an Extension

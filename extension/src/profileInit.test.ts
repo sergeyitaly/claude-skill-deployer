@@ -3,6 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+
+/** File copies + multi-agent sync can exceed 5s on Windows CI runners. */
+const SLOW_TEST_MS = 30_000;
 import {
   applyLocalProfileInit,
   BranchProfileInit,
@@ -142,7 +145,7 @@ describe("applyLocalProfileInit", () => {
     const onDisk = JSON.parse(fs.readFileSync(profileLocalPath(target), "utf-8")) as BranchProfileInit;
     expect(onDisk.status).toBe("applied");
     expect(onDisk.skills).toContain("self-learning");
-  });
+  }, SLOW_TEST_MS);
 });
 
 describe("profileInitToBranchProfile", () => {
@@ -218,7 +221,7 @@ describe("recoverRequiredProfileSkills", () => {
     const again = recoverRequiredProfileSkills(libraryDir, target);
     expect(again.recovered).toContain("skill-creator");
     expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
-  });
+  }, SLOW_TEST_MS);
 
   it("re-enables locally disabled required skills", () => {
     const target = makeGitWorkspace("feature/recover-off");
