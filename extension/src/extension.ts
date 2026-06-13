@@ -104,6 +104,8 @@ import {
   installCostControlHooks,
   installOfficialSkillsSessionHook,
 } from "./hookOps";
+import { syncCliConfigToWorkspace } from "./cliConfig";
+import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
 import { localDateKey } from "./localDate";
 import * as crypto from "node:crypto";
 import {
@@ -681,6 +683,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       scheduleHighUsageSkillProposalCheck(target);
+      syncCliConfigToWorkspace(target, libraryDir);
       const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
       if (sessionApply.applied && sessionApply.result && sessionApply.request) {
         const { result, request } = sessionApply;
@@ -1586,6 +1589,27 @@ export function activate(context: vscode.ExtensionContext) {
         saveBranchProfile: false,
       });
       refreshAll();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.prepareForClaudeCli", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      try {
+        const result = await prepareForClaudeCli(context.extensionPath, libraryDir, target);
+        outputChannel.show(true);
+        const summary = formatPrepareClaudeCliSummary(result);
+        log(`\n=== Prepare for Claude CLI ===\n${summary}`);
+        vscode.window.showInformationMessage(
+          "Claude Skills: workspace ready for Claude CLI — you can close the IDE and use `claude` in the terminal."
+        );
+        refreshAll();
+      } catch (err) {
+        recordError();
+        vscode.window.showWarningMessage(`Claude Skills: prepare for Claude CLI failed — ${(err as Error).message}`);
+      }
     }),
 
     vscode.commands.registerCommand("claudeSkills.applyLocalProfile", async () => {

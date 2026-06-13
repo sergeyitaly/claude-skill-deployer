@@ -54,7 +54,7 @@ Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-
 
 | Surface | Best for |
 |---|---|
-| **CLI** (`generate_skills.py`) | Scripts, CI, any editor, no VS Code install |
+| **CLI** (`generate_skills.py`) | Scripts, CI, **Claude CLI**, headless apply/sync — no VS Code |
 | **VS Code extension** ([`extension/`](extension/)) | Activity-bar UI, budget controls, cost intelligence, branch profiles, multi-agent sync |
 
 ## Quick start (extension)
@@ -91,6 +91,56 @@ py generate_skills.py cost-report --target .
 py generate_skills.py cost-report --weekly
 py record_feedback.py <skill-name> --signal "no" --context "what went wrong"
 ```
+
+### Headless apply/sync (Claude CLI — no VS Code required)
+
+Use the IDE extension **once** to bootstrap, then work only in **`claude` CLI**:
+
+**In Cursor / Kiro / VS Code:** Command Palette → **Claude Skills: Prepare for Claude CLI (headless)**
+
+Or from the repo CLI:
+
+```bash
+# One-time per repo: copy hooks + register SessionStart / PostToolUse in .claude/settings.json
+py generate_skills.py hooks install --target .
+
+# Optional: budget/session/focus hooks too
+py generate_skills.py hooks install --target . --full
+
+# After profile-init or SessionStart hook writes request files:
+py generate_skills.py apply-session --target .   # session-skill-apply-request.json
+py generate_skills.py apply-profile --target .   # profile.local.json (agent pending → applied)
+py generate_skills.py sync-branch --target .     # saved branch profile on git switch
+py generate_skills.py sync-agents --target .     # mirror to .cursor/, .kiro/, .github/instructions/
+
+# All of the above in one shot:
+py generate_skills.py sync --target .
+```
+
+**Automatic session apply:** the SessionStart hook runs `session-apply.js` inline (no VS Code). Install hooks once with `hooks install`.
+
+**Git branch switch** (optional `.git/hooks/post-checkout`):
+
+```bash
+py generate_skills.py sync-branch --target "$(git rev-parse --show-toplevel)"
+```
+
+**CLI feature toggles** — optional `.claude/learning/cli-config.json` (mirrors extension defaults when absent):
+
+```json
+{
+  "features": {
+    "sessionSkillAdaptation": true,
+    "branchProfiles": true,
+    "multiAgent": true
+  },
+  "agents": {
+    "enabled": ["claude", "cursor", "kiro", "copilot"]
+  }
+}
+```
+
+Text-only cost reports: `py generate_skills.py cost-report` (no webview dashboard).
 
 ## Feature toggles (extension)
 

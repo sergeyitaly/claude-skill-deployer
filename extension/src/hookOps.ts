@@ -172,6 +172,8 @@ const ALL_HOOK_FILES = [
   OFFICIAL_SKILLS_HOOK_FILENAME,
   PROFILE_INIT_HOOK_FILENAME,
   HOOK_HELPER_FILENAME,
+  "session-apply.js",
+  "branch-sync.js",
 ];
 
 function copyHookFiles(extensionPath: string, hooksDir: string): void {

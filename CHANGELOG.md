@@ -2,9 +2,23 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.25** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.26** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.26] - 2026-06-13
+
+### Added
+
+- **Headless Claude CLI apply/sync** — `skills_sync.py` + `generate_skills.py` subcommands: `apply-session`, `apply-profile`, `sync-branch`, `sync-agents`, `sync`, and `hooks install` (works without VS Code running).
+- **`session-apply.js` hook** — SessionStart auto-installs/enables proposed skills from profile and task proposals (no extension process required).
+- **`branch-sync.js` + git post-checkout hook** — applies saved branch skill profiles on `git checkout` when using Claude CLI only.
+- **`cli-config.json` sync** — extension writes `.claude/learning/cli-config.json` from feature toggles so CLI/hooks match IDE settings when the IDE is closed.
+- **Prepare for Claude CLI** command — one-click setup: global library, workspace skills, cost/profile hooks, CLI config, and git branch hook.
+
+### Changed
+
+- Extension `refreshAll` keeps `cli-config.json` in sync with current feature toggles and enabled agents.
 
 ## [1.0.25] - 2026-06-13
 

@@ -44,7 +44,25 @@ Missing Claude data shows empty sections or informational messages — the exten
 
 **Cursor-only:** Settings → `claudeSkills.agents.enabled` → `["cursor"]` to skip Claude path installs. Workspace skills still live under `.claude/skills/` (git-tracked source of truth) and mirror to `.cursor/skills/`.
 
-## Features
+## Claude CLI (terminal) without VS Code
+
+Set up once with the IDE extension, then work only in **`claude` CLI**:
+
+**Command Palette → Claude Skills: Prepare for Claude CLI (headless)**
+
+That runs: global library install, relevant workspace skills, cost + profile-init hooks, `cli-config.json`, and a git `post-checkout` hook for branch profiles.
+
+After that you can close the IDE. SessionStart hooks run `session-apply.js` automatically.
+
+Manual CLI equivalent (from repo root):
+
+```bash
+py generate_skills.py hooks install --target .
+py generate_skills.py sync --target .
+```
+
+See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-required) for all subcommands and `cli-config.json`.
+
 
 - **Activity bar view ("Claude Skills")** — lists every skill in the bundled
   library with its status for the current workspace:

@@ -201,6 +201,19 @@ function main() {
   const resolved = resolveSkillsToEnable(cwd);
   writeSessionApplyRequest(cwd, input, platform, resolved);
 
+  try {
+    const applyScript = path.join(cwd, ".claude", "hooks", "session-apply.js");
+    if (fs.existsSync(applyScript)) {
+      require("child_process").spawnSync(process.execPath, [applyScript, cwd], {
+        cwd,
+        stdio: "ignore",
+        timeout: 60000,
+      });
+    }
+  } catch {
+    // Non-fatal — extension or CLI can apply later
+  }
+
   if (profileInitComplete(cwd)) {
     return;
   }

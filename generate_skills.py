@@ -7,6 +7,12 @@ Usage:
   python generate_skills.py generate [--target PATH] [--all] [--force] [--dry-run]
   python generate_skills.py list [--target PATH]
   python generate_skills.py setup-task [--target PATH] [--force]
+  python generate_skills.py apply-session [--target PATH]
+  python generate_skills.py apply-profile [--target PATH]
+  python generate_skills.py sync-branch [--target PATH]
+  python generate_skills.py sync-agents [--target PATH] [--agents claude,cursor]
+  python generate_skills.py sync [--target PATH]
+  python generate_skills.py hooks install [--target PATH] [--full]
 """
 
 import argparse
@@ -21,10 +27,20 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 LIBRARY_DIR = SCRIPT_DIR / "skills_library"
 MANIFEST_PATH = LIBRARY_DIR / "manifest.json"
 GLOBAL_SKILLS_DIR = Path.home() / ".claude" / "skills"
+HOOKS_SOURCE = SCRIPT_DIR / "extension" / "resources" / "hooks"
 
 from cost_utils import print_cost_summary, should_skip_expensive_skill, TIER_SESSION_TOKENS, parse_tier  # noqa: E402
 from record_runs import record_skill_run  # noqa: E402
 from cost_intelligence import print_cost_report, weekly_summary_from_runs  # noqa: E402
+from skills_sync import (  # noqa: E402
+    apply_local_profile,
+    enabled_agents,
+    install_hooks,
+    process_session_apply,
+    run_sync,
+    sync_branch_profile,
+    sync_workspace_agents,
+)
 
 EXCLUDE_DIRS = {".git", "node_modules", ".terraform", "__pycache__", ".venv"}
 
@@ -231,6 +247,109 @@ def cmd_setup_task(args) -> int:
     return 0
 
 
+def _print_apply_result(label: str, payload: dict) -> None:
+    if payload.get("applied"):
+        result = payload.get("result") or {}
+        installed = result.get("installed") or []
+        overrides = result.get("overrides_applied", 0)
+        print(f"{label}: applied — installed {len(installed)} skill(s), overrides {overrides}")
+        for skill in installed:
+            print(f"  + {skill}")
+        skipped = result.get("skipped") or []
+        for skill in skipped:
+            print(f"  ? skipped {skill}")
+    else:
+        print(f"{label}: {payload.get('reason', 'no changes')}")
+
+
+def cmd_apply_session(args) -> int:
+    target = args.target.resolve()
+    payload = process_session_apply(LIBRARY_DIR, target)
+    _print_apply_result("apply-session", payload)
+    return 0
+
+
+def cmd_apply_profile(args) -> int:
+    target = args.target.resolve()
+    payload = apply_local_profile(LIBRARY_DIR, target)
+    if payload.get("applied"):
+        _print_apply_result("apply-profile", payload)
+        invalid = payload.get("invalid") or []
+        for skill in invalid:
+            print(f"  ! invalid (not in catalog): {skill}")
+    else:
+        print(f"apply-profile: {payload.get('reason', 'no changes')}")
+    return 0
+
+
+def cmd_sync_branch(args) -> int:
+    target = args.target.resolve()
+    payload = sync_branch_profile(LIBRARY_DIR, target)
+    if payload.get("applied"):
+        _print_apply_result(f"sync-branch ({payload.get('branch')})", payload)
+    else:
+        print(f"sync-branch: {payload.get('reason', 'no changes')}")
+    return 0
+
+
+def cmd_sync_agents(args) -> int:
+    target = args.target.resolve()
+    agent_ids = None
+    if args.agents:
+        agent_ids = [a.strip() for a in args.agents.split(",") if a.strip()]
+    results = sync_workspace_agents(LIBRARY_DIR, target, agent_ids)
+    if not results:
+        print("sync-agents: nothing to sync (multiAgent off or no enabled agents)")
+        return 0
+    for row in results:
+        print(f"{row.get('agent')}/{row.get('skill')}: {row.get('status')}")
+    return 0
+
+
+def cmd_sync(args) -> int:
+    target = args.target.resolve()
+    summary = run_sync(LIBRARY_DIR, target)
+    print("sync: session")
+    _print_apply_result("  session", summary["session"])
+    print("sync: profile")
+    _print_apply_result("  profile", summary["profile"])
+    print("sync: branch")
+    if summary["branch"].get("applied"):
+        _print_apply_result(f"  branch ({summary['branch'].get('branch')})", summary["branch"])
+    else:
+        print(f"  branch: {summary['branch'].get('reason', 'no changes')}")
+    agent_rows = summary.get("agents") or []
+    print(f"sync: agents ({len(agent_rows)} operation(s))")
+    for row in agent_rows[:20]:
+        print(f"  {row.get('agent')}/{row.get('skill')}: {row.get('status')}")
+    if len(agent_rows) > 20:
+        print(f"  ... and {len(agent_rows) - 20} more")
+    return 0
+
+
+def cmd_hooks_install(args) -> int:
+    target = args.target.resolve()
+    if not HOOKS_SOURCE.is_dir():
+        print(f"ERROR: hook scripts not found at {HOOKS_SOURCE}")
+        print("Run from the claude-skills-deployer repo root, or copy .claude/hooks/ manually.")
+        return 1
+    result = install_hooks(
+        target,
+        HOOKS_SOURCE,
+        full=args.full,
+        library_dir=LIBRARY_DIR,
+        git_branch_hook=args.git_branch_hook,
+    )
+    print(f"hooks install: copied {len(result['copied'])} file(s) to .claude/hooks/")
+    if result.get("settings_updated"):
+        print("hooks install: updated .claude/settings.json")
+    for note in result.get("agent_hooks") or []:
+        print(f"hooks install: {note}")
+    if result.get("git_branch_hook"):
+        print("hooks install: git post-checkout branch-sync hook installed")
+    return 0
+
+
 # --- argparse setup ------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -271,6 +390,61 @@ def build_parser() -> argparse.ArgumentParser:
     p_cost.add_argument("--target", type=Path, default=Path.cwd())
     p_cost.add_argument("--weekly", action="store_true", help="Include week-over-week summary")
     p_cost.set_defaults(func=cmd_cost_report)
+
+    p_apply_session = sub.add_parser(
+        "apply-session",
+        help="Process session-skill-apply-request.json (SessionStart hook output)",
+    )
+    p_apply_session.add_argument("--target", type=Path, default=Path.cwd())
+    p_apply_session.set_defaults(func=cmd_apply_session)
+
+    p_apply_profile = sub.add_parser(
+        "apply-profile",
+        help="Install skills from pending .claude/profile.local.json",
+    )
+    p_apply_profile.add_argument("--target", type=Path, default=Path.cwd())
+    p_apply_profile.set_defaults(func=cmd_apply_profile)
+
+    p_sync_branch = sub.add_parser(
+        "sync-branch",
+        help="Apply saved branch skill profile for the current git branch",
+    )
+    p_sync_branch.add_argument("--target", type=Path, default=Path.cwd())
+    p_sync_branch.set_defaults(func=cmd_sync_branch)
+
+    p_sync_agents = sub.add_parser(
+        "sync-agents",
+        help="Mirror effective .claude/skills set to Cursor/Kiro/Copilot paths",
+    )
+    p_sync_agents.add_argument("--target", type=Path, default=Path.cwd())
+    p_sync_agents.add_argument(
+        "--agents",
+        help="Comma-separated agent ids (default: from cli-config or all except claude)",
+    )
+    p_sync_agents.set_defaults(func=cmd_sync_agents)
+
+    p_sync = sub.add_parser(
+        "sync",
+        help="Run apply-session, apply-profile, sync-branch, and sync-agents in order",
+    )
+    p_sync.add_argument("--target", type=Path, default=Path.cwd())
+    p_sync.set_defaults(func=cmd_sync)
+
+    p_hooks = sub.add_parser("hooks", help="Install Claude Code / agent session hooks")
+    hooks_sub = p_hooks.add_subparsers(dest="hooks_command", required=True)
+    p_hooks_install = hooks_sub.add_parser("install", help="Copy hook scripts and register in .claude/settings.json")
+    p_hooks_install.add_argument("--target", type=Path, default=Path.cwd())
+    p_hooks_install.add_argument(
+        "--full",
+        action="store_true",
+        help="Also install budget/session/focus UserPromptSubmit hooks and official-skills SessionStart",
+    )
+    p_hooks_install.add_argument(
+        "--git-branch-hook",
+        action="store_true",
+        help="Install git post-checkout hook to run branch-sync.js on branch switch",
+    )
+    p_hooks_install.set_defaults(func=cmd_hooks_install)
 
     return parser
 

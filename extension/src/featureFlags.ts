@@ -19,7 +19,7 @@ export type FeatureKey =
   | "practicalFocus"
   | "sessionSkillAdaptation";
 
-const DEFAULTS: Record<FeatureKey, boolean> = {
+export const DEFAULTS: Record<FeatureKey, boolean> = {
   budgetControls: true,
   branchProfiles: true,
   multiAgent: true,
