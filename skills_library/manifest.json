@@ -121,7 +121,7 @@
       "cost_estimate": "medium"
     },
     "claude-api": {
-      "description": "Reference for the Claude API / Anthropic SDK - model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, migration",
+      "description": "Reference for the Claude API and Anthropic SDK (models, pricing, streaming, tool use, MCP, agents, caching, migration)",
       "detect_globs": ["**/*"],
       "cost_estimate": "medium"
     },

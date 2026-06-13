@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 
 import { CostEstimateTier } from "./skillCost";
 import { parseSkillFrontmatter } from "./skillLint";
+import { copyFileWithRetry } from "./fileWriteCoordination";
 
 export interface SkillRule {
   description: string;
@@ -337,7 +338,7 @@ function copyRecursive(src: string, dest: string) {
     }
   } else {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
+    copyFileWithRetry(src, dest);
   }
 }
 

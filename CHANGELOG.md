@@ -2,9 +2,22 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.23** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.24** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.24] - 2026-06-13
+
+### Fixed
+
+- **Windows EBUSY on hook copy** — hook and skill file copies retry with backoff and skip unchanged files, avoiding `resource busy or locked` failures when Kiro/Cursor agents hold `skill-invoke-watch.js` open during install.
+- **Install survives hook lock** — `installSkillToWorkspace` completes with a warning if post-install hook sync fails instead of aborting the command.
+- **Quieter startup sync** — debounce routine workspace propagate on activate; only run multi-agent mirror sync when mirrors are missing or stale; log propagation only when files are actually written.
+- **`claude-api` lint warning** — move long TRIGGER/SKIP rules from frontmatter into the skill body so description stays under the 500-char lint cap.
+
+### Changed
+
+- **`claude-api` skill** — shorter frontmatter description; trigger/skip guidance in a **When to use** section in the body.
 
 ## [1.0.23] - 2026-06-13
 

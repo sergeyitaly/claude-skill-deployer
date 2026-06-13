@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeJsonAtomic, acquireWriteLock, releaseWriteLock } from "./fileWriteCoordination";
+import { writeJsonAtomic, acquireWriteLock, releaseWriteLock, copyFileWithRetry } from "./fileWriteCoordination";
 
 const workspaces: string[] = [];
 
@@ -28,5 +28,19 @@ describe("fileWriteCoordination", () => {
     writeJsonAtomic(file, { ok: true });
     releaseWriteLock(target, "test.json", "extension");
     expect(JSON.parse(fs.readFileSync(file, "utf-8"))).toEqual({ ok: true });
+  });
+
+  it("copyFileWithRetry skips unchanged files and overwrites when content differs", () => {
+    const target = makeWorkspace();
+    const src = path.join(target, "src.txt");
+    const dest = path.join(target, "dest.txt");
+    fs.writeFileSync(src, "hello", "utf-8");
+    fs.writeFileSync(dest, "hello", "utf-8");
+    copyFileWithRetry(src, dest);
+    expect(fs.readFileSync(dest, "utf-8")).toBe("hello");
+
+    fs.writeFileSync(src, "updated", "utf-8");
+    copyFileWithRetry(src, dest);
+    expect(fs.readFileSync(dest, "utf-8")).toBe("updated");
   });
 });

@@ -573,6 +573,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
           saveBranchProfile: true,
+          forceAgentSync: true,
         });
       }
       refreshAll();
@@ -748,7 +749,7 @@ export function activate(context: vscode.ExtensionContext) {
     startSkillSetResolverScheduler(context, getWorkspaceTarget, libraryDir, log, refreshAll, () => {
       const target = getWorkspaceTarget();
       if (target) {
-        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       }
     });
   }
@@ -869,7 +870,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${installed} skill(s) for this workspace -- see "Claude Skills" output for details.`
       );
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
     }),
 
@@ -902,7 +903,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${installed} skill(s) (full library) -- see "Claude Skills" output for details.`
       );
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
     }),
 
@@ -989,7 +990,15 @@ export function activate(context: vscode.ExtensionContext) {
         log(`${skillName}: ${status} (from ${sourceRoot})`);
         vscode.window.showInformationMessage(`Claude Skills: ${skillName} -> ${status}`);
       }
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      try {
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`Workspace sync warning (hooks/mirrors): ${msg}`);
+        vscode.window.showWarningMessage(
+          `Claude Skills: ${skillName} installed, but hook sync hit a file lock. Reload the window and retry if needed.`
+        );
+      }
       refreshAll();
     }),
 
@@ -1000,7 +1009,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       setSkillOverride(target, item.status.name, "off");
       log(`${item.status.name}: disabled locally (.claude/settings.local.json) - shared .claude/skills/ unchanged`);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
     }),
 
@@ -1012,7 +1021,7 @@ export function activate(context: vscode.ExtensionContext) {
       setSkillOverride(target, item.status.name, undefined);
       clearBudgetTrackingForSkill(target, item.status.name);
       log(`${item.status.name}: re-enabled locally (removed override from .claude/settings.local.json)`);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
     }),
 
@@ -1170,6 +1179,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (upgraded.length > 0) {
         propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
           saveBranchProfile: true,
+          forceAgentSync: true,
         });
         refreshAll();
         vscode.window.showInformationMessage(
@@ -1502,7 +1512,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: no team profile entry for this branch.");
         return;
       }
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
       vscode.window.showInformationMessage(
         `Claude Skills: applied team profile (+${result.installed.length}, -${result.removed.length}).`
@@ -1579,7 +1589,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
         return;
       }
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
       outputChannel.show(true);
       log(
@@ -1614,7 +1624,7 @@ export function activate(context: vscode.ExtensionContext) {
       log(`Installed: ${result.installed.join(", ") || "(none)"}`);
       log(`Removed: ${result.removed.join(", ") || "(none)"}`);
       log(`Overrides applied: ${result.overridesApplied}`);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
       vscode.window.showInformationMessage(
         `Claude Skills: applied "${branch}" profile (+${result.installed.length}, -${result.removed.length}).`
@@ -2042,7 +2052,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (result.archived.length > 0) {
         log(`Archived: ${result.archived.join(", ")}`);
       }
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
       vscode.window.showInformationMessage(
         `Claude Skills: installed ${result.installed.length}, removed ${result.removed.length}, archived ${result.archived.length}.`
@@ -2112,7 +2122,7 @@ export function activate(context: vscode.ExtensionContext) {
   const debouncedAgentSync = debounce(() => {
     const target = getWorkspaceTarget();
     if (target) {
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
     }
   }, 1500);
 

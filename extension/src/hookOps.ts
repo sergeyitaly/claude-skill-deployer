@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AgentId, enabledAgents, loadAgentsManifest } from "./agentOps";
+import { copyFileWithRetry } from "./fileWriteCoordination";
 import { ensureLearningDir } from "./usageStats";
 
 const SESSION_HOOK_FILENAME = "session-size-watch.js";
@@ -170,14 +171,14 @@ function copyHookFiles(extensionPath: string, hooksDir: string): void {
   const hooksSource = path.join(extensionPath, "resources", "hooks");
   fs.mkdirSync(hooksDir, { recursive: true });
   for (const name of ALL_HOOK_FILES) {
-    fs.copyFileSync(path.join(hooksSource, name), path.join(hooksDir, name));
+    copyFileWithRetry(path.join(hooksSource, name), path.join(hooksDir, name));
   }
 }
 
 function copyAttributionHookScript(extensionPath: string, hooksDir: string): void {
   const hooksSource = path.join(extensionPath, "resources", "hooks", SKILL_INVOKE_HOOK_FILENAME);
   fs.mkdirSync(hooksDir, { recursive: true });
-  fs.copyFileSync(hooksSource, path.join(hooksDir, SKILL_INVOKE_HOOK_FILENAME));
+  copyFileWithRetry(hooksSource, path.join(hooksDir, SKILL_INVOKE_HOOK_FILENAME));
 }
 
 function hasPostToolHook(settings: Settings, filename: string): boolean {

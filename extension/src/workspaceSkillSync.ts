@@ -24,6 +24,36 @@ export interface WorkspaceSkillSyncResult {
   hooksStatus?: HookInstallStatus | "refreshed";
 }
 
+const PROPAGATE_DEBOUNCE_MS = 500;
+let propagateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingPropagate: {
+  extensionPath: string;
+  target: string;
+  libraryDir: string;
+  log: (line: string) => void;
+  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean };
+} | undefined;
+
+/** Flush debounced workspace sync (for tests). */
+export function flushDebouncedWorkspaceSkillSync(): WorkspaceSkillSyncResult | undefined {
+  if (!pendingPropagate) {
+    return undefined;
+  }
+  const pending = pendingPropagate;
+  pendingPropagate = undefined;
+  if (propagateDebounceTimer) {
+    clearTimeout(propagateDebounceTimer);
+    propagateDebounceTimer = undefined;
+  }
+  return propagateWorkspaceSkillChangeInternal(
+    pending.extensionPath,
+    pending.target,
+    pending.libraryDir,
+    pending.log,
+    pending.opts
+  );
+}
+
 function syncHooksOnSkillChangeEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncHooksOnSkillChange", true);
 }
@@ -57,10 +87,31 @@ export function propagateWorkspaceSkillChange(
   log: (line: string) => void,
   opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean }
 ): WorkspaceSkillSyncResult {
-  const result: WorkspaceSkillSyncResult = { agentPathsUpdated: 0 };
   if (!target) {
-    return result;
+    return { agentPathsUpdated: 0 };
   }
+  if (opts?.forceAgentSync) {
+    return propagateWorkspaceSkillChangeInternal(extensionPath, target, libraryDir, log, opts);
+  }
+  pendingPropagate = { extensionPath, target, libraryDir, log, opts };
+  if (propagateDebounceTimer) {
+    clearTimeout(propagateDebounceTimer);
+  }
+  propagateDebounceTimer = setTimeout(() => {
+    propagateDebounceTimer = undefined;
+    flushDebouncedWorkspaceSkillSync();
+  }, PROPAGATE_DEBOUNCE_MS);
+  return { agentPathsUpdated: 0 };
+}
+
+function propagateWorkspaceSkillChangeInternal(
+  extensionPath: string,
+  target: string,
+  libraryDir: string,
+  log: (line: string) => void,
+  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean }
+): WorkspaceSkillSyncResult {
+  const result: WorkspaceSkillSyncResult = { agentPathsUpdated: 0 };
 
   if (opts?.saveBranchProfile !== false) {
     saveBranchProfile(target, libraryDir);
@@ -97,11 +148,12 @@ export function propagateWorkspaceSkillChange(
 
   const lintOk = lintOnSync(target, log);
   const catchUpMirrors = agentMirrorsNeedSync(target, libraryDir);
-  if (shouldSyncWorkspaceToAll() && (lintOk || catchUpMirrors || opts?.forceAgentSync)) {
+  if (shouldSyncWorkspaceToAll() && (catchUpMirrors || opts?.forceAgentSync)) {
     const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: opts?.forceAgentSync });
-    result.agentPathsUpdated = synced.length;
-    if (synced.length > 0) {
-      log(`Propagated workspace skills to ${synced.length} other agent path(s) (cursor/kiro/copilot).`);
+    const changed = synced.filter((r) => r.status === "installed" || r.status === "written");
+    result.agentPathsUpdated = changed.length;
+    if (changed.length > 0) {
+      log(`Propagated workspace skills to ${changed.length} other agent path(s) (cursor/kiro/copilot).`);
     }
     if (catchUpMirrors && !lintOk) {
       for (const gap of missingAgentMirrorSkills(target, libraryDir)) {

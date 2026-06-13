@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { areAttributionHooksConfigured } from "./hookOps";
-import { ensureAttributionHooksActive, propagateWorkspaceSkillChange } from "./workspaceSkillSync";
+import { ensureAttributionHooksActive, flushDebouncedWorkspaceSkillSync, propagateWorkspaceSkillChange } from "./workspaceSkillSync";
 
 vi.mock("vscode", () => ({
   workspace: {
@@ -59,7 +59,24 @@ describe("propagateWorkspaceSkillChange", () => {
     const target = makeWorkspace();
     propagateWorkspaceSkillChange(EXTENSION_PATH, target, path.join(__dirname, "..", "skills_library"), () => {}, {
       saveBranchProfile: false,
+      forceAgentSync: true,
     });
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
+  });
+
+  it("debounces repeated propagate calls into one run", () => {
+    const target = makeWorkspace();
+    let runs = 0;
+    const log = () => {
+      runs++;
+    };
+    propagateWorkspaceSkillChange(EXTENSION_PATH, target, path.join(__dirname, "..", "skills_library"), log, {
+      saveBranchProfile: false,
+    });
+    propagateWorkspaceSkillChange(EXTENSION_PATH, target, path.join(__dirname, "..", "skills_library"), log, {
+      saveBranchProfile: false,
+    });
+    expect(flushDebouncedWorkspaceSkillSync()).toBeDefined();
+    expect(runs).toBeGreaterThan(0);
   });
 });

@@ -47,7 +47,84 @@ export function writeJsonAtomic(filePath: string, data: unknown): void {
     `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
   );
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf-8");
-  fs.renameSync(tmp, filePath);
+  renameWithRetry(tmp, filePath);
+}
+
+const RETRYABLE_FS_CODES = new Set(["EBUSY", "EPERM", "EACCES", "ENOTEMPTY"]);
+
+function sleepSync(ms: number): void {
+  if (ms <= 0) {
+    return;
+  }
+  const sab = new SharedArrayBuffer(4);
+  const arr = new Int32Array(sab);
+  Atomics.wait(arr, 0, 0, ms);
+}
+
+function renameWithRetry(src: string, dest: string, maxAttempts = 8): void {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      fs.renameSync(src, dest);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= maxAttempts || !code || !RETRYABLE_FS_CODES.has(code)) {
+        throw err;
+      }
+      sleepSync(40 * attempt);
+    }
+  }
+}
+
+function fileContentsEqual(a: string, b: string): boolean {
+  try {
+    if (!fs.existsSync(a) || !fs.existsSync(b)) {
+      return false;
+    }
+    const sa = fs.statSync(a);
+    const sb = fs.statSync(b);
+    if (sa.size !== sb.size) {
+      return false;
+    }
+    return fs.readFileSync(a).equals(fs.readFileSync(b));
+  } catch {
+    return false;
+  }
+}
+
+/** Copy with temp-file replace and retries — avoids Windows EBUSY when hooks are in use. */
+export function copyFileWithRetry(
+  src: string,
+  dest: string,
+  opts?: { maxAttempts?: number; skipIfUnchanged?: boolean }
+): void {
+  if (opts?.skipIfUnchanged !== false && fileContentsEqual(src, dest)) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const maxAttempts = opts?.maxAttempts ?? 8;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const tmp = path.join(
+      path.dirname(dest),
+      `.${path.basename(dest)}.tmp-${process.pid}-${Date.now()}`
+    );
+    try {
+      fs.copyFileSync(src, tmp);
+      renameWithRetry(tmp, dest, maxAttempts);
+      return;
+    } catch (err) {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        // ignore cleanup failure
+      }
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= maxAttempts || !code || !RETRYABLE_FS_CODES.has(code)) {
+        throw err;
+      }
+      sleepSync(50 * attempt);
+    }
+  }
 }
 
 export function readJsonFile<T>(filePath: string): T | undefined {

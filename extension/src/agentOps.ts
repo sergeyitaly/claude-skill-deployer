@@ -369,7 +369,35 @@ export function missingAgentMirrorSkills(target: string, libraryDir: string): Ag
 }
 
 export function agentMirrorsNeedSync(target: string, libraryDir: string): boolean {
-  return missingAgentMirrorSkills(target, libraryDir).length > 0;
+  if (missingAgentMirrorSkills(target, libraryDir).length > 0) {
+    return true;
+  }
+  return hasStaleAgentMirrorSkills(target, libraryDir);
+}
+
+/** Agent mirrors present for skills the user has disabled or removed from the effective set. */
+export function hasStaleAgentMirrorSkills(target: string, libraryDir: string): boolean {
+  if (!shouldSyncWorkspaceToAll()) {
+    return false;
+  }
+  const effective = new Set(listEffectiveEnabledSkills(target));
+  const agentsManifest = loadAgentsManifest(libraryDir);
+
+  for (const agentId of enabledAgents(libraryDir)) {
+    if (agentId === "claude") {
+      continue;
+    }
+    const agent = agentsManifest.agents[agentId];
+    if (!agent.supportsWorkspace) {
+      continue;
+    }
+    for (const skillName of listAgentWorkspaceSkills(target, agent)) {
+      if (!effective.has(skillName)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function resolveWorkspaceSkillSource(
