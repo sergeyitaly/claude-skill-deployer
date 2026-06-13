@@ -1,0 +1,107 @@
+# Publish Claude Skills Manager to VS Marketplace and/or Open VSX.
+# Open VSX is used by Cursor and Kiro IDE extension galleries (https://open-vsx.org).
+#
+# Secrets (repository settings):
+#   VSCE_PAT  — Visual Studio Marketplace personal access token
+#   OVSX_PAT  — Open VSX personal access token (https://open-vsx.org)
+#
+# First-time Open VSX: create namespace "serhiivoinolovych" and link this GitHub repo.
+
+name: Publish Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_target:
+        description: Registry target
+        required: true
+        default: both
+        type: choice
+        options:
+          - dry-run
+          - marketplace
+          - open-vsx
+          - both
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: publish-extension-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: List VSIX artifact
+        run: ls -la *.vsix
+
+      - name: Dry run (package only)
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.publish_target == 'dry-run'
+        run: echo "Dry run — VSIX packaged; no registry upload."
+
+      - name: Publish to Visual Studio Marketplace
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+          (github.event_name == 'workflow_dispatch' &&
+            (github.event.inputs.publish_target == 'marketplace' ||
+              github.event.inputs.publish_target == 'both'))
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT secret is not set — skip or add it in repository secrets."
+            exit 1
+          fi
+          npx @vscode/vsce publish -p "$VSCE_PAT"
+
+      - name: Publish to Open VSX (Cursor + Kiro)
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+          (github.event_name == 'workflow_dispatch' &&
+            (github.event.inputs.publish_target == 'open-vsx' ||
+              github.event.inputs.publish_target == 'both'))
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "OVSX_PAT secret is not set — skip or add it in repository secrets."
+            exit 1
+          fi
+          VSIX=$(node -p "const p=require('./package.json'); \`\${p.name}-\${p.version}.vsix\`")
+          if [ ! -f "$VSIX" ]; then
+            echo "Expected $VSIX not found"
+            exit 1
+          fi
+          npx ovsx publish "$VSIX" -p "$OVSX_PAT"
+
+      - name: Upload VSIX artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-skills-manager-vsix
+          path: extension/*.vsix
+          if-no-files-found: ignore

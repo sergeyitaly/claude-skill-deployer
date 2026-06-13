@@ -21,3 +21,5 @@ flowchart TD
   Save --> Sync
   Sync --> End
 ```
+
+← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Diagram index](README.md)

@@ -6,6 +6,10 @@ Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.20** is the cu
 
 ## [Unreleased]
 
+### Distribution
+
+- **Open VSX publishing** — `npm run publish:openvsx`, GitHub Actions workflow `Publish Extension`, and [extension/PUBLISHING.md](extension/PUBLISHING.md). Covers **Cursor** and **Kiro IDE** (both use [Open VSX](https://open-vsx.org/) as their extension gallery). Registry map: [diagram/00-extension-registries.md](diagram/00-extension-registries.md).
+
 ## [1.0.20] - 2026-06-13
 
 ### Skill feedback adaptation

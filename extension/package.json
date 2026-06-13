@@ -1090,7 +1090,9 @@
           },
           "claudeSkills.skillSetResolver.protectedSkills": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": [
               "self-learning",
               "skill-usage-insights",
@@ -1353,12 +1355,16 @@
     "pretest": "npm run sync-skills",
     "test": "vitest run",
     "sync-skills": "node ./scripts/sync-skills-library.js",
-    "package": "npm run sync-skills && vsce package"
+    "package": "npm run sync-skills && vsce package",
+    "publish:marketplace": "vsce publish",
+    "publish:openvsx": "node ./scripts/publish-openvsx.js",
+    "publish:all": "npm run publish:marketplace && npm run publish:openvsx"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.0",
+    "ovsx": "^0.10.12",
     "typescript": "^5.4.0",
     "vitest": "^3.2.4"
   },

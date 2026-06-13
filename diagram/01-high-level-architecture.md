@@ -77,3 +77,9 @@ flowchart TB
 | Profile init | Agent picks skills from catalog; extension always merges required platform skills |
 | Learning folder | Runs, feedback, proposals — drives usage report and optimization |
 | Hooks + transcripts | Attribute token cost and skill invocations back to specific skills |
+
+## Where the extension is installed from
+
+The same packaged extension is published to two registries — **VS Code** installs from [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer); **Cursor** and **Kiro** install from [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer). See [00-extension-registries.md](00-extension-registries.md) for the distribution map and cross-links.
+
+← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Runtime architecture](01-high-level-architecture.md) · [Diagram index](README.md)

@@ -33,3 +33,5 @@ flowchart LR
     Eff --> BP2["Branch profile uses effective set"]
   end
 ```
+
+← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Diagram index](README.md)

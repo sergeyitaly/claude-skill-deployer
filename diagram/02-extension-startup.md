@@ -37,3 +37,5 @@ sequenceDiagram
   BP->>PI: prompt profile init (if no saved profile)
   BP->>WSS: propagateWorkspaceSkillChange()
 ```
+
+← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Architecture overview](01-high-level-architecture.md) · [Diagram index](README.md)

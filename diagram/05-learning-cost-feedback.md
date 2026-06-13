@@ -34,3 +34,5 @@ flowchart TB
     Apply2 --> Install2["installSkillToAllWorkspaceAgents()"]
   end
 ```
+
+← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Diagram index](README.md)

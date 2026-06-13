@@ -38,6 +38,18 @@ Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout conve
 
 See [`extension/README.md`](extension/README.md) for the full extension guide.
 
+## Install — pick your editor’s registry
+
+Same extension, two galleries. Jump between listings:
+
+| Editor | Registry | Install |
+|--------|----------|---------|
+| **VS Code** | [Visual Studio Marketplace](https://marketplace.visualstudio.com/) | [**Claude Skills Manager**](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) · also on [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| **Cursor** | [Open VSX](https://open-vsx.org/) | [**Claude Skills Manager**](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) · also on [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) |
+| **Kiro IDE** | [Open VSX](https://open-vsx.org/) | Same [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) ([Kiro uses Open VSX by default](https://kiro.dev/docs/editor/extension-registry/)) |
+
+Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-registries.md) · Publishing: [extension/PUBLISHING.md](extension/PUBLISHING.md)
+
 ## Two ways to use this
 
 | Surface | Best for |
@@ -47,7 +59,7 @@ See [`extension/README.md`](extension/README.md) for the full extension guide.
 
 ## Quick start (extension)
 
-1. Install **Claude Skills Manager** from the Marketplace (or a `.vsix` from `extension/`).
+1. Install **Claude Skills Manager** from the [install table above](#install--pick-your-editors-registry) (or a `.vsix` from `extension/`).
 2. Open a workspace folder.
 3. **Claude Skills** activity bar → **Install Skill Library to ~/.claude/skills** (one-time).
    With `multiAgent` on (default), this also seeds `~/.cursor/skills/`, `~/.kiro/skills/`, and Copilot global instructions when those agents are enabled.
@@ -57,6 +69,15 @@ See [`extension/README.md`](extension/README.md) for the full extension guide.
 
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
+
+## Docs & diagrams
+
+| Topic | Doc |
+|-------|-----|
+| **Install registries** (VS Marketplace ↔ [Open VSX](https://open-vsx.org/)) | [diagram/00-extension-registries.md](diagram/00-extension-registries.md) |
+| Extension user guide | [extension/README.md](extension/README.md) |
+| Publish releases | [extension/PUBLISHING.md](extension/PUBLISHING.md) |
+| Runtime architecture (Mermaid) | [diagram/README.md](diagram/README.md) |
 
 ## Quick start (CLI)
 
