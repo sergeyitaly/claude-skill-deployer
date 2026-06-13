@@ -2,11 +2,38 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-/** SHA-256 hex digest of a file's contents. */
+interface FileHashCacheEntry {
+  mtimeMs: number;
+  size: number;
+  hash: string;
+}
+
+const fileHashCache = new Map<string, FileHashCacheEntry>();
+
+export function invalidateFileHashCache(filePath?: string): void {
+  if (filePath) {
+    fileHashCache.delete(path.resolve(filePath));
+    return;
+  }
+  fileHashCache.clear();
+}
+
+/** SHA-256 hex digest of a file's contents (mtime/size cached). */
 export function fileContentHash(filePath: string): string | null {
   try {
-    const data = fs.readFileSync(filePath);
-    return crypto.createHash("sha256").update(data).digest("hex");
+    const resolved = path.resolve(filePath);
+    const st = fs.statSync(resolved);
+    const cached = fileHashCache.get(resolved);
+    if (cached && cached.size === st.size) {
+      if (cached.mtimeMs !== st.mtimeMs) {
+        fileHashCache.set(resolved, { mtimeMs: st.mtimeMs, size: st.size, hash: cached.hash });
+      }
+      return cached.hash;
+    }
+    const data = fs.readFileSync(resolved);
+    const hash = crypto.createHash("sha256").update(data).digest("hex");
+    fileHashCache.set(resolved, { mtimeMs: st.mtimeMs, size: st.size, hash });
+    return hash;
   } catch {
     return null;
   }
@@ -44,11 +71,8 @@ export function dirTreeHash(root: string): string | null {
         continue;
       }
       hash.update(rel.replace(/\\/g, "/"));
-      try {
-        hash.update(fs.readFileSync(full));
-      } catch {
-        hash.update("!missing");
-      }
+      const contentHash = fileContentHash(full);
+      hash.update(contentHash ?? "!missing");
     }
   };
 

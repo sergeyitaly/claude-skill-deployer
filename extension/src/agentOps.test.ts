@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   agentMirrorsNeedSync,
+  buildWorkspaceSyncFingerprint,
   missingAgentMirrorSkills,
   syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
@@ -65,5 +66,24 @@ describe("agent mirror sync", () => {
     syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
     const second = syncWorkspaceSkillsToAllAgents(libraryDir, target);
     expect(second).toEqual([]);
+  });
+
+  it("stable fingerprint ignores skill list order", () => {
+    const target = makeWorkspace(libraryDir);
+    syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
+    const fp1 = buildWorkspaceSyncFingerprint(target);
+    const fp2 = buildWorkspaceSyncFingerprint(target);
+    expect(fp1).toBe(fp2);
+    expect(fp1.length).toBeGreaterThan(0);
+  });
+
+  it("partial sync touches only the requested skill mirror", () => {
+    const target = makeWorkspace(libraryDir);
+    syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
+    fs.rmSync(path.join(target, ".cursor", "skills", "beta-skill"), { recursive: true, force: true });
+    expect(agentMirrorsNeedSync(target, libraryDir)).toBe(true);
+    const partial = syncWorkspaceSkillsToAllAgents(libraryDir, target, { skillNames: ["beta-skill"] });
+    expect(partial.some((r) => r.skill === "beta-skill" && r.agent === "cursor")).toBe(true);
+    expect(fs.existsSync(path.join(target, ".cursor", "skills", "beta-skill", "SKILL.md"))).toBe(true);
   });
 });

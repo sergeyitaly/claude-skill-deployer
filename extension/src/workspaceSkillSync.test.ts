@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { areAttributionHooksConfigured } from "./hookOps";
-import { ensureAttributionHooksActive, flushDebouncedWorkspaceSkillSync, propagateWorkspaceSkillChange } from "./workspaceSkillSync";
+import { ensureAttributionHooksActive, flushDebouncedWorkspaceSkillSync, propagateWorkspaceSkillChange, resetWorkspaceSyncQueueForTests } from "./workspaceSkillSync";
 
 vi.mock("vscode", () => ({
   workspace: {
@@ -37,6 +37,7 @@ function makeWorkspace(): string {
 }
 
 afterEach(() => {
+  resetWorkspaceSyncQueueForTests();
   for (const ws of workspaces) {
     fs.rmSync(ws, { recursive: true, force: true });
   }

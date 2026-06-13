@@ -72,4 +72,21 @@ describe("learningStateIndex", () => {
     readCachedEnrichedRuns(target);
     expect(countCachedV2HookRuns(target)).toBe(1);
   });
+
+  it("loads runs from snapshot on cold start", () => {
+    const target = makeWorkspace();
+    const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
+    fs.writeFileSync(
+      runsFile,
+      JSON.stringify({ ts: "2026-06-12T12:00:00Z", skill: "snap", action: "run", rc: 0 }) + "\n",
+      "utf-8"
+    );
+    readCachedEnrichedRuns(target);
+    invalidateLearningCache(target);
+
+    const fromSnapshot = readCachedEnrichedRuns(target);
+    expect(fromSnapshot).toHaveLength(1);
+    expect(fromSnapshot[0]?.skill).toBe("snap");
+    expect(fs.existsSync(path.join(target, ".claude", "learning", "runs.snapshot.json"))).toBe(true);
+  });
 });

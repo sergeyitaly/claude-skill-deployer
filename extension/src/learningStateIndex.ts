@@ -4,10 +4,22 @@ import { EnrichedRunRecord, normalizeRunRecord, SKILL_INVOKE_HOOK_SOURCE } from 
 import { invalidateTranscriptUsageCache } from "./transcriptUsageIndex";
 
 const RUNS_REL = path.join(".claude", "learning", "runs.jsonl");
+const SNAPSHOT_REL = path.join(".claude", "learning", "runs.snapshot.json");
+const SNAPSHOT_VERSION = 2;
 
 export interface RunsDerivedStats {
   v2HookRuns: number;
   v2SessionIds: Set<string>;
+}
+
+interface RunsSnapshotFile {
+  version: number;
+  lastUpdated: number;
+  sourceMtimeMs: number;
+  sourceSize: number;
+  records: EnrichedRunRecord[];
+  derived: { v2HookRuns: number; v2SessionIds: string[] };
+  partialTail: string;
 }
 
 interface CacheEntry {
@@ -38,6 +50,63 @@ function deriveRunsStats(runs: EnrichedRunRecord[]): RunsDerivedStats {
 
 function runsFile(target: string): string {
   return path.join(target, RUNS_REL);
+}
+
+function snapshotFile(target: string): string {
+  return path.join(target, SNAPSHOT_REL);
+}
+
+function writeRunsSnapshot(target: string, entry: CacheEntry): void {
+  const file = snapshotFile(target);
+  try {
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const payload: RunsSnapshotFile = {
+      version: SNAPSHOT_VERSION,
+      lastUpdated: Date.now(),
+      sourceMtimeMs: entry.mtimeMs,
+      sourceSize: entry.size,
+      records: entry.data,
+      derived: {
+        v2HookRuns: entry.derived.v2HookRuns,
+        v2SessionIds: [...entry.derived.v2SessionIds],
+      },
+      partialTail: entry.partialTail,
+    };
+    fs.writeFileSync(file, JSON.stringify(payload), "utf-8");
+  } catch {
+    // non-fatal
+  }
+}
+
+function readRunsSnapshot(target: string, fp: { mtimeMs: number; size: number }): CacheEntry | undefined {
+  const file = snapshotFile(target);
+  if (!fs.existsSync(file)) {
+    return undefined;
+  }
+  try {
+    const snap = JSON.parse(fs.readFileSync(file, "utf-8")) as RunsSnapshotFile;
+    if (snap.version !== SNAPSHOT_VERSION) {
+      return undefined;
+    }
+    if (snap.sourceMtimeMs !== fp.mtimeMs || snap.sourceSize !== fp.size) {
+      return undefined;
+    }
+    return {
+      mtimeMs: snap.sourceMtimeMs,
+      size: snap.sourceSize,
+      data: snap.records,
+      partialTail: snap.partialTail,
+      derived: {
+        v2HookRuns: snap.derived.v2HookRuns,
+        v2SessionIds: new Set(snap.derived.v2SessionIds),
+      },
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function fileFingerprint(file: string): { mtimeMs: number; size: number } {
@@ -98,13 +167,19 @@ function appendRunsFromChunk(
   return { data: records, partialTail: nextTail };
 }
 
-function loadRunsRecords(file: string, prev?: CacheEntry): { data: EnrichedRunRecord[]; partialTail: string } {
+function loadRunsRecords(file: string, prev?: CacheEntry, snapshotTarget?: string): { data: EnrichedRunRecord[]; partialTail: string } {
   const fp = fileFingerprint(file);
   if (!fs.existsSync(file)) {
     return { data: [], partialTail: "" };
   }
   if (prev && prev.mtimeMs === fp.mtimeMs && prev.size === fp.size) {
     return { data: prev.data, partialTail: prev.partialTail };
+  }
+  if (!prev && snapshotTarget) {
+    const fromSnap = readRunsSnapshot(snapshotTarget, fp);
+    if (fromSnap) {
+      return { data: fromSnap.data, partialTail: fromSnap.partialTail };
+    }
   }
   if (prev && fp.size > prev.size && fp.mtimeMs >= prev.mtimeMs) {
     const delta = fp.size - prev.size;
@@ -120,21 +195,30 @@ function loadRunsRecords(file: string, prev?: CacheEntry): { data: EnrichedRunRe
   return parseRunsFile(file);
 }
 
+function storeRunsCache(key: string, target: string, file: string, fp: { mtimeMs: number; size: number }, loaded: { data: EnrichedRunRecord[]; partialTail: string }): EnrichedRunRecord[] {
+  const entry: CacheEntry = {
+    mtimeMs: fp.mtimeMs,
+    size: fp.size,
+    data: loaded.data,
+    partialTail: loaded.partialTail,
+    derived: deriveRunsStats(loaded.data),
+  };
+  runsCache.set(key, entry);
+  writeRunsSnapshot(target, entry);
+  return loaded.data;
+}
+
 /** Cached read of runs.jsonl — invalidated when file mtime/size changes; appends on growth. */
 export function readCachedEnrichedRuns(target: string): EnrichedRunRecord[] {
   const key = path.resolve(target);
   const file = runsFile(target);
   const fp = fileFingerprint(file);
   const hit = runsCache.get(key);
-  const loaded = loadRunsRecords(file, hit);
-  runsCache.set(key, {
-    mtimeMs: fp.mtimeMs,
-    size: fp.size,
-    data: loaded.data,
-    partialTail: loaded.partialTail,
-    derived: deriveRunsStats(loaded.data),
-  });
-  return loaded.data;
+  if (hit && hit.mtimeMs === fp.mtimeMs && hit.size === fp.size) {
+    return hit.data;
+  }
+  const loaded = loadRunsRecords(file, hit, target);
+  return storeRunsCache(key, target, file, fp, loaded);
 }
 
 export function readCachedRunsDerivedStats(target: string): RunsDerivedStats {
@@ -153,7 +237,16 @@ export function sessionHasCachedV2HookRuns(target: string, sessionId: string): b
 
 export function invalidateLearningCache(target?: string): void {
   if (target) {
-    runsCache.delete(path.resolve(target));
+    const key = path.resolve(target);
+    runsCache.delete(key);
+    try {
+      const snap = snapshotFile(target);
+      if (fs.existsSync(snap)) {
+        fs.unlinkSync(snap);
+      }
+    } catch {
+      // non-fatal
+    }
     invalidateTranscriptUsageCache(target);
     return;
   }

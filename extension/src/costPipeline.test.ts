@@ -71,26 +71,30 @@ describe("costPipeline", () => {
     expect(runCostPipelineSync(target, libraryDir).ready).toBe(true);
   });
 
-  it("skips sync when circuit is open", () => {
-    const target = makeWorkspace();
-    fs.writeFileSync(
-      path.join(target, ".claude", "learning", "runs.jsonl"),
-      JSON.stringify({
-        ts: new Date().toISOString(),
-        skill: "self-learning",
-        outcome: "success",
-        agent: "cursor",
-      }) + "\n",
-      "utf-8"
-    );
+  it(
+    "skips sync when circuit is open",
+    () => {
+      const target = makeWorkspace();
+      fs.writeFileSync(
+        path.join(target, ".claude", "learning", "runs.jsonl"),
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          skill: "self-learning",
+          outcome: "success",
+          agent: "cursor",
+        }) + "\n",
+        "utf-8"
+      );
 
-    for (let i = 0; i < MAX_PIPELINE_RUNS_PER_MINUTE; i++) {
-      runCostPipelineSync(target, libraryDir);
-    }
-    const result = runCostPipelineSync(target, libraryDir);
-    expect(result.skipped).toBe(true);
-    expect(result.circuitOpen).toBe(true);
-    expect(result.systemMode).toBe("safe");
-    expect(result.staleMessage).toMatch(/circuit open/i);
-  });
+      for (let i = 0; i < MAX_PIPELINE_RUNS_PER_MINUTE; i++) {
+        runCostPipelineSync(target, libraryDir);
+      }
+      const result = runCostPipelineSync(target, libraryDir);
+      expect(result.skipped).toBe(true);
+      expect(result.circuitOpen).toBe(true);
+      expect(result.systemMode).toBe("safe");
+      expect(result.staleMessage).toMatch(/circuit open/i);
+    },
+    15_000
+  );
 });

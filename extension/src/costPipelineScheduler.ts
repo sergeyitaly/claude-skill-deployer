@@ -1,6 +1,8 @@
+import * as vscode from "vscode";
 import { runCostPipelineSync, CostPipelineResult, CostPipelineRunOptions } from "./costPipeline";
 
 const DEFAULT_DEBOUNCE_MS = 2000;
+const FOCUSED_DEBOUNCE_MS = 3500;
 
 interface PendingDebounce {
   timer: ReturnType<typeof setTimeout>;
@@ -12,6 +14,20 @@ const inflightByTarget = new Map<string, Promise<CostPipelineResult>>();
 
 function targetKey(target: string): string {
   return target.toLowerCase();
+}
+
+function resolveDebounceMs(requested?: number): number {
+  if (requested !== undefined) {
+    return requested;
+  }
+  try {
+    if (vscode.window.state.focused) {
+      return FOCUSED_DEBOUNCE_MS;
+    }
+  } catch {
+    // vscode may be unavailable in unit tests
+  }
+  return DEFAULT_DEBOUNCE_MS;
 }
 
 /** Run pipeline immediately; coalesce concurrent calls for the same workspace. */
@@ -50,9 +66,10 @@ export function cancelScheduledCostPipeline(target: string): void {
 export function scheduleCostPipelineSync(
   target: string,
   libraryDir: string,
-  debounceMs = DEFAULT_DEBOUNCE_MS
+  debounceMs?: number
 ): void {
   const key = targetKey(target);
+  const delay = resolveDebounceMs(debounceMs);
   const pending = debounceByTarget.get(key);
   if (pending) {
     clearTimeout(pending.timer);
@@ -60,7 +77,7 @@ export function scheduleCostPipelineSync(
   const timer = setTimeout(() => {
     debounceByTarget.delete(key);
     void runCostPipelineNow(target, libraryDir);
-  }, debounceMs);
+  }, delay);
   debounceByTarget.set(key, { timer, libraryDir });
 }
 

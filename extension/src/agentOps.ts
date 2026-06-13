@@ -18,12 +18,14 @@ import {
   listEffectiveEnabledSkills,
   loadManifest,
   Manifest,
+  readSkillOverrides,
   removeSkill,
   settingsLocalPath,
 } from "./skillOps";
 import { computeCreditUsageFromRoots, ModelUsage } from "./usageCost";
 import { readCachedCreditUsageFromRoots } from "./transcriptUsageIndex";
-import { dirTreeHash, fileContentHash, shouldCopyPath, stringContentHash } from "./fileHash";
+import { fileContentHash, shouldCopyPath, stringContentHash } from "./fileHash";
+import { yieldToEventLoop } from "./eventLoop";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
 
@@ -424,18 +426,33 @@ function resolveWorkspaceSkillSource(
 
 const lastSyncFingerprint = new Map<string, string>();
 
-function workspaceSyncFingerprint(target: string): string {
-  const effective = [...listEffectiveEnabledSkills(target)].sort();
+/** Stable structural fingerprint — sorted skills, overrides, and SKILL.md content hashes only. */
+export function buildWorkspaceSyncFingerprint(target: string): string {
+  const skills = [...listEffectiveEnabledSkills(target)].sort();
+  const rawOverrides = readSkillOverrides(target);
+  const overrides: Record<string, string> = {};
+  for (const key of Object.keys(rawOverrides).sort()) {
+    overrides[key] = rawOverrides[key];
+  }
+  const versions: Record<string, string> = {};
   const claudeDir = path.join(target, ".claude", "skills");
-  const parts: string[] = [effective.join(",")];
-  for (const name of effective) {
-    parts.push(`${name}:${dirTreeHash(path.join(claudeDir, name)) ?? "missing"}`);
+  for (const name of skills) {
+    const skillMd = path.join(claudeDir, name, "SKILL.md");
+    versions[name] = fs.existsSync(skillMd) ? fileContentHash(skillMd) ?? "missing" : "missing";
   }
-  const settingsFile = settingsLocalPath(target);
-  if (fs.existsSync(settingsFile)) {
-    parts.push(`settings:${fileContentHash(settingsFile) ?? "0"}`);
-  }
-  return parts.join("|");
+  return stringContentHash(JSON.stringify({ skills, overrides, versions }));
+}
+
+function workspaceSyncFingerprint(target: string): string {
+  return buildWorkspaceSyncFingerprint(target);
+}
+
+export interface WorkspaceAgentSyncOptions {
+  force?: boolean;
+  /** Sync only these skills (agent-diff). Omit for full workspace mirror. */
+  skillNames?: string[];
+  /** Limit sync to specific agents. Omit for all enabled non-Claude agents. */
+  agentIds?: AgentId[];
 }
 
 /** Clear after skill install/remove/override so the next sync is not skipped. */
@@ -447,64 +464,158 @@ export function invalidateWorkspaceSyncFingerprint(target?: string): void {
   lastSyncFingerprint.clear();
 }
 
+/** Early no-op: agent mirrors already match the stable workspace fingerprint. */
+export function wouldSkipAgentMirrorSync(
+  libraryDir: string,
+  target: string,
+  opts?: { force?: boolean; skillNames?: string[] }
+): boolean {
+  if (!shouldSyncWorkspaceToAll()) {
+    return true;
+  }
+  if (opts?.force) {
+    return false;
+  }
+  if ((opts?.skillNames?.length ?? 0) > 0) {
+    return false;
+  }
+  if (agentMirrorsNeedSync(target, libraryDir)) {
+    return false;
+  }
+  const fp = workspaceSyncFingerprint(target);
+  return lastSyncFingerprint.get(path.resolve(target)) === fp;
+}
+
 /**
  * Mirror the user's effective workspace skill set to Cursor, Kiro, Copilot, etc.
  * Uses skills enabled for you (.claude/skills minus skillOverrides "off").
  * .claude/skills remains the file source of truth; other agents receive copies.
  */
+function syncWorkspaceAgentSkills(
+  libraryDir: string,
+  target: string,
+  agentId: AgentId,
+  opts: {
+    partial: boolean;
+    force: boolean;
+    effective: Set<string>;
+    skillsToTouch: string[];
+    claudeDir: string;
+    globalDir: string;
+  }
+): AgentInstallResult[] {
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const agent = agentsManifest.agents[agentId];
+  if (!agent.supportsWorkspace) {
+    return [];
+  }
+  const results: AgentInstallResult[] = [];
+  const destRoot = workspaceDirFor(target, agent);
+
+  if (!opts.partial) {
+    for (const skillName of listAgentWorkspaceSkills(target, agent)) {
+      if (!opts.effective.has(skillName)) {
+        removeSkillFromAgent(agent, destRoot, skillName);
+      }
+    }
+  }
+
+  for (const skillName of opts.skillsToTouch) {
+    if (!opts.effective.has(skillName)) {
+      removeSkillFromAgent(agent, destRoot, skillName);
+      continue;
+    }
+    const sourceRoot = resolveWorkspaceSkillSource(
+      target,
+      libraryDir,
+      skillName,
+      opts.claudeDir,
+      opts.globalDir
+    );
+    for (const r of installSkillToAllWorkspaceAgents(libraryDir, target, skillName, sourceRoot, opts.force, false, [
+      agentId,
+    ])) {
+      if (r.status === "installed" || r.status === "written" || r.status === "skipped-exists") {
+        results.push(r);
+      }
+    }
+  }
+  return results;
+}
+
 export function syncWorkspaceSkillsToAllAgents(
   libraryDir: string,
   target: string,
-  opts?: { force?: boolean }
+  opts?: WorkspaceAgentSyncOptions
 ): AgentInstallResult[] {
   if (!shouldSyncWorkspaceToAll()) {
     return [];
   }
   const force = opts?.force ?? false;
+  const partial = (opts?.skillNames?.length ?? 0) > 0;
   const key = path.resolve(target);
   const fp = workspaceSyncFingerprint(target);
-  if (!force && !agentMirrorsNeedSync(target, libraryDir) && lastSyncFingerprint.get(key) === fp) {
+  if (!force && !partial && !agentMirrorsNeedSync(target, libraryDir) && lastSyncFingerprint.get(key) === fp) {
     return [];
   }
   const globalDir = globalSkillsDir();
   const claudeDir = path.join(target, ".claude", "skills");
   const effective = new Set(listEffectiveEnabledSkills(target));
-  const agentsManifest = loadAgentsManifest(libraryDir);
-  const results: AgentInstallResult[] = [];
+  const agentLoop = (opts?.agentIds ?? enabledAgents(libraryDir)).filter((id) => id !== "claude");
+  const skillsToTouch = opts?.skillNames ?? [...effective];
+  const shared = { partial, force, effective, skillsToTouch, claudeDir, globalDir };
 
-  for (const agentId of enabledAgents(libraryDir)) {
-    if (agentId === "claude") {
-      continue;
-    }
-    const agent = agentsManifest.agents[agentId];
-    if (!agent.supportsWorkspace) {
-      continue;
-    }
-    const destRoot = workspaceDirFor(target, agent);
+  const results = agentLoop.flatMap((agentId) =>
+    syncWorkspaceAgentSkills(libraryDir, target, agentId, shared)
+  );
 
-    for (const skillName of listAgentWorkspaceSkills(target, agent)) {
-      if (!effective.has(skillName)) {
-        removeSkillFromAgent(agent, destRoot, skillName);
-      }
-    }
-
-    for (const skillName of effective) {
-      const sourceRoot = resolveWorkspaceSkillSource(target, libraryDir, skillName, claudeDir, globalDir);
-      for (const r of installSkillToAllWorkspaceAgents(libraryDir, target, skillName, sourceRoot, force, false, [
-        agentId,
-      ])) {
-        if (r.status === "installed" || r.status === "written" || r.status === "skipped-exists") {
-          results.push(r);
-        }
-      }
-    }
-  }
-
-  if (enabledAgents(libraryDir).includes("copilot")) {
+  if (enabledAgents(libraryDir).includes("copilot") && (!partial || skillsToTouch.length > 0)) {
     syncCopilotBootstrap(target, libraryDir);
   }
 
-  lastSyncFingerprint.set(key, fp);
+  if (!partial) {
+    lastSyncFingerprint.set(key, fp);
+  }
+  return results;
+}
+
+/** Fan-out per agent on separate event-loop turns — yields between agents for UI responsiveness. */
+export async function syncWorkspaceSkillsToAllAgentsAsync(
+  libraryDir: string,
+  target: string,
+  opts?: WorkspaceAgentSyncOptions
+): Promise<AgentInstallResult[]> {
+  if (!shouldSyncWorkspaceToAll()) {
+    return [];
+  }
+  const force = opts?.force ?? false;
+  const partial = (opts?.skillNames?.length ?? 0) > 0;
+  const key = path.resolve(target);
+  const fp = workspaceSyncFingerprint(target);
+  if (!force && !partial && !agentMirrorsNeedSync(target, libraryDir) && lastSyncFingerprint.get(key) === fp) {
+    return [];
+  }
+  const globalDir = globalSkillsDir();
+  const claudeDir = path.join(target, ".claude", "skills");
+  const effective = new Set(listEffectiveEnabledSkills(target));
+  const agentLoop = (opts?.agentIds ?? enabledAgents(libraryDir)).filter((id) => id !== "claude");
+  const skillsToTouch = opts?.skillNames ?? [...effective];
+  const shared = { partial, force, effective, skillsToTouch, claudeDir, globalDir };
+
+  const results: AgentInstallResult[] = [];
+  for (const agentId of agentLoop) {
+    results.push(...syncWorkspaceAgentSkills(libraryDir, target, agentId, shared));
+    await yieldToEventLoop();
+  }
+
+  if (enabledAgents(libraryDir).includes("copilot") && (!partial || skillsToTouch.length > 0)) {
+    await yieldToEventLoop();
+    syncCopilotBootstrap(target, libraryDir);
+  }
+
+  if (!partial) {
+    lastSyncFingerprint.set(key, fp);
+  }
   return results;
 }
 

@@ -2,9 +2,61 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.30** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.33** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.33] - 2026-06-14
+
+### Added
+
+- **Chunked async fan-out** — agent sync yields between each agent (`yieldToEventLoop`) to eliminate burst jank.
+- **Predictive pre-sync** — `markPreToggleFingerprint` before toggle; rapid on-off before debounce flushes skips silently.
+- **Full sync short-circuit** — background sync skips status bar, logs, and hooks when fingerprint unchanged.
+- **Tree identity stability** — stable `item.id` per skill; cached instances returned from `getTreeItem`.
+- **Lock-free runs reads** — in-memory cache returns without re-parse when mtime/size unchanged.
+- **Size-stable hash reuse** — file hash cache survives git-checkout mtime-only drift on Windows.
+- **Activity-aware interaction lock** — hooks `onDidChangeTextDocument`, `onDidExecuteCommand`, clicks.
+- **Perf percentiles** — p50/p95/p99 logging with targets (`toggle-ui` <16ms, `tree-refresh` <10ms, sync <150ms).
+- **Toggle ripple** — 130ms green check flash on checkbox (VS Code settings feel).
+
+### Planned (v1.1)
+
+- **Worker thread** for cost pipeline + JSONL aggregation (true off-main-thread parallelism).
+
+## [1.0.32] - 2026-06-14
+
+### Added
+
+- **Interaction lock** — background sync yields while the user clicks or types (800ms / 1.5s quiet window).
+- **Granular tree refresh** — per-skill `onDidChangeTreeData` with cached `SkillItem` instances and microtask batching.
+- **Parallel agent fan-out** — cursor/kiro/copilot sync on separate event-loop turns via `Promise.allSettled`.
+- **Snapshot v2** — `runs.snapshot.json` includes `version`, `lastUpdated`, `sourceSize`, `sourceMtimeMs`.
+- **File hash mtime cache** — avoids re-reading unchanged skill files during fingerprint/sync.
+- **Dual-mode cache warmup** — `ensureWorkspaceCachesWarm` on first editor/tree interaction.
+- **Perf telemetry** — `recordPerf` / `CLAUDE_SKILLS_PERF=1` for sync and dashboard timings.
+- **Sync feedback** — short-lived status bar pulse and per-skill syncing spinner in the tree.
+
+### Changed
+
+- **Debounced sync path** — uses async agent fan-out; fingerprint no-op skips status-bar noise.
+- **Cost pipeline** — longer debounce when VS Code window is focused (from 1.0.31).
+
+## [1.0.31] - 2026-06-14
+
+### Added
+
+- **Adaptive sync debounce** — user actions flush at 400ms; background watchers coalesce at 1200ms.
+- **`runs.snapshot.json`** — instant cold load of usage dashboard data without full JSONL parse.
+- **Optimistic skill tree** — checkbox state updates immediately while agent mirrors sync in background.
+- **Cache warmup** — manifest, skill statuses, and runs index preloaded 1s after activate.
+
+### Changed
+
+- **Agent-diff sync** — toggling a skill mirrors only that skill to cursor/kiro/copilot (not full workspace).
+- **Stable workspace fingerprint** — sorted skills + overrides + SKILL.md hashes (fewer false syncs).
+- **Checkbox sync path** — removed immediate `forceAgentSync`; uses debounced user-triggered queue.
+- **Cost pipeline** — longer debounce when VS Code window is focused to reduce UI jank.
 
 ## [1.0.30] - 2026-06-14
 

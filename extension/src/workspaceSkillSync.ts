@@ -3,9 +3,12 @@ import { saveBranchProfile } from "./branchProfiles";
 import { maybeSaveHostAgentSetWithBranchProfile } from "./agentSkillProfiles";
 import {
   agentMirrorsNeedSync,
+  buildWorkspaceSyncFingerprint,
   missingAgentMirrorSkills,
   shouldSyncWorkspaceToAll,
   syncWorkspaceSkillsToAllAgents,
+  syncWorkspaceSkillsToAllAgentsAsync,
+  wouldSkipAgentMirrorSync,
 } from "./agentOps";
 import {
   areAttributionHooksConfigured,
@@ -15,25 +18,47 @@ import {
   installOfficialSkillsSessionHook,
   refreshCostControlHookScripts,
 } from "./hookOps";
+import { measureSync, recordPerf } from "./perfTelemetry";
+import { flashSyncDone, hideSyncStatus, showSyncing } from "./syncFeedback";
+import { runWhenIdle } from "./userInteraction";
 import { workspaceUsesOfficialSkillUpdater } from "./officialSkillsSync";
 import { lintAgentMirrorsOnSync, lintOnSync } from "./skillLint";
 import { listInstalledSkills } from "./usageStats";
-import { createSyncQueue } from "./workspaceSyncQueue";
+import { createAdaptiveSyncQueue } from "./workspaceSyncQueue";
+import { rapidToggleWouldBeNoOp } from "./syncPredict";
 
 export interface WorkspaceSkillSyncResult {
   agentPathsUpdated: number;
   hooksStatus?: HookInstallStatus | "refreshed";
+  /** True when agent mirror pass was skipped (fingerprint unchanged). */
+  skipped?: boolean;
 }
 
-let syncQueue: ReturnType<typeof createSyncQueue> | undefined;
+export interface WorkspaceSkillSyncOptions {
+  forceAgentSync?: boolean;
+  saveBranchProfile?: boolean;
+  /** Faster debounce when the user toggled a skill or ran an explicit command. */
+  userTriggered?: boolean;
+  /** Agent-diff: sync only these skills (omit for full workspace mirror). */
+  skillNames?: string[];
+  onComplete?: () => void;
+  /** Show status-bar / tree syncing affordances (default true for user actions). */
+  showFeedback?: boolean;
+}
+
+let syncQueue: ReturnType<typeof createAdaptiveSyncQueue> | undefined;
 let pendingInternal:
   | {
       extensionPath: string;
       target: string;
       libraryDir: string;
       log: (line: string) => void;
-      opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean };
       forceAgentSync: boolean;
+      saveBranchProfile: boolean;
+      userTriggered: boolean;
+      showFeedback: boolean;
+      skillNames: Set<string>;
+      onComplete: Array<() => void>;
     }
   | undefined;
 
@@ -62,24 +87,134 @@ export function ensureAttributionHooksActive(
   return status;
 }
 
-function ensureSyncQueue(): ReturnType<typeof createSyncQueue> {
+function tryEarlyNoOp(pending: NonNullable<typeof pendingInternal>): boolean {
+  const skillNames = [...pending.skillNames];
+  if (pending.forceAgentSync) {
+    return false;
+  }
+  if (skillNames.length > 0 && rapidToggleWouldBeNoOp(pending.target)) {
+    recordPerf("sync-rapid-toggle-noop", 0, { skills: skillNames.length });
+    for (const cb of pending.onComplete) {
+      try {
+        cb();
+      } catch {
+        // non-fatal
+      }
+    }
+    return true;
+  }
+  if (
+    skillNames.length === 0 &&
+    wouldSkipAgentMirrorSync(pending.libraryDir, pending.target, { force: pending.forceAgentSync })
+  ) {
+    recordPerf("sync-short-circuit", 0);
+    for (const cb of pending.onComplete) {
+      try {
+        cb();
+      } catch {
+        // non-fatal
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+function runPendingWork(pending: NonNullable<typeof pendingInternal>): void {
+  if (tryEarlyNoOp(pending)) {
+    return;
+  }
+  const skillNames = [...pending.skillNames];
+  const showFeedback = pending.showFeedback;
+  if (showFeedback && skillNames.length > 0) {
+    showSyncing(skillNames);
+  }
+
+  void propagateWorkspaceSkillChangeInternalAsync(
+    pending.extensionPath,
+    pending.target,
+    pending.libraryDir,
+    pending.log,
+    {
+      forceAgentSync: pending.forceAgentSync,
+      saveBranchProfile: pending.saveBranchProfile,
+      skillNames,
+      showFeedback,
+    }
+  ).then((result) => {
+    if (showFeedback) {
+      if (result.skipped) {
+        hideSyncStatus();
+      } else {
+        flashSyncDone(result.agentPathsUpdated);
+      }
+    }
+    recordPerf("workspace-sync-total", result.elapsedMs ?? 0, {
+      changed: result.agentPathsUpdated,
+      skipped: result.skipped ?? false,
+      skills: skillNames.length,
+    });
+    for (const cb of pending.onComplete) {
+      try {
+        cb();
+      } catch {
+        // non-fatal
+      }
+    }
+  });
+}
+
+function ensureSyncQueue(): ReturnType<typeof createAdaptiveSyncQueue> {
   if (!syncQueue) {
-    syncQueue = createSyncQueue(() => {
+    syncQueue = createAdaptiveSyncQueue(() => {
       if (!pendingInternal) {
         return;
       }
       const pending = pendingInternal;
       pendingInternal = undefined;
-      propagateWorkspaceSkillChangeInternal(
-        pending.extensionPath,
-        pending.target,
-        pending.libraryDir,
-        pending.log,
-        { ...pending.opts, forceAgentSync: pending.forceAgentSync || pending.opts?.forceAgentSync }
-      );
+      if (pending.userTriggered) {
+        runPendingWork(pending);
+      } else {
+        runWhenIdle(() => runPendingWork(pending));
+      }
     });
   }
   return syncQueue;
+}
+
+function mergePending(
+  extensionPath: string,
+  target: string,
+  libraryDir: string,
+  log: (line: string) => void,
+  opts?: WorkspaceSkillSyncOptions
+): void {
+  const showFeedback = opts?.showFeedback ?? !!opts?.userTriggered;
+  if (!pendingInternal) {
+    pendingInternal = {
+      extensionPath,
+      target,
+      libraryDir,
+      log,
+      forceAgentSync: !!opts?.forceAgentSync,
+      saveBranchProfile: opts?.saveBranchProfile !== false,
+      userTriggered: !!opts?.userTriggered,
+      showFeedback,
+      skillNames: new Set(opts?.skillNames ?? []),
+      onComplete: opts?.onComplete ? [opts.onComplete] : [],
+    };
+    return;
+  }
+  pendingInternal.forceAgentSync = pendingInternal.forceAgentSync || !!opts?.forceAgentSync;
+  pendingInternal.saveBranchProfile = pendingInternal.saveBranchProfile && opts?.saveBranchProfile !== false;
+  pendingInternal.userTriggered = pendingInternal.userTriggered || !!opts?.userTriggered;
+  pendingInternal.showFeedback = pendingInternal.showFeedback || showFeedback;
+  for (const name of opts?.skillNames ?? []) {
+    pendingInternal.skillNames.add(name);
+  }
+  if (opts?.onComplete) {
+    pendingInternal.onComplete.push(opts.onComplete);
+  }
 }
 
 /** Flush debounced workspace sync (for tests). */
@@ -89,13 +224,25 @@ export function flushDebouncedWorkspaceSkillSync(): WorkspaceSkillSyncResult | u
   }
   const pending = pendingInternal;
   pendingInternal = undefined;
-  return propagateWorkspaceSkillChangeInternal(
+  const result = propagateWorkspaceSkillChangeInternal(
     pending.extensionPath,
     pending.target,
     pending.libraryDir,
     pending.log,
-    { ...pending.opts, forceAgentSync: pending.forceAgentSync || pending.opts?.forceAgentSync }
+    {
+      forceAgentSync: pending.forceAgentSync,
+      saveBranchProfile: pending.saveBranchProfile,
+      skillNames: [...pending.skillNames],
+    }
   );
+  for (const cb of pending.onComplete) {
+    try {
+      cb();
+    } catch {
+      // non-fatal
+    }
+  }
+  return result;
 }
 
 /** Coalesced multi-agent sync — use for file watchers and rapid toggles. */
@@ -104,7 +251,7 @@ export function queueWorkspaceSync(
   target: string | undefined,
   libraryDir: string,
   log: (line: string) => void,
-  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean }
+  opts?: WorkspaceSkillSyncOptions
 ): WorkspaceSkillSyncResult {
   return propagateWorkspaceSkillChange(extensionPath, target, libraryDir, log, opts);
 }
@@ -115,35 +262,32 @@ export function propagateWorkspaceSkillChange(
   target: string | undefined,
   libraryDir: string,
   log: (line: string) => void,
-  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean }
+  opts?: WorkspaceSkillSyncOptions
 ): WorkspaceSkillSyncResult {
   if (!target) {
     return { agentPathsUpdated: 0 };
   }
   if (opts?.forceAgentSync) {
     pendingInternal = undefined;
-    return propagateWorkspaceSkillChangeInternal(extensionPath, target, libraryDir, log, opts);
+    const result = propagateWorkspaceSkillChangeInternal(extensionPath, target, libraryDir, log, opts);
+    opts.onComplete?.();
+    return result;
   }
-  pendingInternal = {
-    extensionPath,
-    target,
-    libraryDir,
-    log,
-    opts,
-    forceAgentSync: pendingInternal?.forceAgentSync || !!opts?.forceAgentSync,
-  };
-  ensureSyncQueue().enqueue();
+  mergePending(extensionPath, target, libraryDir, log, opts);
+  ensureSyncQueue().enqueue({ userTriggered: pendingInternal?.userTriggered });
   return { agentPathsUpdated: 0 };
 }
 
-function propagateWorkspaceSkillChangeInternal(
+type InternalSyncResult = WorkspaceSkillSyncResult & { elapsedMs?: number };
+
+function runHooksAndLint(
   extensionPath: string,
   target: string,
   libraryDir: string,
   log: (line: string) => void,
-  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean }
-): WorkspaceSkillSyncResult {
-  const result: WorkspaceSkillSyncResult = { agentPathsUpdated: 0 };
+  opts?: WorkspaceSkillSyncOptions
+): InternalSyncResult {
+  const result: InternalSyncResult = { agentPathsUpdated: 0 };
 
   if (opts?.saveBranchProfile !== false) {
     saveBranchProfile(target, libraryDir);
@@ -178,16 +322,41 @@ function propagateWorkspaceSkillChangeInternal(
     }
   }
 
-  const lintOk = lintOnSync(target, log);
+  lintOnSync(target, log);
+  return result;
+}
+
+async function propagateWorkspaceSkillChangeInternalAsync(
+  extensionPath: string,
+  target: string,
+  libraryDir: string,
+  log: (line: string) => void,
+  opts?: WorkspaceSkillSyncOptions
+): Promise<InternalSyncResult> {
+  const t0 = performance.now();
+  const result = runHooksAndLint(extensionPath, target, libraryDir, log, opts);
   const catchUpMirrors = agentMirrorsNeedSync(target, libraryDir);
-  if (shouldSyncWorkspaceToAll() && (catchUpMirrors || opts?.forceAgentSync)) {
-    const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: opts?.forceAgentSync });
+  const partialSkills = (opts?.skillNames?.length ?? 0) > 0;
+  const shouldSyncAgents =
+    shouldSyncWorkspaceToAll() && (catchUpMirrors || opts?.forceAgentSync || partialSkills);
+
+  if (shouldSyncAgents) {
+    const fpBefore = buildWorkspaceSyncFingerprint(target);
+    const tAgent = performance.now();
+    const synced = await syncWorkspaceSkillsToAllAgentsAsync(libraryDir, target, {
+      force: opts?.forceAgentSync,
+      skillNames: opts?.skillNames,
+    });
+    recordPerf("agent-sync-async", performance.now() - tAgent, { skills: opts?.skillNames?.length ?? 0 });
     const changed = synced.filter((r) => r.status === "installed" || r.status === "written");
     result.agentPathsUpdated = changed.length;
+    result.skipped = synced.length === 0 && !catchUpMirrors && !opts?.forceAgentSync;
     if (changed.length > 0) {
       log(`Propagated workspace skills to ${changed.length} other agent path(s) (cursor/kiro/copilot).`);
+    } else if (result.skipped) {
+      recordPerf("agent-sync-noop", performance.now() - t0, { fingerprint: fpBefore.slice(0, 8) });
     }
-    if (catchUpMirrors && !lintOk) {
+    if (catchUpMirrors) {
       for (const gap of missingAgentMirrorSkills(target, libraryDir)) {
         log(`SKILL lint: catch-up sync for ${gap.agent} — missing ${gap.missing.length} mirror(s).`);
       }
@@ -197,8 +366,48 @@ function propagateWorkspaceSkillChangeInternal(
   }
 
   lintAgentMirrorsOnSync(target, libraryDir, log);
-
+  result.elapsedMs = performance.now() - t0;
   return result;
+}
+
+/** Synchronous path for force-sync and tests. */
+function propagateWorkspaceSkillChangeInternal(
+  extensionPath: string,
+  target: string,
+  libraryDir: string,
+  log: (line: string) => void,
+  opts?: WorkspaceSkillSyncOptions
+): WorkspaceSkillSyncResult {
+  return measureSync("workspace-sync-sync", () => {
+    const result = runHooksAndLint(extensionPath, target, libraryDir, log, opts);
+    const catchUpMirrors = agentMirrorsNeedSync(target, libraryDir);
+    const partialSkills = (opts?.skillNames?.length ?? 0) > 0;
+    const shouldSyncAgents =
+      shouldSyncWorkspaceToAll() && (catchUpMirrors || opts?.forceAgentSync || partialSkills);
+
+    if (shouldSyncAgents) {
+      const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target, {
+        force: opts?.forceAgentSync,
+        skillNames: opts?.skillNames,
+      });
+      const changed = synced.filter((r) => r.status === "installed" || r.status === "written");
+      result.agentPathsUpdated = changed.length;
+      result.skipped = synced.length === 0 && !catchUpMirrors && !opts?.forceAgentSync;
+      if (changed.length > 0) {
+        log(`Propagated workspace skills to ${changed.length} other agent path(s) (cursor/kiro/copilot).`);
+      }
+      if (catchUpMirrors) {
+        for (const gap of missingAgentMirrorSkills(target, libraryDir)) {
+          log(`SKILL lint: catch-up sync for ${gap.agent} — missing ${gap.missing.length} mirror(s).`);
+        }
+      }
+    } else if (catchUpMirrors && !shouldSyncWorkspaceToAll()) {
+      log("Multi-agent mirror catch-up skipped — enable claudeSkills.features.multiAgent and claudeSkills.agents.syncWorkspaceToAll.");
+    }
+
+    lintAgentMirrorsOnSync(target, libraryDir, log);
+    return result;
+  });
 }
 
 /** Test helper — reset debounce queue state. */

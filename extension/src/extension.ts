@@ -52,6 +52,16 @@ import {
   ensureAttributionHooksActive,
   propagateWorkspaceSkillChange,
 } from "./workspaceSkillSync";
+import { ensureWorkspaceCachesWarm, warmupWorkspaceCaches } from "./cacheWarmup";
+import { registerSyncStatusBar } from "./syncFeedback";
+import { markPreToggleFingerprint } from "./syncPredict";
+import {
+  markTypingActivity,
+  markUserInteraction,
+  markClick,
+  registerUserActivityListeners,
+} from "./userInteraction";
+import { recordPerf } from "./perfTelemetry";
 import {
   buildCostAttribution,
   formatAttributionReport,
@@ -581,6 +591,25 @@ export function activate(context: vscode.ExtensionContext) {
   workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
   context.subscriptions.push(workspaceFolderStatusBarItem);
 
+  registerSyncStatusBar(context);
+  registerUserActivityListeners(context);
+
+  const onUserInteraction = () => {
+    markUserInteraction();
+    const t = getWorkspaceTarget();
+    if (t) {
+      ensureWorkspaceCachesWarm(t, libraryDir);
+    }
+  };
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection(() => {
+      markTypingActivity();
+      onUserInteraction();
+    }),
+    vscode.window.onDidChangeActiveTextEditor(() => onUserInteraction())
+  );
+
   const refreshWorkspaceFolderStatusBar = () => {
     const target = getWorkspaceTarget();
     if (!isMultiRootWorkspace() || !target) {
@@ -758,14 +787,21 @@ export function activate(context: vscode.ExtensionContext) {
         refreshLight();
         return;
       }
-      provider.refresh();
+      const tToggle = performance.now();
+      markClick();
+      ensureWorkspaceCachesWarm(target, libraryDir);
+      markPreToggleFingerprint(target);
+      const toggled: string[] = [];
       for (const [item, state] of e.items) {
         if (!(item instanceof SkillItem)) {
           continue;
         }
         const name = item.status.name;
+        const enabled = state === vscode.TreeItemCheckboxState.Checked;
+        provider.setOptimisticEnabled(name, enabled);
+        toggled.push(name);
         const sourceRoot = item.status.availableInGlobal ? globalSkillsDir() : libraryDir;
-        if (state === vscode.TreeItemCheckboxState.Checked) {
+        if (enabled) {
           ensureLearningDir(target);
           const action = enableWorkspaceSkill(target, name, sourceRoot, libraryDir);
           if (action === "local-on") {
@@ -785,14 +821,29 @@ export function activate(context: vscode.ExtensionContext) {
             log(`${name}: already disabled`);
           }
         }
+      }
+      recordPerf("toggle-ui", performance.now() - tToggle, { skills: toggled.length });
+      if (toggled.length > 0) {
+        for (const name of toggled) {
+          provider.setSkillSyncing(name, true);
+        }
+        invalidateDetectionCache(target);
+        invalidateWorkspaceSyncFingerprint(target);
         propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
           saveBranchProfile: true,
-          forceAgentSync: true,
+          userTriggered: true,
+          skillNames: toggled,
+          showFeedback: true,
+          onComplete: () => {
+            for (const name of toggled) {
+              provider.setSkillSyncing(name, false);
+              provider.flashSkillSynced(name);
+              provider.clearOptimistic(name);
+            }
+            refreshLight();
+          },
         });
       }
-      invalidateDetectionCache(target);
-      invalidateWorkspaceSyncFingerprint(target);
-      refreshLight();
     })
   );
 
@@ -824,6 +875,9 @@ export function activate(context: vscode.ExtensionContext) {
   refreshLight();
 
   if (initialTarget && !integrationTestMode()) {
+    setTimeout(() => {
+      warmupWorkspaceCaches(initialTarget, libraryDir);
+    }, 1000);
     setTimeout(() => {
       propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
         saveBranchProfile: false,
@@ -1122,7 +1176,11 @@ export function activate(context: vscode.ExtensionContext) {
       }
       setSkillOverride(target, item.status.name, "off");
       log(`${item.status.name}: disabled locally (.claude/settings.local.json) - shared .claude/skills/ unchanged`);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
+      invalidateWorkspaceSyncFingerprint(target);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        userTriggered: true,
+        skillNames: [item.status.name],
+      });
       refreshAll();
     }),
 
@@ -1134,7 +1192,11 @@ export function activate(context: vscode.ExtensionContext) {
       setSkillOverride(target, item.status.name, undefined);
       clearBudgetTrackingForSkill(target, item.status.name);
       log(`${item.status.name}: re-enabled locally (removed override from .claude/settings.local.json)`);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
+      invalidateWorkspaceSyncFingerprint(target);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        userTriggered: true,
+        skillNames: [item.status.name],
+      });
       refreshAll();
     }),
 

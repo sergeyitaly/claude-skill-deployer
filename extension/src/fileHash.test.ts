@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { dirTreeHash, shouldCopyPath, stringContentHash } from "./fileHash";
+import { dirTreeHash, fileContentHash, invalidateFileHashCache, shouldCopyPath, stringContentHash } from "./fileHash";
 
 const dirs: string[] = [];
 
@@ -49,5 +49,29 @@ describe("fileHash", () => {
   it("stringContentHash is stable", () => {
     expect(stringContentHash("abc")).toBe(stringContentHash("abc"));
     expect(stringContentHash("abc")).not.toBe(stringContentHash("abcd"));
+  });
+
+  it("caches file hashes by mtime and size", () => {
+    const root = tempDir();
+    const file = path.join(root, "cached.txt");
+    fs.writeFileSync(file, "v1", "utf-8");
+    const h1 = fileContentHash(file);
+    const h2 = fileContentHash(file);
+    expect(h1).toBe(h2);
+    fs.writeFileSync(file, "v2", "utf-8");
+    invalidateFileHashCache(file);
+    const h3 = fileContentHash(file);
+    expect(h3).not.toBe(h1);
+  });
+
+  it("reuses hash when only mtime changes but size is unchanged", () => {
+    const root = tempDir();
+    const file = path.join(root, "mtime-only.txt");
+    fs.writeFileSync(file, "stable-content", "utf-8");
+    const h1 = fileContentHash(file);
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(file, past, past);
+    const h2 = fileContentHash(file);
+    expect(h2).toBe(h1);
   });
 });
