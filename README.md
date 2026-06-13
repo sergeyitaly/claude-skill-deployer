@@ -40,13 +40,13 @@ See [`extension/README.md`](extension/README.md) for the full extension guide.
 
 ## Install — pick your editor’s registry
 
-Same extension, two galleries. Jump between listings:
+Same extension, two galleries. Each link goes to the **extension listing** (install page):
 
-| Editor | Registry | Install |
-|--------|----------|---------|
-| **VS Code** | [Visual Studio Marketplace](https://marketplace.visualstudio.com/) | [**Claude Skills Manager**](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) · also on [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
-| **Cursor** | [Open VSX](https://open-vsx.org/) | [**Claude Skills Manager**](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) · also on [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) |
-| **Kiro IDE** | [Open VSX](https://open-vsx.org/) | Same [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) ([Kiro uses Open VSX by default](https://kiro.dev/docs/editor/extension-registry/)) |
+| Editor | Primary listing | Also on |
+|--------|-----------------|---------|
+| **VS Code** | [**Claude Skills Manager** — Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| **Cursor** | [**Claude Skills Manager** — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |
+| **Kiro IDE** | [**Claude Skills Manager** — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) ([Kiro uses Open VSX by default](https://kiro.dev/docs/editor/extension-registry/)) |
 
 Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-registries.md) · Publishing: [extension/PUBLISHING.md](extension/PUBLISHING.md)
 
@@ -74,7 +74,7 @@ project-local skills show as *project-only* in the tree. `.claude/skills/` remai
 
 | Topic | Doc |
 |-------|-----|
-| **Install registries** (VS Marketplace ↔ [Open VSX](https://open-vsx.org/)) | [diagram/00-extension-registries.md](diagram/00-extension-registries.md) |
+| **Install listings** | [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) · [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) · [diagram/00-extension-registries.md](diagram/00-extension-registries.md) |
 | Extension user guide | [extension/README.md](extension/README.md) |
 | Publish releases | [extension/PUBLISHING.md](extension/PUBLISHING.md) |
 | Runtime architecture (Mermaid) | [diagram/README.md](diagram/README.md) |

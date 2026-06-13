@@ -4,10 +4,10 @@ The extension ships to **two registries**. Same `.vsix`, two uploads per release
 
 | Registry | Used by | Extension listing | Publisher / namespace |
 |----------|---------|-------------------|------------------------|
-| [Visual Studio Marketplace](https://marketplace.visualstudio.com/) | VS Code | [claude-skill-deployer](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) | [serhiivoinolovych](https://marketplace.visualstudio.com/publishers/serhiivoinolovych) |
-| [Open VSX](https://open-vsx.org/) | **Cursor**, **Kiro IDE**, VSCodium, Gitpod | [claude-skill-deployer](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [serhiivoinolovych](https://open-vsx.org/namespace/serhiivoinolovych) |
+| Visual Studio Marketplace | VS Code | [**Claude Skills Manager**](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [serhiivoinolovych](https://marketplace.visualstudio.com/publishers/serhiivoinolovych) |
+| Open VSX | **Cursor**, **Kiro IDE**, VSCodium, Gitpod | [**Claude Skills Manager**](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [serhiivoinolovych](https://open-vsx.org/namespace/serhiivoinolovych) |
 
-**Navigate:** VS Marketplace listing ↔ [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) · Distribution diagram: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) · User install guide: [README.md](README.md)
+**Navigate:** [VS Marketplace listing](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) ↔ [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) · Distribution diagram: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) · User install guide: [README.md](README.md)
 
 Kiro IDE uses Open VSX as its default extension gallery ([Kiro extension registry docs](https://kiro.dev/docs/editor/extension-registry/)). There is **no separate Kiro marketplace** — one Open VSX publish covers both Cursor and Kiro.
 
@@ -49,7 +49,7 @@ Creating a namespace only makes you a **contributor**. Extensions show as **veri
 | Account age | ✓ GitHub ID has ≥ 12 months public history |
 | Option 1 | ✓ VS Code Marketplace publisher with repo in `package.json` |
 | Validation | ✓ Repo owned by your GitHub org **or** paste a commit URL by you in the public repo |
-| Claim evidence | Publisher: https://marketplace.visualstudio.com/publishers/serhiivoinolovych · Extension: https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer · Repo: https://github.com/sergeyitaly/claude-skill-deployer |
+| Claim evidence | Publisher: https://marketplace.visualstudio.com/publishers/serhiivoinolovych · Extension: https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history · Repo: https://github.com/sergeyitaly/claude-skill-deployer |
 
 If your GitHub user is not in the `sergeyitaly` org, use **Option 1 → commit URL** in Claim evidence (a link to a commit you authored in that repo).
 
@@ -124,10 +124,10 @@ Publish **the same version** to both registries in one release so Cursor/Kiro an
 
 ## Install links (after publish)
 
-| Editor | Primary registry | Listing | Also available on |
-|--------|------------------|---------|-------------------|
-| VS Code | [Visual Studio Marketplace](https://marketplace.visualstudio.com/) | [claude-skill-deployer](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) | [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
-| Cursor / Kiro | [Open VSX](https://open-vsx.org/) | [claude-skill-deployer](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) |
+| Editor | Primary listing | Also on |
+|--------|-----------------|---------|
+| VS Code | [**Claude Skills Manager** — Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| Cursor / Kiro | [**Claude Skills Manager** — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |
 
 Deep link (VS Code only): `vscode:extension/serhiivoinolovych.claude-skill-deployer`
 

@@ -2,13 +2,17 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.20** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.21** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.21] - 2026-06-13
 
 ### Distribution
 
 - **Open VSX publishing** — `npm run publish:openvsx`, GitHub Actions workflow `Publish Extension`, and [extension/PUBLISHING.md](extension/PUBLISHING.md). Covers **Cursor** and **Kiro IDE** (both use [Open VSX](https://open-vsx.org/) as their extension gallery). Registry map: [diagram/00-extension-registries.md](diagram/00-extension-registries.md).
+- **Direct install links** — README, diagrams, and publishing docs link to extension listing pages on [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) and [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer).
+- **`cursor-kiro-extension-publishing` skill** — agent guidance for Open VSX / Cursor / Kiro publish flow alongside `vscode-extension-publishing`.
 
 ## [1.0.20] - 2026-06-13
 

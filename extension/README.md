@@ -5,10 +5,10 @@ you install the skills relevant to whatever project you have open. It targets
 [Claude Code](https://docs.claude.com/claude-code), **Cursor**, **Kiro**, and
 **GitHub Copilot** — you do **not** need Claude Code installed to use it.
 
-| Install from | Listing | Cross-link |
-|--------------|---------|------------|
-| **VS Code** → [Visual Studio Marketplace](https://marketplace.visualstudio.com/) | [Claude Skills Manager](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) | [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
-| **Cursor / Kiro** → [Open VSX](https://open-vsx.org/) | [Claude Skills Manager](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) |
+| Editor | Primary listing | Also on |
+|--------|-----------------|---------|
+| **VS Code** | [**Claude Skills Manager** — Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| **Cursor / Kiro** | [**Claude Skills Manager** — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) · Publish: [PUBLISHING.md](PUBLISHING.md)
 
@@ -514,5 +514,5 @@ npm run publish:all    # marketplace + Open VSX
 
 | Script | Registry | IDEs | Listing |
 |--------|----------|------|---------|
-| `npm run publish:marketplace` | [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) | VS Code | ↔ [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
-| `npm run publish:openvsx` | [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | Cursor, Kiro, VSCodium | ↔ [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) |
+| `npm run publish:marketplace` | [Claude Skills Manager — VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | VS Code | ↔ [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| `npm run publish:openvsx` | [Claude Skills Manager — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | Cursor, Kiro, VSCodium | ↔ [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |

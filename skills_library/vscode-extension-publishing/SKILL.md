@@ -177,6 +177,8 @@ the repo's `package.json`/git tags.
 
 ## 10. Hand-offs
 
+- **Cursor / Kiro / Open VSX** (second registry, `ovsx publish`, namespace
+  verification) → `cursor-kiro-extension-publishing`.
 - Cross-platform packaging/build script issues (PS5.1 vs bash vs macOS) →
   `cross-platform-scripting`.
 - Record any project-specific publish quirks (publisher ID, PAT scope

@@ -2,6 +2,11 @@
 
 **Claude Skills Manager** ships as one `.vsix` to **two registries**. Editors pick the gallery they use by default.
 
+Canonical install URLs:
+
+- **VS Marketplace:** https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history
+- **Open VSX:** https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer
+
 ```mermaid
 flowchart TB
   subgraph Release["Release (extension/)"]
@@ -41,13 +46,12 @@ flowchart TB
 
 ## Quick navigation
 
-| | [Visual Studio Marketplace](https://marketplace.visualstudio.com/) | [Open VSX](https://open-vsx.org/) |
+| | [Claude Skills Manager — VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [Claude Skills Manager — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
 |---|---|---|
 | **Used by** | **VS Code** | **Cursor**, **Kiro IDE**, VSCodium, Gitpod |
-| **This extension** | [claude-skill-deployer](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer) | [claude-skill-deployer](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
 | **Publisher / namespace** | [serhiivoinolovych](https://marketplace.visualstudio.com/publishers/serhiivoinolovych) | [serhiivoinolovych](https://open-vsx.org/namespace/serhiivoinolovych) |
 | **Install in editor** | Extensions → search **Claude Skills Manager** | Extensions → search **Claude Skills Manager** |
-| **Deep link** | `vscode:extension/serhiivoinolovych.claude-skill-deployer` | Open listing in browser, then **Download** or install from Extensions UI |
+| **Deep link** | `vscode:extension/serhiivoinolovych.claude-skill-deployer` | Open [Open VSX listing](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer), then **Download** or install from Extensions UI |
 
 Kiro uses Open VSX as its default gallery ([Kiro extension registry](https://kiro.dev/docs/editor/extension-registry/)). There is **no separate Kiro marketplace** — one Open VSX publish covers Cursor and Kiro.
 

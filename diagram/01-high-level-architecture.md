@@ -80,6 +80,6 @@ flowchart TB
 
 ## Where the extension is installed from
 
-The same packaged extension is published to two registries — **VS Code** installs from [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=serhiivoinolovych.claude-skill-deployer); **Cursor** and **Kiro** install from [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer). See [00-extension-registries.md](00-extension-registries.md) for the distribution map and cross-links.
+The same packaged extension is published to two registries — **VS Code** installs from [Claude Skills Manager on Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history); **Cursor** and **Kiro** install from [Claude Skills Manager on Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer). See [00-extension-registries.md](00-extension-registries.md) for the distribution map and cross-links.
 
 ← [Registries (VS Marketplace ↔ Open VSX)](00-extension-registries.md) · [Runtime architecture](01-high-level-architecture.md) · [Diagram index](README.md)
