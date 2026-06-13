@@ -19,9 +19,11 @@ import {
   loadManifest,
   Manifest,
   removeSkill,
+  settingsLocalPath,
 } from "./skillOps";
 import { computeCreditUsageFromRoots, ModelUsage } from "./usageCost";
 import { readCachedCreditUsageFromRoots } from "./transcriptUsageIndex";
+import { dirTreeHash, fileContentHash, shouldCopyPath, stringContentHash } from "./fileHash";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
 
@@ -140,14 +142,18 @@ function writeCopilotInstruction(
   force: boolean,
   dryRun: boolean
 ): AgentInstallResult["status"] {
+  const content = buildCopilotInstructionsFile(skillName, detectGlobs, sourceSkillMd);
   if (fs.existsSync(destFile) && !force) {
-    return "skipped-exists";
+    const existing = fileContentHash(destFile);
+    if (existing && existing === stringContentHash(content)) {
+      return "skipped-exists";
+    }
   }
   if (dryRun) {
     return "would-install";
   }
   fs.mkdirSync(path.dirname(destFile), { recursive: true });
-  fs.writeFileSync(destFile, buildCopilotInstructionsFile(skillName, detectGlobs, sourceSkillMd), "utf-8");
+  fs.writeFileSync(destFile, content, "utf-8");
   return "written";
 }
 
@@ -416,6 +422,31 @@ function resolveWorkspaceSkillSource(
   return libraryDir;
 }
 
+const lastSyncFingerprint = new Map<string, string>();
+
+function workspaceSyncFingerprint(target: string): string {
+  const effective = [...listEffectiveEnabledSkills(target)].sort();
+  const claudeDir = path.join(target, ".claude", "skills");
+  const parts: string[] = [effective.join(",")];
+  for (const name of effective) {
+    parts.push(`${name}:${dirTreeHash(path.join(claudeDir, name)) ?? "missing"}`);
+  }
+  const settingsFile = settingsLocalPath(target);
+  if (fs.existsSync(settingsFile)) {
+    parts.push(`settings:${fileContentHash(settingsFile) ?? "0"}`);
+  }
+  return parts.join("|");
+}
+
+/** Clear after skill install/remove/override so the next sync is not skipped. */
+export function invalidateWorkspaceSyncFingerprint(target?: string): void {
+  if (target) {
+    lastSyncFingerprint.delete(path.resolve(target));
+    return;
+  }
+  lastSyncFingerprint.clear();
+}
+
 /**
  * Mirror the user's effective workspace skill set to Cursor, Kiro, Copilot, etc.
  * Uses skills enabled for you (.claude/skills minus skillOverrides "off").
@@ -430,6 +461,11 @@ export function syncWorkspaceSkillsToAllAgents(
     return [];
   }
   const force = opts?.force ?? false;
+  const key = path.resolve(target);
+  const fp = workspaceSyncFingerprint(target);
+  if (!force && !agentMirrorsNeedSync(target, libraryDir) && lastSyncFingerprint.get(key) === fp) {
+    return [];
+  }
   const globalDir = globalSkillsDir();
   const claudeDir = path.join(target, ".claude", "skills");
   const effective = new Set(listEffectiveEnabledSkills(target));
@@ -468,6 +504,7 @@ export function syncWorkspaceSkillsToAllAgents(
     syncCopilotBootstrap(target, libraryDir);
   }
 
+  lastSyncFingerprint.set(key, fp);
   return results;
 }
 
@@ -532,6 +569,9 @@ export function mirrorLearningArtifacts(target: string, libraryDir: string): str
     for (const file of files) {
       const src = path.join(sourceDir, file);
       const dst = path.join(destDir, file);
+      if (!shouldCopyPath(src, dst)) {
+        continue;
+      }
       fs.copyFileSync(src, dst);
       mirrored.push(`${agentId}:${file}`);
     }

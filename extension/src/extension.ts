@@ -39,6 +39,7 @@ import {
   generateForAllAgents,
   installLibraryToAllAgents,
   installSkillToAllWorkspaceAgents,
+  invalidateWorkspaceSyncFingerprint,
   mirrorLearningArtifacts,
   computeEnabledAgentsCreditUsage,
   removeSkillFromAllWorkspaceAgents,
@@ -637,7 +638,7 @@ export function activate(context: vscode.ExtensionContext) {
     refreshContextFocusStatusBar();
     refreshPracticalFocusStatusBar();
     refreshWorkspaceFolderStatusBar();
-    if (target && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
+    if (target && opts.workspaceState && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
       const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
       if (synced.length > 0) {
         log(`Auto-synced ${synced.length} skill mirror(s) to cursor/kiro/copilot.`);
@@ -754,9 +755,10 @@ export function activate(context: vscode.ExtensionContext) {
       const target = getWorkspaceTarget();
       if (!target) {
         vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
-        refreshAll();
+        refreshLight();
         return;
       }
+      provider.refresh();
       for (const [item, state] of e.items) {
         if (!(item instanceof SkillItem)) {
           continue;
@@ -789,7 +791,8 @@ export function activate(context: vscode.ExtensionContext) {
         });
       }
       invalidateDetectionCache(target);
-      refreshAll();
+      invalidateWorkspaceSyncFingerprint(target);
+      refreshLight();
     })
   );
 
@@ -818,13 +821,14 @@ export function activate(context: vscode.ExtensionContext) {
     await promptGetStarted(context);
   })();
 
-  refreshAll();
-  refreshScheduler.flush();
+  refreshLight();
 
   if (initialTarget && !integrationTestMode()) {
-    propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
-      saveBranchProfile: false,
-    });
+    setTimeout(() => {
+      propagateWorkspaceSkillChange(context.extensionPath, initialTarget, libraryDir, log, {
+        saveBranchProfile: false,
+      });
+    }, 3000);
     void maybeNotifyOfficialSkillUpdates(initialTarget);
   }
 
@@ -2253,7 +2257,7 @@ export function activate(context: vscode.ExtensionContext) {
       invalidateDetectionCache(target);
     }
     refreshLight();
-  }, 2000);
+  }, 5000);
   for (const glob of detectionWatchGlobs) {
     const w = vscode.workspace.createFileSystemWatcher(glob);
     w.onDidCreate(debouncedRefresh);
@@ -2266,10 +2270,11 @@ export function activate(context: vscode.ExtensionContext) {
     const target = getWorkspaceTarget();
     if (target) {
       invalidateDetectionCache(target);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
-      refreshAll({ workspaceState: false, forceTree: true });
+      invalidateWorkspaceSyncFingerprint(target);
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log);
+      refreshLight();
     }
-  }, 1500);
+  }, 3000);
 
   const skillsWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/skills/**");
   skillsWatcher.onDidCreate(debouncedAgentSync);

@@ -2,9 +2,25 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.29** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.30** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.30] - 2026-06-14
+
+### Added
+
+- **Hash-based agent sync** — copy skill trees and Copilot instructions only when content differs (`fileHash.ts`).
+- **Workspace sync queue** — 2s coalesced `queueWorkspaceSync` merges rapid file-watcher and toggle events.
+- **Workspace sync fingerprint** — skip full multi-agent mirror pass when effective skills and hashes are unchanged.
+- **Incremental `runs.jsonl` cache** — append-only tail reads instead of full reparse on growth.
+
+### Changed
+
+- **Lazy activation** — startup uses light refresh; deferred agent sync after 3s (not immediate full sync + flush).
+- **Lighter watchers** — detection glob debounce 5s; `.claude/skills` watcher 3s without forced agent sync on every change.
+- **Checkbox UX** — tree refreshes immediately on toggle; background sync is debounced.
+- **Heavy refresh** — agent mirror auto-sync only on workspace-state refresh (branch switch), not every status-bar tick.
 
 ## [1.0.29] - 2026-06-14
 

@@ -7,6 +7,7 @@ import * as vscode from "vscode";
 import { CostEstimateTier } from "./skillCost";
 import { parseSkillFrontmatter } from "./skillLint";
 import { copyFileWithRetry } from "./fileWriteCoordination";
+import { shouldCopyPath } from "./fileHash";
 
 export interface SkillRule {
   description: string;
@@ -52,7 +53,7 @@ export function globalSkillsDir(): string {
  * settings key (settings.local.json). */
 export type SkillOverrideValue = "on" | "off" | "name-only" | "user-invocable-only";
 
-function settingsLocalPath(target: string): string {
+export function settingsLocalPath(target: string): string {
   return path.join(target, ".claude", "settings.local.json");
 }
 
@@ -450,7 +451,9 @@ export function copySkill(
     return "missing-source";
   }
   if (fs.existsSync(dst) && !force) {
-    return "skipped-exists";
+    if (!shouldCopyPath(src, dst)) {
+      return "skipped-exists";
+    }
   }
   if (dryRun) {
     return "would-install";

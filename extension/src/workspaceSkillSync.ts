@@ -18,41 +18,24 @@ import {
 import { workspaceUsesOfficialSkillUpdater } from "./officialSkillsSync";
 import { lintAgentMirrorsOnSync, lintOnSync } from "./skillLint";
 import { listInstalledSkills } from "./usageStats";
+import { createSyncQueue } from "./workspaceSyncQueue";
 
 export interface WorkspaceSkillSyncResult {
   agentPathsUpdated: number;
   hooksStatus?: HookInstallStatus | "refreshed";
 }
 
-const PROPAGATE_DEBOUNCE_MS = 500;
-let propagateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-let pendingPropagate: {
-  extensionPath: string;
-  target: string;
-  libraryDir: string;
-  log: (line: string) => void;
-  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean };
-} | undefined;
-
-/** Flush debounced workspace sync (for tests). */
-export function flushDebouncedWorkspaceSkillSync(): WorkspaceSkillSyncResult | undefined {
-  if (!pendingPropagate) {
-    return undefined;
-  }
-  const pending = pendingPropagate;
-  pendingPropagate = undefined;
-  if (propagateDebounceTimer) {
-    clearTimeout(propagateDebounceTimer);
-    propagateDebounceTimer = undefined;
-  }
-  return propagateWorkspaceSkillChangeInternal(
-    pending.extensionPath,
-    pending.target,
-    pending.libraryDir,
-    pending.log,
-    pending.opts
-  );
-}
+let syncQueue: ReturnType<typeof createSyncQueue> | undefined;
+let pendingInternal:
+  | {
+      extensionPath: string;
+      target: string;
+      libraryDir: string;
+      log: (line: string) => void;
+      opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean };
+      forceAgentSync: boolean;
+    }
+  | undefined;
 
 function syncHooksOnSkillChangeEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncHooksOnSkillChange", true);
@@ -79,6 +62,53 @@ export function ensureAttributionHooksActive(
   return status;
 }
 
+function ensureSyncQueue(): ReturnType<typeof createSyncQueue> {
+  if (!syncQueue) {
+    syncQueue = createSyncQueue(() => {
+      if (!pendingInternal) {
+        return;
+      }
+      const pending = pendingInternal;
+      pendingInternal = undefined;
+      propagateWorkspaceSkillChangeInternal(
+        pending.extensionPath,
+        pending.target,
+        pending.libraryDir,
+        pending.log,
+        { ...pending.opts, forceAgentSync: pending.forceAgentSync || pending.opts?.forceAgentSync }
+      );
+    });
+  }
+  return syncQueue;
+}
+
+/** Flush debounced workspace sync (for tests). */
+export function flushDebouncedWorkspaceSkillSync(): WorkspaceSkillSyncResult | undefined {
+  if (!pendingInternal) {
+    return undefined;
+  }
+  const pending = pendingInternal;
+  pendingInternal = undefined;
+  return propagateWorkspaceSkillChangeInternal(
+    pending.extensionPath,
+    pending.target,
+    pending.libraryDir,
+    pending.log,
+    { ...pending.opts, forceAgentSync: pending.forceAgentSync || pending.opts?.forceAgentSync }
+  );
+}
+
+/** Coalesced multi-agent sync — use for file watchers and rapid toggles. */
+export function queueWorkspaceSync(
+  extensionPath: string,
+  target: string | undefined,
+  libraryDir: string,
+  log: (line: string) => void,
+  opts?: { forceAgentSync?: boolean; saveBranchProfile?: boolean }
+): WorkspaceSkillSyncResult {
+  return propagateWorkspaceSkillChange(extensionPath, target, libraryDir, log, opts);
+}
+
 /** After .claude/skills changes: mirror to other agents and refresh/install hooks when appropriate. */
 export function propagateWorkspaceSkillChange(
   extensionPath: string,
@@ -91,16 +121,18 @@ export function propagateWorkspaceSkillChange(
     return { agentPathsUpdated: 0 };
   }
   if (opts?.forceAgentSync) {
+    pendingInternal = undefined;
     return propagateWorkspaceSkillChangeInternal(extensionPath, target, libraryDir, log, opts);
   }
-  pendingPropagate = { extensionPath, target, libraryDir, log, opts };
-  if (propagateDebounceTimer) {
-    clearTimeout(propagateDebounceTimer);
-  }
-  propagateDebounceTimer = setTimeout(() => {
-    propagateDebounceTimer = undefined;
-    flushDebouncedWorkspaceSkillSync();
-  }, PROPAGATE_DEBOUNCE_MS);
+  pendingInternal = {
+    extensionPath,
+    target,
+    libraryDir,
+    log,
+    opts,
+    forceAgentSync: pendingInternal?.forceAgentSync || !!opts?.forceAgentSync,
+  };
+  ensureSyncQueue().enqueue();
   return { agentPathsUpdated: 0 };
 }
 
@@ -167,4 +199,10 @@ function propagateWorkspaceSkillChangeInternal(
   lintAgentMirrorsOnSync(target, libraryDir, log);
 
   return result;
+}
+
+/** Test helper — reset debounce queue state. */
+export function resetWorkspaceSyncQueueForTests(): void {
+  syncQueue = undefined;
+  pendingInternal = undefined;
 }

@@ -15,6 +15,8 @@ interface CacheEntry {
   size: number;
   data: EnrichedRunRecord[];
   derived: RunsDerivedStats;
+  /** Incomplete trailing line when file grows mid-write. */
+  partialTail: string;
 }
 
 const runsCache = new Map<string, CacheEntry>();
@@ -46,47 +48,93 @@ function fileFingerprint(file: string): { mtimeMs: number; size: number } {
   return { mtimeMs: st.mtimeMs, size: st.size };
 }
 
-function parseRunsFile(file: string): EnrichedRunRecord[] {
-  if (!fs.existsSync(file)) {
-    return [];
+function parseRunLine(line: string): EnrichedRunRecord | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
   }
-  const lines = fs.readFileSync(file, "utf-8").split("\n");
-  const records: EnrichedRunRecord[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      const normalized = normalizeRunRecord(obj);
-      if (normalized) {
-        records.push(normalized);
-      }
-    } catch {
-      // skip malformed lines
-    }
+  try {
+    const obj = JSON.parse(trimmed) as Record<string, unknown>;
+    return normalizeRunRecord(obj);
+  } catch {
+    return null;
   }
-  return records;
 }
 
-/** Cached read of runs.jsonl — invalidated when file mtime/size changes. */
+function parseRunsFile(file: string): { data: EnrichedRunRecord[]; partialTail: string } {
+  if (!fs.existsSync(file)) {
+    return { data: [], partialTail: "" };
+  }
+  const raw = fs.readFileSync(file, "utf-8");
+  const endsWithNewline = raw.endsWith("\n");
+  const lines = raw.split("\n");
+  const partialTail = endsWithNewline ? "" : lines.pop() ?? "";
+  const records: EnrichedRunRecord[] = [];
+  for (const line of lines) {
+    const normalized = parseRunLine(line);
+    if (normalized) {
+      records.push(normalized);
+    }
+  }
+  return { data: records, partialTail };
+}
+
+function appendRunsFromChunk(
+  base: EnrichedRunRecord[],
+  partialTail: string,
+  chunk: string
+): { data: EnrichedRunRecord[]; partialTail: string } {
+  const combined = partialTail + chunk;
+  const endsWithNewline = combined.endsWith("\n");
+  const lines = combined.split("\n");
+  const nextTail = endsWithNewline ? "" : lines.pop() ?? "";
+  const records = [...base];
+  for (const line of lines) {
+    const normalized = parseRunLine(line);
+    if (normalized) {
+      records.push(normalized);
+    }
+  }
+  return { data: records, partialTail: nextTail };
+}
+
+function loadRunsRecords(file: string, prev?: CacheEntry): { data: EnrichedRunRecord[]; partialTail: string } {
+  const fp = fileFingerprint(file);
+  if (!fs.existsSync(file)) {
+    return { data: [], partialTail: "" };
+  }
+  if (prev && prev.mtimeMs === fp.mtimeMs && prev.size === fp.size) {
+    return { data: prev.data, partialTail: prev.partialTail };
+  }
+  if (prev && fp.size > prev.size && fp.mtimeMs >= prev.mtimeMs) {
+    const delta = fp.size - prev.size;
+    const buf = Buffer.alloc(delta);
+    const fd = fs.openSync(file, "r");
+    try {
+      fs.readSync(fd, buf, 0, delta, prev.size);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return appendRunsFromChunk(prev.data, prev.partialTail, buf.toString("utf-8"));
+  }
+  return parseRunsFile(file);
+}
+
+/** Cached read of runs.jsonl — invalidated when file mtime/size changes; appends on growth. */
 export function readCachedEnrichedRuns(target: string): EnrichedRunRecord[] {
   const key = path.resolve(target);
   const file = runsFile(target);
   const fp = fileFingerprint(file);
   const hit = runsCache.get(key);
-  if (hit && hit.mtimeMs === fp.mtimeMs && hit.size === fp.size) {
-    return hit.data;
-  }
-  const data = parseRunsFile(file);
+  const loaded = loadRunsRecords(file, hit);
   runsCache.set(key, {
     mtimeMs: fp.mtimeMs,
     size: fp.size,
-    data,
-    derived: deriveRunsStats(data),
+    data: loaded.data,
+    partialTail: loaded.partialTail,
+    derived: deriveRunsStats(loaded.data),
   });
-  return data;
+  return loaded.data;
 }
 
 export function readCachedRunsDerivedStats(target: string): RunsDerivedStats {

@@ -59,4 +59,11 @@ describe("agent mirror sync", () => {
     expect(fs.existsSync(path.join(target, ".github", "instructions", "alpha-skill.instructions.md"))).toBe(true);
     expect(agentMirrorsNeedSync(target, libraryDir)).toBe(false);
   });
+
+  it("skips repeat sync when workspace fingerprint is unchanged", () => {
+    const target = makeWorkspace(libraryDir);
+    syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
+    const second = syncWorkspaceSkillsToAllAgents(libraryDir, target);
+    expect(second).toEqual([]);
+  });
 });

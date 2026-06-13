@@ -1,0 +1,53 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { dirTreeHash, shouldCopyPath, stringContentHash } from "./fileHash";
+
+const dirs: string[] = [];
+
+function tempDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "file-hash-"));
+  dirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of dirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  dirs.length = 0;
+});
+
+describe("fileHash", () => {
+  it("detects identical and changed file content", () => {
+    const root = tempDir();
+    const src = path.join(root, "a.txt");
+    const dest = path.join(root, "b.txt");
+    fs.writeFileSync(src, "hello", "utf-8");
+    expect(shouldCopyPath(src, dest)).toBe(true);
+    fs.copyFileSync(src, dest);
+    expect(shouldCopyPath(src, dest)).toBe(false);
+    fs.writeFileSync(src, "hello!", "utf-8");
+    expect(shouldCopyPath(src, dest)).toBe(true);
+  });
+
+  it("hashes directory trees", () => {
+    const root = tempDir();
+    const skill = path.join(root, "skill-a");
+    fs.mkdirSync(path.join(skill, "scripts"), { recursive: true });
+    fs.writeFileSync(path.join(skill, "SKILL.md"), "---\nname: a\n---\n", "utf-8");
+    fs.writeFileSync(path.join(skill, "scripts", "run.sh"), "echo ok", "utf-8");
+    const h1 = dirTreeHash(skill);
+    fs.writeFileSync(path.join(skill, "scripts", "run.sh"), "echo changed", "utf-8");
+    const h2 = dirTreeHash(skill);
+    expect(h1).toBeTruthy();
+    expect(h2).toBeTruthy();
+    expect(h1).not.toBe(h2);
+  });
+
+  it("stringContentHash is stable", () => {
+    expect(stringContentHash("abc")).toBe(stringContentHash("abc"));
+    expect(stringContentHash("abc")).not.toBe(stringContentHash("abcd"));
+  });
+});
