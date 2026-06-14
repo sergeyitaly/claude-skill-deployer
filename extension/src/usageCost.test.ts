@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { encodeCursorWorkspacePath, encodeWorkspacePath } from "./workspaceTranscripts";
-import { computeCreditUsageFromRoots, spendPrefixForCreditSummary } from "./usageCost";
+import { computeCreditUsageFromRoots, spendPrefixForCreditSummary, aggregateHookModelUsageByAgent } from "./usageCost";
+import { invalidateLearningCache } from "./learningStateIndex";
 
 const tempDirs: string[] = [];
 
@@ -158,5 +159,43 @@ describe("computeCreditUsageFromRoots", () => {
 
     const summary = computeCreditUsageFromRoots([root], 7, workspace);
     expect(spendPrefixForCreditSummary(summary)).toBe("API");
+  });
+
+  it("aggregates hook model usage for cursor agent from runs.jsonl", () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "hook-model-"));
+    tempDirs.push(workspace);
+    const learningDir = path.join(workspace, ".claude", "learning");
+    fs.mkdirSync(learningDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(learningDir, "runs.jsonl"),
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        skill: "profile-init",
+        action: "skill_invoke",
+        agent: "cursor",
+        tokens: 12000,
+        cost: 0.08,
+        rc: 0,
+        success: true,
+        session_id: "c1",
+        project: workspace,
+        metadata: {
+          source: "skill-invoke-hook-v2",
+          invoked: true,
+          model: "claude-sonnet-4-6",
+          cost_method: "usage_breakdown",
+          usage: { input_tokens: 8000, output_tokens: 4000 },
+        },
+      }) + "\n",
+      "utf-8"
+    );
+
+    invalidateLearningCache(workspace);
+    const byAgent = aggregateHookModelUsageByAgent(workspace, 14);
+    const cursorModels = byAgent.cursor ?? [];
+    expect(cursorModels.length).toBeGreaterThan(0);
+    expect(cursorModels[0].model).toBe("claude-sonnet-4-6");
+    expect(cursorModels[0].costBasis).toBe("usage");
+    expect(cursorModels[0].cost).toBeCloseTo(0.08, 2);
   });
 });

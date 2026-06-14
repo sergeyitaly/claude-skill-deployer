@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { estimateUsageCostUsd } from "./costRates";
+import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { localDateKey } from "./localDate";
+import { isUsageBreakdownRun, isUsageRunRecord, RunAgent } from "./runRecording";
 import { cursorParser, listTranscriptFiles } from "./transcriptParsers";
 import { isCursorTranscriptRoot, transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
@@ -20,6 +22,20 @@ interface TokenUsage {
 
 interface ModelBucket extends TokenUsage {
   costBasis: ModelCostBasis;
+  cost: number;
+}
+
+function emptyModelBucket(): ModelBucket {
+  return { ...emptyUsage(), costBasis: "usage", cost: 0 };
+}
+
+function getOrCreateModelBucket(map: Map<string, ModelBucket>, key: string): ModelBucket {
+  let bucket = map.get(key);
+  if (!bucket) {
+    bucket = emptyModelBucket();
+    map.set(key, bucket);
+  }
+  return bucket;
 }
 
 function emptyUsage(): TokenUsage {
@@ -80,6 +96,8 @@ export function formatModelLabel(model: string, costBasis?: ModelCostBasis): str
     label = "Cursor agent (transcript size estimate)";
   } else if (model.startsWith("cursor/task:")) {
     label = `Cursor Task subagent (${model.slice("cursor/task:".length)})`;
+  } else if (model.startsWith("skill-invoke:")) {
+    label = `Skill invokes (${model.slice("skill-invoke:".length)})`;
   } else {
     label = model;
   }
@@ -90,12 +108,7 @@ export function formatModelLabel(model: string, costBasis?: ModelCostBasis): str
 }
 
 function getOrCreate(map: Map<string, ModelBucket>, key: string): ModelBucket {
-  let usage = map.get(key);
-  if (!usage) {
-    usage = { ...emptyUsage(), costBasis: "usage" };
-    map.set(key, usage);
-  }
-  return usage;
+  return getOrCreateModelBucket(map, key);
 }
 
 function rawUsageToDelta(raw: {
@@ -426,4 +439,112 @@ export function computeCreditUsageFromRoots(
 /** Claude Code transcripts only (under ~/.claude/projects). */
 export function computeCreditUsage(daysBack = 14): CreditUsageSummary {
   return computeCreditUsageFromRoots([claudeProjectsDir()], daysBack);
+}
+
+function modelIdForHookRun(run: { agent: RunAgent; metadata?: Record<string, unknown> }): string {
+  const meta = run.metadata ?? {};
+  if (typeof meta.model === "string" && meta.model.trim()) {
+    return meta.model;
+  }
+  return `skill-invoke:${run.agent}`;
+}
+
+/** Per-agent model rows from skill-invoke hooks in runs.jsonl (API-priced when usage present). */
+export function aggregateHookModelUsageByAgent(
+  target: string,
+  daysBack: number
+): Partial<Record<RunAgent, ModelUsage[]>> {
+  const cutoff = Date.now() - daysBack * 86_400_000;
+  const buckets = new Map<string, ModelBucket>();
+
+  for (const run of readCachedEnrichedRuns(target)) {
+    if (!isUsageRunRecord(run)) {
+      continue;
+    }
+    if (new Date(run.ts).getTime() < cutoff) {
+      continue;
+    }
+    const model = modelIdForHookRun(run);
+    const key = `${run.agent}\0${model}`;
+    const bucket = getOrCreateModelBucket(buckets, key);
+    const usageRaw = run.metadata?.usage as
+      | {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        }
+      | undefined;
+
+    if (isUsageBreakdownRun(run) && usageRaw) {
+      const delta = rawUsageToDelta(usageRaw);
+      if (delta) {
+        addUsage(bucket, delta);
+        bucket.cost += run.cost > 0 ? run.cost : estimateCost(model, delta);
+        bucket.costBasis = "usage";
+      }
+    } else if (run.cost > 0 || run.tokens > 0) {
+      const tokens = run.tokens > 0 ? run.tokens : 0;
+      if (tokens > 0) {
+        const input = Math.round(tokens * 0.6);
+        addUsage(bucket, {
+          inputTokens: input,
+          outputTokens: tokens - input,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+        });
+      }
+      bucket.cost += run.cost > 0 ? run.cost : estimateCost(model, bucket);
+      bucket.costBasis = "usage";
+    }
+  }
+
+  const byAgent: Partial<Record<RunAgent, ModelUsage[]>> = {};
+  for (const [key, bucket] of buckets) {
+    if (bucket.cost <= 0 && totalTokens(bucket) <= 0) {
+      continue;
+    }
+    const [agent, model] = key.split("\0") as [RunAgent, string];
+    const row: ModelUsage = {
+      model,
+      inputTokens: bucket.inputTokens,
+      outputTokens: bucket.outputTokens,
+      cacheCreationTokens: bucket.cacheCreationTokens,
+      cacheReadTokens: bucket.cacheReadTokens,
+      cost: bucket.cost,
+      costBasis: bucket.costBasis,
+    };
+    const list = byAgent[agent] ?? [];
+    list.push(row);
+    byAgent[agent] = list;
+  }
+
+  for (const agent of Object.keys(byAgent) as RunAgent[]) {
+    byAgent[agent]!.sort((a, b) => b.cost - a.cost);
+  }
+  return byAgent;
+}
+
+/** Prepend hook-measured model rows ahead of transcript estimates (e.g. Cursor size est.). */
+export function mergeHookModelsIntoAgentRows<T extends { agent: RunAgent; models: ModelUsage[] }>(
+  rows: T[],
+  target: string | undefined,
+  daysBack: number
+): T[] {
+  if (!target) {
+    return rows;
+  }
+  const hookByAgent = aggregateHookModelUsageByAgent(target, daysBack);
+  return rows.map((row) => {
+    const hookModels = hookByAgent[row.agent];
+    if (!hookModels?.length) {
+      return row;
+    }
+    const hookModelIds = new Set(hookModels.map((m) => m.model));
+    const transcriptOnly = row.models.filter((m) => !hookModelIds.has(m.model));
+    return {
+      ...row,
+      models: [...hookModels, ...transcriptOnly].sort((a, b) => b.cost - a.cost),
+    };
+  });
 }

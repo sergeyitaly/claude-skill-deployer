@@ -22,7 +22,7 @@ import {
   removeSkill,
   settingsLocalPath,
 } from "./skillOps";
-import { computeCreditUsageFromRoots, ModelUsage } from "./usageCost";
+import { computeCreditUsageFromRoots, mergeHookModelsIntoAgentRows, ModelUsage } from "./usageCost";
 import { readCachedCreditUsageFromRoots } from "./transcriptUsageIndex";
 import { fileContentHash, shouldCopyPath, stringContentHash } from "./fileHash";
 import { yieldToEventLoop } from "./eventLoop";
@@ -755,7 +755,7 @@ export function computePerAgentCreditUsage(
   workspaceTarget?: string
 ): AgentCreditRow[] {
   const manifest = loadAgentsManifest(libraryDir);
-  return enabledAgents(libraryDir).map((id) => {
+  const rows = enabledAgents(libraryDir).map((id) => {
     const def = manifest.agents[id];
     const tracked = Boolean(def.supportsUsageTranscripts && def.transcriptRoots.length > 0);
     if (!tracked) {
@@ -780,6 +780,7 @@ export function computePerAgentCreditUsage(
       models: summary.byModel,
     };
   });
+  return mergeHookModelsIntoAgentRows(rows, workspaceTarget, daysBack);
 }
 
 export function agentCapabilityLines(libraryDir: string): string[] {

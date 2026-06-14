@@ -319,7 +319,7 @@ If Skills detail shows many skills with identical run counts and millions of tok
 | **Trust banner** | Disclaimer + workspace confidence % + attribution fallback (hooks → transcripts → heuristics) |
 | **System state** | Mode, profile, attribution, hooks, pipeline freshness, trace timings, circuit breaker status |
 | **Usage by agent** | Claude/Cursor transcript spend for this workspace (14d); Kiro/Copilot deploy-only unless transcripts exist |
-| **Models by agent** | Per-model tokens and estimated spend per agent (Claude ids from transcripts; Cursor size-based estimate when ids missing) |
+| **Models by agent** | Per-model tokens and spend per agent — Claude ids from transcripts; **Skill invokes (API)** from attribution hooks in `runs.jsonl`; Cursor **cursor-agent (size est.)** only when transcript lines lack usage metadata |
 | **Top skills · measured** | Hook + self-learning rows from `runs.jsonl` at published API rates (excludes attribution-collector splits) |
 | **Skill spend** | Overview stat — hook-grounded 14d total separate from transcript **Est. spend** |
 | **Cost by repo** | Rollup from `runs.jsonl` `project` field |

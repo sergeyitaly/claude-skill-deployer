@@ -127,7 +127,7 @@ function formatModelsByAgentHtml(agentUsage: AgentCreditRow[]): string {
 
   return `<div class="panel">
     <h2>Models by agent · 14d</h2>
-    <p class="note" style="margin-top:0">Claude: model ids from transcripts. Cursor: size-based estimate when ids are missing.</p>
+    <p class="note" style="margin-top:0">Claude transcripts include API usage lines. Cursor agent transcripts usually do not — <b>cursor-agent (size est.)</b> is a character-count proxy for the full session. <b>Skill invokes (API)</b> rows come from attribution hooks in <code>runs.jsonl</code> and reflect measured per-invoke cost.</p>
     ${sections}
   </div>`;
 }

@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.47** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.48** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,33 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.47** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.48** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.48] - 2026-06-14
+
+**Summary:** Cost dashboard **Models by agent** now shows API-priced **Skill invokes** rows from attribution hooks for Cursor (and other agents) — not only the transcript size estimate.
+
+**Theme:** Hook-measured models in per-agent breakdown
+
+### Highlights
+
+- **Models by agent** — prepends **Skill invokes (cursor)** (and per-model ids when logged) from `runs.jsonl` before **cursor-agent (size est.)** transcript proxy
+- **Panel note** — explains transcript size estimate vs hook API rows
+- **Agent credit usage** — same hook merge for status-bar / overview model breakdown
+
+### Technical
+
+- `aggregateHookModelUsageByAgent()` and `mergeHookModelsIntoAgentRows()` in `usageCost.ts`
+- `computePerAgentCreditUsage()` merges hook models when workspace target is set
+- Unit test for Cursor hook model aggregation
 
 ---
 
