@@ -43,6 +43,7 @@ import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage, AgentCreditRow } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
 import { formatModelLabel, spendPrefixForCreditSummary, totalTokensForModelUsage } from "./usageCost";
+import { computeGeneralApiSpend } from "./generalApiSpend";
 import { getWorkspaceHookStatus } from "./hookOps";
 import {
   formatHookStatusPanelHtml,
@@ -315,8 +316,7 @@ export function buildDashboardMainBodyHtml(
   const showPerSkill = modeCtx.canShowPerSkillCosts;
   const canApplyOptimizations = modeCtx.canApplyOptimizations;
   const { attribution, staleEqualSplit, equalSplitCluster } = resolveDisplayAttribution(built, target);
-  const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
-  const unattributedCost = tokenCostUsd(unattributedTokens);
+  const generalApi = computeGeneralApiSpend(target, libraryDir, 14);
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);
   const agentCostTotal = agentUsage.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
@@ -471,8 +471,29 @@ export function buildDashboardMainBodyHtml(
       ? `<div class="warn"><b>Per-skill unreliable:</b> ${equalSplitWarn}${
           useRunsForTopSkills ? " Top skills below use hook-measured costs instead." : ""
         }</div>`
-      : unattributedTokens > 0
-        ? `<div class="warn"><b>Unattributed:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}). Reset mis-attributed data, then record <code>invoked: true</code> runs.</div>`
+      : generalApi.legacyUnattributedTokens > 0 && generalApi.legacyUnattributedTokens > generalApi.totalTokens
+        ? `<div class="warn"><b>Legacy unattributed bucket:</b> ${formatTokenCount(generalApi.legacyUnattributedTokens)} tokens from pre-1.0.49 collector. Run <b>Reset Mis-attributed Cost Data</b> to clear; <b>General API</b> below uses the new session-residual model.</div>`
+        : ""
+  }
+
+  ${
+    generalApi.totalTokens > 0
+      ? `<div class="panel" style="margin-top:0">
+    <h2>General API · 14d</h2>
+    <p class="note" style="margin-top:0">Base-model / non-skill session work: transcript totals minus hook-measured skill invokes. Includes agents answering from built-in knowledge without reading a listed skill file.</p>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>General API</b><span class="val">${formatCompactUsd(generalApi.totalCost)}</span></div>
+      <div class="stat-pill"><b>Tokens</b><span class="val">${formatTokenCount(generalApi.totalTokens)}</span></div>
+      <div class="stat-pill"><b>Sessions</b><span class="val">${generalApi.sessionCount}</span></div>
+      ${
+        useRunsForTopSkills
+          ? `<div class="stat-pill"><b>Skill spend</b><span class="val">${formatCompactUsd(skillCostSummary.totalCost)}</span></div>`
+          : ""
+      }
+    </div>
+  </div>`
+      : useRunsForTopSkills
+        ? `<p class="note" style="margin-top:0">Skill spend: ${skillCostSummary.includedRuns} hook/self-learning run(s) at published API rates (excludes ${skillCostSummary.excludedCollectorRuns} attribution-collector row(s)).</p>`
         : ""
   }
 
@@ -485,14 +506,21 @@ export function buildDashboardMainBodyHtml(
           ? `<div class="stat-pill"><b>Skill spend</b><span class="val">${formatCompactUsd(skillCostSummary.totalCost)}</span></div>`
           : ""
       }
+      ${
+        generalApi.totalTokens > 0
+          ? `<div class="stat-pill"><b>General API</b><span class="val">${formatCompactUsd(generalApi.totalCost)}</span></div>`
+          : ""
+      }
       <div class="stat-pill"><b>Tokens</b><span class="val">${formatTokenCount(credit.totalTokens)}</span></div>
       <div class="stat-pill"><b>Trend</b><span class="val">${escapeHtml(trendLabel)}</span></div>
       ${profile ? `<div class="stat-pill"><b>Typical / mo</b><span class="val">${formatCompactUsd(profile.typical_monthly_cost)}</span></div>` : ""}
     </div>
     ${
-      useRunsForTopSkills
+      useRunsForTopSkills && generalApi.totalTokens === 0
         ? `<p class="note" style="margin-top:8px">Skill spend: ${skillCostSummary.includedRuns} hook/self-learning run(s) at published API rates (excludes ${skillCostSummary.excludedCollectorRuns} attribution-collector row(s)).</p>`
-        : ""
+        : useRunsForTopSkills && generalApi.totalTokens > 0
+          ? `<p class="note" style="margin-top:8px">Skill spend (hooks) vs General API (non-skill) shown above. Residual = session transcript minus hook invokes.</p>`
+          : ""
     }
   </div>
 
@@ -664,6 +692,7 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
   const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
   const skillCostSummary = summarizeSkillCostsFromRuns(target, 14);
   const useRunsForTopSkills = skillCostSummary.includedRuns > 0;
+  const generalApi = computeGeneralApiSpend(target, libraryDir, 14);
   const showTopSkills = useRunsForTopSkills || showPerSkill;
   const top = useRunsForTopSkills
     ? topSkillsFromRuns(target, 5, 14)
@@ -697,6 +726,11 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
   if (useRunsForTopSkills) {
     lines.push(
       `  Skill spend (hooks/API): ${formatCompactUsd(skillCostSummary.totalCost)} | ${skillCostSummary.includedRuns} run(s)`
+    );
+  }
+  if (generalApi.totalTokens > 0) {
+    lines.push(
+      `  General API (non-skill): ${formatCompactUsd(generalApi.totalCost)} | ${formatTokenCount(generalApi.totalTokens)} | ${generalApi.sessionCount} session(s)`
     );
   }
 

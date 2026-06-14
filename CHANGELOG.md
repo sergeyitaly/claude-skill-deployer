@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.48** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.49** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,34 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.48** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.49** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.49] - 2026-06-14
+
+**Summary:** Cost dashboard now shows **General API** spend — base-model session work and residuals not attributed to listed skill invokes.
+
+**Theme:** Non-skill agent usage visibility
+
+### Highlights
+
+- **General API · 14d** panel — transcript session totals minus hook-measured skill invokes; covers agents answering from built-in knowledge without reading a listed skill
+- **Overview stat** — **General API** pill alongside **Skill spend** and session totals
+- **Collector fix** — routes non-skill sessions to `base_context` instead of inflating legacy `unattributed`
+- **Hook metadata** — `not_in_active_profile: true` when a skill file is read outside the active task/profile set
+
+### Technical
+
+- `generalApiSpend.ts` — `computeGeneralApiSpend()`, session residual helpers
+- `applyTranscriptAttribution()` — hook sessions: `session_tokens − hook_tokens`; no-skill sessions: full session → `base_context`
+- Legacy `unattributed` bucket flagged for reset when pre-1.0.49 data dominates
 
 ---
 

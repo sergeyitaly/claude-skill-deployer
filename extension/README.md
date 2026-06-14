@@ -322,6 +322,7 @@ If Skills detail shows many skills with identical run counts and millions of tok
 | **Models by agent** | Per-model tokens and spend per agent — Claude ids from transcripts; **Skill invokes (API)** from attribution hooks in `runs.jsonl`; Cursor **cursor-agent (size est.)** only when transcript lines lack usage metadata |
 | **Top skills · measured** | Hook + self-learning rows from `runs.jsonl` at published API rates (excludes attribution-collector splits) |
 | **Skill spend** | Overview stat — hook-grounded 14d total separate from transcript **Est. spend** |
+| **General API** | 14d base-model / non-skill session work — transcript totals minus hook skill invokes |
 | **Cost by repo** | Rollup from `runs.jsonl` `project` field |
 | **Cost by skill owner** | Git author of each `SKILL.md` (proxy — not who invoked the agent) |
 | **Top expensive skills** | Cost + ROI band + confidence per skill |

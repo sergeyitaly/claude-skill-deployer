@@ -148,4 +148,39 @@ describe("skill-invoke-watch.js", () => {
 
     fs.rmSync(tmp, { recursive: true, force: true });
   });
+
+  it("tags not_in_active_profile when skill is outside task-active set", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "skill-hook-"));
+    const learningDir = path.join(tmp, ".claude", "learning");
+    fs.mkdirSync(learningDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(learningDir, "task-active-skills.json"),
+      JSON.stringify({ version: 1, activeSkills: ["self-learning"], ignoredSkills: [] }) + "\n",
+      "utf-8"
+    );
+
+    spawnSync(process.execPath, [HOOK_SCRIPT, "claude"], {
+      input: JSON.stringify({
+        cwd: tmp,
+        session_id: "sess-profile-001",
+        tool_name: "Skill",
+        tool_input: { skill_name: "terraform-plan-review" },
+        tool_use_id: "toolu_profile",
+      }),
+      encoding: "utf-8",
+    });
+
+    const runsFile = path.join(learningDir, "runs.jsonl");
+    const runs = fs
+      .readFileSync(runsFile, "utf-8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(runs).toHaveLength(1);
+    const meta = runs[0].metadata as Record<string, unknown>;
+    expect(meta.not_in_active_profile).toBe(true);
+
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
 });

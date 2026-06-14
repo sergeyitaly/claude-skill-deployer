@@ -155,7 +155,7 @@ export function assessWorkspaceConfidence(
   if (level === "high") {
     summary = `High confidence — v2 hooks logged ${v2Runs} invoke(s); per-skill costs are measured where hooks fired.`;
   } else if (level === "estimated") {
-    summary = `Estimated — mix of hooks/transcripts; ${Math.round(unattributedRatio * 100)}% tokens unattributed to skills.`;
+    summary = `Estimated — mix of hooks/transcripts; ${Math.round(unattributedRatio * 100)}% legacy unattributed (reset if pre-1.0.49). General API spend is shown separately on the dashboard.`;
   } else {
     summary = health.summary;
   }

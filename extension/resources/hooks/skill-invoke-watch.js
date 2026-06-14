@@ -334,6 +334,36 @@ function appendRun(cwd, record) {
   fs.appendFileSync(runsFile, JSON.stringify(record) + "\n", "utf-8");
 }
 
+function readJsonSafe(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Skills in the active task/profile set (installed minus overrides when no task file). */
+function effectiveActiveSkills(cwd) {
+  const task = readJsonSafe(path.join(cwd, ".claude", "learning", "task-active-skills.json"));
+  if (task && Array.isArray(task.activeSkills) && task.activeSkills.length) {
+    return new Set(task.activeSkills.map((s) => String(s).toLowerCase()));
+  }
+  const local = readJsonSafe(path.join(cwd, ".claude", "settings.local.json"));
+  const overrides = (local && local.skillOverrides) || {};
+  const skillsDir = path.join(cwd, ".claude", "skills");
+  const installed = new Set();
+  try {
+    for (const ent of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (ent.isDirectory() && overrides[ent.name] !== "off") {
+        installed.add(ent.name);
+      }
+    }
+  } catch {
+    // no skills dir
+  }
+  return installed;
+}
+
 function main() {
   const agent = resolveAgent();
   const input = parseHookPayload(agent);
@@ -370,6 +400,8 @@ function main() {
   const tokens = usage ? sumUsage(usage) : extractTokens(input);
   const model = input.model;
   const cost = usage ? estimateUsageCostUsd(usage, model) : blendedCostUsd(tokens, model);
+  const activeSet = effectiveActiveSkills(cwd);
+  const notInActiveProfile = activeSet.size > 0 && !activeSet.has(skill);
   const ts = new Date().toISOString();
   const record = {
     ts,
@@ -390,6 +422,7 @@ function main() {
       tool_name: input.toolName,
       tool_use_id: toolUseId || undefined,
       hook_agent: agent,
+      ...(notInActiveProfile ? { not_in_active_profile: true } : {}),
       ...(usage ? { usage, cost_method: "usage_breakdown" } : { cost_method: "model_blended" }),
     },
   };

@@ -355,7 +355,7 @@ export function formatAttributionReport(
   }
 
   if (baseContext && Object.keys(baseContext).length > 0) {
-    lines.push("### Base context (no skill detected)", "");
+    lines.push("### General API (base model, no listed skill invoke)", "");
     for (const [agent, tokens] of Object.entries(baseContext).sort()) {
       const cost = (tokens / 1_000_000) * 9;
       lines.push(`- ${agent}: ${formatK(tokens)} tokens (~$${cost.toFixed(2)})`);
@@ -364,11 +364,7 @@ export function formatAttributionReport(
   }
 
   if (unattributed && Object.keys(unattributed).length > 0) {
-    lines.push("### Unattributed (no invoked skill detected in transcript)", "");
-    lines.push(
-      "> Warning: these tokens could not be assigned to a specific skill. Use the self-learning skill to record `invoked: true` runs for accurate attribution.",
-      ""
-    );
+    lines.push("### Legacy unattributed (pre-1.0.49 collector — reset recommended)", "");
     for (const [agent, tokens] of Object.entries(unattributed).sort()) {
       const cost = (tokens / 1_000_000) * 9;
       lines.push(`- ${agent}: ${formatK(tokens)} tokens (~$${cost.toFixed(2)})`);

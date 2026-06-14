@@ -4,6 +4,7 @@ import { topExpensiveSkills } from "./costOptimizer";
 import { countV2HookRuns } from "./runRecording";
 import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
 import { assessWorkspaceConfidence } from "./attributionConfidence";
+import { computeGeneralApiSpend } from "./generalApiSpend";
 
 export interface AttributionHealth {
   reliable: boolean;
@@ -22,10 +23,13 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
   const built = buildCostAttribution(target, libraryDir);
   const v2HookRuns = countV2HookRuns(target);
   const { staleEqualSplit, attribution } = resolveDisplayAttribution(built, target);
-  const unattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
+  const generalApi = computeGeneralApiSpend(target, libraryDir, 14);
+  const legacyUnattributed = generalApi.legacyUnattributedTokens;
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const highUnattributedRatio =
-    v2HookRuns === 0 && credit.totalTokens > 0 && unattributedTokens / credit.totalTokens > 0.3;
+    legacyUnattributed > 0 &&
+    credit.totalTokens > 0 &&
+    legacyUnattributed / credit.totalTokens > 0.3;
   const hookSkillCosts = summarizeSkillCostsFromRuns(target, 14);
   const noPerSkillData =
     hookSkillCosts.includedRuns === 0 && topExpensiveSkills(attribution, 1).length === 0;
@@ -40,7 +44,7 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
   } else if (noPerSkillData) {
     summary = "Invoke skills in Claude Code to populate v2 hook runs, then reopen the dashboard.";
   } else if (highUnattributedRatio) {
-    summary = "Too many unattributed tokens — enable Attribution Hooks or record invoked: true runs.";
+    summary = "Legacy unattributed bucket inflated — run Reset Mis-attributed Cost Data (pre-1.0.49 collector).";
   } else if (v2HookRuns > 0) {
     summary = `Attribution v2 active (${v2HookRuns} explicit skill invoke(s) logged).`;
   }
@@ -52,7 +56,7 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
     noPerSkillData,
     v2HookRuns,
     summary,
-  }, unattributedTokens);
+  }, legacyUnattributed);
 
   return {
     reliable,

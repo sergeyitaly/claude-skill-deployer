@@ -8,7 +8,7 @@ import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { markPipelineCollected } from "./pipelineCycle";
 import { scheduleCostPipelineSync } from "./costPipelineScheduler";
-import { sessionHasV2HookRuns } from "./runRecording";
+import { generalApiTokensForSession } from "./generalApiSpend";
 import { invalidateTranscriptUsageCache } from "./transcriptUsageIndex";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
@@ -23,7 +23,7 @@ export interface AttributionStore {
   /** Incremental attribution from parsed transcripts (collector-owned). */
   transcriptSkills: Record<string, Partial<Record<AgentId, { tokens: number; cost: number; sessions: number }>>>;
   base_context: Partial<Record<AgentId, number>>;
-  /** Tokens that could not be attributed to a specific invoked skill. */
+  /** @deprecated Pre-1.0.49 collector bucket — reset mis-attributed data to clear. */
   unattributed: Partial<Record<AgentId, number>>;
 }
 
@@ -80,21 +80,29 @@ function parserForAgent(agent: AgentId): TranscriptParser | null {
   return null;
 }
 
-function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, target: string): void {
+function addBaseContext(store: AttributionStore, agent: AgentId, tokens: number): void {
+  store.base_context = store.base_context ?? {};
+  store.base_context[agent] = (store.base_context[agent] ?? 0) + tokens;
+}
+
+/** Exported for unit tests — applies one parsed transcript to the attribution store. */
+export function applyTranscriptAttribution(
+  store: AttributionStore,
+  parsed: ParsedTranscript,
+  target: string
+): void {
   const { agent, tokens, activeSkills } = parsed;
   if (tokens <= 0) {
     return;
   }
 
-  store.unattributed = store.unattributed ?? {};
-
-  if (sessionHasV2HookRuns(target, parsed.sessionId)) {
-    store.unattributed[agent] = (store.unattributed[agent] ?? 0) + tokens;
+  const general = generalApiTokensForSession(parsed, target);
+  if (general > 0) {
+    addBaseContext(store, agent, general);
     return;
   }
 
   if (activeSkills.length === 0) {
-    store.unattributed[agent] = (store.unattributed[agent] ?? 0) + tokens;
     return;
   }
 
@@ -109,6 +117,10 @@ function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, ta
     skillMap[agent] = bucket;
     store.transcriptSkills[skill] = skillMap;
   }
+}
+
+function updateAttribution(store: AttributionStore, parsed: ParsedTranscript, target: string): void {
+  applyTranscriptAttribution(store, parsed, target);
 }
 
 export class AttributionCollector {
