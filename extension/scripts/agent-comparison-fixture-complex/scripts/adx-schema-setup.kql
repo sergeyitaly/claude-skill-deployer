@@ -1,0 +1,17 @@
+// Canonical ADX schema (source of truth) — do not change during this task.
+// .create table ErrorEvents (Timestamp: datetime, Severity: string, Message: string, AppId: string)
+// .create table RequestMetrics (Timestamp: datetime, Route: string, StatusCode: int, DurationMs: long)
+
+.create table ErrorEvents (
+    Timestamp: datetime,
+    Severity: string,
+    Message: string,
+    AppId: string
+)
+
+.create table RequestMetrics (
+    Timestamp: datetime,
+    Route: string,
+    StatusCode: int,
+    DurationMs: long
+)

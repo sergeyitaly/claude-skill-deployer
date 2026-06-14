@@ -2,9 +2,31 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.36** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.37** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.37] - 2026-06-14
+
+### Added
+
+- **Complete complex benchmark** (`npm run bench:complete`) — measures hot paths, cost pipeline, hooks, adaptation, and CI/ADX complex agent harness with SLA checks.
+- **Skill impact benchmark** (`npm run bench:skill-impact`) — Claude CLI A/B with skills vs `--disable-slash-commands`; reports `modelUsage`, `total_cost_usd`, diffs via `bench-report.mjs`.
+- **`bench:skill-impact:complex`** — same CLI harness on `agent-comparison-fixture-complex/` (failing `validate` job + ADX KQL schema mismatch).
+- **Complex fixture** — `extension/scripts/agent-comparison-fixture-complex/` with `validate-kql.mjs` grader.
+- **`installed-extension-path.mjs`** — resolves installed Cursor extension dir from dev `package.json` version.
+- **`resolve-library-dir.mjs`** — benchmark scripts prefer repo-root `skills_library` when bundled copy is missing.
+- **`bench:hotpaths`** — npm script for `perf-benchmark.mjs`.
+
+### Changed
+
+- **Install smoke** — `real-install-smoke.mjs` no longer hardcodes extension version; `npm run bench:smoke-installed` added.
+- **`prebench:complete`** — runs `sync-skills` before complete benchmark.
+- **Gitignore** — `complete-benchmark-results/`, `agent-comparison-results/`, `.bench-tmp/`, `bench-results/` excluded from commits.
+
+### Docs
+
+- **`COMPLETE-BENCHMARK-GUIDE.md`** — reconciled guide for `bench:complete` vs `bench:skill-impact`.
 
 ## [1.0.36] - 2026-06-14
 

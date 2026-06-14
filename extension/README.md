@@ -517,6 +517,10 @@ npm run sync-skills   # copy ../skills_library -> ./skills_library
 npm run compile       # or: npm run watch
 npm test              # unit tests (vitest)
 npm run test:integration   # VS Code host smoke test (@vscode/test-electron)
+npm run bench:complete     # extension stack + CI/ADX complex harness (see scripts/COMPLETE-BENCHMARK-GUIDE.md)
+npm run bench:hotpaths     # hot-path timings only (dashboard, sync, pipeline)
+npm run bench:skill-impact # live Claude CLI token/cost A/B (with vs without skills)
+npm run bench:smoke-installed  # hot-path smoke against installed VSIX
 npm run test:all      # unit + integration
 ```
 

@@ -1,0 +1,5 @@
+{
+  "name": "telemetry-api-fixture",
+  "private": true,
+  "description": "Complex A/B fixture: CI validate job + ADX KQL schema mismatch"
+}

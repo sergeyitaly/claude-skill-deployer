@@ -6,12 +6,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveLibraryDir } from "./resolve-library-dir.mjs";
 
 const extensionDir =
   process.argv[2] ??
   path.resolve(import.meta.dirname, "..");
 const workspaceDir = process.argv[3] ?? path.resolve(path.join(import.meta.dirname, "..", ".."));
-const libraryDir = path.join(extensionDir, "skills_library");
+const libraryDir = resolveLibraryDir(extensionDir);
 const iterations = 3;
 
 function loadModule(rel) {
@@ -135,8 +136,9 @@ async function main() {
   );
   bench("wouldSkipAgentMirrorSync", () => wouldSkipAgentMirrorSync(libraryDir, workspaceDir));
 
-console.log("\n=== Targets (v1.0.35) ===");
-console.log("dashboard fast-phase <30ms (snapshot) | team-economics cache <5ms | sync <150ms");
+  const pkg = JSON.parse(fs.readFileSync(path.join(extensionDir, "package.json"), "utf-8"));
+  console.log(`\n=== Targets (v${pkg.version}) ===`);
+  console.log("dashboard fast-phase <30ms (snapshot) | team-economics cache <5ms | sync <150ms");
 }
 
 main().catch((err) => {

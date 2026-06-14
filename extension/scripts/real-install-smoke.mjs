@@ -3,16 +3,12 @@
  * Usage: node scripts/real-install-smoke.mjs [extensionDir] [workspaceDir]
  */
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveInstalledExtensionDir } from "./installed-extension-path.mjs";
 
-const defaultExt = path.join(
-  os.homedir(),
-  ".cursor",
-  "extensions",
-  "serhiivoinolovych.claude-skill-deployer-1.0.33"
-);
+const devExtensionDir = path.resolve(import.meta.dirname, "..");
+const defaultExt = resolveInstalledExtensionDir(devExtensionDir);
 const defaultWs = path.resolve(path.join(import.meta.dirname, "..", ".."));
 
 const extensionDir = process.argv[2] ? path.resolve(process.argv[2]) : defaultExt;
@@ -37,24 +33,24 @@ function loadModule(rel) {
 }
 
 async function main() {
-  console.log("=== Real install smoke (v1.0.33 paths) ===");
+  const pkg = JSON.parse(fs.readFileSync(path.join(extensionDir, "package.json"), "utf-8"));
+  console.log(`=== Real install smoke (v${pkg.version}) ===`);
   console.log(`Extension: ${extensionDir}`);
   console.log(`Workspace: ${workspaceDir}`);
 
-  const pkg = JSON.parse(fs.readFileSync(path.join(extensionDir, "package.json"), "utf-8"));
-  if (pkg.version !== "1.0.33") {
-    fail(`expected package version 1.0.33, got ${pkg.version}`);
-  } else {
-    ok(`installed package version ${pkg.version}`);
+  if (!fs.existsSync(extensionDir)) {
+    fail(`extension directory not found: ${extensionDir}`);
+    return;
   }
+  ok(`installed package version ${pkg.version}`);
 
   for (const mod of ["cacheWarmup.js", "eventLoop.js", "syncPredict.js", "userInteraction.js", "perfTelemetry.js", "syncFeedback.js"]) {
     if (!fs.existsSync(path.join(extensionDir, "out", mod))) {
-      fail(`missing v1.0.33 module out/${mod}`);
+      fail(`missing module out/${mod}`);
       return;
     }
   }
-  ok("v1.0.33 perf modules present in installed extension");
+  ok("perf modules present in installed extension");
 
   const { listSkillStatuses, setSkillOverride } = await loadModule("skillOps.js");
   const {

@@ -1,0 +1,7 @@
+// Application query — used by GET /api/errors/recent
+ErrorLog
+| where Timestamp > ago(1d)
+| where Severity == "Error"
+| project Timestamp, ErrorMessage, AppId
+| order by Timestamp desc
+| take 100

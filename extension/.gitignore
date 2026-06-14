@@ -3,3 +3,6 @@ node_modules/
 skills_library/
 *.vsix
 .vscode-test/
+scripts/bench-results/
+scripts/complete-benchmark-results/
+scripts/agent-comparison-results/
