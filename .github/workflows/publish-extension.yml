@@ -6,6 +6,9 @@
 #   OVSX_PAT  — Open VSX personal access token (https://open-vsx.org)
 #
 # First-time Open VSX: create namespace "serhiivoinolovych" and link this GitHub repo.
+#
+# Tag push without secrets: workflow succeeds and uploads the VSIX artifact only.
+# Add secrets then run workflow_dispatch (open-vsx / marketplace / both) to publish.
 
 name: Publish Extension
 
@@ -116,33 +119,25 @@ jobs:
           (github.event_name == 'workflow_dispatch' &&
             github.event.inputs.publish_target != 'dry-run')
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
           PUBLISH_TARGET: ${{ github.event.inputs.publish_target }}
         run: |
-          want_marketplace=false
-          want_openvsx=false
-          if [ "${{ github.event_name }}" = "push" ]; then
-            want_marketplace=true
-            want_openvsx=true
-          else
-            case "$PUBLISH_TARGET" in
-              marketplace) want_marketplace=true ;;
-              open-vsx) want_openvsx=true ;;
-              both) want_marketplace=true; want_openvsx=true ;;
-            esac
-          fi
           published=0
-          if [ "$want_marketplace" = true ] && [ -n "$VSCE_PAT" ]; then
+          if [ "${{ steps.publish_marketplace.outputs.skipped }}" = "false" ]; then
             published=1
           fi
-          if [ "$want_openvsx" = true ] && [ -n "$OVSX_PAT" ]; then
+          if [ "${{ steps.publish_openvsx.outputs.skipped }}" = "false" ]; then
             published=1
           fi
-          if [ "$published" -eq 0 ]; then
-            echo "::error::No registry publish ran. Add VSCE_PAT and/or OVSX_PAT in repository secrets (Settings -> Secrets and variables -> Actions)."
-            exit 1
+          if [ "$published" -eq 1 ]; then
+            echo "Registry publish completed."
+            exit 0
           fi
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "::warning::Tag release packaged only — VSIX artifact uploaded. Add VSCE_PAT and/or OVSX_PAT repository secrets, then re-run Publish Extension (workflow_dispatch) or push a new tag."
+            exit 0
+          fi
+          echo "::error::No registry publish ran. Add VSCE_PAT and/or OVSX_PAT in repository secrets (Settings -> Secrets and variables -> Actions)."
+          exit 1
 
       - name: Upload VSIX artifact
         if: always()
