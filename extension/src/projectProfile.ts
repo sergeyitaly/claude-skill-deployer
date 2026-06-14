@@ -432,11 +432,16 @@ export function writeProjectProfile(target: string, profile: ProjectProfileFile)
   writeJsonAtomic(projectProfilePath(target), profile);
 }
 
-export function refreshProjectProfileContext(target: string | undefined): ProjectProfileFile | undefined {
+export interface ProjectProfileRefreshResult {
+  profile?: ProjectProfileFile;
+  changed: boolean;
+}
+
+export function refreshProjectProfileContext(target: string | undefined): ProjectProfileRefreshResult {
   const apply = projectProfileApplyTierEnabled();
   if (!target) {
     setActiveProjectProfileContext(null, apply);
-    return undefined;
+    return { changed: false };
   }
   const existing = readProjectProfile(target);
   const locked = lockedProjectProfileTier();
@@ -445,19 +450,20 @@ export function refreshProjectProfileContext(target: string | undefined): Projec
     if (!existing || shouldRefreshProjectProfile(existing, built)) {
       writeProjectProfile(target, built);
       setActiveProjectProfileContext(built.enabledFeatures, apply);
-      return built;
+      return { profile: built, changed: true };
     }
     setActiveProjectProfileContext(existing.enabledFeatures, apply);
-    return existing;
+    return { profile: existing, changed: false };
   }
   if (locked) {
     const built = buildProjectProfile(target, locked);
+    const changed = !existing || existing.profileType !== built.profileType || existing.manualOverride !== built.manualOverride;
     writeProjectProfile(target, built);
     setActiveProjectProfileContext(built.enabledFeatures, apply);
-    return built;
+    return { profile: built, changed };
   }
   setActiveProjectProfileContext(existing?.enabledFeatures ?? null, apply);
-  return existing;
+  return { profile: existing, changed: false };
 }
 
 export function formatProjectProfileSummary(profile: ProjectProfileFile): string {

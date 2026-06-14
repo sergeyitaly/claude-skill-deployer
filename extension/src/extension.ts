@@ -124,9 +124,16 @@ import {
   formatProjectProfileSummary,
   PROFILE_TYPE_LABELS,
   ProjectProfileType,
+  readProjectProfile,
   refreshProjectProfileContext,
   writeProjectProfile,
 } from "./projectProfile";
+import {
+  formatProjectProfileNotifyMessage,
+  formatProjectProfileStatusBarText,
+  formatProjectProfileStatusBarTooltip,
+  formatProjectProfileSummaryBlock,
+} from "./projectProfileDisplay";
 import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
 import { localDateKey } from "./localDate";
 import * as crypto from "node:crypto";
@@ -244,6 +251,7 @@ let trustStatusBarItem: vscode.StatusBarItem;
 let budgetModeStatusBarItem: vscode.StatusBarItem;
 let contextFocusStatusBarItem: vscode.StatusBarItem;
 let practicalFocusStatusBarItem: vscode.StatusBarItem;
+let projectTierStatusBarItem: vscode.StatusBarItem;
 let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 let costDashboardPanel: vscode.WebviewPanel | undefined;
@@ -379,6 +387,22 @@ function syncBranchProfileContext(target: string | undefined): void {
     "claudeSkills.agentProfilesEnabled",
     agentProfilesFeatureActive() && git
   );
+}
+
+function refreshProjectTierStatusBar(target?: string) {
+  if (!target) {
+    projectTierStatusBarItem.hide();
+    return;
+  }
+  const profile = readProjectProfile(target);
+  if (!profile) {
+    projectTierStatusBarItem.hide();
+    return;
+  }
+  projectTierStatusBarItem.text = formatProjectProfileStatusBarText(profile);
+  projectTierStatusBarItem.tooltip = formatProjectProfileStatusBarTooltip(profile);
+  projectTierStatusBarItem.command = "claudeSkills.showProjectProfile";
+  projectTierStatusBarItem.show();
 }
 
 function refreshStatusBar(libraryDir: string) {
@@ -637,6 +661,9 @@ export function activate(context: vscode.ExtensionContext) {
   practicalFocusStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
   context.subscriptions.push(practicalFocusStatusBarItem);
 
+  projectTierStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97.25);
+  context.subscriptions.push(projectTierStatusBarItem);
+
   workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
   context.subscriptions.push(workspaceFolderStatusBarItem);
 
@@ -694,17 +721,35 @@ export function activate(context: vscode.ExtensionContext) {
 
   let lastWorkspaceStateAt = 0;
   let lastProjectProfileLogged: string | undefined;
+  let lastProjectProfileNotified: string | undefined;
 
   const refreshAllImpl = (opts: { workspaceState: boolean; forceTree: boolean }) => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
-    const projectProfile = refreshProjectProfileContext(target);
-    if (projectProfile && opts.workspaceState) {
-      const profileKey = `${target}|${projectProfile.profileType}|${projectProfile.appliedAt ?? projectProfile.detectedAt}`;
-      if (profileKey !== lastProjectProfileLogged) {
-        lastProjectProfileLogged = profileKey;
-        log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
+    const { profile: projectProfile, changed: projectProfileChanged } = refreshProjectProfileContext(target);
+    if (projectProfile) {
+      refreshProjectTierStatusBar(target);
+      if (opts.workspaceState) {
+        const profileKey = `${target}|${projectProfile.profileType}|${projectProfile.appliedAt ?? projectProfile.detectedAt}`;
+        if (profileKey !== lastProjectProfileLogged) {
+          lastProjectProfileLogged = profileKey;
+          log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
+        }
+        if (projectProfileChanged && profileKey !== lastProjectProfileNotified) {
+          lastProjectProfileNotified = profileKey;
+          void vscode.window
+            .showInformationMessage(formatProjectProfileNotifyMessage(projectProfile), "View details", "Change tier")
+            .then((pick) => {
+              if (pick === "View details") {
+                void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
+              } else if (pick === "Change tier") {
+                void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
+              }
+            });
+        }
       }
+    } else {
+      refreshProjectTierStatusBar(undefined);
     }
     if (integrationTestMode()) {
       provider.refresh();
@@ -724,6 +769,7 @@ export function activate(context: vscode.ExtensionContext) {
     refreshBudgetModeStatusBar(libraryDir);
     refreshContextFocusStatusBar();
     refreshPracticalFocusStatusBar();
+    refreshProjectTierStatusBar(target);
     refreshWorkspaceFolderStatusBar();
     if (target && opts.workspaceState && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
       const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
@@ -2187,6 +2233,22 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(`Claude Skills: ${pick.key} is now ${next ? "enabled" : "disabled"}. Reload window to apply some changes.`);
     }),
 
+    vscode.commands.registerCommand("claudeSkills.showProjectProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      const profile = readProjectProfile(target) ?? buildProjectProfile(target);
+      outputChannel.show(true);
+      log(`\n${formatProjectProfileSummaryBlock(profile)}`);
+      const view = formatProjectProfileNotifyMessage(profile);
+      void vscode.window.showInformationMessage(view, "Change tier").then((pick) => {
+        if (pick === "Change tier") {
+          void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
+        }
+      });
+    }),
+
     vscode.commands.registerCommand("claudeSkills.detectProjectProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
@@ -2197,10 +2259,8 @@ export function activate(context: vscode.ExtensionContext) {
       refreshProjectProfileContext(target);
       refreshAll();
       outputChannel.show(true);
-      log(`\n=== Project profile detected ===\n${formatProjectProfileSummary(profile)}`);
-      vscode.window.showInformationMessage(
-        `Project profile: ${PROFILE_TYPE_LABELS[profile.profileType]} (${Math.round(profile.confidence * 100)}% confidence).`
-      );
+      log(`\n=== Project profile detected ===\n${formatProjectProfileSummaryBlock(profile)}`);
+      vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(profile), "View details");
     }),
 
     vscode.commands.registerCommand("claudeSkills.chooseProjectProfile", async () => {
@@ -2222,12 +2282,12 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
       await cfg.update("lockedTier", pick.id, vscode.ConfigurationTarget.Workspace);
-      const profile = refreshProjectProfileContext(target);
+      const { profile: lockedProfile } = refreshProjectProfileContext(target);
       refreshAll();
-      if (profile) {
+      if (lockedProfile) {
         outputChannel.show(true);
-        log(`\n=== Project profile tier locked ===\n${formatProjectProfileSummary(profile)}`);
-        vscode.window.showInformationMessage(`Project profile locked: ${PROFILE_TYPE_LABELS[pick.id]}.`);
+        log(`\n=== Project profile tier locked ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);
+        vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(lockedProfile));
       }
     }),
 

@@ -235,7 +235,9 @@ On workspace open the extension can **auto-detect** your scenario and write `.cl
 
 Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatures` (default on), `lockedTier` (manual override).
 
-Commands: **Detect Project Profile**, **Choose Project Profile Tier**.
+**Visible in UI:** status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …), cost dashboard **Project tier** panel, and command **Show Project Tier**.
+
+Commands: **Show Project Tier**, **Detect Project Profile**, **Choose Project Profile Tier**.
 
 ## Skill feedback & task proposals
 

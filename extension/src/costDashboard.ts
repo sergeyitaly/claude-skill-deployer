@@ -21,6 +21,8 @@ import { resolveAttributionStrategy, formatAttributionStrategyLine } from "./att
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { formatBenchmarkLine } from "./communityBenchmarks";
 import { isFeatureEnabled } from "./featureFlags";
+import { readProjectProfile } from "./projectProfile";
+import { formatProjectProfileDashboardHtml } from "./projectProfileDisplay";
 import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
@@ -409,6 +411,11 @@ export function buildDashboardMainBodyHtml(
   ${modeCtx.banner ? `<div class="warn"><b>${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
 
   ${formatHookStatusPanelHtml(hookStatus)}
+
+  ${(() => {
+    const projectProfile = readProjectProfile(target);
+    return projectProfile ? formatProjectProfileDashboardHtml(projectProfile) : "";
+  })()}
 
   <div class="panel">
     <h2>System</h2>

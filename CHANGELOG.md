@@ -2,9 +2,18 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.38** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.39** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.39] - 2026-06-14
+
+### Added
+
+- **Visible project tier** — status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …) with feature ON/OFF tooltip and estimated monthly savings vs full stack.
+- **Cost dashboard** — **Project tier** panel (detected type, tier presets, overhead, savings, feature list).
+- **Command** — `Show Project Tier` — full breakdown in output channel.
+- **Toast on tier change** — notification when auto-detect picks or changes a tier (with View details / Change tier actions).
 
 ## [1.0.38] - 2026-06-14
 
