@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Apply task skill focus — skillOverrides off for installed skills outside the active task set.
 
-const fs = require("fs");
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const PROPOSALS_REL = ".claude/learning/task-skill-proposals.json";
 const ACTIVE_REL = ".claude/learning/task-active-skills.json";
@@ -28,8 +28,8 @@ function readJsonSafe(file) {
 
 function featureEnabled(cwd, key) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
-  const features = cfg && cfg.features;
-  if (features && Object.prototype.hasOwnProperty.call(features, key)) {
+  const features = cfg?.features;
+  if (features && Object.hasOwn(features, key)) {
     return !!features[key];
   }
   if (key === "taskSkillFocus") {
@@ -51,7 +51,7 @@ function listInstalled(cwd) {
 
 function readOverrides(cwd) {
   const local = readJsonSafe(path.join(cwd, SETTINGS_REL));
-  return (local && local.skillOverrides) || {};
+  return local?.skillOverrides || {};
 }
 
 function writeOverrides(cwd, overrides) {
@@ -100,6 +100,7 @@ function applyFocus(cwd, activeNames, source, proposalsGeneratedAt) {
   writeOverrides(cwd, overrides);
   const dir = path.join(cwd, ".claude", "learning");
   fs.mkdirSync(dir, { recursive: true });
+  ignored.sort((a, b) => a.localeCompare(b));
   fs.writeFileSync(
     path.join(cwd, ACTIVE_REL),
     JSON.stringify(
@@ -109,7 +110,7 @@ function applyFocus(cwd, activeNames, source, proposalsGeneratedAt) {
         proposalsGeneratedAt,
         source,
         activeSkills: active,
-        ignoredSkills: ignored.sort(),
+        ignoredSkills: ignored,
       },
       null,
       2
@@ -152,7 +153,7 @@ function main() {
   if (state && state.proposalsGeneratedAt === proposals.generatedAt) {
     return;
   }
-  const names = proposals.proposals.map((p) => p && p.name).filter(Boolean);
+  const names = proposals.proposals.map((p) => p?.name).filter(Boolean);
   const result = applyFocus(cwd, names, "task-skill-proposals", proposals.generatedAt);
   if (result.applied || result.ignored.length) {
     process.stderr.write(

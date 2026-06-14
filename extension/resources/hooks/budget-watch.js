@@ -2,9 +2,9 @@
 // Claude Code UserPromptSubmit hook: enforces daily token budget and economy
 // mode. Reads ~/.claude/learning/budget.json (synced by the VS Code extension).
 
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
 const { computeTodayUsageAcrossProjects, formatTokenCount, formatUsd } = require("./usageParse");
 
 const LEARNING_DIR = path.join(os.homedir(), ".claude", "learning");
@@ -96,7 +96,7 @@ function disableSkills(cwd, skills, reason, stateKey) {
   }
 
   settings.skillOverrides = overrides;
-  meta[stateKey] = [...new Set([...(meta[stateKey] || []), ...disabledNow])].sort();
+  meta[stateKey] = [...new Set([...(meta[stateKey] || []), ...disabledNow])].sort((a, b) => a.localeCompare(b));
   meta.disabledReason = reason;
   settings[BUDGET_META_KEY] = meta;
   writeJsonSafe(settingsPath, settings);
@@ -119,7 +119,7 @@ function skillsOutsideTiers(config, allowedTiers) {
 
 function applyFallbackAction(cwd, config, pct, state, today, messages) {
   const thresholds = Object.keys(FALLBACK_CONFIG)
-    .map((k) => parseInt(k, 10))
+    .map((k) => Number.parseInt(k, 10))
     .sort((a, b) => b - a);
   const hit = thresholds.find((t) => pct >= t);
   if (!hit) {

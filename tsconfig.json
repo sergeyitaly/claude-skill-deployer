@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2021",
+    "lib": ["ES2021"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "moduleResolution": "Node16",
+    "types": ["node", "vscode"],
+    "noEmit": true
+  },
+  "include": ["extension/src/**/*.ts"],
+  "exclude": ["extension/node_modules", "extension/out", "extension/src/**/*.test.ts"]
+}

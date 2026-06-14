@@ -40,7 +40,7 @@ function requireFrontmatter(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.lint").get<boolean>("requireFrontmatter", true);
 }
 
-const BLOCK_SCALAR_RE = /^([a-zA-Z0-9_-]+):\s*(\||\|-|\>|\>-)\s*$/;
+const BLOCK_SCALAR_RE = /^([a-zA-Z0-9_-]+):\s*(\||\|-|>|>-)\s*$/;
 
 function parseFrontmatterBlock(raw: string): Record<string, string> | null {
   const match = raw.match(FRONTMATTER_RE);
@@ -172,7 +172,7 @@ export function lintSkillFile(skillName: string, skillMdPath: string): SkillLint
 }
 
 export function lintWorkspaceSkills(target: string): SkillLintResult[] {
-  const root = `${target}/.claude/skills`.replace(/\\/g, "/");
+  const root = `${target}/.claude/skills`.replaceAll("\\", "/");
   const dir = root;
   let entries: fs.Dirent[];
   try {

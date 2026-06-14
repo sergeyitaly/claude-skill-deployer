@@ -4,8 +4,8 @@
 // 1. When profile-init is pending, inject context so the agent runs profile-init.
 // 2. On every new session, queue proposed/profile skills for local enablement via the extension.
 
-const fs = require("fs");
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const SESSION_SOURCES = new Set(["startup", "resume", "clear", "new"]);
 const REQUEST_REL = ".claude/learning/profile-init-request.json";
@@ -35,8 +35,8 @@ function readRequiredSkills(cwd) {
 
 function sessionSkillAdaptationEnabled(cwd) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
-  const features = cfg && cfg.features;
-  return !(features && features.sessionSkillAdaptation === false);
+  const features = cfg?.features;
+  return features?.sessionSkillAdaptation !== false;
 }
 
 function taskProposalsAutoApply(cwd) {
@@ -44,8 +44,8 @@ function taskProposalsAutoApply(cwd) {
     return false;
   }
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
-  const features = cfg && cfg.features;
-  if (features && features.autoApplyTaskProposals === false) {
+  const features = cfg?.features;
+  if (features?.autoApplyTaskProposals === false) {
     return false;
   }
   return true;
@@ -53,16 +53,12 @@ function taskProposalsAutoApply(cwd) {
 
 function deterministicTaskProposalsEnabled(cwd) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
-  const features = cfg && cfg.features;
-  if (features && features.deterministicTaskProposals === false) {
-    return false;
-  }
-  return true;
+  return cfg?.features?.deterministicTaskProposals !== false;
 }
 
 function taskProposalsFresh(cwd) {
   const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
-  if (!proposals || !proposals.generatedAt || !Array.isArray(proposals.proposals) || !proposals.proposals.length) {
+  if (!proposals?.generatedAt || !Array.isArray(proposals?.proposals) || !proposals.proposals.length) {
     return false;
   }
   const ageMs = Date.now() - new Date(proposals.generatedAt).getTime();
@@ -122,7 +118,7 @@ function readJsonSafe(file) {
 
 function profileInitComplete(cwd) {
   const profile = readJsonSafe(path.join(cwd, PROFILE_REL));
-  return profile && profile.status === "applied" && Array.isArray(profile.skills) && profile.skills.length > 0;
+  return profile?.status === "applied" && Array.isArray(profile.skills) && profile.skills.length > 0;
 }
 
 function formatNewSessionTaskContext() {
@@ -145,7 +141,7 @@ function formatContext(request) {
     "Learning: refine .claude/learning/task-skill-proposals.json if the extension seed is present.",
     "Proposed skills from the profile seed are being enabled locally for this session.",
   ];
-  if (request.relevantSkillNames && request.relevantSkillNames.length) {
+  if (request.relevantSkillNames?.length) {
     lines.push(`Workspace-relevant skills: ${request.relevantSkillNames.join(", ")}.`);
   }
   if (request.agentInstructions) {
@@ -164,7 +160,7 @@ function resolveSkillsToEnable(cwd) {
   let fromProposals = false;
 
   const profile = readJsonSafe(path.join(cwd, PROFILE_REL));
-  if (profile && profile.status === "applied" && Array.isArray(profile.skills) && profile.skills.length) {
+  if (profile?.status === "applied" && Array.isArray(profile.skills) && profile.skills.length) {
     profile.skills.forEach((s) => names.add(s));
     fromProfile = true;
   }
@@ -328,7 +324,7 @@ function main() {
   try {
     const applyScript = path.join(cwd, ".claude", "hooks", "session-apply.js");
     if (fs.existsSync(applyScript)) {
-      require("child_process").spawnSync(process.execPath, [applyScript, cwd], {
+      require("node:child_process").spawnSync(process.execPath, [applyScript, cwd], {
         cwd,
         stdio: "ignore",
         timeout: 60000,
@@ -336,7 +332,7 @@ function main() {
     }
     const focusScript = path.join(cwd, ".claude", "hooks", "task-skill-focus.js");
     if (fs.existsSync(focusScript)) {
-      require("child_process").spawnSync(
+      require("node:child_process").spawnSync(
         process.execPath,
         [focusScript, cwd, JSON.stringify(resolved.skills)],
         { cwd, stdio: "ignore", timeout: 30000 }

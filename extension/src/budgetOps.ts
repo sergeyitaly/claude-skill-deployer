@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BudgetConfig, BudgetMode, syncBudgetConfigToDisk } from "./budgetConfig";
-import { Manifest, readSkillOverrides, setSkillOverride, SkillOverrideValue } from "./skillOps";
+import { Manifest, readSkillOverrides, SkillOverrideValue } from "./skillOps";
 
 const BUDGET_META_KEY = "claudeSkillsBudget";
 
@@ -41,12 +41,16 @@ function writeLocalSettings(target: string, settings: LocalSettingsWithBudget): 
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 
+function isBudgetMeta(raw: unknown): raw is BudgetMeta {
+  return raw !== null && typeof raw === "object";
+}
+
 function budgetMeta(settings: LocalSettingsWithBudget): BudgetMeta {
   const raw = settings[BUDGET_META_KEY];
-  if (!raw || typeof raw !== "object") {
+  if (!isBudgetMeta(raw)) {
     return {};
   }
-  return raw as BudgetMeta;
+  return raw;
 }
 
 function setBudgetMeta(settings: LocalSettingsWithBudget, meta: BudgetMeta): void {
@@ -87,7 +91,9 @@ export function disableHighTierSkills(
 
   settings.skillOverrides = overrides;
   setBudgetMeta(settings, {
-    disabledByBudget: [...new Set([...(meta.disabledByBudget ?? []), ...disabledNow])].sort(),
+    disabledByBudget: [...new Set([...(meta.disabledByBudget ?? []), ...disabledNow])].sort((a, b) =>
+      a.localeCompare(b)
+    ),
     disabledReason: reason,
   });
   writeLocalSettings(target, settings);

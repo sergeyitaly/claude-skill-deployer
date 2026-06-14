@@ -29,7 +29,7 @@ export function taskActiveSkillsPath(target: string): string {
 
 export function readTaskActiveSkills(target: string): TaskActiveSkillsFile | null {
   const parsed = readJsonFile<TaskActiveSkillsFile>(taskActiveSkillsPath(target));
-  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.activeSkills)) {
+  if (parsed?.version !== 1 || !Array.isArray(parsed.activeSkills)) {
     return null;
   }
   return parsed;
@@ -76,7 +76,7 @@ export function applyTaskSkillFocus(
     proposalsGeneratedAt,
     source,
     activeSkills,
-    ignoredSkills: [...ignoredSkills].sort(),
+    ignoredSkills: [...ignoredSkills].sort((a, b) => a.localeCompare(b)),
   });
 
   return { activeSkills, ignoredSkills, overridesApplied };

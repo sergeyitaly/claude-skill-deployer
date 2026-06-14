@@ -21,8 +21,8 @@ export function queueDashboardSnapshotPrecompute(
   const job = (async () => {
     await yieldToEventLoop();
     try {
-      const { buildAndCacheDashboardSnapshot } = await import("./costDashboard");
-      const { runCostPipelineSync } = await import("./costPipeline");
+      const { buildAndCacheDashboardSnapshot } = await import("./costDashboard.js");
+      const { runCostPipelineSync } = await import("./costPipeline.js");
       const pipe = pipeline ?? runCostPipelineSync(target, libraryDir);
       buildAndCacheDashboardSnapshot(target, libraryDir, pipe);
     } finally {

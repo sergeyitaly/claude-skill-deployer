@@ -3,9 +3,9 @@
 // Installs missing skills from ~/.claude/skills (or repo skills_library/) and
 // clears local skillOverrides "off" for the proposed set.
 
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
 
 const SESSION_REQUEST = ".claude/learning/session-skill-apply-request.json";
 const SESSION_STATE = ".claude/learning/session-skill-apply-state.json";
@@ -22,8 +22,8 @@ function readJsonSafe(file) {
 
 function featureEnabled(cwd, key) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
-  const features = cfg && cfg.features;
-  if (features && Object.prototype.hasOwnProperty.call(features, key)) {
+  const features = cfg?.features;
+  if (features && Object.hasOwn(features, key)) {
     return !!features[key];
   }
   if (key === "autoApplyTaskProposals" || key === "sessionSkillAdaptation") {
@@ -58,7 +58,7 @@ function mergeRequired(cwd, skills) {
 
 function readOverrides(cwd) {
   const local = readJsonSafe(path.join(cwd, ".claude", "settings.local.json"));
-  return (local && local.skillOverrides) || {};
+  return local?.skillOverrides || {};
 }
 
 function writeOverrides(cwd, overrides) {
@@ -151,7 +151,7 @@ function main() {
   }
 
   const request = readJsonSafe(path.join(cwd, SESSION_REQUEST));
-  if (!request || request.version !== 1 || !Array.isArray(request.skills) || !request.sessionId) {
+  if (request?.version !== 1 || !Array.isArray(request.skills) || !request.sessionId) {
     return;
   }
   if (!featureEnabled(cwd, "autoApplyTaskProposals") && request.source === "proposals") {
@@ -189,7 +189,7 @@ function main() {
   try {
     const focusScript = path.join(cwd, ".claude", "hooks", "task-skill-focus.js");
     if (fs.existsSync(focusScript)) {
-      require("child_process").spawnSync(
+      require("node:child_process").spawnSync(
         process.execPath,
         [focusScript, cwd, JSON.stringify(mergeRequired(cwd, request.skills))],
         { cwd, stdio: "ignore", timeout: 30000 }

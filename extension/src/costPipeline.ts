@@ -161,7 +161,7 @@ export async function runCostPipeline(
   if (opts?.collect) {
     const collectStarted = Date.now();
     try {
-      const { AttributionCollector } = await import("./attributionCollector");
+      const { AttributionCollector } = await import("./attributionCollector.js");
       processedSessions = await AttributionCollector.getInstance(target, libraryDir).collect(
         opts.forceCollect ?? false,
         { schedulePipeline: false }

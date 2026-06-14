@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "Node16",
     "target": "ES2021",
     "lib": ["ES2021"],
     "outDir": "out",
@@ -9,7 +9,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "moduleResolution": "Node16",
+    "types": ["node", "vscode"]
   },
   "exclude": ["node_modules", ".vscode-test", "out", "src/**/*.test.ts", "vitest.config.ts"]
 }
