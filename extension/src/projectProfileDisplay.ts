@@ -202,6 +202,45 @@ export function formatProjectProfileDashboardHtml(profile: ProjectProfileFile): 
   </div>`;
 }
 
+export function formatPlanEconomicsForTier(tier: ProjectProfileType): string {
+  const overhead = estimateMonthlyOverhead(tier);
+  const savings = Math.max(0, FULL_STACK_OVERHEAD_USD - overhead);
+  const badge = PROFILE_TYPE_BADGE[tier];
+  if (savings >= 1) {
+    return `${badge} · ~${formatCompactUsd(overhead)}/mo overhead · saves ~${formatCompactUsd(savings)}/mo vs full stack`;
+  }
+  return `${badge} · ~${formatCompactUsd(overhead)}/mo overhead · full feature stack`;
+}
+
+export function formatPlanEconomicsLine(profile: ProjectProfileFile): string {
+  return formatPlanEconomicsForTier(profile.profileType);
+}
+
+const TIER_COMPARISON_ORDER: ProjectProfileType[] = [
+  "throwaway",
+  "solo-dev",
+  "budget-sensitive",
+  "enterprise",
+  "team-multi-agent",
+];
+
+export function formatProjectProfileTierComparisonTable(
+  target: string,
+  currentType?: ProjectProfileType
+): string {
+  const lines = [
+    "=== Compare project tiers (estimated extension overhead) ===",
+    "Baseline: TEAM MULTI-AGENT full stack (~$28/mo extension tokens + background work)",
+    "",
+  ];
+  for (const tier of TIER_COMPARISON_ORDER) {
+    const marker = tier === currentType ? "  <- current" : "";
+    lines.push(`  ${formatPlanEconomicsForTier(tier)}${marker}`);
+  }
+  lines.push("", "Run \"Choose Project Profile Tier\" to apply a plan.");
+  return lines.join("\n");
+}
+
 export function formatProjectProfileNotifyMessage(profile: ProjectProfileFile): string {
   const view = buildProjectProfileView(profile);
   if (view.monthlySavingsUsd >= 1) {

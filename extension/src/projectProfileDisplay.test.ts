@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildProjectProfileView,
   estimateMonthlySavings,
+  formatPlanEconomicsForTier,
   formatProjectProfileStatusBarText,
+  formatProjectProfileTierComparisonTable,
   PROFILE_TYPE_BADGE,
 } from "./projectProfileDisplay";
 import { ProjectProfileFile } from "./projectProfile";
@@ -61,5 +63,18 @@ describe("projectProfileDisplay", () => {
     const view = buildProjectProfileView(profile);
     expect(view.features.find((f) => f.key === "sessionSkillAdaptation")?.on).toBe(false);
     expect(view.monthlySavingsUsd).toBeGreaterThan(20);
+  });
+
+  it("renders tier comparison table with all tiers", () => {
+    const table = formatProjectProfileTierComparisonTable("", "solo-dev");
+    expect(table).toContain("SOLO DEV");
+    expect(table).toContain("THROWAWAY");
+    expect(table).toContain("TEAM MULTI-AGENT");
+    expect(table).toContain("<- current");
+  });
+
+  it("formats plan economics per tier", () => {
+    expect(formatPlanEconomicsForTier("solo-dev")).toContain("saves");
+    expect(formatPlanEconomicsForTier("team-multi-agent")).toContain("full feature stack");
   });
 });

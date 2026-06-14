@@ -204,6 +204,7 @@ describe("tierForUserPlan", () => {
     expect(tierForUserPlan("solo-dev", "aidlc-greenfield")).toBe("team-multi-agent");
     expect(tierForUserPlan("solo-dev", "multi-agent-workflow")).toBe("team-multi-agent");
     expect(tierForUserPlan("solo-dev", "budget-focused")).toBe("budget-sensitive");
+    expect(tierForUserPlan("solo-dev", "enterprise-team")).toBe("enterprise");
     expect(tierForUserPlan("team-multi-agent", "quick-spike")).toBe("throwaway");
   });
 });

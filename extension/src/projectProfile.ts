@@ -29,6 +29,7 @@ export type UserProjectPlan =
   | "multi-agent-workflow"
   | "team-product"
   | "budget-focused"
+  | "enterprise-team"
   | "quick-spike";
 
 export interface ProjectProfileSignals {
@@ -475,6 +476,8 @@ export function tierForUserPlan(
       return "team-multi-agent";
     case "budget-focused":
       return "budget-sensitive";
+    case "enterprise-team":
+      return "enterprise";
     case "quick-spike":
       return "throwaway";
     default:
@@ -758,7 +761,7 @@ export function refreshProjectProfileContext(target: string | undefined): Projec
     return { changed: false, isFirstDetect: false };
   }
   const existing = readProjectProfile(target);
-  const locked = lockedProjectProfileTier();
+  const locked = lockedProjectProfileTier() ?? existing?.manualOverride;
   if (projectProfileAutoDetectEnabled() && !locked) {
     const built = buildProjectProfile(target);
     if (!existing || shouldRefreshProjectProfile(existing, built)) {

@@ -119,10 +119,12 @@ import {
   installOfficialSkillsSessionHook,
 } from "./hookOps";
 import { syncCliConfigToWorkspace } from "./cliConfig";
+import { setActiveProjectProfileContext } from "./activeProjectProfile";
 import {
   buildProjectProfile,
   formatProjectProfileSummary,
   PROFILE_TYPE_LABELS,
+  projectProfileApplyTierEnabled,
   readProjectProfile,
   refreshProjectProfileContext,
   writeProjectProfile,
@@ -132,6 +134,7 @@ import {
   formatProjectProfileStatusBarText,
   formatProjectProfileStatusBarTooltip,
   formatProjectProfileSummaryBlock,
+  formatProjectProfileTierComparisonTable,
 } from "./projectProfileDisplay";
 import {
   applyUserProjectPlan,
@@ -2274,6 +2277,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const profile = readProjectProfile(target) ?? buildProjectProfile(target);
       outputChannel.show(true);
+      log(`\n${formatProjectProfileTierComparisonTable(target, profile.profileType)}`);
       log(`\n${formatProjectProfileSummaryBlock(profile)}`);
       const view = formatProjectProfileNotifyMessage(profile);
       void vscode.window.showInformationMessage(view, "Change tier").then((pick) => {
@@ -2303,28 +2307,45 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const detected = buildProjectProfile(target);
-      const pick = await vscode.window.showQuickPick(buildProjectPlanQuickPickItems(detected), {
-        title: "Confirm your project plans",
-        placeHolder: formatDetectedTierSummary(detected).replace(/\n/g, " · "),
-      });
+      const current = readProjectProfile(target);
+      outputChannel.show(true);
+      log(`\n${formatProjectProfileTierComparisonTable(target, current?.profileType ?? detected.profileType)}`);
+      const pick = await vscode.window.showQuickPick(
+        buildProjectPlanQuickPickItems(detected, current?.userPlan),
+        {
+          title: "Choose project plan (overhead and savings shown per option)",
+          placeHolder: formatDetectedTierSummary(detected).replace(/\n/g, " · "),
+          ignoreFocusOut: true,
+        }
+      );
       if (!pick) {
         return;
       }
-      const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
       let lockedProfile;
       if (pick.id === "accept-detected") {
+        const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
         await cfg.update("lockedTier", "", vscode.ConfigurationTarget.Workspace);
         lockedProfile = buildProjectProfile(target, undefined, "accept-detected");
         writeProjectProfile(target, lockedProfile);
-        refreshProjectProfileContext(target);
+        setActiveProjectProfileContext(
+          lockedProfile.enabledFeatures,
+          projectProfileApplyTierEnabled()
+        );
       } else {
         lockedProfile = await applyUserProjectPlan(target, detected, pick.id);
       }
+      refreshProjectProfileContext(target);
       refreshAll();
       if (lockedProfile) {
         outputChannel.show(true);
         log(`\n=== Project profile plan confirmed ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);
-        vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(lockedProfile));
+        vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(lockedProfile), "View details").then(
+          (action) => {
+            if (action === "View details") {
+              void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
+            }
+          }
+        );
       }
     }),
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildProjectPlanQuickPickItems, formatDetectedTierSummary } from "./projectProfilePrompt";
+import {
+  buildProjectPlanQuickPickItems,
+  formatDetectedTierSummary,
+  previewProfileForPlan,
+} from "./projectProfilePrompt";
 import { ProjectProfileFile } from "./projectProfile";
 
 function sampleProfile(
@@ -47,17 +51,32 @@ describe("projectProfilePrompt", () => {
     expect(items.find((i) => i.id === "accept-detected")?.picked).toBe(false);
   });
 
+  it("shows overhead and savings on each plan option", () => {
+    const detected = sampleProfile("solo-dev");
+    const solo = planDescription(detected, "accept-detected");
+    const multi = planDescription(detected, "multi-agent-workflow");
+    expect(solo).toContain("/mo overhead");
+    expect(multi).toContain("TEAM MULTI-AGENT");
+    expect(multi).toContain("full feature stack");
+  });
+
   it("defaults to accept-detected when multi-agent already detected", () => {
     const detected = sampleProfile("team-multi-agent", { hasAidlcWorkflow: true });
     const items = buildProjectPlanQuickPickItems(detected);
     expect(items.find((i) => i.id === "accept-detected")?.picked).toBe(true);
   });
 
-  it("lists multi-agent and budget plan options", () => {
+  it("marks current user plan as picked when changing tier", () => {
+    const detected = sampleProfile("solo-dev");
+    const items = buildProjectPlanQuickPickItems(detected, "budget-focused");
+    expect(items.find((i) => i.id === "budget-focused")?.picked).toBe(true);
+    expect(items.find((i) => i.id === "accept-detected")?.picked).toBe(false);
+  });
+
+  it("lists enterprise and quick-spike plan options", () => {
     const detected = sampleProfile("solo-dev");
     const items = buildProjectPlanQuickPickItems(detected);
-    expect(items.find((i) => i.id === "multi-agent-workflow")).toBeDefined();
-    expect(items.find((i) => i.id === "budget-focused")).toBeDefined();
+    expect(items.find((i) => i.id === "enterprise-team")).toBeDefined();
     expect(items.find((i) => i.id === "quick-spike")).toBeDefined();
   });
 
@@ -67,3 +86,11 @@ describe("projectProfilePrompt", () => {
     expect(summary).toContain("8 tracked files");
   });
 });
+
+function planDescription(
+  detected: ProjectProfileFile,
+  plan: import("./projectProfile").UserProjectPlan
+): string {
+  const items = buildProjectPlanQuickPickItems(detected);
+  return items.find((i) => i.id === plan)?.description ?? "";
+}

@@ -16,6 +16,7 @@ import {
   writeProjectProfile,
 } from "./projectProfile";
 import {
+  formatPlanEconomicsForTier,
   formatProjectProfileNotifyMessage,
   PROFILE_TYPE_BADGE,
 } from "./projectProfileDisplay";
@@ -44,6 +45,24 @@ export interface ProjectPlanPickItem extends vscode.QuickPickItem {
   id: UserProjectPlan;
 }
 
+export function previewProfileForPlan(
+  target: string,
+  detected: ProjectProfileFile,
+  plan: UserProjectPlan
+): ProjectProfileFile {
+  if (plan === "accept-detected") {
+    return buildProjectProfile(target, undefined, "accept-detected");
+  }
+  const tier = tierForUserPlan(detected.profileType, plan);
+  return buildProjectProfile(target, tier, plan);
+}
+
+function planPickDescription(detected: ProjectProfileFile, plan: UserProjectPlan): string {
+  const tier =
+    plan === "accept-detected" ? detected.profileType : tierForUserPlan(detected.profileType, plan);
+  return formatPlanEconomicsForTier(tier);
+}
+
 export function formatDetectedTierSummary(detected: ProjectProfileFile): string {
   const s = detected.detectedFrom;
   return [
@@ -54,19 +73,22 @@ export function formatDetectedTierSummary(detected: ProjectProfileFile): string 
 }
 
 export function buildProjectPlanQuickPickItems(
-  detected: ProjectProfileFile
+  detected: ProjectProfileFile,
+  currentPlan?: UserProjectPlan
 ): ProjectPlanPickItem[] {
   const badge = PROFILE_TYPE_BADGE[detected.profileType];
   const s = detected.detectedFrom;
   const nascent = isNascentRepo(s);
   const greenfieldMultiAgent = nascent && detected.profileType === "solo-dev";
-  const acceptPicked = !greenfieldMultiAgent && !s.hasAidlcWorkflow;
+  const acceptPicked = currentPlan
+    ? currentPlan === "accept-detected"
+    : !greenfieldMultiAgent && !s.hasAidlcWorkflow;
 
   const items: ProjectPlanPickItem[] = [
     {
       id: "accept-detected",
       label: `Use detected tier — ${badge}`,
-      description: "Recommended from git/repo analysis",
+      description: planPickDescription(detected, "accept-detected"),
       detail: detected.rationale,
       picked: acceptPicked,
     },
@@ -76,41 +98,52 @@ export function buildProjectPlanQuickPickItems(
     items.push({
       id: "aidlc-greenfield",
       label: "Plan: AIDLC greenfield (solo, multi-agent from day 1)",
-      description: "Enable TEAM MULTI-AGENT",
+      description: planPickDescription(detected, "aidlc-greenfield"),
       detail:
         "For new AI-DLC projects: sync Claude, Cursor, Copilot, and Kiro even with one author and a fresh repo.",
-      picked: greenfieldMultiAgent && !s.hasAidlcWorkflow,
+      picked: currentPlan ? currentPlan === "aidlc-greenfield" : greenfieldMultiAgent && !s.hasAidlcWorkflow,
     });
   }
 
-  items.push(
+  const planDefs: Array<{ id: UserProjectPlan; label: string; detail: string }> = [
     {
       id: "multi-agent-workflow",
       label: "Plan: multiple AI tools (Claude + Cursor + Copilot)",
-      description: "Enable TEAM MULTI-AGENT",
       detail: "Full multi-agent sync on a new or solo repo without waiting for git activity",
     },
     {
       id: "team-product",
       label: "Plan: team product / shared repo",
-      description: "Enable TEAM MULTI-AGENT",
       detail: "Attribution, branch profiles, and team cost sharing",
     },
     {
       id: "budget-focused",
       label: "Plan: tight budget / economy mode",
-      description: "Enable BUDGET-SENSITIVE",
       detail: "Full cost tracking, alerts, and optimization",
+    },
+    {
+      id: "enterprise-team",
+      label: "Plan: large enterprise team (unlimited budget)",
+      detail: "Multi-agent sync with minimal ROI overhead — attribution collector off",
     },
     {
       id: "quick-spike",
       label: "Plan: quick spike or throwaway script",
-      description: "Enable THROWAWAY",
       detail: "Minimal extension overhead",
-    }
-  );
+    },
+  ];
 
-  if (isMultiAgentGreenfield(s) && detected.profileType === "team-multi-agent") {
+  for (const def of planDefs) {
+    items.push({
+      id: def.id,
+      label: def.label,
+      description: planPickDescription(detected, def.id),
+      detail: def.detail,
+      picked: currentPlan === def.id,
+    });
+  }
+
+  if (!currentPlan && isMultiAgentGreenfield(s) && detected.profileType === "team-multi-agent") {
     const accept = items.find((i) => i.id === "accept-detected");
     if (accept) {
       accept.picked = true;
@@ -156,9 +189,10 @@ export async function applyUserProjectPlan(
   plan: UserProjectPlan
 ): Promise<ProjectProfileFile> {
   const tier = tierForUserPlan(detected.profileType, plan);
-  const lockTier = plan !== "accept-detected" && plan !== "quick-spike";
-  if (lockTier) {
-    const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
+  const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
+  if (plan === "accept-detected") {
+    await cfg.update("lockedTier", "", vscode.ConfigurationTarget.Workspace);
+  } else {
     await cfg.update("lockedTier", tier, vscode.ConfigurationTarget.Workspace);
   }
   const profile = buildProjectProfile(target, plan === "accept-detected" ? undefined : tier, plan);

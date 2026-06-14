@@ -2,7 +2,22 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.41** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.42** is the current Marketplace publish target.
+
+## [1.0.42] - 2026-06-14
+
+### Added
+
+- **Tier comparison table** — `Show Project Tier` and `Choose Project Profile Tier` log overhead/savings for every tier before you pick.
+- **Plan economics in QuickPick** — each plan option shows estimated monthly overhead and savings vs full stack.
+
+### Changed
+
+- **Manual tier change** — all explicit plan choices (including throwaway and enterprise) lock the tier so auto-detect no longer reverts your selection; persisted `manualOverride` is respected when settings lack `lockedTier`.
+
+### Fixed
+
+- **Choose Project Profile Tier** — can switch plans any time to compare and apply different tiers with visible benefit estimates.
 
 ## [1.0.41] - 2026-06-14
 
