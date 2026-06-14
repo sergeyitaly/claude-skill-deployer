@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { notificationLevel, notifyBackground } from "./userNotify";
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { getCurrentBranch } from "./branchProfiles";
 import { configFromVsCodeSettings } from "./budgetConfig";
@@ -262,6 +263,9 @@ export async function maybePromptHighUsageSkillProposals(
   if (!evaluation || !shouldNotifyHighUsageAlert(target, evaluation)) {
     return;
   }
+  if (notificationLevel() === "silent") {
+    return;
+  }
 
   promptInFlight = true;
   try {
@@ -285,11 +289,7 @@ export async function maybePromptHighUsageSkillProposals(
     if (choice === "Apply suggested skills") {
       const installed = await applyProposals(toInstall.map((p) => p.name));
       if (installed.length > 0) {
-        vscode.window.showInformationMessage(
-          `Claude Skills: installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`
-        );
-      } else {
-        vscode.window.showInformationMessage("Claude Skills: suggested skills were already installed.");
+        notifyBackground(`Installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`);
       }
     } else if (choice === "View usage report") {
       await vscode.commands.executeCommand("claudeSkills.showUsageStats");

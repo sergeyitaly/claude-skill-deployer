@@ -61,6 +61,12 @@ import {
   markClick,
   registerUserActivityListeners,
 } from "./userInteraction";
+import {
+  notifyBackground,
+  notifySuggestion,
+  notifyUserSuccess,
+  notifyUserWarn,
+} from "./userNotify";
 import { recordPerf } from "./perfTelemetry";
 import {
   buildCostAttribution,
@@ -284,6 +290,17 @@ function log(line: string) {
   outputChannel.appendLine(line);
 }
 
+/** Open the output panel when the user opts in (setting) or clicks "Open Output". */
+function revealOutputPanel(): void {
+  outputChannel.show(true);
+}
+
+function maybeRevealOutputPanel(): void {
+  if (vscode.workspace.getConfiguration("claudeSkills").get<boolean>("revealOutputPanel", false)) {
+    revealOutputPanel();
+  }
+}
+
 /** Phase-2 dashboard: fill main + team panels when fast-phase used a loading slot or stale snapshot. */
 async function enhanceCostDashboardPanel(
   target: string,
@@ -376,10 +393,10 @@ async function maybeNotifyOfficialSkillUpdates(target: string): Promise<void> {
     }
     const newCount = result.candidates.filter((c) => c.kind === "new").length;
     const updatedCount = result.candidates.filter((c) => c.kind === "updated").length;
-    const choice = await vscode.window.showInformationMessage(
+    const choice = await notifySuggestion(
       `Official Anthropic skills have updates (${newCount} new, ${updatedCount} updates).`,
-      "Check now",
-      "Dismiss"
+      ["Check now", "Dismiss"],
+      { dedupeKey: `official-skills|${target}`, log }
     );
     if (choice === "Check now") {
       await vscode.commands.executeCommand("claudeSkills.checkOfficialSkillUpdates");
@@ -512,11 +529,10 @@ async function maybePromptOutdatedSkillUpgrades(libraryDir: string, target: stri
     .map((s) => `${s.name} (${s.installedVersion} → ${s.catalogVersion})`)
     .join(", ");
   const suffix = outdated.length > 3 ? ` +${outdated.length - 3} more` : "";
-  const choice = await vscode.window.showInformationMessage(
+  const choice = await notifySuggestion(
     `Claude Skills: ${outdated.length} outdated skill(s) — ${preview}${suffix}. Upgrade from the library?`,
-    "Upgrade all",
-    "Show report",
-    "Dismiss"
+    ["Upgrade all", "Show report", "Dismiss"],
+    { dedupeKey: `outdated-skills|${target}`, log }
   );
   if (choice === "Upgrade all") {
     await vscode.commands.executeCommand("claudeSkills.upgradeOutdatedSkills");
@@ -753,20 +769,25 @@ export function activate(context: vscode.ExtensionContext) {
           log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
         }
         const notifyTierChange = (profile: typeof projectProfile) => {
+          if (effectiveLockedTier(readProjectProfile(target!), target)) {
+            log(`Project profile tier: ${PROFILE_TYPE_LABELS[profile.profileType]} (locked — notification suppressed).`);
+            return;
+          }
           const key = `${target}|${profile.profileType}`;
           if (key === lastProjectProfileNotified) {
             return;
           }
           lastProjectProfileNotified = key;
-          void vscode.window
-            .showInformationMessage(formatProjectProfileNotifyMessage(profile), "View details", "Change tier")
-            .then((pick) => {
-              if (pick === "View details") {
-                void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
-              } else if (pick === "Change tier") {
-                void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
-              }
-            });
+          void notifySuggestion(formatProjectProfileNotifyMessage(profile), ["View details", "Change tier"], {
+            dedupeKey: `tier|${key}`,
+            log,
+          }).then((pick) => {
+            if (pick === "View details") {
+              void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
+            } else if (pick === "Change tier") {
+              void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
+            }
+          });
         };
         if (projectProfileChanged && projectProfileFirstDetect && target) {
           void maybePromptProjectTierOnFirstDetect(context, target, true).then((finalProfile) => {
@@ -894,8 +915,9 @@ export function activate(context: vscode.ExtensionContext) {
           saveBranchProfile: true,
           forceAgentSync: true,
         });
-        void vscode.window.showInformationMessage(
-          `Claude Skills: task proposals applied (${result.installed.length} installed, ${result.overridesApplied} enabled).`
+        notifyBackground(
+          `Task proposals auto-applied (${result.installed.length} installed, ${result.overridesApplied} enabled).`,
+          log
         );
       }
     }
@@ -929,7 +951,7 @@ export function activate(context: vscode.ExtensionContext) {
     treeView.onDidChangeCheckboxState(async (e) => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         refreshLight();
         return;
       }
@@ -1106,23 +1128,27 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("claudeSkills.refresh", refreshAll),
 
+    vscode.commands.registerCommand("claudeSkills.showOutput", () => {
+      revealOutputPanel();
+    }),
+
     vscode.commands.registerCommand("claudeSkills.pickWorkspaceFolder", async () => {
       const picked = await pickWorkspaceTarget();
       if (picked) {
         refreshAll();
-        vscode.window.showInformationMessage(`Claude Skills: active folder — ${workspaceFolderLabel(picked) ?? picked}`);
+        void notifyUserSuccess(`Claude Skills: active folder — ${workspaceFolderLabel(picked) ?? picked}`);
       }
     }),
 
     vscode.commands.registerCommand("claudeSkills.installLibraryToGlobal", async () => {
       const syncAll = shouldSyncGlobalToAll();
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       if (syncAll) {
         const results = installLibraryToAllAgents(libraryDir, false, false);
         log(`\n=== Install skill library -> all enabled agents ===`);
         log(formatAgentInstallSummary(results));
         const installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           `Claude Skills: installed ${installed} skill(s) across enabled agents -- see output for details.`
         );
       } else {
@@ -1133,7 +1159,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         const installed = results.filter((r) => r.status === "installed").length;
         const skipped = results.filter((r) => r.status === "skipped-exists").length;
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           `Claude Skills: installed ${installed}, skipped ${skipped} (already present) -- see "Claude Skills" output for details.`
         );
       }
@@ -1142,11 +1168,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("claudeSkills.installLibraryToAllAgents", async () => {
       const results = installLibraryToAllAgents(libraryDir, false, false);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Install skill library -> all enabled agents ===`);
       log(formatAgentInstallSummary(results));
       const installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: installed ${installed} skill(s) across enabled agents.`
       );
       refreshAll();
@@ -1155,11 +1181,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.generateForWorkspace", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       ensureLearningDir(target);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       let installed = 0;
       if (shouldSyncWorkspaceToAll()) {
         const results = generateForAllAgents(libraryDir, target, { all: false, force: false, dryRun: false });
@@ -1186,7 +1212,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         installed = results.filter((r) => r.status === "installed").length;
       }
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: installed ${installed} skill(s) for this workspace -- see "Claude Skills" output for details.`
       );
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
@@ -1196,11 +1222,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.generateAllForWorkspace", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       ensureLearningDir(target);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       let installed = 0;
       if (shouldSyncWorkspaceToAll()) {
         const results = generateForAllAgents(libraryDir, target, { all: true, force: false, dryRun: false });
@@ -1219,7 +1245,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
         installed = results.filter((r) => r.status === "installed").length;
       }
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: installed ${installed} skill(s) (full library) -- see "Claude Skills" output for details.`
       );
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
@@ -1229,7 +1255,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.previewForWorkspace", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const results = generateForWorkspace(libraryDir, target, {
@@ -1237,7 +1263,7 @@ export function activate(context: vscode.ExtensionContext) {
         force: false,
         dryRun: true,
       });
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n=== Preview (dry run) for ${target} ===`);
       if (results.length === 0) {
         log("No relevant skills detected for this workspace.");
@@ -1259,7 +1285,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.installSkillToWorkspace", async (item?: SkillItem) => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       if (!item) {
@@ -1283,12 +1309,12 @@ export function activate(context: vscode.ExtensionContext) {
           force = true;
         }
         ensureLearningDir(target);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         const results = installSkillToAllWorkspaceAgents(libraryDir, target, skillName, sourceRoot, force, false);
         log(`\n=== Install ${skillName} -> all enabled agents ===`);
         log(formatAgentInstallSummary(results));
         const installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
-        vscode.window.showInformationMessage(`Claude Skills: ${skillName} installed to ${installed} agent path(s).`);
+        void notifyUserSuccess(`Claude Skills: ${skillName} installed to ${installed} agent path(s).`);
       } else {
         const destRoot = path.join(target, ".claude", "skills");
         let status = copySkill(skillName, sourceRoot, destRoot, false, false, { libraryDir });
@@ -1304,10 +1330,10 @@ export function activate(context: vscode.ExtensionContext) {
           status = copySkill(skillName, sourceRoot, destRoot, true, false, { libraryDir });
         }
         ensureLearningDir(target);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log(`\n=== Install ${skillName} -> ${destRoot} ===`);
         log(`${skillName}: ${status} (from ${sourceRoot})`);
-        vscode.window.showInformationMessage(`Claude Skills: ${skillName} -> ${status}`);
+        void notifyUserSuccess(`Claude Skills: ${skillName} -> ${status}`);
       }
       try {
         propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
@@ -1365,7 +1391,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.showUsageStats", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       ensureLearningDir(target);
@@ -1406,7 +1432,7 @@ export function activate(context: vscode.ExtensionContext) {
         taskSummary: savedProposals?.taskSummary,
       };
 
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n=== Skill usage report for ${target} ===`);
       log(formatUsageReport(stats, suggested, target, creditUsage, reportOpts));
       log(
@@ -1465,14 +1491,14 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.applyTaskSkillProposals", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const manifest = loadManifest(libraryDir);
       const proposals = resolveTaskSkillProposals(target, manifest);
       const toInstall = proposals.filter((p) => !p.installed);
       if (toInstall.length === 0) {
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           "Claude Skills: no uninstalled suggested skills — run skill-feedback-adaptation on a new task first."
         );
         return;
@@ -1483,23 +1509,23 @@ export function activate(context: vscode.ExtensionContext) {
       );
       refreshAll();
       if (installed.length > 0) {
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           `Claude Skills: installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`
         );
       } else {
-        vscode.window.showInformationMessage("Claude Skills: could not install suggested skills.");
+        void notifyUserSuccess("Claude Skills: could not install suggested skills.");
       }
     }),
 
     vscode.commands.registerCommand("claudeSkills.upgradeOutdatedSkills", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const outdated = listOutdatedSkills(libraryDir, target);
       if (outdated.length === 0) {
-        vscode.window.showInformationMessage("Claude Skills: all installed skills match the library catalog version.");
+        void notifyUserSuccess("Claude Skills: all installed skills match the library catalog version.");
         return;
       }
       const upgraded = await upgradeOutdatedSkills(libraryDir, target);
@@ -1509,11 +1535,11 @@ export function activate(context: vscode.ExtensionContext) {
           forceAgentSync: true,
         });
         refreshAll();
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           `Claude Skills: upgraded ${upgraded.length} skill(s): ${upgraded.join(", ")}.`
         );
       } else {
-        vscode.window.showInformationMessage("Claude Skills: no skills were upgraded (cancelled or missing from library).");
+        void notifyUserSuccess("Claude Skills: no skills were upgraded (cancelled or missing from library).");
       }
     }),
 
@@ -1524,15 +1550,15 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.installAttributionHooks", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       try {
         const status = installAttributionHooks(context.extensionPath, target);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log(`\n=== Attribution v2 hooks (PostToolUse Skill|Read) -> ${target} ===`);
         log(status);
-        vscode.window.showInformationMessage(`Claude Skills: attribution hooks ${status}.`);
+        void notifyUserSuccess(`Claude Skills: attribution hooks ${status}.`);
       } catch (err) {
         recordError();
         vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
@@ -1542,7 +1568,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.installCostControlHooks", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       try {
@@ -1554,7 +1580,7 @@ export function activate(context: vscode.ExtensionContext) {
           syncPracticalFocusConfigToDisk();
         }
         const status = installCostControlHooks(context.extensionPath, target);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log(`\n=== Cost control hooks -> ${target} ===`);
         log(status);
         log(`Budget config synced to ~/.claude/learning/budget.json`);
@@ -1565,13 +1591,13 @@ export function activate(context: vscode.ExtensionContext) {
           log(`Practical focus config synced to ~/.claude/learning/practical-focus.json`);
         }
         if (status === "installed") {
-          vscode.window.showInformationMessage(
+          void notifyUserSuccess(
             "Claude Skills: cost control hooks enabled (session size, budget, context focus, practical focus) for this workspace."
           );
         } else if (status === "updated") {
-          vscode.window.showInformationMessage("Claude Skills: cost control hooks updated for this workspace.");
+          void notifyUserSuccess("Claude Skills: cost control hooks updated for this workspace.");
         } else {
-          vscode.window.showInformationMessage("Claude Skills: cost control hooks were already enabled (files refreshed).");
+          void notifyUserSuccess("Claude Skills: cost control hooks were already enabled (files refreshed).");
         }
       } catch (err) {
         recordError();
@@ -1582,15 +1608,15 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.installOfficialSkillsSessionHook", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       try {
         const status = installOfficialSkillsSessionHook(context.extensionPath, target);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log(`\n=== Official skills SessionStart hook -> ${target} ===`);
         log(status);
-        vscode.window.showInformationMessage(`Claude Skills: official skills session hook ${status}.`);
+        void notifyUserSuccess(`Claude Skills: official skills session hook ${status}.`);
       } catch (err) {
         recordError();
         vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
@@ -1600,7 +1626,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.checkOfficialSkillUpdates", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const libraryDir = resolveSkillsLibraryDir(target);
@@ -1612,7 +1638,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       try {
         const result = await checkOfficialSkillUpdates(libraryDir);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log(`\n=== Official Anthropic skills check -> ${libraryDir} ===`);
         if (result.checkError) {
           log(result.checkError);
@@ -1621,19 +1647,20 @@ export function activate(context: vscode.ExtensionContext) {
         }
         if (result.unchanged) {
           log(`Up to date (HEAD ${result.remoteSha?.slice(0, 12) ?? "unknown"}).`);
-          vscode.window.showInformationMessage("Claude Skills: official Anthropic skills are up to date.");
+          void notifyUserSuccess("Claude Skills: official Anthropic skills are up to date.");
           return;
         }
         const sessionContext = formatOfficialSkillsSessionContext(result);
         log(sessionContext);
         log("\nIn Claude Code, ask the agent to follow skill-official-updater to pull selected skills.");
         installOfficialSkillsSessionHook(context.extensionPath, target);
-        vscode.window.showInformationMessage(
+        void notifySuggestion(
           "Official skill updates available — see output. Ask Claude Code to run skill-official-updater.",
-          "Open Output"
+          ["Open Output"],
+          { log }
         ).then((sel) => {
           if (sel === "Open Output") {
-            outputChannel.show(true);
+            revealOutputPanel();
           }
         });
       } catch (err) {
@@ -1649,9 +1676,9 @@ export function activate(context: vscode.ExtensionContext) {
       await cfg.update("mode", next, vscode.ConfigurationTarget.Global);
       applyBudgetSettings(libraryDir, true);
       refreshAll();
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Budget mode -> ${BUDGET_MODE_LABEL[next]} ===`);
-      vscode.window.showInformationMessage(`Claude Skills: budget mode set to ${BUDGET_MODE_LABEL[next]}.`);
+      void notifyUserSuccess(`Claude Skills: budget mode set to ${BUDGET_MODE_LABEL[next]}.`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.cycleContextFocusLevel", async () => {
@@ -1666,7 +1693,7 @@ export function activate(context: vscode.ExtensionContext) {
         await cfg.update("level", "balanced", vscode.ConfigurationTarget.Global);
         syncContextFocusConfigToDisk();
         refreshAll();
-        vscode.window.showInformationMessage("Claude Skills: context focus enabled (Balanced).");
+        void notifyUserSuccess("Claude Skills: context focus enabled (Balanced).");
         return;
       }
       const current = cfg.get<ContextFocusLevel>("level", "balanced");
@@ -1675,17 +1702,17 @@ export function activate(context: vscode.ExtensionContext) {
         await cfg.update("enabled", false, vscode.ConfigurationTarget.Global);
         syncContextFocusConfigToDisk();
         refreshAll();
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log("\n=== Context focus -> disabled ===");
-        vscode.window.showInformationMessage("Claude Skills: context focus disabled.");
+        void notifyUserSuccess("Claude Skills: context focus disabled.");
         return;
       }
       await cfg.update("level", next, vscode.ConfigurationTarget.Global);
       syncContextFocusConfigToDisk();
       refreshAll();
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Context focus -> ${CONTEXT_FOCUS_LABELS[next]} ===`);
-      vscode.window.showInformationMessage(`Claude Skills: context focus set to ${CONTEXT_FOCUS_LABELS[next]}.`);
+      void notifyUserSuccess(`Claude Skills: context focus set to ${CONTEXT_FOCUS_LABELS[next]}.`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.openContextFocusSettings", async () => {
@@ -1704,7 +1731,7 @@ export function activate(context: vscode.ExtensionContext) {
         await cfg.update("level", "architecture-first", vscode.ConfigurationTarget.Global);
         syncPracticalFocusConfigToDisk();
         refreshAll();
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           "Claude Skills: practical focus enabled (Architecture-first). Install deployment-practical skill for full checklist."
         );
         return;
@@ -1715,17 +1742,17 @@ export function activate(context: vscode.ExtensionContext) {
         await cfg.update("enabled", false, vscode.ConfigurationTarget.Global);
         syncPracticalFocusConfigToDisk();
         refreshAll();
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         log("\n=== Practical focus -> disabled ===");
-        vscode.window.showInformationMessage("Claude Skills: practical/deployment focus disabled.");
+        void notifyUserSuccess("Claude Skills: practical/deployment focus disabled.");
         return;
       }
       await cfg.update("level", next, vscode.ConfigurationTarget.Global);
       syncPracticalFocusConfigToDisk();
       refreshAll();
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Practical focus -> ${PRACTICAL_FOCUS_LABELS[next]} ===`);
-      vscode.window.showInformationMessage(`Claude Skills: practical focus set to ${PRACTICAL_FOCUS_LABELS[next]}.`);
+      void notifyUserSuccess(`Claude Skills: practical focus set to ${PRACTICAL_FOCUS_LABELS[next]}.`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.openPracticalFocusSettings", async () => {
@@ -1746,11 +1773,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.saveBranchProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const profile = saveBranchProfile(target, libraryDir);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       if (!profile) {
         log("\n=== Save branch profile ===\nNot a git repo or branch profiles disabled.");
         vscode.window.showWarningMessage("Claude Skills: could not save branch profile (git branch required).");
@@ -1759,7 +1786,7 @@ export function activate(context: vscode.ExtensionContext) {
       log(`\n=== Save branch profile -> ${profile.branch} ===`);
       log(`${profile.skills.length} skill(s), ${Object.keys(profile.skillOverrides).length} override(s)`);
       maybeSaveHostAgentSetWithBranchProfile(target);
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: saved skill profile for branch "${profile.branch}" (${profile.skills.length} skills).`
       );
     }),
@@ -1767,12 +1794,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.saveAgentSkillSet", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const agent = detectHostAgentId();
       const saved = saveAgentSkillSet(target, agent);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       if (!saved) {
         log("\n=== Save IDE skill set ===\nGit branch required or agent profiles disabled.");
         vscode.window.showWarningMessage("Claude Skills: could not save IDE skill set.");
@@ -1780,7 +1807,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       log(`\n=== Save IDE skill set -> ${hostAgentLabel(agent)} (${saved.branch}) ===`);
       log(`${saved.skills.length} skill(s), ${Object.keys(saved.skillOverrides).length} override(s)`);
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: saved ${hostAgentLabel(agent)} skill set for "${saved.branch}" (${saved.skills.length} skills).`
       );
     }),
@@ -1788,7 +1815,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.switchAgentSkillSet", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const result = await promptSwitchAgentSkillSet(libraryDir, target, log);
@@ -1806,14 +1833,14 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n=== IDE / agent skill sets ===\n${formatAgentSkillSetsReport(target)}`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.exportTeamBranchProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const profile = exportTeamBranchProfile(target, libraryDir);
@@ -1821,9 +1848,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: not on a git branch or could not capture profile.");
         return;
       }
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Export team branch profile ===\n${formatTeamProfileReport(target)}`);
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: wrote team profile (.claude/skills-profile.json) — commit to git.`
       );
     }),
@@ -1831,7 +1858,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.applyTeamBranchProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const result = applyTeamBranchProfile(libraryDir, target);
@@ -1841,7 +1868,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: applied team profile (+${result.installed.length}, -${result.removed.length}).`
       );
     }),
@@ -1851,32 +1878,32 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n=== Team branch profiles (git) ===\n${formatTeamProfileReport(target)}`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.setPosition", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const position = await promptForPosition(target);
       if (position) {
-        vscode.window.showInformationMessage(`Claude Skills: position saved as ${position.label} (local only).`);
+        void notifyUserSuccess(`Claude Skills: position saved as ${position.label} (local only).`);
       }
     }),
 
     vscode.commands.registerCommand("claudeSkills.refreshSkillCatalog", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const catalog = refreshSkillsCatalog(target, libraryDir);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Skill catalog refreshed ===\n${catalog.skills.length} skill(s) -> .claude/learning/skills-catalog.json`);
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: refreshed skill catalog (${catalog.skills.length} skills).`
       );
     }),
@@ -1884,7 +1911,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.initProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const branch = getCurrentBranch(target);
@@ -1892,7 +1919,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("Claude Skills: init profile requires a git branch.");
         return;
       }
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       await startProfileInitFlow(context.extensionPath, libraryDir, target, branch, log);
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
         saveBranchProfile: false,
@@ -1903,15 +1930,15 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.prepareForClaudeCli", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       try {
         const result = await prepareForClaudeCli(context.extensionPath, libraryDir, target);
-        outputChannel.show(true);
+        maybeRevealOutputPanel();
         const summary = formatPrepareClaudeCliSummary(result);
         log(`\n=== Prepare for Claude CLI ===\n${summary}`);
-        vscode.window.showInformationMessage(
+        void notifyUserSuccess(
           "Claude Skills: workspace ready for Claude CLI — you can close the IDE and use `claude` in the terminal."
         );
         refreshAll();
@@ -1924,7 +1951,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.applyLocalProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const { result, init, invalid, hostAgentSkillSet } = applyLocalProfileInit(libraryDir, target);
@@ -1939,7 +1966,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(
         `\n=== Applied local profile ===\nBranch: ${init.branch}, role: ${init.roleLabel}\n` +
           `Installed: ${result.installed.join(", ") || "(none)"}\n` +
@@ -1948,7 +1975,7 @@ export function activate(context: vscode.ExtensionContext) {
             : "") +
           (invalid.length ? `Skipped unknown: ${invalid.join(", ")}\n` : "")
       );
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: applied profile for ${init.branch} (+${result.installed.length} skill(s)).`
       );
     }),
@@ -1956,7 +1983,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.applyBranchProfile", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const branch = getCurrentBranch(target);
@@ -1970,20 +1997,20 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const result = applyBranchProfile(libraryDir, target, profile);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Apply branch profile -> ${branch} ===`);
       log(`Installed: ${result.installed.join(", ") || "(none)"}`);
       log(`Removed: ${result.removed.join(", ") || "(none)"}`);
       log(`Overrides applied: ${result.overridesApplied}`);
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: applied "${branch}" profile (+${result.installed.length}, -${result.removed.length}).`
       );
     }),
 
     vscode.commands.registerCommand("claudeSkills.showAgentCapabilities", async () => {
-      outputChannel.show(true);
+      revealOutputPanel();
       log("\n=== Enabled AI agent targets ===");
       log(agentCapabilityLines(libraryDir).join("\n"));
       log("\nConfigure via Settings -> claudeSkills.agents.enabled");
@@ -1993,7 +2020,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.syncWorkspaceToAgents", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       if (!shouldSyncWorkspaceToAll()) {
@@ -2002,13 +2029,13 @@ export function activate(context: vscode.ExtensionContext) {
         );
         return;
       }
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log("\n=== Sync workspace skills to all enabled agents ===");
       const { agentPathsUpdated } = propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
         forceAgentSync: true,
         saveBranchProfile: false,
       });
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: synced workspace skills to ${agentPathsUpdated} agent path(s) — see output.`
       );
       refreshAll();
@@ -2017,7 +2044,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.showBranchProfiles", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       if (!branchProfilesFeatureActive()) {
@@ -2025,16 +2052,17 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const report = formatBranchProfilesReport(target);
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n=== Branch skill profiles ===`);
       log(report);
       const preview = report.split("\n").slice(0, 6).join("\n");
-      vscode.window.showInformationMessage(
+      void notifySuggestion(
         preview.length > 120 ? `${preview.slice(0, 117)}...` : preview,
-        "Open Output"
+        ["Open Output"],
+        { log }
       ).then((choice) => {
         if (choice === "Open Output") {
-          outputChannel.show(true);
+          revealOutputPanel();
         }
       });
     }),
@@ -2047,7 +2075,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       ensureLearningDir(target);
@@ -2119,7 +2147,7 @@ export function activate(context: vscode.ExtensionContext) {
                   { fastPhase: true, includeTeamEconomics: false }
                 );
                 void enhanceCostDashboardPanel(ws, libraryDir, refreshPipeline, costDashboardPanel!, hadSnap);
-                vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
+                void notifyUserSuccess(`Claude Skills: ${result.applied[0]}`);
               } else {
                 vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
               }
@@ -2139,22 +2167,21 @@ export function activate(context: vscode.ExtensionContext) {
       costDashboardPanel.webview.html = html;
       costDashboardPanel.reveal(vscode.ViewColumn.Active);
       void enhanceCostDashboardPanel(target, libraryDir, pipeline, costDashboardPanel, hadMainSnapshot);
-      outputChannel.show(true);
       log(`\n${formatCostDashboardText(target, libraryDir)}`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.showOptimizationSuggestions", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const suggestions = generateOptimizationSuggestions(target, libraryDir);
-      outputChannel.show(true);
+      revealOutputPanel();
       log("\n=== Cost optimization suggestions ===");
       log(formatSuggestionsReport(suggestions).join("\n"));
       if (suggestions.length === 0) {
-        vscode.window.showInformationMessage("Claude Skills: no optimization suggestions yet.");
+        void notifyUserSuccess("Claude Skills: no optimization suggestions yet.");
       } else {
         const apply = await vscode.window.showInformationMessage(
           `${suggestions.length} optimization suggestion(s) — apply selected?`,
@@ -2170,7 +2197,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.applyOptimizations", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const health = assessAttributionHealth(target, libraryDir);
@@ -2183,14 +2210,14 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const suggestions = generateOptimizationSuggestions(target, libraryDir);
       const result = await applyOptimizationSuggestions(target, libraryDir, suggestions);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log("\n=== Apply optimizations ===");
       log(result.applied.join("\n") || "(none applied)");
       if (result.skipped.length > 0) {
         log(`Skipped: ${result.skipped.join(", ")}`);
       }
       refreshAll();
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: applied ${result.applied.length} optimization(s).`
       );
     }),
@@ -2216,7 +2243,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (uri) {
         await vscode.workspace.fs.writeFile(uri, Buffer.from(text, "utf-8"));
-        vscode.window.showInformationMessage(`Cost report saved to ${uri.fsPath}`);
+        void notifyUserSuccess(`Cost report saved to ${uri.fsPath}`, log);
       }
     }),
 
@@ -2265,10 +2292,10 @@ export function activate(context: vscode.ExtensionContext) {
         syncPracticalFocusConfigToDisk();
       }
       refreshAll();
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Feature ${pick.key} -> ${next ? "on" : "off"} ===`);
       log(featureFlagLines().join("\n"));
-      vscode.window.showInformationMessage(`Claude Skills: ${pick.key} is now ${next ? "enabled" : "disabled"}. Reload window to apply some changes.`);
+      void notifyUserSuccess(`Claude Skills: ${pick.key} is now ${next ? "enabled" : "disabled"}. Reload window to apply some changes.`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.showProjectProfile", async () => {
@@ -2277,11 +2304,11 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const profile = readProjectProfile(target) ?? buildProjectProfile(target);
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n${formatProjectProfileTierComparisonTable(target, profile.profileType)}`);
       log(`\n${formatProjectProfileSummaryBlock(profile)}`);
       const view = formatProjectProfileNotifyMessage(profile);
-      void vscode.window.showInformationMessage(view, "Change tier").then((pick) => {
+      void notifySuggestion(view, ["Change tier"], { dedupeKey: `show-profile|${target}`, log }).then((pick) => {
         if (pick === "Change tier") {
           void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
         }
@@ -2327,10 +2354,13 @@ export function activate(context: vscode.ExtensionContext) {
       writeProjectProfile(target, detectedProfile);
       refreshProjectProfileContext(target);
       refreshAll();
-      outputChannel.show(true);
+      revealOutputPanel();
       log(`\n=== Project profile detected ===\n${formatProjectProfileTierComparisonTable(target, detectedProfile.profileType)}`);
       log(`\n${formatProjectProfileSummaryBlock(detectedProfile)}`);
-      vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(detectedProfile), "View details");
+      void notifySuggestion(formatProjectProfileNotifyMessage(detectedProfile), ["View details"], {
+        dedupeKey: `detect-profile|${target}`,
+        log,
+      });
     }),
 
     vscode.commands.registerCommand("claudeSkills.chooseProjectProfile", async () => {
@@ -2347,7 +2377,6 @@ export function activate(context: vscode.ExtensionContext) {
         },
         async () => buildProjectProfileWithRemoteProbe(target)
       );
-      outputChannel.show(true);
       log(`\n${formatProjectProfileTierComparisonTable(target, current?.profileType ?? detected.profileType)}`);
       const pick = await vscode.window.showQuickPick(
         buildProjectPlanQuickPickItems(detected, current?.userPlan),
@@ -2380,15 +2409,16 @@ export function activate(context: vscode.ExtensionContext) {
       refreshProjectTierStatusBar(target);
       refreshAll({ workspaceState: false, forceTree: true });
       if (lockedProfile) {
-        outputChannel.show(true);
+        revealOutputPanel();
         log(`\n=== Project profile plan confirmed ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);
-        vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(lockedProfile), "View details").then(
-          (action) => {
-            if (action === "View details") {
-              void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
-            }
+        void notifySuggestion(formatProjectProfileNotifyMessage(lockedProfile), ["View details"], {
+          dedupeKey: `plan-confirmed|${target}|${lockedProfile.profileType}`,
+          log,
+        }).then((action) => {
+          if (action === "View details") {
+            void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
           }
-        );
+        });
       }
     }),
 
@@ -2404,7 +2434,7 @@ export function activate(context: vscode.ExtensionContext) {
       const next = modes[(modes.indexOf(current) + 1) % modes.length];
       await cfg.update("sortBy", next, vscode.ConfigurationTarget.Workspace);
       provider.refresh();
-      vscode.window.showInformationMessage(`Claude Skills: skill sort -> ${next}`);
+      void notifyUserSuccess(`Claude Skills: skill sort -> ${next}`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.estimatePRCost", async () => {
@@ -2426,13 +2456,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
       const archived = listArchivedSkills(target);
       if (archived.length === 0) {
-        vscode.window.showInformationMessage("No archived skills to restore.");
+        void notifyUserSuccess("No archived skills to restore.", log);
         return;
       }
       const pick = await vscode.window.showQuickPick(archived, { title: "Restore archived skill" });
       if (pick && restoreArchivedSkill(target, pick, libraryDir)) {
         refreshAll();
-        vscode.window.showInformationMessage(`Restored skill: ${pick}`);
+        void notifyUserSuccess(`Restored skill: ${pick}`, log);
       }
     }),
 
@@ -2449,38 +2479,38 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.repairData", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const issues = scanForIssues(target);
       if (issues.length === 0) {
-        vscode.window.showInformationMessage("Claude Skills: no data issues detected.");
+        void notifyUserSuccess("Claude Skills: no data issues detected.");
         return;
       }
       const fixed = await repairIssues(target, issues);
-      vscode.window.showInformationMessage(`Claude Skills: repaired ${fixed.length} issue(s).`);
+      void notifyUserSuccess(`Claude Skills: repaired ${fixed.length} issue(s).`);
     }),
 
     vscode.commands.registerCommand("claudeSkills.configureWeeklyReportEmail", async () => {
       const target = getWorkspaceTarget();
       const message = await configureWeeklyReportEmail(context, target);
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log(`\n=== Configure weekly report email ===\n${message}`);
-      vscode.window.showInformationMessage(message.split("\n")[0] ?? message);
+      void notifyUserSuccess(message.split("\n")[0] ?? message, log);
     }),
 
     vscode.commands.registerCommand("claudeSkills.sendWeeklyReport", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log("\n=== Send weekly AI usage report ===");
       const result = await deliverWeeklyReport(context, target, libraryDir);
       if (result.email.ok) {
         log(`Email sent to ${result.email.to}`);
-        vscode.window.showInformationMessage(`Claude Skills: weekly report emailed to ${result.email.to}.`);
+        void notifyUserSuccess(`Claude Skills: weekly report emailed to ${result.email.to}.`);
       } else {
         log(`Email failed: ${result.email.error ?? "n/a"}`);
         vscode.window.showWarningMessage(
@@ -2492,14 +2522,14 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.previewSkillSetResolver", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const plan = planSkillSetResolution(target, libraryDir);
-      outputChannel.show(true);
+      revealOutputPanel();
       log("\n=== Skill set resolver preview ===");
       log(formatSkillSetResolverPlan(plan).join("\n"));
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: would install ${plan.toInstall.length}, remove ${plan.toRemove.length}, archive ${plan.toArchive.length} — see output.`
       );
     }),
@@ -2507,12 +2537,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.runSkillSetResolver", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const plan = planSkillSetResolution(target, libraryDir);
       if (plan.toInstall.length === 0 && plan.toRemove.length === 0 && plan.toArchive.length === 0) {
-        vscode.window.showInformationMessage("Claude Skills: skill set already matches this workspace.");
+        void notifyUserSuccess("Claude Skills: skill set already matches this workspace.");
         return;
       }
       const confirm = await vscode.window.showWarningMessage(
@@ -2523,7 +2553,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (confirm !== "Run") {
         return;
       }
-      outputChannel.show(true);
+      maybeRevealOutputPanel();
       log("\n=== Skill set resolver ===");
       const result = executeSkillSetResolution(target, libraryDir);
       log(formatSkillSetResolverPlan(result.plan).join("\n"));
@@ -2538,7 +2568,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       refreshAll();
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: installed ${result.installed.length}, removed ${result.removed.length}, archived ${result.archived.length}.`
       );
     }),
@@ -2546,7 +2576,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.resetAttribution", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       const confirm = await vscode.window.showWarningMessage(
@@ -2562,7 +2592,7 @@ export function activate(context: vscode.ExtensionContext) {
       runCostPipelineSync(target, libraryDir);
       persistCostAttribution(target, libraryDir);
       refreshAll();
-      vscode.window.showInformationMessage(
+      void notifyUserSuccess(
         `Claude Skills: removed ${result.removedRuns} transcript estimate row(s); kept ${result.keptRuns} hook/self-learning run(s). Reopen Usage Report to refresh.`
       );
     }),
@@ -2570,12 +2600,12 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("claudeSkills.installCommitCostHook", async () => {
       const target = getWorkspaceTarget();
       if (!target) {
-        vscode.window.showWarningMessage("Claude Skills: open a workspace folder first.");
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       try {
         const status = installGitPostCommitHook(target, context.extensionPath);
-        vscode.window.showInformationMessage(`Claude Skills: commit cost hook ${status}.`);
+        void notifyUserSuccess(`Claude Skills: commit cost hook ${status}.`);
       } catch (err) {
         vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
       }
@@ -2651,8 +2681,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
     propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
     refreshAll();
-    void vscode.window.showInformationMessage(
-      `Claude Skills: profile applied for ${init.branch} (${result.installed.length} skill(s) installed).`
+    notifyBackground(
+      `Profile applied for ${init.branch} (${result.installed.length} skill(s) installed).`,
+      log
     );
   }, 800);
 

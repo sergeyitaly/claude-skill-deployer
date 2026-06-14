@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
+import { notifyBackground } from "./userNotify";
 import { getCurrentBranch, saveBranchProfile } from "./branchProfiles";
 import { generateOptimizationSuggestions, OptimizationSuggestion, OptimizationType } from "./costOptimizer";
 import { isFeatureEnabled } from "./featureFlags";
@@ -197,8 +198,8 @@ export async function applyOptimizationSuggestions(
         setSkillOverride(target, suggestion.skill, "off");
         result.applied.push(`Disabled ${suggestion.skill}`);
         if (auto) {
-          vscode.window.showInformationMessage(
-            `Claude Skills: auto-disabled ${suggestion.skill}` +
+          notifyBackground(
+            `Auto-disabled ${suggestion.skill}` +
               (suggestion.savings ? ` (~$${suggestion.savings.toFixed(2)} attributed)` : "")
           );
         }
@@ -213,9 +214,7 @@ export async function applyOptimizationSuggestions(
           }
           result.applied.push(`Prefer ${suggestion.to} for ${suggestion.skill}`);
           if (auto) {
-            vscode.window.showInformationMessage(
-              `Claude Skills: set ${suggestion.to} as preferred agent for ${suggestion.skill}`
-            );
+            notifyBackground(`Set ${suggestion.to} as preferred agent for ${suggestion.skill}`);
           }
         } else {
           result.skipped.push(suggestion.skill);

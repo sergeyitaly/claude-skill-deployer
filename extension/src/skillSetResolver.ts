@@ -12,6 +12,7 @@ import { archiveSkill } from "./skillArchival";
 import { detectRelevantSkills, generateForWorkspace, loadManifest, Manifest } from "./skillOps";
 import { tierForSkill } from "./skillCost";
 import { computeUsageStats, listInstalledSkills, SkillUsageStat, UsageRating } from "./usageStats";
+import { notifyBackground } from "./userNotify";
 
 export interface SkillSetUsageRules {
   /** Master switch for usage/token/cost-based removal (in addition to relevance rules). */
@@ -509,7 +510,7 @@ export async function runScheduledSkillSetResolver(
     .join(", ");
 
   if (summary) {
-    void vscode.window.showInformationMessage(`Claude Skills: skill set resolver — ${summary}.`);
+    notifyBackground(`Skill set resolver — ${summary}.`, log);
   }
 }
 

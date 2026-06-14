@@ -216,6 +216,12 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.showOutput",
+        "title": "Show Output Log",
+        "icon": "$(output)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.showProjectProfile",
         "title": "Show Project Tier (Type, Features, Savings)",
         "icon": "$(info)",
@@ -438,6 +444,22 @@
         "title": "Claude Skills Manager",
         "order": 0,
         "properties": {
+          "claudeSkills.revealOutputPanel": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, extension commands open the Claude Skills output panel after writing logs. When false (default), logs are written silently so the terminal stays focused."
+          },
+          "claudeSkills.notificationLevel": {
+            "type": "string",
+            "enum": ["silent", "minimal", "normal"],
+            "default": "minimal",
+            "enumDescriptions": [
+              "No toasts — errors and confirmations only. Work is logged to the output channel.",
+              "Quiet default — background auto-apply and suggestions log only; command success uses output/status bar.",
+              "All notifications — previous behavior including auto-apply and suggestion toasts."
+            ],
+            "description": "How chatty the extension is with VS Code notification toasts."
+          },
           "claudeSkills.officialSkillsCheckOnSession": {
             "type": "boolean",
             "default": true,

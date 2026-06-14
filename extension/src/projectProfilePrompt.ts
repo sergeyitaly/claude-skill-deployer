@@ -21,6 +21,7 @@ import {
   formatProjectProfileNotifyMessage,
   PROFILE_TYPE_BADGE,
 } from "./projectProfileDisplay";
+import { notificationLevel } from "./userNotify";
 
 const PROMPTED_KEY_PREFIX = "claudeSkills.projectProfilePrompted:";
 
@@ -172,6 +173,10 @@ export async function promptProjectPlanOnFirstDetect(
   }
   if (wasProjectTierPromptShown(context, target)) {
     return undefined;
+  }
+  if (notificationLevel() === "silent") {
+    markProjectTierPromptShown(context, target);
+    return "accept-detected";
   }
 
   const detected = detectedProfile ?? (await buildProjectProfileWithRemoteProbe(target));

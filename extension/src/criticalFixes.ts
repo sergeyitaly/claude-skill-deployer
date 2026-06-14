@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as vscode from "vscode";
 import { globalSkillsDir } from "./skillOps";
 import { isGitWorkspace } from "./branchProfiles";
+import { notificationLevel } from "./userNotify";
 
 const GLOBAL_SETUP_PROMPTED = "claudeSkills.globalSetupPrompted";
 
@@ -38,6 +39,10 @@ export async function checkFirstTimeGlobalSetup(context: vscode.ExtensionContext
   if (context.globalState.get<boolean>(GLOBAL_SETUP_PROMPTED, false)) {
     return;
   }
+  if (notificationLevel() !== "normal") {
+    void context.globalState.update(GLOBAL_SETUP_PROMPTED, true);
+    return;
+  }
 
   const choice = await vscode.window.showInformationMessage(
     "Welcome to Claude Skills Manager! Install the skill library to ~/.claude/skills to get started.",
@@ -58,6 +63,11 @@ export async function promptGetStarted(context: vscode.ExtensionContext): Promis
     return;
   }
   if (context.globalState.get<boolean>("claudeSkills.hasRunBefore", false)) {
+    return;
+  }
+
+  if (notificationLevel() !== "normal") {
+    void context.globalState.update("claudeSkills.hasRunBefore", true);
     return;
   }
 

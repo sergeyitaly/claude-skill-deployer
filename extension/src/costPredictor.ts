@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { notificationLevel, notifySuggestion } from "./userNotify";
 import { assessAttributionHealth } from "./attributionHealth";
 import { formatConfidenceBadge } from "./attributionConfidence";
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
@@ -141,6 +142,13 @@ export async function checkPredictiveCostAlert(target: string, libraryDir: strin
     return null;
   }
 
+  if (notificationLevel() === "silent") {
+    return null;
+  }
+  if (notificationLevel() === "minimal" && !overBudget) {
+    return null;
+  }
+
   const alertKey = `${localDateKey()}|${path.normalize(target)}`;
   if (lastAlertKey === alertKey) {
     return null;
@@ -156,7 +164,9 @@ export async function checkPredictiveCostAlert(target: string, libraryDir: strin
     ` (projected ~$${projected.toFixed(2)}; weekly budget: $${budget.toFixed(2)}${confPart}).${trendPart} ` +
     `Open Cost Dashboard to review optimizations?`;
 
-  const choice = await vscode.window.showWarningMessage(msg, "Open Dashboard", "Dismiss");
+  const choice = await notifySuggestion(msg, ["Open Dashboard", "Dismiss"], {
+    dedupeKey: alertKey,
+  });
   if (choice === "Open Dashboard") {
     await vscode.commands.executeCommand("claudeSkills.showCostDashboard");
   }
