@@ -739,45 +739,25 @@ export function activate(context: vscode.ExtensionContext) {
     const {
       profile: projectProfile,
       changed: projectProfileChanged,
+      tierChanged: projectProfileTierChanged,
       isFirstDetect: projectProfileFirstDetect,
     } = refreshProjectProfileContext(target);
     if (projectProfile) {
       refreshProjectTierStatusBar(target);
       if (opts.workspaceState) {
-        const profileKey = `${target}|${projectProfile.profileType}|${projectProfile.appliedAt ?? projectProfile.detectedAt}`;
-        if (profileKey !== lastProjectProfileLogged) {
-          lastProjectProfileLogged = profileKey;
+        const profileLogKey = `${target}|${projectProfile.profileType}`;
+        if (profileLogKey !== lastProjectProfileLogged) {
+          lastProjectProfileLogged = profileLogKey;
           log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
         }
-        if (projectProfileChanged && projectProfileFirstDetect && target) {
-          void maybePromptProjectTierOnFirstDetect(context, target, true).then((finalProfile) => {
-            const finalKey = `${target}|${finalProfile.profileType}|${finalProfile.appliedAt ?? finalProfile.detectedAt}`;
-            refreshProjectTierStatusBar(target);
-            if (finalKey !== profileKey) {
-              lastProjectProfileLogged = finalKey;
-              lastProjectProfileNotified = finalKey;
-              log(`Project profile: user chose ${PROFILE_TYPE_LABELS[finalProfile.profileType]}`);
-              void vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(finalProfile), "View details");
-              refreshAllImpl({ workspaceState: false, forceTree: false });
-              return;
-            }
-            if (finalKey !== lastProjectProfileNotified) {
-              lastProjectProfileNotified = finalKey;
-              void vscode.window
-                .showInformationMessage(formatProjectProfileNotifyMessage(finalProfile), "View details", "Change tier")
-                .then((pick) => {
-                  if (pick === "View details") {
-                    void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
-                  } else if (pick === "Change tier") {
-                    void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
-                  }
-                });
-            }
-          });
-        } else if (projectProfileChanged && profileKey !== lastProjectProfileNotified) {
-          lastProjectProfileNotified = profileKey;
+        const notifyTierChange = (profile: typeof projectProfile) => {
+          const key = `${target}|${profile.profileType}`;
+          if (key === lastProjectProfileNotified) {
+            return;
+          }
+          lastProjectProfileNotified = key;
           void vscode.window
-            .showInformationMessage(formatProjectProfileNotifyMessage(projectProfile), "View details", "Change tier")
+            .showInformationMessage(formatProjectProfileNotifyMessage(profile), "View details", "Change tier")
             .then((pick) => {
               if (pick === "View details") {
                 void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
@@ -785,6 +765,23 @@ export function activate(context: vscode.ExtensionContext) {
                 void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
               }
             });
+        };
+        if (projectProfileChanged && projectProfileFirstDetect && target) {
+          void maybePromptProjectTierOnFirstDetect(context, target, true).then((finalProfile) => {
+            refreshProjectTierStatusBar(target);
+            const initialType = projectProfile.profileType;
+            const tierChangedByUser = finalProfile.profileType !== initialType;
+            const explicitPlan =
+              finalProfile.userPlan !== undefined && finalProfile.userPlan !== "accept-detected";
+            if (tierChangedByUser || explicitPlan) {
+              lastProjectProfileLogged = `${target}|${finalProfile.profileType}`;
+              log(`Project profile: user chose ${PROFILE_TYPE_LABELS[finalProfile.profileType]}`);
+              notifyTierChange(finalProfile);
+            }
+            refreshAllImpl({ workspaceState: false, forceTree: false });
+          });
+        } else if (projectProfileChanged && projectProfileTierChanged) {
+          notifyTierChange(projectProfile);
         }
       }
     } else {

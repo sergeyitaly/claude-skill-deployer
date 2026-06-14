@@ -4,474 +4,543 @@ All notable changes to **Claude Skills Manager** (VS Code extension) are documen
 
 Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.43** is the current Marketplace publish target.
 
+## How to read this log
+
+Each release includes:
+
+- **Summary** — what changed for *you* in one line
+- **Theme** — the strategic wave that release belongs to
+- **Highlights** — demo-friendly bullets (when the release is substantial)
+- **Behavior changes** — things that may change what you see day-to-day
+
+### Product evolution (release waves)
+
+| Versions | Theme |
+|----------|--------|
+| **1.0.38 – 1.0.43** | Project tiering & cost optimization |
+| **1.0.34 – 1.0.35** | Dashboard & cache performance |
+| **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
+| **1.0.36** | Security hardening |
+| **1.0.37** | Benchmarks & release quality |
+| **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
+| **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
 ## [1.0.43] - 2026-06-14
 
-### Added
+**Summary:** More accurate team-tier detection for fresh clones — uses remote Git signals, not just your local checkout.
 
-- **Remote git tier probe** — when choosing a plan, the extension runs `git ls-remote` + remote-tracking refs (no AI agent) to count remote branches, remote authors (30d), and upstream ahead/behind. Results cached 1h in `.claude/learning/remote-repo-probe.json`.
-- **Settings** — `claudeSkills.projectProfile.probeRemoteGit`, `remoteProbeTimeoutMs`.
+**Theme:** Remote-aware tier intelligence
 
-### Changed
+### Highlights
 
-- **Tier detection** — uses `max(local, remote)` branches and authors for team/multi-agent signals (practical for fresh clones of team repos).
-- **Detect Project Profile** command also probes origin before writing `project-profile.json`.
-- **Choose tier** — accepting detected tier preserves remote-probed signals (no silent revert to local-only metrics).
+- Choosing a tier now probes `origin` with plain `git` commands (extension-only — no AI agent involved)
+- Fresh clones of busy team repos can be detected as **TEAM MULTI-AGENT** even with one local branch
+- Remote branch and author counts feed the same plan picker you already use
+
+### Behavior changes
+
+- Tier detection considers **remote** repo activity (`max(local, remote)` branches and authors)
+- **Detect Project Profile** and **Choose Project Profile Tier** probe origin before recommending a tier
+- Accepting the detected tier keeps remote-probed signals (no silent revert to local-only metrics)
+
+### Configuration
+
+- `claudeSkills.projectProfile.probeRemoteGit` (default on)
+- `claudeSkills.projectProfile.remoteProbeTimeoutMs` (default 8000 ms)
+
+### Technical
+
+- `git ls-remote`, remote-tracking refs, upstream ahead/behind; cached **1 hour** in `.claude/learning/remote-repo-probe.json`
+
+---
 
 ## [1.0.42] - 2026-06-14
 
-### Added
+**Summary:** Compare tier plans with estimated savings before you commit — and manual tier changes finally stick.
 
-- **Tier comparison table** — `Show Project Tier` and `Choose Project Profile Tier` log overhead/savings for every tier before you pick.
-- **Plan economics in QuickPick** — each plan option shows estimated monthly overhead and savings vs full stack.
+**Theme:** Project tiering & cost optimization
 
-### Changed
+### Highlights
 
-- **Manual tier change** — all explicit plan choices (including throwaway and enterprise) lock the tier so auto-detect no longer reverts your selection; persisted `manualOverride` is respected when settings lack `lockedTier`.
+- Every plan in the tier picker shows estimated monthly overhead and savings vs full stack
+- Comparison table logged before you pick (all 5 tiers side-by-side)
+- Switch tiers any time to explore what solo vs multi-agent actually costs
 
-### Fixed
+### Behavior changes
 
-- **Choose Project Profile Tier** — can switch plans any time to compare and apply different tiers with visible benefit estimates.
+- Explicit plan choices (including throwaway and enterprise) **lock** the tier — auto-detect no longer overwrites your pick
+- Saved `manualOverride` is respected even when `lockedTier` is empty in settings
+
+### UX
+
+- **Show Project Tier** and **Choose Project Profile Tier** display economics per option
+- **View details** action after confirming a plan
+
+---
 
 ## [1.0.41] - 2026-06-14
 
-### Changed
+**Summary:** Tier detection driven by real repo activity (git history, branches, files) — and the first-open dialog asks about your *plans*, not a tier catalog.
 
-- **Git-first tier detection** — branches, tracked files, commit history/intensity, authors (30d), repo size, and age drive tier selection; AI tool folders are secondary.
-- **Plans prompt (not tier catalog)** — first-open QuickPick shows repo analysis + detected tier, then asks about your plans (AIDLC greenfield, multi-agent workflow, team product, budget, quick spike, or accept detected).
-- **AIDLC greenfield** — solo developers starting AI-DLC projects can get **TEAM MULTI-AGENT** from day one when `aidlc-state.md`, AIDLC docs, multiple AI tool folders, or pending profile-init are present; pre-selected on new solo repos.
-- **New repos** — nascent git repos default to `solo-dev` instead of `throwaway` unless multi-agent/AIDLC signals are present.
-- **UI** — status bar tooltip, dashboard, and output channel show git analysis evidence.
+**Theme:** Project tiering & cost optimization
 
-### Fixed
+### Highlights
 
-- **First-open prompt** — `wasProjectTierPromptShown` default no longer skips the plans dialog on new workspaces.
-- **CI compile** — strict `tsc` fixes for `RepoMetrics` typing, tier UI feature labels, and workspace target guard.
+- Git-first detection: commits, authors, branches, repo size, and age — not just “which AI folders exist”
+- **AIDLC greenfield** plan: solo developers on AI-DLC can get multi-agent tier from day one
+- Plans prompt: AIDLC, multi-agent workflow, team product, budget, quick spike, or accept detected
+
+### Behavior changes
+
+- New git repos default to **solo-dev** (not throwaway) unless multi-agent or AIDLC signals are present
+- First-open plans dialog no longer skipped on new workspaces (prompt state fix)
+
+### UX
+
+- Status bar tooltip, cost dashboard, and output channel show git analysis evidence
+
+---
 
 ## [1.0.40] - 2026-06-14
 
-### Added
+**Summary:** New projects get asked how you plan to use AI agents — instead of silently landing on solo-dev.
 
-- **First-open project tier prompt** (`claudeSkills.projectProfile.promptOnFirstDetect`, default on) — on a new project with no `project-profile.json`, QuickPick asks solo vs **TEAM MULTI-AGENT** vs other tiers instead of silently applying solo-dev.
-- Locks tier when user picks multi-agent / budget / enterprise so auto-detect does not revert later.
+**Theme:** Project tiering & cost optimization
 
-### Changed
+### Highlights
 
-- Onboarding tour step 1 — choose project profile tier before installing skills.
+- First-open **QuickPick** on projects without `.claude/learning/project-profile.json`
+- Picking multi-agent / budget / enterprise locks the tier so auto-detect does not revert later
+
+### Behavior changes
+
+- Onboarding tour step 1 now routes through project profile selection before skill install
+
+### Configuration
+
+- `claudeSkills.projectProfile.promptOnFirstDetect` (default on)
+
+---
 
 ## [1.0.39] - 2026-06-14
 
-### Added
+**Summary:** Your project tier is visible everywhere — status bar, dashboard, and notifications — with estimated savings.
 
-- **Visible project tier** — status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …) with feature ON/OFF tooltip and estimated monthly savings vs full stack.
-- **Cost dashboard** — **Project tier** panel (detected type, tier presets, overhead, savings, feature list).
-- **Command** — `Show Project Tier` — full breakdown in output channel.
-- **Toast on tier change** — notification when auto-detect picks or changes a tier (with View details / Change tier actions).
+**Theme:** Project tiering & cost optimization
+
+### Highlights
+
+- Status bar badge: `TEAM MULTI-AGENT`, `SOLO DEV`, `BUDGET-SENSITIVE`, etc.
+- Cost dashboard **Project tier** panel: detected type, overhead, savings, feature list
+- Toast when tier changes with **View details** / **Change tier** actions
+
+### UX
+
+- Command: **Show Project Tier** — full breakdown in output channel
+
+---
 
 ## [1.0.38] - 2026-06-14
 
-### Added
+**Summary:** The extension auto-configures CPU and token spend per project — solo, team, budget, enterprise, or throwaway.
 
-- **Tiered project profiles** — auto-detect solo / team-multi-agent / budget-sensitive / enterprise / throwaway scenarios; write `.claude/learning/project-profile.json` and apply CPU/token-saving feature presets.
-- **Commands** — Detect Project Profile, Choose Project Profile Tier.
-- **Settings** — `claudeSkills.projectProfile.autoDetect`, `applyTierFeatures`, `lockedTier`.
+**Theme:** Project tiering & cost optimization (v1)
 
-### Changed
+### Highlights
 
-- **Feature toggles** — tier presets override `claudeSkills.features.*` per workspace when `applyTierFeatures` is on; mirrored to `cli-config.json` for hooks.
-- **Cost pipeline** — skipped when both `costIntelligence` and `attributionCollector` are off (throwaway tier).
-- **Re-detect throttle** — project profile signals re-run at most every 24h unless tier/signals change.
+- Automatic project tier detection with feature presets (multi-agent sync, attribution, cost intel, session adapt)
+- Writes `.claude/learning/project-profile.json` per workspace
+- Throwaway/script projects skip heavy background work automatically
+
+### Behavior changes
+
+- When `applyTierFeatures` is on, tier presets override `claudeSkills.features.*` for this workspace
+- Cost pipeline skipped when both `costIntelligence` and `attributionCollector` are off (throwaway tier)
+- Profile re-detect throttled to **24 hours** unless tier or signals change
+
+### Configuration
+
+- `claudeSkills.projectProfile.autoDetect`, `applyTierFeatures`, `lockedTier`
+
+### Commands
+
+- **Detect Project Profile**, **Choose Project Profile Tier**
+
+---
 
 ## [1.0.37] - 2026-06-14
 
-### Added
+**Summary:** Full benchmark suite for proving performance and skill-impact claims before release.
 
-- **Complete complex benchmark** (`npm run bench:complete`) — measures hot paths, cost pipeline, hooks, adaptation, and CI/ADX complex agent harness with SLA checks.
-- **Skill impact benchmark** (`npm run bench:skill-impact`) — Claude CLI A/B with skills vs `--disable-slash-commands`; reports `modelUsage`, `total_cost_usd`, diffs via `bench-report.mjs`.
-- **`bench:skill-impact:complex`** — same CLI harness on `agent-comparison-fixture-complex/` (failing `validate` job + ADX KQL schema mismatch).
-- **Complex fixture** — `extension/scripts/agent-comparison-fixture-complex/` with `validate-kql.mjs` grader.
-- **`installed-extension-path.mjs`** — resolves installed Cursor extension dir from dev `package.json` version.
-- **`resolve-library-dir.mjs`** — benchmark scripts prefer repo-root `skills_library` when bundled copy is missing.
-- **`bench:hotpaths`** — npm script for `perf-benchmark.mjs`.
+**Theme:** Benchmarks & release quality
 
-### Changed
+### Highlights
 
-- **Install smoke** — `real-install-smoke.mjs` no longer hardcodes extension version; `npm run bench:smoke-installed` added.
-- **`prebench:complete`** — runs `sync-skills` before complete benchmark.
-- **Gitignore** — `complete-benchmark-results/`, `agent-comparison-results/`, `.bench-tmp/`, `bench-results/` excluded from commits.
+- `npm run bench:complete` — hot paths, cost pipeline, hooks, adaptation, CI/ADX harness with SLA checks
+- `npm run bench:skill-impact` — Claude CLI A/B with vs without skills; cost and token diffs
+
+### Tooling
+
+- Complex agent fixture (`agent-comparison-fixture-complex/`) with ADX KQL grader
+- `resolve-library-dir.mjs`, `installed-extension-path.mjs` for reliable local benchmarks
+- Install smoke no longer hardcodes extension version
 
 ### Docs
 
-- **`COMPLETE-BENCHMARK-GUIDE.md`** — reconciled guide for `bench:complete` vs `bench:skill-impact`.
+- `COMPLETE-BENCHMARK-GUIDE.md` — `bench:complete` vs `bench:skill-impact`
+
+---
 
 ## [1.0.36] - 2026-06-14
 
+**Summary:** Git commands hardened against shell injection — safer on untrusted workspace paths.
+
+**Theme:** Security hardening
+
 ### Security
 
-- **Git command hardening** — `branchProfiles.ts` (`gitCommand`) and `skillOps.ts` (`isSkillCommittedOnBranch`) now call `execFileSync("git", [...])` with argument arrays instead of interpolating workspace paths and skill folder names into a shell string, removing a potential command-injection vector.
+- `branchProfiles.ts` and `skillOps.ts` use `execFileSync("git", [...])` with argument arrays instead of shell string interpolation
+
+---
 
 ## [1.0.35] - 2026-06-14
 
-### Performance (dashboard)
+**Summary:** Cost dashboard loads from cache in milliseconds — team economics precomputed in the background.
 
-- **Dashboard snapshot cache** — `.claude/learning/dashboard-snapshot.json` stores pre-rendered main body HTML; `fastPhase: true` reads disk only (~1ms, target &lt;30ms).
-- **Progressive injection** — cold cache shows loading slots; phase 2 injects main + team panels via webview `postMessage`.
-- **Persistent team economics cache** — `.claude/learning/team-economics-cache.json` keyed by `gitHead`, `skillsHash`, and attribution/runs fingerprint; warm reads &lt;5ms.
-- **Background precompute** — `runCostPipelineSync` queues dashboard snapshot + team economics warming.
-- **Git blame session cache** — negative lookups cached in-memory (failed `git log` no longer re-spawned every render).
-
-## [1.0.34] - 2026-06-14
+**Theme:** Dashboard & cache performance
 
 ### Performance
 
-- **Cost dashboard ~7s → ~200ms** — cache `git log` author lookups by SKILL.md mtime; call `attributeCostToAuthors` once per render instead of twice.
-- **Skill detection** — extension-filtered glob matching and expanded `EXCLUDE_DIRS` (`.vscode-test`, `dist`, `out`, `build`, etc.) shrink workspace walks.
-- **Toggle refresh** — stop invalidating detection cache on checkbox toggle (settings mtime already refreshes skill status cache).
-- **Tree view** — skip `computeUsageStats` when cost-aware search is disabled.
-- **Runs index** — skip rebuild when skill/daily indexes are already fresh.
-- **Dashboard open** — remove redundant second `runCostPipelineSync` after `runCostPipeline`.
+- **Dashboard warm read:** **< 5 ms** from `.claude/learning/dashboard-snapshot.json`
+- **Cold render target:** **< 30 ms** (fast-phase disk read ~1 ms)
+- **Team economics cache:** persistent `.claude/learning/team-economics-cache.json`; warm reads **< 5 ms**
+
+### UX
+
+- Progressive injection: loading slots first, then main + team panels via webview `postMessage`
+- Background precompute after cost pipeline sync
+
+---
+
+## [1.0.34] - 2026-06-14
+
+**Summary:** Cost dashboard went from ~7 seconds to ~200 ms — a **97%** improvement for daily use.
+
+**Theme:** Dashboard & cache performance
+
+### Performance
+
+- **Dashboard load time:** ~7 s → ~**200 ms** (~**97%** faster)
+- Git blame author lookups cached by `SKILL.md` mtime
+- Single `attributeCostToAuthors` pass per render (was double)
+- Skill detection: faster glob filtering + expanded exclude dirs (`.vscode-test`, `dist`, `out`, `build`, …)
+
+### Efficiency
+
+- No duplicate cost pipeline run when opening dashboard
+- Runs index rebuild skipped when indexes are already fresh
+- Tree view skips `computeUsageStats` when cost-aware search is off
+
+---
 
 ## [1.0.33] - 2026-06-14
 
-### Added
+**Summary:** Sync engine overhaul — no more UI jank when toggling skills or mirroring to Cursor/Kiro/Copilot.
 
-- **Chunked async fan-out** — agent sync yields between each agent (`yieldToEventLoop`) to eliminate burst jank.
-- **Predictive pre-sync** — `markPreToggleFingerprint` before toggle; rapid on-off before debounce flushes skips silently.
-- **Full sync short-circuit** — background sync skips status bar, logs, and hooks when fingerprint unchanged.
-- **Tree identity stability** — stable `item.id` per skill; cached instances returned from `getTreeItem`.
-- **Lock-free runs reads** — in-memory cache returns without re-parse when mtime/size unchanged.
-- **Size-stable hash reuse** — file hash cache survives git-checkout mtime-only drift on Windows.
-- **Activity-aware interaction lock** — hooks `onDidChangeTextDocument`, `onDidExecuteCommand`, clicks.
-- **Perf percentiles** — p50/p95/p99 logging with targets (`toggle-ui` <16ms, `tree-refresh` <10ms, sync <150ms).
-- **Toggle ripple** — 130ms green check flash on checkbox (VS Code settings feel).
+**Theme:** Sync engine stability & concurrency
+
+### Highlights
+
+- Chunked async fan-out: agent sync yields between each agent (eliminates burst jank)
+- Predictive pre-sync fingerprint: rapid on-off toggles before debounce flushes are skipped silently
+- Activity-aware interaction lock: sync pauses while you type, click, or run commands
+
+### Performance targets
+
+- `toggle-ui` **< 16 ms** · `tree-refresh` **< 10 ms** · sync **< 150 ms** (p50/p95/p99 logged)
+
+### UX
+
+- Toggle ripple: 130 ms green check flash on checkbox
+- Lock-free runs reads; size-stable hash reuse across Windows git-checkout mtime drift
 
 ### Planned (v1.1)
 
-- **Worker thread** for cost pipeline + JSONL aggregation (true off-main-thread parallelism).
+- Worker thread for cost pipeline + JSONL aggregation
+
+---
 
 ## [1.0.32] - 2026-06-14
 
+**Summary:** Smoother skill toggles — background sync waits until you stop interacting.
+
+**Theme:** Sync engine stability & concurrency
+
+### Highlights
+
+- Interaction lock (800 ms / 1.5 s quiet window) during typing and clicking
+- Granular tree refresh: per-skill updates with cached `SkillItem` instances
+- Parallel agent fan-out on separate event-loop turns
+
 ### Added
 
-- **Interaction lock** — background sync yields while the user clicks or types (800ms / 1.5s quiet window).
-- **Granular tree refresh** — per-skill `onDidChangeTreeData` with cached `SkillItem` instances and microtask batching.
-- **Parallel agent fan-out** — cursor/kiro/copilot sync on separate event-loop turns via `Promise.allSettled`.
-- **Snapshot v2** — `runs.snapshot.json` includes `version`, `lastUpdated`, `sourceSize`, `sourceMtimeMs`.
-- **File hash mtime cache** — avoids re-reading unchanged skill files during fingerprint/sync.
-- **Dual-mode cache warmup** — `ensureWorkspaceCachesWarm` on first editor/tree interaction.
-- **Perf telemetry** — `recordPerf` / `CLAUDE_SKILLS_PERF=1` for sync and dashboard timings.
-- **Sync feedback** — short-lived status bar pulse and per-skill syncing spinner in the tree.
+- `runs.snapshot.json` v2 with `version`, `lastUpdated`, `sourceSize`, `sourceMtimeMs`
+- Perf telemetry via `recordPerf` / `CLAUDE_SKILLS_PERF=1`
 
-### Changed
-
-- **Debounced sync path** — uses async agent fan-out; fingerprint no-op skips status-bar noise.
-- **Cost pipeline** — longer debounce when VS Code window is focused (from 1.0.31).
+---
 
 ## [1.0.31] - 2026-06-14
 
+**Summary:** Smarter debouncing — fast response when you act, quiet coalescing in the background.
+
+**Theme:** Sync engine stability & concurrency
+
+### Highlights
+
+- User actions flush at **400 ms**; background watchers coalesce at **1200 ms**
+- Optimistic skill tree: checkbox updates instantly; mirrors sync in background
+- Agent-diff sync: only the toggled skill mirrors to other agents (not full workspace)
+
 ### Added
 
-- **Adaptive sync debounce** — user actions flush at 400ms; background watchers coalesce at 1200ms.
-- **`runs.snapshot.json`** — instant cold load of usage dashboard data without full JSONL parse.
-- **Optimistic skill tree** — checkbox state updates immediately while agent mirrors sync in background.
-- **Cache warmup** — manifest, skill statuses, and runs index preloaded 1s after activate.
+- `runs.snapshot.json` for instant cold load of usage dashboard data
+- Cache warmup 1 second after activate
 
-### Changed
-
-- **Agent-diff sync** — toggling a skill mirrors only that skill to cursor/kiro/copilot (not full workspace).
-- **Stable workspace fingerprint** — sorted skills + overrides + SKILL.md hashes (fewer false syncs).
-- **Checkbox sync path** — removed immediate `forceAgentSync`; uses debounced user-triggered queue.
-- **Cost pipeline** — longer debounce when VS Code window is focused to reduce UI jank.
+---
 
 ## [1.0.30] - 2026-06-14
 
-### Added
+**Summary:** Foundation of the modern sync architecture — hash-based copies, coalesced queues, lazy startup.
 
-- **Hash-based agent sync** — copy skill trees and Copilot instructions only when content differs (`fileHash.ts`).
-- **Workspace sync queue** — 2s coalesced `queueWorkspaceSync` merges rapid file-watcher and toggle events.
-- **Workspace sync fingerprint** — skip full multi-agent mirror pass when effective skills and hashes are unchanged.
-- **Incremental `runs.jsonl` cache** — append-only tail reads instead of full reparse on growth.
+**Theme:** Sync engine stability & concurrency
 
-### Changed
+### Highlights
 
-- **Lazy activation** — startup uses light refresh; deferred agent sync after 3s (not immediate full sync + flush).
-- **Lighter watchers** — detection glob debounce 5s; `.claude/skills` watcher 3s without forced agent sync on every change.
-- **Checkbox UX** — tree refreshes immediately on toggle; background sync is debounced.
-- **Heavy refresh** — agent mirror auto-sync only on workspace-state refresh (branch switch), not every status-bar tick.
+- Hash-based agent sync: copy only when content differs
+- Workspace sync queue: **2 second** coalesced merges for rapid watcher events
+- Lazy activation: light refresh on startup; deferred agent sync after **3 seconds**
+
+### Efficiency
+
+- Incremental `runs.jsonl` cache: append-only tail reads
+- Fingerprint skip when effective skills and hashes unchanged
+
+---
 
 ## [1.0.29] - 2026-06-14
 
-### Added
+**Summary:** See which AI agent (Claude, Cursor, Kiro, Copilot) used which skills — and trim token load automatically.
 
-- **Cross-agent skill usage** — Usage Report and weekly email show per-agent totals (Claude Code, Cursor, Kiro, Copilot) and a matrix for skills invoked across multiple agents on the same workspace.
-- **Task skill focus** — after auto-apply, non-proposed installed skills are set `skillOverrides: off` to reduce agent token load (re-enable via Skills tree).
-- **Deterministic automation** — extension can apply profile init and refresh task proposals without an agent session (`deterministicApply`, `deterministicTaskProposals` settings, default on).
+**Theme:** Multi-agent visibility & automation
 
-### Changed
+### Highlights
 
-- **Extension performance** — manifest/skill-status/detection caches, coalesced workspace refresh, lighter tree updates when sidebar hidden.
-- **Session hooks** — slimmer `profile-init-watch` when proposals are fresh; `session-apply` bugfix; `task-skill-focus` hook.
-- **`skill-usage-insights`** and **`skill-feedback-adaptation`** — document per-agent usage and skip redundant agent work when auto-apply is on.
+- Cross-agent usage matrix in Usage Report and weekly email
+- Task skill focus: non-proposed skills set `off` after auto-apply to save tokens
+- Deterministic profile init and task proposals without an agent session
 
-### Fixed
+### Performance
 
-- **TypeScript compile** — `readSkillStatsIndex` import path, `initBy: "extension"` type, debounced git callback arity, cross-agent `agentRuns` optional typing.
+- Manifest/skill-status/detection caches; coalesced workspace refresh
+
+---
 
 ## [1.0.28] - 2026-06-13
 
-### Added
+**Summary:** Integration smoke test in CI — extension activation verified before every publish.
 
-- **NEW SESSION task-proposal hook** — `profile-init-watch.js` injects skill-feedback-adaptation guidance on every new session for Claude, Cursor, Kiro, and Copilot (after profile-init completes).
-- **VS Code integration smoke test** — `@vscode/test-electron` activates the extension, runs `claudeSkills.refresh`, and verifies bundled skills load (`npm run test:integration`). Uses `CLAUDE_SKILLS_INTEGRATION_TEST=1` to skip first-run modals and heavy startup sync.
-- **Release cadence policy** — weekly batch releases documented in `PUBLISHING.md`; Open VSX namespace ownership checklist added.
+**Theme:** Release quality & session hooks
 
-### Changed
+### Highlights
 
-- **`skill-feedback-adaptation`** — AUTO-START section for new sessions/tasks; stronger frontmatter description.
-- **Publish workflow** — runs unit tests and integration smoke before packaging/upload.
-- **CI** — split unit and integration jobs; integration uses `xvfb-run` on Ubuntu.
+- `@vscode/test-electron` integration smoke (`npm run test:integration`)
+- NEW SESSION task-proposal hook on all four agent platforms
+- Weekly batch release policy documented in `PUBLISHING.md`
 
-### Fixed
-
-- **`profileInit` unit tests** — 30s timeout on slow file-copy tests (Windows CI flake).
+---
 
 ## [1.0.27] - 2026-06-13
 
-### Added
+**Summary:** Proposed skills auto-install when `task-skill-proposals.json` updates — no manual apply step.
 
-- **`autoApplyTaskProposals` toggle (default on)** — auto-install and locally enable every skill in **Proposed for current task**, plus required platform skills (`self-learning`, `skill-creator`, etc.), for this workspace only.
-- **Task proposals file watcher** — applies when `task-skill-proposals.json` is created or updated (deduped by `generatedAt`).
-- Hooks and CLI merge required platform skills into session apply requests.
+**Theme:** Session automation
 
-### Changed
+### Behavior changes
 
-- **Session skill apply** no longer caps at 20 skills when merging profile + proposals + required set.
-- **Apply Suggested Skills for Current Task** installs the full proposal list (with required skills merged), not only uninstalled rows.
+- `autoApplyTaskProposals` (default on): installs and enables every skill in **Proposed for current task**
+- Session skill apply no longer caps at 20 skills when merging profile + proposals
+
+---
 
 ## [1.0.26] - 2026-06-13
 
-### Added
+**Summary:** Full headless Claude CLI workflow — apply skills, sync branch profiles, install hooks without VS Code open.
 
-- **Headless Claude CLI apply/sync** — `skills_sync.py` + `generate_skills.py` subcommands: `apply-session`, `apply-profile`, `sync-branch`, `sync-agents`, `sync`, and `hooks install` (works without VS Code running).
-- **`session-apply.js` hook** — SessionStart auto-installs/enables proposed skills from profile and task proposals (no extension process required).
-- **`branch-sync.js` + git post-checkout hook** — applies saved branch skill profiles on `git checkout` when using Claude CLI only.
-- **`cli-config.json` sync** — extension writes `.claude/learning/cli-config.json` from feature toggles so CLI/hooks match IDE settings when the IDE is closed.
-- **Prepare for Claude CLI** command — one-click setup: global library, workspace skills, cost/profile hooks, CLI config, and git branch hook.
+**Theme:** Headless CLI & hooks
 
-### Changed
+### Highlights
 
-- Extension `refreshAll` keeps `cli-config.json` in sync with current feature toggles and enabled agents.
+- `skills_sync.py` + `generate_skills.py`: `apply-session`, `apply-profile`, `sync-branch`, `sync-agents`, `hooks install`
+- **Prepare for Claude CLI** command — one-click setup
+- `.claude/learning/cli-config.json` mirrors IDE feature toggles for CLI/hooks
+
+---
 
 ## [1.0.25] - 2026-06-13
 
-### Added
+**Summary:** Skills follow you into every new agent session — Cursor, Kiro, Copilot, and Claude Code.
 
-- **Session skill adaptation** — on each new agent session/window, install and locally enable skills from `profile.local.json` and/or `task-skill-proposals.json`. Toggle via `claudeSkills.features.sessionSkillAdaptation` (default on) or **Manage Feature Toggles**.
-- **Multi-agent profile-init hooks** — SessionStart / sessionStart hooks for **Cursor** (`.cursor/hooks.json`), **Kiro** (`.kiro/hooks/`), and **GitHub Copilot** (`.github/hooks/`); `profile-init-watch.js` accepts `cursor`, `kiro`, and `copilot` platform args.
+**Theme:** Multi-agent session automation
+
+### Highlights
+
+- Session skill adaptation: auto-install/enable from profile and task proposals on each new session
+- Profile-init hooks for Cursor, Kiro, and GitHub Copilot (not just Claude)
 
 ### Fixed
 
-- **Per-IDE profile-init skill sets** — after profile-init applies, the host IDE skill set (Cursor, Kiro, or VS Code/Copilot) is saved via `detectHostAgentId()`, not only the shared branch profile. Logs show the correct mirror path (`.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`).
-- **Profile-init deploy noise** — pending profile-init deploys only the `profile-init` skill (latched once per workspace), not a full force-sync of every skill on each refresh.
-- **Open VSX publish after Marketplace** — `publish:openvsx` runs `npm run package` when the versioned VSIX is missing (instead of falling back to an older `.vsix`). `publish:all` now packages between Marketplace and Open VSX steps.
-- **Copilot attribution hook constant** — restore `COPILOT_SKILL_INVOKE_COMMAND` after profile-init hook work so Copilot skill-invoke hooks install correctly.
+- Per-IDE profile-init skill sets saved for the correct host agent
+- Open VSX publish packages current version (not stale VSIX)
+
+---
 
 ## [1.0.24] - 2026-06-13
 
+**Summary:** Reliable installs on Windows even when agents lock hook files open.
+
+**Theme:** Windows stability
+
 ### Fixed
 
-- **Windows EBUSY on hook copy** — hook and skill file copies retry with backoff and skip unchanged files, avoiding `resource busy or locked` failures when Kiro/Cursor agents hold `skill-invoke-watch.js` open during install.
-- **Install survives hook lock** — `installSkillToWorkspace` completes with a warning if post-install hook sync fails instead of aborting the command.
-- **Quieter startup sync** — debounce routine workspace propagate on activate; only run multi-agent mirror sync when mirrors are missing or stale; log propagation only when files are actually written.
-- **`claude-api` lint warning** — move long TRIGGER/SKIP rules from frontmatter into the skill body so description stays under the 500-char lint cap.
+- EBUSY retry with backoff on hook/skill copies
+- Install completes with warning if post-install hook sync fails (does not abort)
+- Quieter startup sync: propagate only when mirrors are missing or stale
 
-### Changed
-
-- **`claude-api` skill** — shorter frontmatter description; trigger/skip guidance in a **When to use** section in the body.
+---
 
 ## [1.0.23] - 2026-06-13
 
+**Summary:** SKILL lint no longer false-alarms on Windows CRLF or economy-disabled skills.
+
+**Theme:** Developer experience
+
 ### Fixed
 
-- **SKILL lint false positives on Windows** — frontmatter parser handles CRLF line endings and YAML block-scalar descriptions (`description: |-`). Fixes spurious `Frontmatter description is required` / `name field recommended` errors for valid skills.
-- **Copilot mirror lint for disabled skills** — mirror lint only checks skills that are effectively enabled (`skillOverrides` not `"off"`), so economy-mode / personally disabled skills no longer warn about missing `.github/instructions/*.instructions.md`.
+- Frontmatter parser handles CRLF and YAML block-scalar descriptions
+- Copilot mirror lint respects `skillOverrides: off`
+
+---
 
 ## [1.0.22] - 2026-06-13
 
-### IDE / agent skill sets
+**Summary:** Different skill sets per IDE and per git branch — Cursor, Kiro, Copilot, Claude Code.
 
-- **Per-IDE skill layouts** — save and switch skill sets per git branch for **Cursor**, **Kiro**, **VS Code (Copilot)**, and **Claude Code** (`~/.claude/learning/agent-skill-profiles.json`).
-- **Auto-detect host IDE** from editor name (Cursor/Kiro) or `claudeSkills.agentProfiles.vscodeAgent` for plain VS Code.
-- **Commands** — Save Skill Set for Current IDE, Switch IDE / Agent Skill Set, Show IDE / Agent Skill Sets.
-- **Auto-apply on workspace open** when a saved set exists for the current IDE + branch (`claudeSkills.agentProfiles.autoApplyOnActivate`).
-- Diagram: [diagram/06-ide-agent-skill-profiles.md](diagram/06-ide-agent-skill-profiles.md) · [draw.io](docs/diagrams/skill-profiles-ide-branch-flow.drawio)
+**Theme:** Per-IDE skill profiles
+
+### Highlights
+
+- Save and switch skill sets per branch per IDE (`~/.claude/learning/agent-skill-profiles.json`)
+- Auto-apply on workspace open when a saved set exists
+
+---
 
 ## [1.0.21] - 2026-06-13
 
-### Distribution
+**Summary:** Extension available on Open VSX — install in Cursor and Kiro IDE, not only VS Marketplace.
 
-- **Open VSX publishing** — `npm run publish:openvsx`, GitHub Actions workflow `Publish Extension`, and [extension/PUBLISHING.md](extension/PUBLISHING.md). Covers **Cursor** and **Kiro IDE** (both use [Open VSX](https://open-vsx.org/) as their extension gallery). Registry map: [diagram/00-extension-registries.md](diagram/00-extension-registries.md).
-- **Direct install links** — README, diagrams, and publishing docs link to extension listing pages on [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) and [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer).
-- **`cursor-kiro-extension-publishing` skill** — agent guidance for Open VSX / Cursor / Kiro publish flow alongside `vscode-extension-publishing`.
+**Theme:** Distribution
+
+### Highlights
+
+- `npm run publish:openvsx` + GitHub Actions **Publish Extension** workflow
+- `cursor-kiro-extension-publishing` skill for agent-guided publish
+
+---
 
 ## [1.0.20] - 2026-06-13
 
-### Skill feedback adaptation
+**Summary:** Skills learn from your feedback — and the extension suggests better skills when spend spikes.
 
-- **`skill-feedback-adaptation` skill** — records user disagreement in `skill-feedback.jsonl`; writes `task-skill-proposals.json` when a new task starts.
-- **Usage Report** — **Inefficient skills** panel (heat-colored inefficiency % + update suggestions); **Proposed for current task** panel; **Feedback** column in skills detail table; status bar shows inefficient count.
-- **High token usage notification** — when a branch or task exceeds `claudeSkills.skillFeedback.monthlyCreditThresholdPercent` (default 50%) of monthly credits, popup offers to install suggested skills.
-- **CLI** — `record_feedback.py` appends feedback rows.
-- **Command** — `Claude Skills: Apply Suggested Skills for Current Task`.
-- **Settings** — `claudeSkills.skillFeedback.promptOnHighUsage`, `monthlyCreditThresholdPercent`, `monthlyCreditsUsd`.
-- **Profile init required skills** — every branch profile auto-includes platform skills (`self-learning`, `skill-creator`, `skill-usage-insights`, etc.); configurable via `claudeSkills.profileInit.requiredSkills`.
-- **Required skill auto-recovery** — on a new git branch (no saved profile) or first workspace open when required skills are missing, the extension reinstalls them from the library; toggle via `claudeSkills.profileInit.recoverRequiredSkillsOnNewBranch`.
-- **Skill lifecycle versioning** — `manifest.json` skills support `version`, `changelog`, and `deprecation`; outdated alerts and **Upgrade Outdated Skills** command.
-- **Attribution trust messaging** — global status bar badge (Reliable / Estimated / Low confidence) and per-skill ROI + confidence % in usage and cost dashboards.
+**Theme:** Skill feedback & lifecycle
+
+### Highlights
+
+- `skill-feedback-adaptation` skill: disagreement logging + task proposals
+- High token usage popup when branch/task exceeds **50%** of monthly credits (configurable)
+- Skill versioning in manifest: outdated alerts + **Upgrade Outdated Skills**
+- Attribution trust badge: Reliable / Estimated / Low confidence
+
+---
 
 ## [1.0.19] - 2026-06-12
 
-Pipeline index, confidence propagation, and real-time optimizer.
+**Summary:** Confidence scores everywhere — and the optimizer reacts in real time after each cost sync.
 
-### In-memory index
+**Theme:** Cost intelligence depth
 
-- **Runs cache** — derived v2 hook counts and session ids alongside cached `runs.jsonl` parse; `countV2HookRuns` / `sessionHasV2HookRuns` use cache.
-- **Transcript cache** — `transcriptUsageIndex.ts` fingerprints transcript mtimes; `computeEnabledAgentsCreditUsage` avoids full re-read when unchanged.
-- **Invalidation** — collector, prune, and reset clear transcript + runs caches together.
+### Highlights
 
-### Confidence on every layer
+- Trust banner and per-skill confidence (`high` / `estimated` / `low`) on Usage Report
+- `autoDetectOnPipeline` (default on): debounced auto-optimize ~5 seconds after pipeline sync
+- In-memory runs + transcript indexes avoid full re-parses
 
-- **Usage Report** — trust banner and per-skill confidence column (`high` / `estimated` / `low`).
-- **Predictive alerts** — include confidence %; suppress trend-only alerts when confidence is `low`.
-- **Weekly report** — attribution confidence line.
-- **Cost Dashboard** — pipeline trace shows confidence alongside stage timings.
-
-### Real-time optimizer
-
-- **`autoDetectOnPipeline`** (default on) — debounced (~5s) auto-apply after each cost pipeline sync when `autoApply` is enabled.
-- **30-minute timer** — uses shared `runAutoOptimizePass` (no duplicate pipeline run).
+---
 
 ## [1.0.18] - 2026-06-12
 
-Attribution, pipeline resilience, and dashboard UX release.
+**Summary:** Attribution you can trust — Cursor hooks fixed, pipeline resilient, dashboard faster to read.
 
-### Cursor skill attribution
+**Theme:** Attribution & pipeline resilience
 
-- **Expanded skill path detection** — hooks and transcript parsers now recognize `.cursor/skills-cursor/`, `skills_library/`, and `.agents/skills/` in addition to `.claude/skills/` and `.cursor/skills/`.
-- **Cursor hook session fallbacks** — `skill-invoke-watch.js` resolves sessions from `conversation_id`, `generation_id`, or `tool_use_id` + workspace root when `conversation_id` is missing.
-- **Model capture** — Cursor hook runs record model id when present in tool output.
+### Highlights
 
-### Cost pipeline & system mode
+- Expanded skill path detection for Cursor (`.cursor/skills-cursor/`, `skills_library/`, `.agents/skills/`)
+- Circuit breaker: trips after >10 pipeline runs/minute; forces safe mode
+- CSP-safe webviews; shared compact dashboard chrome
 
-- **Pipeline tracing** — each sync cycle records stage timings and errors in the dashboard System panel.
-- **Circuit breaker** — trips after >10 pipeline runs per minute; skips further sync until the window clears and forces **safe mode** (auto-optimize disabled).
-- **Scheduler coordination** — attribution collect can skip re-scheduling the pipeline to avoid double-sync loops.
+### Behavior changes
 
-### Dashboard & reports
+- `runs.jsonl` scope narrowed to v2 hook invocations + self-learning (transcript estimates stay in `cost-attribution.json`)
+- **Reset Mis-attributed Cost Data** command for legacy cleanup
 
-- **Shared compact UI** — `dashboardStyles.ts` unifies Cost Intelligence, Usage Report, and Setup wizard chrome (stat pills, tighter panels, pill hook badges).
-- **Models by agent** — dashboard panel shows per-model spend and tokens for Claude and Cursor (14d window).
-- **CSP-safe webviews** — nonce-based script listeners replace inline `onclick` in setup wizard and cost dashboard.
-
-### Usage report & attribution accuracy
-
-- **`runs.jsonl` scope** — Attribution v2 hook invocations and self-learning records only; background collector no longer writes equal-split transcript rows into `runs.jsonl` (transcript estimates stay in `cost-attribution.json`).
-- **Skills detail table** — Usage Report runs/tokens count hook + self-learning rows only; **Credits · 14d** still reflects session transcript spend for the workspace.
-- **Reset Mis-attributed Cost Data** — removes legacy collector transcript rows from `runs.jsonl`, clears `transcriptSkills`, refreshes the pipeline index; re-collection no longer repopulates bad per-skill run counts.
-
-### Predictive cost alerts
-
-- **Workspace-scoped** — trend and budget warnings use enabled-agent transcripts for the **current workspace**, not all of `~/.claude/projects/`.
-- **Sanitized math** — WoW % requires a meaningful prior week (minimum spend + active days); capped at ±200%; projection continues last week’s pace instead of compounding absurd percentages.
-
-### Pipeline roadmap (documented)
-
-Implemented in **v1.0.19**:
-
-- **Confidence on every layer** — Usage Report trust banner and per-skill confidence column; weekly report, predictive alerts, and pipeline trace include workspace confidence.
-- **In-memory index** — `learningStateIndex` derived v2 stats; `transcriptUsageIndex` caches transcript credit usage by mtime fingerprint.
-- **Real-time optimizer** — `claudeSkills.optimizer.autoDetectOnPipeline` (default on) debounces detect → auto-adjust after each pipeline sync when `autoApply` is enabled.
+---
 
 ## [1.0.17] - 2026-06-12
 
-FinOps and platform-hardening release — extends consolidated **1.0.0** with ROI, explicit system state, and faster cost indexing.
+**Summary:** ROI and trust layers on cost data — see dollars saved, not just dollars spent.
 
-### Cost intelligence & ROI
+**Theme:** FinOps foundation
 
-- **ROI model** — per-skill time-saved heuristics (e.g. `deployment-practical` ~20 min), bands `HIGH` / `MEDIUM` / `LOW`, skills-tree sort and dashboard labels.
-- **Attribution confidence** — graded `high` / `estimated` / `low` per skill and workspace (0–1 score); dashboard trust banner and per-row badges.
-- **Value panel** — estimated minutes saved, dollar value (@ configurable hourly rate), net ROI in Cost Intelligence Dashboard.
-- **Financial optimizer** — suggestions show **monthly savings** (e.g. `Disable "X" → save ~$12/month`, agent-switch % savings).
-- **Team economics (foundation)** — cost by repo and by skill owner (git blame proxy) in dashboard when attribution is reliable.
+### Highlights
 
-### System architecture
+- Per-skill ROI bands (`HIGH` / `MEDIUM` / `LOW`) with time-saved heuristics
+- Value panel: minutes saved, dollar value, net ROI in Cost Intelligence Dashboard
+- Unified system state: `.claude/learning/system-state.json`
 
-- **Unified system state** — `.claude/learning/system-state.json` (`profileInit`, `attribution`, `hooks`, agent capabilities).
-- **Write coordination** — atomic JSON writes + `.claude/learning/write-locks.json` for profile-init files; extension lock on apply.
-- **Runs indexing** — `skill-stats.json` and `daily-stats.json` refreshed on extension refresh (avoids full `runs.jsonl` rescans).
-- **In-memory runs cache** — mtime/size keyed cache invalidated on append and token enrichment.
-- **Agent capability map** — deterministic hooks/tokens/transcripts support per agent for fallback debugging.
-- **Attribution strategy** — formal fallback chain: hooks → transcripts → heuristics (shown in dashboard).
-
-### Pricing & audit path
-
-- **Manual pricing overrides** — `.claude/learning/pricing-overrides.json` for model $/M tokens and default hourly rate (ROI); workspace-scoped via extension refresh.
-
-### Marketplace & tooling
-
-- Extension version **1.0.17** supersedes live **1.0.16** on Marketplace.
-- `scripts/unpublish-marketplace-versions.ps1` — per-version delete via Gallery REST API (not `vsce unpublish @version`).
+---
 
 ## [1.0.1] - 2026-06-12
 
-Same content as the consolidated 1.0.0 release below — publishable Marketplace version after 1.0.0 was already taken.
+Same content as consolidated **1.0.0** below — first publishable Marketplace version after 1.0.0 was already taken.
+
+---
 
 ## [1.0.0] - 2026-06-12
 
-First consolidated production release.
+**Summary:** First production release — bundled skills, four-agent sync, profile init, and cost intelligence.
 
-### Skills & detection
+**Theme:** Foundation
 
-- Bundled skill library in `skills_library/` with `manifest.json` (`detect_globs`, cost tiers).
-- CLI (`generate_skills.py`) and extension: install globally, per workspace, preview detection.
-- Project-local skills in `.claude/skills/`; never auto-removed by resolver.
+### Highlights
 
-### Multi-agent
-
-- Deploy to **Claude Code**, **Cursor**, **Kiro**, and **GitHub Copilot** (`.claude/`, `.cursor/`, `.kiro/`, `.github/instructions/`).
-- Sync effective skill set (respects `skillOverrides`) across agents; Copilot bootstrap index.
-- Attribution v2 PostToolUse hooks for all enabled agents → `.claude/learning/runs.jsonl`.
-
-### Profile init (role + branch)
-
-- **Agent-driven** skill setup on new git branches — no fixed role→skills map.
-- Position saved locally: `.claude/position.local.json`.
-- Extension writes `.claude/learning/skills-catalog.json` and `.claude/learning/profile-init-request.json`.
-- **`profile-init` skill** — agent picks skills from catalog; writes `.claude/profile.local.json` (gitignored).
-- **SessionStart hook** (`profile-init-watch.js`) auto-injects profile-init on new AI sessions when init is pending.
-- Auto-apply installed skills + branch profile save; syncs `profile-init` to all enabled agents.
-- Commands: Set Your Position, Init Profile for Current Branch, Refresh Skill Catalog, Apply Local Profile.
-- Settings: `claudeSkills.profileInit.*` (`enabled`, `promptOnNewBranch`, `autoApplyProfileFile`, `autoStartOnSession`).
-
-### Branch & team profiles
-
-- Personal per-branch layouts in `~/.claude/learning/branch-profiles.json`.
-- Optional team profiles in git: `.claude/skills-profile.json`.
-- Local-only toggles via `.claude/settings.local.json` (`skillOverrides`).
-
-### Cost intelligence
-
-- Cost Intelligence Dashboard, usage reports, budget modes (Economy / Normal / Unlimited).
-- Attribution collector, emergency cutoff, optimization suggestions, weekly email report (opt-in).
-- Context focus and practical/deployment focus hooks.
-- Skill set resolver (weekly install/remove by relevance and usage).
-
-### Developer experience
-
-- Activity bar Skills tree, setup wizard, onboarding tour, feature toggles.
-- SKILL.md lint (advisory), error recovery, migration from v0.7.x.
-- GitHub Actions CI: compile + vitest.
+- Bundled skill library with stack detection (`manifest.json` + `detect_globs`)
+- Multi-agent deploy: Claude Code, Cursor, Kiro, GitHub Copilot
+- Profile init on new branches (agent-driven skill selection by role)
+- Cost Intelligence Dashboard, budget modes, attribution collector
+- Activity bar Skills tree, setup wizard, onboarding tour
 
 ### Requirements
 
-- VS Code / Cursor 1.85+; optional `vscode.git` (CLI fallback for branch profiles).
-- Git optional; GitHub CLI optional (PR cost estimates).
+- VS Code / Cursor **1.85+**; optional `vscode.git` and GitHub CLI

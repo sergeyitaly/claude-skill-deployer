@@ -22,6 +22,8 @@ import {
   effectiveAuthorCount30d,
   isRemoteTeamClone,
   isTeamProductRepo,
+  readProjectProfile,
+  refreshProjectProfileContext,
   writeProjectProfile,
   formatRepoEvidence,
   isNascentRepo,
@@ -280,6 +282,21 @@ describe("buildProjectProfile", () => {
     expect(profile.manualOverride).toBe("enterprise");
     expect(profile.enabledFeatures.multiAgent).toBe(true);
     expect(profile.enabledFeatures.attributionCollector).toBe(false);
+  });
+});
+
+describe("refreshProjectProfileContext", () => {
+  it("preserves detectedAt when signals refresh but tier is unchanged", () => {
+    const target = makeWorkspace("refresh-preserve", { "package.json": "{}", "README.md": "# x" });
+    const first = buildProjectProfile(target);
+    const detectedAt = "2020-01-01T00:00:00.000Z";
+    writeProjectProfile(target, { ...first, detectedAt, userPlan: "accept-detected" });
+    const result = refreshProjectProfileContext(target);
+    expect(result.changed).toBe(true);
+    expect(result.tierChanged).toBe(false);
+    const onDisk = readProjectProfile(target);
+    expect(onDisk?.detectedAt).toBe(detectedAt);
+    expect(onDisk?.userPlan).toBe("accept-detected");
   });
 });
 

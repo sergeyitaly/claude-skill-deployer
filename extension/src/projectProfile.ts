@@ -839,14 +839,36 @@ export function writeProjectProfile(target: string, profile: ProjectProfileFile)
 export interface ProjectProfileRefreshResult {
   profile?: ProjectProfileFile;
   changed: boolean;
+  /** True when profileType changed vs the previous on-disk profile. */
+  tierChanged: boolean;
   isFirstDetect: boolean;
+}
+
+function mergeProjectProfileRefresh(
+  existing: ProjectProfileFile | undefined,
+  built: ProjectProfileFile
+): { profile: ProjectProfileFile; tierChanged: boolean } {
+  const tierChanged = !existing || existing.profileType !== built.profileType;
+  if (!existing || tierChanged) {
+    return { profile: built, tierChanged };
+  }
+  return {
+    profile: {
+      ...built,
+      detectedAt: existing.detectedAt,
+      appliedAt: existing.appliedAt ?? built.appliedAt,
+      userPlan: existing.userPlan,
+      manualOverride: existing.manualOverride,
+    },
+    tierChanged: false,
+  };
 }
 
 export function refreshProjectProfileContext(target: string | undefined): ProjectProfileRefreshResult {
   const apply = projectProfileApplyTierEnabled();
   if (!target) {
     setActiveProjectProfileContext(null, apply);
-    return { changed: false, isFirstDetect: false };
+    return { changed: false, tierChanged: false, isFirstDetect: false };
   }
   const existing = readProjectProfile(target);
   const locked = lockedProjectProfileTier() ?? existing?.manualOverride;
@@ -854,25 +876,29 @@ export function refreshProjectProfileContext(target: string | undefined): Projec
     const built = buildProjectProfile(target);
     if (!existing || shouldRefreshProjectProfile(existing, built)) {
       const isFirstDetect = !existing;
-      writeProjectProfile(target, built);
-      setActiveProjectProfileContext(built.enabledFeatures, apply);
-      return { profile: built, changed: true, isFirstDetect };
+      const { profile, tierChanged } = mergeProjectProfileRefresh(existing, built);
+      writeProjectProfile(target, profile);
+      setActiveProjectProfileContext(profile.enabledFeatures, apply);
+      return { profile, changed: true, tierChanged, isFirstDetect };
     }
     setActiveProjectProfileContext(existing.enabledFeatures, apply);
-    return { profile: existing, changed: false, isFirstDetect: false };
+    return { profile: existing, changed: false, tierChanged: false, isFirstDetect: false };
   }
   if (locked) {
     const built = buildProjectProfile(target, locked);
-    const changed =
+    const structuralChange =
       !existing ||
       existing.profileType !== built.profileType ||
       existing.manualOverride !== built.manualOverride;
-    writeProjectProfile(target, built);
-    setActiveProjectProfileContext(built.enabledFeatures, apply);
-    return { profile: built, changed, isFirstDetect: !existing };
+    const { profile, tierChanged } = mergeProjectProfileRefresh(existing, built);
+    if (structuralChange) {
+      writeProjectProfile(target, profile);
+    }
+    setActiveProjectProfileContext(profile.enabledFeatures, apply);
+    return { profile, changed: structuralChange, tierChanged, isFirstDetect: !existing };
   }
   setActiveProjectProfileContext(existing?.enabledFeatures ?? null, apply);
-  return { profile: existing, changed: false, isFirstDetect: false };
+  return { profile: existing, changed: false, tierChanged: false, isFirstDetect: false };
 }
 
 export function formatProjectProfileSummary(profile: ProjectProfileFile): string {
