@@ -2,9 +2,23 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.37** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.38** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.38] - 2026-06-14
+
+### Added
+
+- **Tiered project profiles** — auto-detect solo / team-multi-agent / budget-sensitive / enterprise / throwaway scenarios; write `.claude/learning/project-profile.json` and apply CPU/token-saving feature presets.
+- **Commands** — Detect Project Profile, Choose Project Profile Tier.
+- **Settings** — `claudeSkills.projectProfile.autoDetect`, `applyTierFeatures`, `lockedTier`.
+
+### Changed
+
+- **Feature toggles** — tier presets override `claudeSkills.features.*` per workspace when `applyTierFeatures` is on; mirrored to `cli-config.json` for hooks.
+- **Cost pipeline** — skipped when both `costIntelligence` and `attributionCollector` are off (throwaway tier).
+- **Re-detect throttle** — project profile signals re-run at most every 24h unless tier/signals change.
 
 ## [1.0.37] - 2026-06-14
 

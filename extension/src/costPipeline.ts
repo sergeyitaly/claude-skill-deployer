@@ -13,6 +13,7 @@ import { refreshRunsIndex } from "./runsIndex";
 import { loadManifest } from "./skillOps";
 import { refreshWorkspaceSystemState, readWorkspaceSystemState, WorkspaceSystemState } from "./workspaceSystemState";
 import { SystemMode } from "./systemMode";
+import { isFeatureEnabled } from "./featureFlags";
 import { scheduleAutoOptimizePass } from "./autoOptimizer";
 import { queueTeamEconomicsPrecompute } from "./teamEconomicsCache";
 import { queueDashboardSnapshotPrecompute } from "./dashboardPrecompute";
@@ -65,6 +66,21 @@ export function runCostPipelineSync(
   libraryDir: string,
   opts?: CostPipelineRunOptions
 ): CostPipelineResult {
+  if (!isFeatureEnabled("costIntelligence") && !isFeatureEnabled("attributionCollector")) {
+    const cycle = readPipelineCycle(target);
+    const state = readWorkspaceSystemState(target) ?? refreshWorkspaceSystemState(target, libraryDir);
+    return {
+      ready: false,
+      fresh: false,
+      cycle,
+      systemMode: state.systemMode,
+      state,
+      circuitOpen: isPipelineCircuitOpen(cycle),
+      skipped: true,
+      processedSessions: 0,
+    };
+  }
+
   const budget = notePipelineRun(target);
   setPipelineCircuitState(target, budget.tripped, budget.runsLastMinute);
   if (budget.tripped) {

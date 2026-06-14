@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.37",
+  "version": "1.0.38",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -213,6 +213,18 @@
         "command": "claudeSkills.openBudgetSettings",
         "title": "Open Budget Settings",
         "icon": "$(settings)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.chooseProjectProfile",
+        "title": "Choose Project Profile Tier (Solo / Team / Budget / …)",
+        "icon": "$(organization)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.detectProjectProfile",
+        "title": "Detect Project Profile (Auto-Configure Features)",
+        "icon": "$(sparkle)",
         "category": "Claude Skills"
       },
       {
@@ -668,6 +680,36 @@
               "copilot"
             ],
             "description": "Optional: force which agent/IDE profile is active instead of auto-detecting from the editor name."
+          }
+        }
+      },
+      {
+        "id": "projectProfile",
+        "title": "Project Profile (Tiered)",
+        "order": 2.45,
+        "properties": {
+          "claudeSkills.projectProfile.autoDetect": {
+            "type": "boolean",
+            "default": true,
+            "description": "On workspace open, detect solo/team/budget/throwaway scenario and write .claude/learning/project-profile.json."
+          },
+          "claudeSkills.projectProfile.applyTierFeatures": {
+            "type": "boolean",
+            "default": true,
+            "description": "When on, tier presets override claudeSkills.features.* for this workspace (reduces CPU/tokens for solo and throwaway projects). VS Code settings still apply when a tier leaves a feature unspecified."
+          },
+          "claudeSkills.projectProfile.lockedTier": {
+            "type": "string",
+            "enum": [
+              "",
+              "solo-dev",
+              "team-multi-agent",
+              "budget-sensitive",
+              "enterprise",
+              "throwaway"
+            ],
+            "default": "",
+            "description": "Lock a project profile tier (workspace). Empty = auto-detect. Use command 'Choose Project Profile Tier' to set."
           }
         }
       },

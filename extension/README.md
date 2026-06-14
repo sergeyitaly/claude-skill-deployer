@@ -221,6 +221,22 @@ Personal skill setup when you start work on a **new git branch**. Your **positio
 
 Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
 
+## Project profile tiers (auto-configure CPU / tokens)
+
+On workspace open the extension can **auto-detect** your scenario and write `.claude/learning/project-profile.json`, then apply a **feature preset** so solo/throwaway projects avoid multi-agent sync, attribution collectors, and session adaptation overhead.
+
+| Tier | Best for | Multi-agent | Attribution | Cost intel | Session adapt |
+|---|---|:---:|:---:|:---:|:---:|
+| `solo-dev` | Single agent, solo | off | off | basic | on (focused) |
+| `team-multi-agent` | Claude + Cursor + Copilot teams | on | on | full | on |
+| `budget-sensitive` | Economy mode / cost alerts | optional | on | full | on |
+| `enterprise` | Large team, unlimited budget | on | off | minimal | on |
+| `throwaway` | Scripts, no git | off | off | off | off |
+
+Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatures` (default on), `lockedTier` (manual override).
+
+Commands: **Detect Project Profile**, **Choose Project Profile Tier**.
+
 ## Skill feedback & task proposals
 
 Personal learning loop when agent answers miss the mark or a new task needs the right skills.
@@ -347,6 +363,7 @@ Rates are USD **per 1M tokens**. Keys match model id substrings (same logic as b
 | `.claude/learning/skill-proposal-alert-state.json` | Dedup keys for high-usage proposal notifications (per month/branch/task) |
 | `.claude/learning/skill-stats.json` | Pre-aggregated per-skill stats from hook/self-learning runs |
 | `.claude/learning/daily-stats.json` | Cost/tokens/runs by calendar day |
+| `.claude/learning/project-profile.json` | Auto-detected tier (solo/team/budget/throwaway) and feature preset |
 | `.claude/learning/system-state.json` | Unified snapshot for debugging and UI |
 | `.claude/learning/cost-attribution.json` | Background collector transcript estimates (`transcriptSkills`, unattributed) |
 | `.claude/learning/pricing-overrides.json` | Optional manual pricing |

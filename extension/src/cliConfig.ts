@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId, enabledAgents } from "./agentOps";
 import { DEFAULTS, FeatureKey, isFeatureEnabled } from "./featureFlags";
+import { effectiveFeatureMap } from "./projectProfile";
 import { writeJsonAtomic } from "./fileWriteCoordination";
 
 export interface CliConfigFile {
@@ -32,10 +33,12 @@ export function cliConfigPath(target: string): string {
 }
 
 /** Mirror extension feature toggles + enabled agents for headless Claude CLI / generate_skills.py. */
-export function buildCliConfig(libraryDir: string): CliConfigFile {
-  const features: Record<string, boolean> = {};
+export function buildCliConfig(libraryDir: string, target?: string): CliConfigFile {
+  const features = target ? effectiveFeatureMap(target) : {};
   for (const key of CLI_RELEVANT_FEATURES) {
-    features[key] = isFeatureEnabled(key);
+    if (!(key in features)) {
+      features[key] = isFeatureEnabled(key);
+    }
   }
   for (const key of Object.keys(DEFAULTS) as FeatureKey[]) {
     if (!(key in features)) {
@@ -54,7 +57,7 @@ export function buildCliConfig(libraryDir: string): CliConfigFile {
 }
 
 export function syncCliConfigToWorkspace(target: string, libraryDir: string): CliConfigFile {
-  const config = buildCliConfig(libraryDir);
+  const config = buildCliConfig(libraryDir, target);
   const file = cliConfigPath(target);
   const existing = readCliConfig(target);
   if (existing) {

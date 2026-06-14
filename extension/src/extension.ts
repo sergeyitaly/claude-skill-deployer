@@ -119,6 +119,14 @@ import {
   installOfficialSkillsSessionHook,
 } from "./hookOps";
 import { syncCliConfigToWorkspace } from "./cliConfig";
+import {
+  buildProjectProfile,
+  formatProjectProfileSummary,
+  PROFILE_TYPE_LABELS,
+  ProjectProfileType,
+  refreshProjectProfileContext,
+  writeProjectProfile,
+} from "./projectProfile";
 import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
 import { localDateKey } from "./localDate";
 import * as crypto from "node:crypto";
@@ -685,10 +693,19 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   let lastWorkspaceStateAt = 0;
+  let lastProjectProfileLogged: string | undefined;
 
   const refreshAllImpl = (opts: { workspaceState: boolean; forceTree: boolean }) => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
+    const projectProfile = refreshProjectProfileContext(target);
+    if (projectProfile && opts.workspaceState) {
+      const profileKey = `${target}|${projectProfile.profileType}|${projectProfile.appliedAt ?? projectProfile.detectedAt}`;
+      if (profileKey !== lastProjectProfileLogged) {
+        lastProjectProfileLogged = profileKey;
+        log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
+      }
+    }
     if (integrationTestMode()) {
       provider.refresh();
       return;
@@ -718,8 +735,12 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    scheduleCostPipelineSync(target, libraryDir);
-    void checkEmergencyCutoff(target, libraryDir);
+    if (isFeatureEnabled("costIntelligence") || isFeatureEnabled("attributionCollector")) {
+      scheduleCostPipelineSync(target, libraryDir);
+    }
+    if (isFeatureEnabled("budgetControls")) {
+      void checkEmergencyCutoff(target, libraryDir);
+    }
     if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
       ensureAttributionHooksActive(context.extensionPath, target, log);
     }
@@ -985,6 +1006,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
         if (e.affectsConfiguration("claudeSkills.features.practicalFocus")) {
           syncPracticalFocusConfigToDisk();
+        }
+        refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.projectProfile")) {
+        const target = getWorkspaceTarget();
+        if (target) {
+          refreshProjectProfileContext(target);
         }
         refreshAll();
       }
@@ -2157,6 +2185,50 @@ export function activate(context: vscode.ExtensionContext) {
       log(`\n=== Feature ${pick.key} -> ${next ? "on" : "off"} ===`);
       log(featureFlagLines().join("\n"));
       vscode.window.showInformationMessage(`Claude Skills: ${pick.key} is now ${next ? "enabled" : "disabled"}. Reload window to apply some changes.`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.detectProjectProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      const profile = buildProjectProfile(target);
+      writeProjectProfile(target, profile);
+      refreshProjectProfileContext(target);
+      refreshAll();
+      outputChannel.show(true);
+      log(`\n=== Project profile detected ===\n${formatProjectProfileSummary(profile)}`);
+      vscode.window.showInformationMessage(
+        `Project profile: ${PROFILE_TYPE_LABELS[profile.profileType]} (${Math.round(profile.confidence * 100)}% confidence).`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.chooseProjectProfile", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        return;
+      }
+      const tiers = (Object.keys(PROFILE_TYPE_LABELS) as ProjectProfileType[]).map((id) => ({
+        label: PROFILE_TYPE_LABELS[id],
+        description: id,
+        id,
+      }));
+      const pick = await vscode.window.showQuickPick(tiers, {
+        title: "Choose project profile tier",
+        placeHolder: "Overrides auto-detect for this workspace (set claudeSkills.projectProfile.lockedTier)",
+      });
+      if (!pick) {
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
+      await cfg.update("lockedTier", pick.id, vscode.ConfigurationTarget.Workspace);
+      const profile = refreshProjectProfileContext(target);
+      refreshAll();
+      if (profile) {
+        outputChannel.show(true);
+        log(`\n=== Project profile tier locked ===\n${formatProjectProfileSummary(profile)}`);
+        vscode.window.showInformationMessage(`Project profile locked: ${PROFILE_TYPE_LABELS[pick.id]}.`);
+      }
     }),
 
     vscode.commands.registerCommand("claudeSkills.resetEmergencyCutoff", async () => {

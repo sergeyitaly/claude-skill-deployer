@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getProjectProfileFeatureOverride } from "./activeProjectProfile";
 
 export type FeatureKey =
   | "budgetControls"
@@ -76,6 +77,10 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {
+  const tierOverride = getProjectProfileFeatureOverride(key);
+  if (tierOverride !== undefined) {
+    return tierOverride;
+  }
   return vscode.workspace.getConfiguration("claudeSkills.features").get<boolean>(key, DEFAULTS[key]);
 }
 
