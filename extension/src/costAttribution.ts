@@ -7,6 +7,16 @@ import { tokenCostUsd } from "./costRates";
 import { countV2HookRuns, isUsageRunRecord } from "./runRecording";
 import { readRunRecords, RunRecord } from "./usageStats";
 
+/** Prefer hook/self-learning stored cost; fall back to blended estimate when missing. */
+export function costForRunRecord(rec: RunRecord): number {
+  if (typeof rec.cost === "number" && rec.cost > 0) {
+    return rec.cost;
+  }
+  const meta = rec.metadata ?? {};
+  const model = typeof meta.model === "string" ? meta.model : undefined;
+  return tokenCostUsd(rec.tokens ?? 0, model);
+}
+
 export interface AgentAttribution {
   tokens: number;
   cost: number;
@@ -125,7 +135,7 @@ function attributionFromRuns(records: RunRecord[]): SkillAttributionMap {
       continue;
     }
     const agent = (rec.agent ?? "claude") as AgentId;
-    const cost = tokenCostUsd(rec.tokens, (rec as RunRecord & { model?: string }).model);
+    const cost = costForRunRecord(rec);
     const skillMap = map[rec.skill] ?? {};
     const bucket = skillMap[agent] ?? emptyAgent();
     addAgent(bucket, rec.tokens, cost);
@@ -380,7 +390,8 @@ export function formatAttributionReport(
   }
 
   lines.push("### Per-skill (runs.jsonl + transcript collector)", "");
-  lines.push("| Skill | Agent | Tokens | Est. cost | Sessions | Best agent? |", "|---|---|---|---|---|---|");
+  lines.push("_Hook rows use measured API cost when present; transcript-only rows use blended estimates._", "");
+  lines.push("| Skill | Agent | Tokens | Cost | Sessions | Best agent? |", "|---|---|---|---|---|---|");
   for (const skill of skillNames) {
     const best = cheapestAgentForSkill(skill, merged);
     for (const [agent, stats] of Object.entries(merged[skill]!) as [AgentId, AgentAttribution][]) {

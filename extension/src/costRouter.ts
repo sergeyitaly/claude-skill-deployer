@@ -41,9 +41,13 @@ export function getOptimalAgent(
 export function formatRoutingSuggestion(
   skill: string,
   attribution: SkillAttributionMap,
-  agent: AgentId
+  agent: AgentId,
+  opts?: { remainingBudgetUsd?: number | null; taskType?: TaskType }
 ): string {
   const entry = attribution[skill];
+  const remaining = opts?.remainingBudgetUsd ?? remainingDailyBudgetUsd(readBudgetConfig());
+  const cheapest = cheapestAgentForSkill(skill, attribution);
+
   if (!entry) {
     return `No usage data for ${skill} — defaulting to ${agent} for this task type.`;
   }
@@ -53,5 +57,15 @@ export function formatRoutingSuggestion(
     .map(([id, s]) => `${id}: ~$${(s.cost / s.sessions).toFixed(2)}/run`)
     .join(", ");
 
-  return `Suggested agent for ${skill}: **${agent}** (${parts || "no runs yet"}).`;
+  let line = `Suggested agent for ${skill}: **${agent}** (${parts || "no runs yet"}).`;
+
+  if (remaining !== null && cheapest && agent !== cheapest) {
+    if (remaining < 0.5 && agent === "copilot") {
+      line += ` Daily budget nearly exhausted (~$${remaining.toFixed(2)} left) — routing to flat-rate Copilot; measured cheapest is **${cheapest}**.`;
+    } else if (remaining < 1.0 && agent === "cursor" && (opts?.taskType ?? "default") !== "planning") {
+      line += ` Low daily budget (~$${remaining.toFixed(2)} left) — preferring **cursor**; measured cheapest for this skill is **${cheapest}**.`;
+    }
+  }
+
+  return line;
 }

@@ -1,11 +1,76 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildCostAttribution,
   cheapestAgentForSkill,
+  costForRunRecord,
   detectEqualSplitCluster,
   formatEqualSplitWarning,
   resolveDisplayAttribution,
   sanitizeTranscriptSkills,
 } from "./costAttribution";
+import type { RunRecord } from "./usageStats";
+
+const workspaces: string[] = [];
+
+function makeWorkspace(): string {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "cost-attr-"));
+  workspaces.push(ws);
+  fs.mkdirSync(path.join(ws, ".claude", "learning"), { recursive: true });
+  return ws;
+}
+
+afterEach(() => {
+  for (const ws of workspaces) {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+  workspaces.length = 0;
+});
+
+describe("costForRunRecord", () => {
+  it("uses stored hook cost instead of blended token estimate", () => {
+    const rec: RunRecord = {
+      ts: "2026-06-13T20:54:35.705Z",
+      skill: "profile-init",
+      action: "skill_invoke",
+      rc: 0,
+      tokens: 33_508,
+      cost: 0.0520116,
+      success: true,
+      metadata: { cost_method: "usage_breakdown", model: "claude-sonnet-4-6" },
+      agent: "claude",
+    };
+    expect(costForRunRecord(rec)).toBeCloseTo(0.0520116, 6);
+    expect(costForRunRecord(rec)).toBeLessThan(0.2);
+  });
+});
+
+describe("buildCostAttribution", () => {
+  it("aggregates per-skill cost from stored hook rows", () => {
+    const target = makeWorkspace();
+    const runs = path.join(target, ".claude", "learning", "runs.jsonl");
+    const row = {
+      ts: "2026-06-13T20:54:35.705Z",
+      skill: "profile-init",
+      action: "skill_invoke",
+      agent: "claude",
+      tokens: 33_508,
+      cost: 0.0520116,
+      rc: 0,
+      success: true,
+      session_id: "sess-1",
+      metadata: { source: "skill-invoke-hook-v2", invoked: true, cost_method: "usage_breakdown" },
+    };
+    fs.writeFileSync(runs, `${JSON.stringify(row)}\n`, "utf-8");
+
+    const libraryDir = path.join(__dirname, "..", "..", "skills_library");
+    const built = buildCostAttribution(target, libraryDir);
+    expect(built.skills["profile-init"]?.claude?.cost).toBeCloseTo(0.0520116, 6);
+    expect(built.skills["profile-init"]?.claude?.cost).toBeLessThan(0.2);
+  });
+});
 
 describe("detectEqualSplitCluster", () => {
   it("flags three skills with identical cost", () => {

@@ -39,12 +39,23 @@ Each release includes:
 - **Session-start fallback** — `profile-init-watch.js` delivers pending task-drift prompts on Claude SessionStart, Cursor sessionStart, Kiro agentSpawn, and Copilot SessionStart (same path as 1.0.50 low-trust inject)
 - **Session-size drift** — extension also reads Claude/Cursor transcript file sizes when evaluating task drift (Kiro/Copilot lack local transcripts per `agents.json`)
 - **Attribution & costs (1.0.46–1.0.49)** — unchanged multi-agent PostToolUse hooks; General API panel remains Claude/Cursor transcript–based where transcripts exist
+- **Per-skill cross-agent costs** — `buildCostAttribution` now uses measured hook `cost` from `runs.jsonl` (API usage breakdown) instead of re-estimating with a flat blended $/M rate — aligns Cross-agent panel with Usage Report **$X/run (API)** rows
+- **Agent routing hint** — when daily budget is nearly exhausted, routing suggestion explains budget-driven Copilot fallback vs measured cheapest agent
+- **claude-api lint** — trimmed SKILL/instructions frontmatter description to ≤500 chars (trigger/skip rules remain in body)
+
+### Behavior changes
+
+- Cross-agent **Per-skill** table and routing cost parentheses now match hook-measured costs (~$0.05/run with heavy cache read) instead of inflated blended estimates (~$0.30/run)
+- **Suggested agent: copilot** during budget exhaustion now includes explicit “daily budget nearly exhausted” context
 
 ### Technical
 
 - `hookOps.ts` — `installAgentTaskDriftHooks()` for Cursor/Kiro/Copilot; separate `.github/hooks/claude-skills-task-drift.json` and `.kiro/hooks/claude-skills-task-drift.kiro.hook`
 - `taskDriftReproposal.ts` — merges `session-watch.json` with workspace Claude/Cursor transcript byte thresholds
 - `skills_sync.py` — headless task-drift hook install when `hooks install --full`
+- `costAttribution.ts` — `costForRunRecord()` prefers stored `rec.cost`; `formatAttributionReport` labels column **Cost** with hook vs estimate note
+- `costRouter.ts` — `formatRoutingSuggestion()` budget context when cheapest agent differs from routed agent
+- `.claude/skills/claude-api/SKILL.md`, `.github/instructions/claude-api.instructions.md` — short frontmatter description
 
 ---
 

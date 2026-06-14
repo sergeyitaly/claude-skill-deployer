@@ -515,7 +515,9 @@ Two stores — do not confuse them:
 | Store | Used for |
 |---|---|
 | `runs.jsonl` | Hook invocations + self-learning → Usage Report **Skills detail**, skills tree usage summary |
-| `cost-attribution.json` | Transcript collector estimates → Cost Dashboard when hooks are sparse |
+| `cost-attribution.json` | Transcript collector estimates → Cost Dashboard when hooks are sparse; per-skill rows in Cross-agent panel merge hook `cost` from `runs.jsonl` when present (v1.0.52+) |
+
+Cross-agent **Per-skill** costs use measured API `cost` from hook rows when available — not a flat blended re-estimate from token count alone.
 
 The background collector writes transcript-based estimates to **`cost-attribution.json` only** (v1.0.18+). It does not append equal-split rows to `runs.jsonl`.
 
