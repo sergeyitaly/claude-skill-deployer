@@ -67,6 +67,7 @@ import {
   notifyUserSuccess,
   notifyUserWarn,
 } from "./userNotify";
+import { startExtensionAutoUpdate } from "./extensionAutoUpdate";
 import { recordPerf } from "./perfTelemetry";
 import {
   buildCostAttribution,
@@ -1040,6 +1041,8 @@ export function activate(context: vscode.ExtensionContext) {
   })();
 
   refreshLight();
+
+  startExtensionAutoUpdate(context, log);
 
   if (initialTarget && !integrationTestMode()) {
     setTimeout(() => {

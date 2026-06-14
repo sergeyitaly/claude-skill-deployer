@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -459,6 +459,18 @@
               "All notifications — previous behavior including auto-apply and suggestion toasts."
             ],
             "description": "How chatty the extension is with VS Code notification toasts."
+          },
+          "claudeSkills.autoUpdateExtension": {
+            "type": "boolean",
+            "default": true,
+            "description": "Silently check Open VSX for a newer extension release and install it in the background (production installs only)."
+          },
+          "claudeSkills.autoUpdateExtensionHours": {
+            "type": "number",
+            "default": 6,
+            "minimum": 1,
+            "maximum": 168,
+            "description": "Hours between background extension update checks."
           },
           "claudeSkills.officialSkillsCheckOnSession": {
             "type": "boolean",

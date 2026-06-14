@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.43** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.44** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,47 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.43** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.44** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.44] - 2026-06-14
+
+**Summary:** Stays out of your way — quieter notifications, no terminal hijack, tier lock that sticks, and silent self-updates from Open VSX.
+
+**Theme:** Quiet operations & reliable tier control
+
+### Highlights
+
+- **Minimal notifications** by default — background auto-apply and suggestions log to Output instead of toasting
+- **Output panel stays hidden** unless you ask (`revealOutputPanel` off by default; new **Show Output Log** command)
+- **Silent extension auto-update** checks Open VSX every 6 hours and installs newer releases without prompts
+- **Manual tier lock** prefers your on-disk plan over stale workspace settings; **solo-focused** plan overrides team detection on shared repos
+
+### Behavior changes
+
+- Locked tiers no longer spam “tier changed” when you already chose a plan
+- First-run welcome and setup wizards skipped unless `notificationLevel` is **normal**
+- `silent` notification level auto-accepts detected tier (no QuickPick on first open)
+- Tier benefit benchmark (`npm run bench:tier-benefits`) and cross-platform skill-impact bench on Windows
+
+### Configuration
+
+- `claudeSkills.notificationLevel` — `minimal` (default), `silent`, or `normal`
+- `claudeSkills.revealOutputPanel` (default off)
+- `claudeSkills.autoUpdateExtension` (default on)
+- `claudeSkills.autoUpdateExtensionHours` (default 6)
+
+### Technical
+
+- `userNotify` module centralizes toast gating; CI vscode mock fixes for `Uri`/`inspect`
+- `extensionAutoUpdate` pulls latest VSIX from Open VSX with gallery fallback
 
 ---
 
