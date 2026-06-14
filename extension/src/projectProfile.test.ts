@@ -3,14 +3,30 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+let mockLockedTierSetting = "";
+let mockLockedTierInspectAvailable = true;
+
 vi.mock("vscode", () => ({
   Uri: {
     file: (p: string) => ({ fsPath: p }),
   },
   workspace: {
     getWorkspaceFolder: () => undefined,
-    getConfiguration: (section: string) => ({
-      get: <T>(key: string, defaultValue: T): T => defaultValue,
+    getConfiguration: (_section: string) => ({
+      get: <T>(key: string, defaultValue: T): T => {
+        if (key === "lockedTier" && mockLockedTierSetting) {
+          return mockLockedTierSetting as T;
+        }
+        return defaultValue;
+      },
+      inspect: <T>(key: string) => {
+        if (key === "lockedTier") {
+          return mockLockedTierInspectAvailable
+            ? { key, defaultValue: "" as T, globalValue: undefined, workspaceValue: undefined, workspaceFolderValue: undefined }
+            : undefined;
+        }
+        return undefined;
+      },
       update: async () => undefined,
     }),
   },
@@ -27,6 +43,7 @@ import {
   effectiveBranchCount,
   effectiveAuthorCount30d,
   effectiveLockedTier,
+  lockedProjectProfileTier,
   isRemoteTeamClone,
   isTeamProductRepo,
   readProjectProfile,
@@ -40,6 +57,8 @@ import {
   ProjectProfileSignals,
   ProjectProfileFile,
 } from "./projectProfile";
+
+const DISK_PROFILE_TIMEOUT = 15_000;
 
 const workspaces: string[] = [];
 
@@ -265,6 +284,7 @@ function detectTeamSizeFromSignals(signals: ProjectProfileSignals): ProjectProfi
 describe("tierForUserPlan", () => {
   it("maps user plans to tiers", () => {
     expect(tierForUserPlan("solo-dev", "accept-detected")).toBe("solo-dev");
+    expect(tierForUserPlan("team-multi-agent", "solo-focused")).toBe("solo-dev");
     expect(tierForUserPlan("solo-dev", "aidlc-greenfield")).toBe("team-multi-agent");
     expect(tierForUserPlan("solo-dev", "multi-agent-workflow")).toBe("team-multi-agent");
     expect(tierForUserPlan("solo-dev", "budget-focused")).toBe("budget-sensitive");
@@ -281,7 +301,7 @@ describe("formatRepoEvidence", () => {
   });
 });
 
-describe("buildProjectProfile", () => {
+describe("buildProjectProfile", { timeout: DISK_PROFILE_TIMEOUT }, () => {
   it("writes manual override type", () => {
     const target = makeWorkspace("manual", { "package.json": "{}", "README.md": "# x" });
     const profile = buildProjectProfile(target, "enterprise");
@@ -292,7 +312,7 @@ describe("buildProjectProfile", () => {
   });
 });
 
-describe("effectiveLockedTier", () => {
+describe("effectiveLockedTier", { timeout: DISK_PROFILE_TIMEOUT }, () => {
   it("locks from explicit user plan when settings lockedTier is empty", () => {
     const target = makeWorkspace("lock-plan", { "package.json": "{}", "README.md": "# x" });
     const profile = buildProjectProfile(target, "budget-sensitive", "budget-focused");
@@ -304,9 +324,29 @@ describe("effectiveLockedTier", () => {
     const profile = buildProjectProfile(target);
     expect(effectiveLockedTier({ ...profile, userPlan: "accept-detected" }, target)).toBeUndefined();
   });
+
+  it("prefers on-disk user plan over stale settings lockedTier", () => {
+    mockLockedTierSetting = "team-multi-agent";
+    mockLockedTierInspectAvailable = true;
+    const target = makeWorkspace("lock-stale-settings", { "package.json": "{}", "README.md": "# x" });
+    const profile = buildProjectProfile(target, "solo-dev", "solo-focused");
+    expect(effectiveLockedTier(profile, target)).toBe("solo-dev");
+    mockLockedTierSetting = "";
+  });
+
+  it("ignores settings when lockedTier is not registered in the manifest", () => {
+    mockLockedTierInspectAvailable = false;
+    mockLockedTierSetting = "team-multi-agent";
+    const target = makeWorkspace("lock-unregistered", { "package.json": "{}", "README.md": "# x" });
+    const profile = buildProjectProfile(target);
+    expect(effectiveLockedTier({ ...profile, userPlan: "accept-detected" }, target)).toBeUndefined();
+    expect(lockedProjectProfileTier(target)).toBeUndefined();
+    mockLockedTierInspectAvailable = true;
+    mockLockedTierSetting = "";
+  });
 });
 
-describe("refreshProjectProfileContext", () => {
+describe("refreshProjectProfileContext", { timeout: DISK_PROFILE_TIMEOUT }, () => {
   it("keeps manual plan tier when lockedTier setting is empty", () => {
     const target = makeWorkspace("manual-plan", { "package.json": "{}", "README.md": "# x" });
     const detected = buildProjectProfile(target);
@@ -373,7 +413,7 @@ describe("shouldRefreshProjectProfile", () => {
   });
 });
 
-describe("effectiveFeatureMap", () => {
+describe("effectiveFeatureMap", { timeout: DISK_PROFILE_TIMEOUT }, () => {
   it("reads throwaway tier from project-profile.json on disk", () => {
     const target = makeWorkspace("effmap", { "package.json": "{}" });
     writeProjectProfile(target, buildProjectProfile(target, "throwaway"));

@@ -32,15 +32,16 @@ export function effectiveLockedTier(
   existing: ProjectProfileFile | undefined,
   target?: string
 ): ProjectProfileType | undefined {
-  const fromSettings = lockedProjectProfileTier(target);
-  if (fromSettings) {
-    return fromSettings;
+  // On-disk user choice wins over workspace settings (settings may be stale or fail to write).
+  if (existing?.userPlan && existing.userPlan !== "accept-detected") {
+    return existing.profileType;
   }
   if (existing?.manualOverride) {
     return existing.manualOverride;
   }
-  if (existing?.userPlan && existing.userPlan !== "accept-detected") {
-    return existing.profileType;
+  const fromSettings = lockedProjectProfileTier(target);
+  if (fromSettings) {
+    return fromSettings;
   }
   return undefined;
 }
@@ -59,6 +60,7 @@ export type ActivityLevel = "none" | "low" | "moderate" | "high";
 
 export type UserProjectPlan =
   | "accept-detected"
+  | "solo-focused"
   | "aidlc-greenfield"
   | "multi-agent-workflow"
   | "team-product"
@@ -173,7 +175,14 @@ export function projectProfilePromptOnFirstDetectEnabled(target?: string): boole
   return projectProfileConfiguration(target).get<boolean>("promptOnFirstDetect", true);
 }
 
+export function isLockedTierSettingRegistered(target?: string): boolean {
+  return projectProfileConfiguration(target).inspect<string>("lockedTier") !== undefined;
+}
+
 export function lockedProjectProfileTier(target?: string): ProjectProfileType | undefined {
+  if (!isLockedTierSettingRegistered(target)) {
+    return undefined;
+  }
   const raw = projectProfileConfiguration(target).get<string>("lockedTier", "");
   if (!raw) {
     return undefined;
@@ -181,11 +190,25 @@ export function lockedProjectProfileTier(target?: string): ProjectProfileType | 
   return raw as ProjectProfileType;
 }
 
+/** Optional mirror to workspace settings — tier lock is persisted in project-profile.json. */
 export async function setLockedProjectProfileTier(
   target: string,
   tier: ProjectProfileType | ""
 ): Promise<void> {
-  await projectProfileConfiguration(target).update("lockedTier", tier, vscode.ConfigurationTarget.Workspace);
+  if (!isLockedTierSettingRegistered(target)) {
+    return;
+  }
+  const folderUri = configUriForTarget(target);
+  const cfg = projectProfileConfiguration(target);
+  const value = tier === "" ? undefined : tier;
+  const scope = folderUri
+    ? vscode.ConfigurationTarget.WorkspaceFolder
+    : vscode.ConfigurationTarget.Workspace;
+  try {
+    await cfg.update("lockedTier", value, scope);
+  } catch {
+    // Untrusted workspace or settings UI unavailable — project-profile.json remains authoritative.
+  }
 }
 
 function gitCommand(root: string, args: string[]): string | undefined {
@@ -572,6 +595,8 @@ export function tierForUserPlan(
   switch (plan) {
     case "accept-detected":
       return detectedType;
+    case "solo-focused":
+      return "solo-dev";
     case "aidlc-greenfield":
     case "multi-agent-workflow":
     case "team-product":

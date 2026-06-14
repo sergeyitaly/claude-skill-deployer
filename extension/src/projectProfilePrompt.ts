@@ -108,6 +108,11 @@ export function buildProjectPlanQuickPickItems(
 
   const planDefs: Array<{ id: UserProjectPlan; label: string; detail: string }> = [
     {
+      id: "solo-focused",
+      label: "Plan: solo developer (override team detection)",
+      detail: "Branch profiles and cost tools without full multi-agent sync — use when you work alone on a shared repo",
+    },
+    {
       id: "multi-agent-workflow",
       label: "Plan: multiple AI tools (Claude + Cursor + Copilot)",
       detail: "Full multi-agent sync on a new or solo repo without waiting for git activity",

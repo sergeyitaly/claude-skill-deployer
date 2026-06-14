@@ -1,20 +1,33 @@
 /** Minimal stub so unit tests can import modules that reference `vscode`. */
 export const workspace = {
-  getConfiguration: (section?: string) => ({
+  getWorkspaceFolder: () => undefined,
+  getConfiguration: (_section?: string) => ({
     get: <T>(key: string, defaultValue?: T): T | undefined => {
-      if (section === "claudeSkills.agents" && key === "enabled") {
+      if (_section === "claudeSkills.agents" && key === "enabled") {
         return ["claude", "cursor", "kiro", "copilot"] as T;
       }
-      if (section === "claudeSkills.lint" && key === "requireFrontmatter") {
+      if (_section === "claudeSkills.lint" && key === "requireFrontmatter") {
         return true as T;
       }
-      if (section === "claudeSkills.agents" && key === "syncWorkspaceToAll") {
+      if (_section === "claudeSkills.agents" && key === "syncWorkspaceToAll") {
         return true as T;
       }
-      if (section === "claudeSkills.features" && key === "multiAgent") {
+      if (_section === "claudeSkills.features" && key === "multiAgent") {
         return true as T;
       }
       return defaultValue;
+    },
+    inspect: <T>(key: string) => {
+      if (key === "lockedTier") {
+        return {
+          key,
+          defaultValue: "" as T,
+          globalValue: undefined,
+          workspaceValue: undefined,
+          workspaceFolderValue: undefined,
+        };
+      }
+      return undefined;
     },
     update: async () => undefined,
   }),

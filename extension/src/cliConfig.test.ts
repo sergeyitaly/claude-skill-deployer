@@ -4,7 +4,11 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({
+  Uri: {
+    file: (p: string) => ({ fsPath: p }),
+  },
   workspace: {
+    getWorkspaceFolder: () => undefined,
     getConfiguration: (section: string) => ({
       get: <T>(key: string, defaultValue: T): T => {
         if (section === "claudeSkills.features" && key === "sessionSkillAdaptation") {
@@ -15,8 +19,22 @@ vi.mock("vscode", () => ({
         }
         return defaultValue;
       },
+      inspect: <T>(key: string) => {
+        if (key === "lockedTier") {
+          return {
+            key,
+            defaultValue: "" as T,
+            globalValue: undefined,
+            workspaceValue: undefined,
+            workspaceFolderValue: undefined,
+          };
+        }
+        return undefined;
+      },
+      update: async () => undefined,
     }),
   },
+  ConfigurationTarget: { Workspace: 2, WorkspaceFolder: 3 },
 }));
 
 import { buildCliConfig, syncCliConfigToWorkspace } from "./cliConfig";

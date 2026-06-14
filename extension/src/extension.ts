@@ -130,6 +130,7 @@ import {
   readProjectProfile,
   refreshProjectProfileContext,
   setLockedProjectProfileTier,
+  effectiveLockedTier,
   writeProjectProfile,
 } from "./projectProfile";
 import {
@@ -2292,6 +2293,24 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
+      const existing = readProjectProfile(target);
+      const locked = effectiveLockedTier(existing, target);
+      if (locked) {
+        const action = await vscode.window.showWarningMessage(
+          `Project tier is locked to ${PROFILE_TYPE_LABELS[locked]}. Re-detect will clear your manual plan.`,
+          "Change tier",
+          "Re-detect anyway",
+          "Cancel"
+        );
+        if (action === "Change tier") {
+          void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
+          return;
+        }
+        if (action !== "Re-detect anyway") {
+          return;
+        }
+        await setLockedProjectProfileTier(target, "");
+      }
       const profile = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -2300,13 +2319,18 @@ export function activate(context: vscode.ExtensionContext) {
         },
         async () => buildProjectProfileWithRemoteProbe(target)
       );
-      writeProjectProfile(target, profile);
+      const detectedProfile: ProjectProfileFile = {
+        ...profile,
+        userPlan: "accept-detected",
+        manualOverride: undefined,
+      };
+      writeProjectProfile(target, detectedProfile);
       refreshProjectProfileContext(target);
       refreshAll();
       outputChannel.show(true);
-      log(`\n=== Project profile detected ===\n${formatProjectProfileTierComparisonTable(target, profile.profileType)}`);
-      log(`\n${formatProjectProfileSummaryBlock(profile)}`);
-      vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(profile), "View details");
+      log(`\n=== Project profile detected ===\n${formatProjectProfileTierComparisonTable(target, detectedProfile.profileType)}`);
+      log(`\n${formatProjectProfileSummaryBlock(detectedProfile)}`);
+      vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(detectedProfile), "View details");
     }),
 
     vscode.commands.registerCommand("claudeSkills.chooseProjectProfile", async () => {
