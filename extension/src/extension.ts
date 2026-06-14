@@ -129,6 +129,7 @@ import {
   projectProfileApplyTierEnabled,
   readProjectProfile,
   refreshProjectProfileContext,
+  setLockedProjectProfileTier,
   writeProjectProfile,
 } from "./projectProfile";
 import {
@@ -2337,8 +2338,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       let lockedProfile: ProjectProfileFile;
       if (pick.id === "accept-detected") {
-        const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
-        await cfg.update("lockedTier", "", vscode.ConfigurationTarget.Workspace);
+        await setLockedProjectProfileTier(target, "");
         lockedProfile = {
           ...detected,
           userPlan: "accept-detected",
@@ -2346,15 +2346,15 @@ export function activate(context: vscode.ExtensionContext) {
           appliedAt: new Date().toISOString(),
         };
         writeProjectProfile(target, lockedProfile);
-        setActiveProjectProfileContext(
-          lockedProfile.enabledFeatures,
-          projectProfileApplyTierEnabled()
-        );
       } else {
         lockedProfile = await applyUserProjectPlan(target, detected, pick.id);
       }
-      refreshProjectProfileContext(target);
-      refreshAll();
+      setActiveProjectProfileContext(
+        lockedProfile.enabledFeatures,
+        projectProfileApplyTierEnabled(target)
+      );
+      refreshProjectTierStatusBar(target);
+      refreshAll({ workspaceState: false, forceTree: true });
       if (lockedProfile) {
         outputChannel.show(true);
         log(`\n=== Project profile plan confirmed ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);

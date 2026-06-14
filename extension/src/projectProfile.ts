@@ -16,6 +16,35 @@ import {
 
 const PROFILE_REDETECT_MS = 24 * 60 * 60 * 1000;
 
+function configUriForTarget(target?: string): vscode.Uri | undefined {
+  if (!target) {
+    return undefined;
+  }
+  return vscode.workspace.getWorkspaceFolder(vscode.Uri.file(target))?.uri;
+}
+
+function projectProfileConfiguration(target?: string): vscode.WorkspaceConfiguration {
+  return vscode.workspace.getConfiguration("claudeSkills.projectProfile", configUriForTarget(target));
+}
+
+/** Settings lock, manual override, or an explicit user plan (not accept-detected). */
+export function effectiveLockedTier(
+  existing: ProjectProfileFile | undefined,
+  target?: string
+): ProjectProfileType | undefined {
+  const fromSettings = lockedProjectProfileTier(target);
+  if (fromSettings) {
+    return fromSettings;
+  }
+  if (existing?.manualOverride) {
+    return existing.manualOverride;
+  }
+  if (existing?.userPlan && existing.userPlan !== "accept-detected") {
+    return existing.profileType;
+  }
+  return undefined;
+}
+
 export type ProjectProfileType =
   | "solo-dev"
   | "team-multi-agent"
@@ -132,26 +161,31 @@ export function projectProfilePath(target: string): string {
   return path.join(target, ".claude", "learning", "project-profile.json");
 }
 
-export function projectProfileAutoDetectEnabled(): boolean {
-  return vscode.workspace.getConfiguration("claudeSkills.projectProfile").get<boolean>("autoDetect", true);
+export function projectProfileAutoDetectEnabled(target?: string): boolean {
+  return projectProfileConfiguration(target).get<boolean>("autoDetect", true);
 }
 
-export function projectProfileApplyTierEnabled(): boolean {
-  return vscode.workspace.getConfiguration("claudeSkills.projectProfile").get<boolean>("applyTierFeatures", true);
+export function projectProfileApplyTierEnabled(target?: string): boolean {
+  return projectProfileConfiguration(target).get<boolean>("applyTierFeatures", true);
 }
 
-export function projectProfilePromptOnFirstDetectEnabled(): boolean {
-  return vscode.workspace.getConfiguration("claudeSkills.projectProfile").get<boolean>("promptOnFirstDetect", true);
+export function projectProfilePromptOnFirstDetectEnabled(target?: string): boolean {
+  return projectProfileConfiguration(target).get<boolean>("promptOnFirstDetect", true);
 }
 
-export function lockedProjectProfileTier(): ProjectProfileType | undefined {
-  const raw = vscode.workspace
-    .getConfiguration("claudeSkills.projectProfile")
-    .get<string>("lockedTier", "");
+export function lockedProjectProfileTier(target?: string): ProjectProfileType | undefined {
+  const raw = projectProfileConfiguration(target).get<string>("lockedTier", "");
   if (!raw) {
     return undefined;
   }
   return raw as ProjectProfileType;
+}
+
+export async function setLockedProjectProfileTier(
+  target: string,
+  tier: ProjectProfileType | ""
+): Promise<void> {
+  await projectProfileConfiguration(target).update("lockedTier", tier, vscode.ConfigurationTarget.Workspace);
 }
 
 function gitCommand(root: string, args: string[]): string | undefined {
@@ -850,29 +884,38 @@ function mergeProjectProfileRefresh(
 ): { profile: ProjectProfileFile; tierChanged: boolean } {
   const tierChanged = !existing || existing.profileType !== built.profileType;
   if (!existing || tierChanged) {
-    return { profile: built, tierChanged };
+    return {
+      profile: {
+        ...built,
+        userPlan: built.userPlan ?? existing?.userPlan,
+        detectedFrom: built.detectedFrom ?? existing?.detectedFrom ?? built.detectedFrom,
+        manualOverride: built.manualOverride ?? existing?.manualOverride,
+      },
+      tierChanged,
+    };
   }
   return {
     profile: {
       ...built,
       detectedAt: existing.detectedAt,
       appliedAt: existing.appliedAt ?? built.appliedAt,
-      userPlan: existing.userPlan,
-      manualOverride: existing.manualOverride,
+      userPlan: built.userPlan ?? existing.userPlan,
+      manualOverride: built.manualOverride ?? existing.manualOverride,
+      detectedFrom: existing.detectedFrom,
     },
     tierChanged: false,
   };
 }
 
 export function refreshProjectProfileContext(target: string | undefined): ProjectProfileRefreshResult {
-  const apply = projectProfileApplyTierEnabled();
+  const apply = projectProfileApplyTierEnabled(target);
   if (!target) {
     setActiveProjectProfileContext(null, apply);
     return { changed: false, tierChanged: false, isFirstDetect: false };
   }
   const existing = readProjectProfile(target);
-  const locked = lockedProjectProfileTier() ?? existing?.manualOverride;
-  if (projectProfileAutoDetectEnabled() && !locked) {
+  const locked = effectiveLockedTier(existing, target);
+  if (projectProfileAutoDetectEnabled(target) && !locked) {
     const built = buildProjectProfile(target);
     if (!existing || shouldRefreshProjectProfile(existing, built)) {
       const isFirstDetect = !existing;
@@ -885,11 +928,18 @@ export function refreshProjectProfileContext(target: string | undefined): Projec
     return { profile: existing, changed: false, tierChanged: false, isFirstDetect: false };
   }
   if (locked) {
-    const built = buildProjectProfile(target, locked);
+    const builtBase = buildProjectProfile(target, locked, existing?.userPlan, {
+      network: false,
+      useCache: true,
+    });
+    const built: ProjectProfileFile = existing?.detectedFrom
+      ? { ...builtBase, detectedFrom: existing.detectedFrom }
+      : builtBase;
     const structuralChange =
       !existing ||
       existing.profileType !== built.profileType ||
-      existing.manualOverride !== built.manualOverride;
+      existing.manualOverride !== built.manualOverride ||
+      existing.userPlan !== built.userPlan;
     const { profile, tierChanged } = mergeProjectProfileRefresh(existing, built);
     if (structuralChange) {
       writeProjectProfile(target, profile);
@@ -919,7 +969,7 @@ export function formatProjectProfileSummary(profile: ProjectProfileFile): string
 
 export function effectiveFeatureMap(target: string): Record<string, boolean> {
   const profile = readProjectProfile(target);
-  const apply = projectProfileApplyTierEnabled();
+  const apply = projectProfileApplyTierEnabled(target);
   const out: Record<string, boolean> = {};
   for (const key of Object.keys(DEFAULTS) as FeatureKey[]) {
     if (apply && profile?.enabledFeatures && key in profile.enabledFeatures) {

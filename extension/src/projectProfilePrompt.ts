@@ -11,7 +11,7 @@ import {
   ProjectProfileType,
   projectProfileApplyTierEnabled,
   projectProfilePromptOnFirstDetectEnabled,
-  refreshProjectProfileContext,
+  setLockedProjectProfileTier,
   tierForUserPlan,
   UserProjectPlan,
   writeProjectProfile,
@@ -191,16 +191,22 @@ export async function applyUserProjectPlan(
   plan: UserProjectPlan
 ): Promise<ProjectProfileFile> {
   const tier = tierForUserPlan(detected.profileType, plan);
-  const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
   if (plan === "accept-detected") {
-    await cfg.update("lockedTier", "", vscode.ConfigurationTarget.Workspace);
+    await setLockedProjectProfileTier(target, "");
   } else {
-    await cfg.update("lockedTier", tier, vscode.ConfigurationTarget.Workspace);
+    await setLockedProjectProfileTier(target, tier);
   }
-  const profile = buildProjectProfile(target, plan === "accept-detected" ? undefined : tier, plan);
+  const built = buildProjectProfile(target, plan === "accept-detected" ? undefined : tier, plan, {
+    network: false,
+    useCache: true,
+  });
+  const profile: ProjectProfileFile = {
+    ...built,
+    detectedFrom: detected.detectedFrom,
+    appliedAt: new Date().toISOString(),
+  };
   writeProjectProfile(target, profile);
-  setActiveProjectProfileContext(profile.enabledFeatures, projectProfileApplyTierEnabled());
-  refreshProjectProfileContext(target);
+  setActiveProjectProfileContext(profile.enabledFeatures, projectProfileApplyTierEnabled(target));
   return profile;
 }
 

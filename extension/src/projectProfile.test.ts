@@ -4,11 +4,17 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({
+  Uri: {
+    file: (p: string) => ({ fsPath: p }),
+  },
   workspace: {
+    getWorkspaceFolder: () => undefined,
     getConfiguration: (section: string) => ({
       get: <T>(key: string, defaultValue: T): T => defaultValue,
+      update: async () => undefined,
     }),
   },
+  ConfigurationTarget: { Workspace: 1 },
 }));
 
 import {
@@ -20,6 +26,7 @@ import {
   effectiveFeatureMap,
   effectiveBranchCount,
   effectiveAuthorCount30d,
+  effectiveLockedTier,
   isRemoteTeamClone,
   isTeamProductRepo,
   readProjectProfile,
@@ -285,7 +292,35 @@ describe("buildProjectProfile", () => {
   });
 });
 
+describe("effectiveLockedTier", () => {
+  it("locks from explicit user plan when settings lockedTier is empty", () => {
+    const target = makeWorkspace("lock-plan", { "package.json": "{}", "README.md": "# x" });
+    const profile = buildProjectProfile(target, "budget-sensitive", "budget-focused");
+    expect(effectiveLockedTier(profile, target)).toBe("budget-sensitive");
+  });
+
+  it("does not lock accept-detected plans", () => {
+    const target = makeWorkspace("lock-accept", { "package.json": "{}", "README.md": "# x" });
+    const profile = buildProjectProfile(target);
+    expect(effectiveLockedTier({ ...profile, userPlan: "accept-detected" }, target)).toBeUndefined();
+  });
+});
+
 describe("refreshProjectProfileContext", () => {
+  it("keeps manual plan tier when lockedTier setting is empty", () => {
+    const target = makeWorkspace("manual-plan", { "package.json": "{}", "README.md": "# x" });
+    const detected = buildProjectProfile(target);
+    writeProjectProfile(target, {
+      ...buildProjectProfile(target, "budget-sensitive", "budget-focused"),
+      detectedFrom: detected.detectedFrom,
+      detectedAt: "2020-01-01T00:00:00.000Z",
+    });
+    const result = refreshProjectProfileContext(target);
+    expect(result.profile?.profileType).toBe("budget-sensitive");
+    expect(result.profile?.userPlan).toBe("budget-focused");
+    expect(readProjectProfile(target)?.profileType).toBe("budget-sensitive");
+  });
+
   it("preserves detectedAt when signals refresh but tier is unchanged", () => {
     const target = makeWorkspace("refresh-preserve", { "package.json": "{}", "README.md": "# x" });
     const first = buildProjectProfile(target);
