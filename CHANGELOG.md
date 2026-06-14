@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.49** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.50** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,32 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.49** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.50** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.50] - 2026-06-14
+
+**Summary:** Low cost-attribution trust now triggers a silent SessionStart hint to agents (configurable threshold, default 50%).
+
+**Theme:** Agent awareness when cost data is unreliable
+
+### Highlights
+
+- **Settings** — `claudeSkills.costIntelligence.lowTrustPromptEnabled` and `lowTrustPromptThresholdPct` (0–100)
+- **SessionStart hook** — when trust score is below threshold, agents receive grounding not to rely on per-skill cost rankings
+- **Snapshot file** — `.claude/learning/attribution-trust.json` updated on dashboard refresh
+
+### Technical
+
+- `attributionTrustConfig.ts` syncs trust score from `assessAttributionHealth` + `buildGlobalTrustBadge`
+- `profile-init-watch.js` appends low-trust context on Claude, Cursor, Kiro, and Copilot session start
 
 ---
 

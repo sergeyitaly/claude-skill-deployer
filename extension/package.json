@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.49",
+  "version": "1.0.50",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -608,6 +608,25 @@
             "default": 12,
             "minimum": 1,
             "description": "Installed skill count at which catalog-limit hints apply."
+          }
+        }
+      },
+      {
+        "id": "costIntelligence",
+        "title": "Cost Intelligence",
+        "order": 1.65,
+        "properties": {
+          "claudeSkills.costIntelligence.lowTrustPromptEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "On new agent sessions, silently inject context when cost attribution trust score is below the threshold (hooks read .claude/learning/attribution-trust.json)."
+          },
+          "claudeSkills.costIntelligence.lowTrustPromptThresholdPct": {
+            "type": "number",
+            "default": 50,
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Inject low-trust prompt when workspace attribution confidence is below this percent (0–100)."
           }
         }
       },

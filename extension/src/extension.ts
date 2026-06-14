@@ -88,6 +88,7 @@ import {
   nextContextFocusLevel,
   syncContextFocusConfigToDisk,
 } from "./contextFocusConfig";
+import { syncAttributionTrustConfig } from "./attributionTrustConfig";
 import {
   PRACTICAL_FOCUS_LABELS,
   PracticalFocusLevel,
@@ -853,6 +854,9 @@ export function activate(context: vscode.ExtensionContext) {
     if (isFeatureEnabled("costIntelligence") || isFeatureEnabled("attributionCollector")) {
       scheduleCostPipelineSync(target, libraryDir);
     }
+    if (isFeatureEnabled("costIntelligence")) {
+      syncAttributionTrustConfig(target, libraryDir);
+    }
     if (isFeatureEnabled("budgetControls")) {
       void checkEmergencyCutoff(target, libraryDir);
     }
@@ -1116,6 +1120,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
       if (e.affectsConfiguration("claudeSkills.practicalFocus") && isFeatureEnabled("practicalFocus")) {
         syncPracticalFocusConfigToDisk();
+        refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.costIntelligence")) {
+        const target = getWorkspaceTarget();
+        if (target && isFeatureEnabled("costIntelligence")) {
+          syncAttributionTrustConfig(target, libraryDir);
+        }
         refreshAll();
       }
       if (e.affectsConfiguration("claudeSkills.features")) {

@@ -13,6 +13,7 @@ const PROFILE_REL = ".claude/profile.local.json";
 const PROPOSALS_REL = ".claude/learning/task-skill-proposals.json";
 const ACTIVE_REL = ".claude/learning/task-active-skills.json";
 const APPLY_REQUEST_REL = ".claude/learning/session-skill-apply-request.json";
+const TRUST_REL = ".claude/learning/attribution-trust.json";
 const CLI_CONFIG = ".claude/learning/cli-config.json";
 const DEFAULT_REQUIRED_SKILLS = [
   "self-learning",
@@ -63,6 +64,37 @@ function taskProposalsFresh(cwd) {
   }
   const ageMs = Date.now() - new Date(proposals.generatedAt).getTime();
   return ageMs >= 0 && ageMs < PROPOSALS_MAX_AGE_MS;
+}
+
+function formatLowTrustPrompt(cwd) {
+  const trust = readJsonSafe(path.join(cwd, TRUST_REL));
+  if (!trust?.enabled || !trust.shouldInject) {
+    return "";
+  }
+  const score = typeof trust.scorePct === "number" ? trust.scorePct : null;
+  const threshold = typeof trust.thresholdPct === "number" ? trust.thresholdPct : 50;
+  if (score === null || score >= threshold) {
+    return "";
+  }
+  return [
+    `[Claude Skills] Cost attribution trust is ${score}% (below your ${threshold}% threshold).`,
+    "Dashboard per-skill costs and ROI are unreliable until Attribution v2 hooks log more invocations.",
+    "Do not optimize skill choices from cost rankings alone — read SKILL.md for task-relevant skills.",
+    trust.summary ? `Status: ${trust.summary}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function joinSessionContext(cwd, base) {
+  const lowTrust = formatLowTrustPrompt(cwd);
+  if (!base) {
+    return lowTrust;
+  }
+  if (!lowTrust) {
+    return base;
+  }
+  return `${base}\n\n${lowTrust}`;
 }
 
 function formatFreshSessionContext(cwd) {
@@ -293,13 +325,17 @@ function emitOutput(context, platform) {
 }
 
 function emitSessionStartContext(cwd, platform) {
-  if (!sessionSkillAdaptationEnabled(cwd)) {
+  let base = "";
+  if (sessionSkillAdaptationEnabled(cwd)) {
+    base =
+      deterministicTaskProposalsEnabled(cwd) && taskProposalsFresh(cwd)
+        ? formatFreshSessionContext(cwd)
+        : formatNewSessionTaskContext();
+  }
+  const context = joinSessionContext(cwd, base);
+  if (!context) {
     return;
   }
-  const context =
-    deterministicTaskProposalsEnabled(cwd) && taskProposalsFresh(cwd)
-      ? formatFreshSessionContext(cwd)
-      : formatNewSessionTaskContext();
   emitOutput(context, platform);
 }
 
@@ -354,7 +390,7 @@ function main() {
     return;
   }
 
-  emitOutput(formatContext(request), platform);
+  emitOutput(joinSessionContext(cwd, formatContext(request)), platform);
 }
 
 main();
