@@ -1,6 +1,7 @@
 import { DEFAULTS, FeatureKey } from "./featureFlags";
 import { formatCompactUsd } from "./skillCost";
 import {
+  formatRepoEvidence,
   PROFILE_TYPE_LABELS,
   ProjectProfileFile,
   ProjectProfileType,
@@ -108,18 +109,25 @@ export function formatProjectProfileStatusBarText(profile: ProjectProfileFile): 
 
 export function formatProjectProfileStatusBarTooltip(profile: ProjectProfileFile): string {
   const view = buildProjectProfileView(profile);
+  const repoLine = formatRepoEvidence(profile.detectedFrom);
   const lines = [
     `Project type detected: ${view.badge}`,
+    repoLine,
     view.rationale,
     "",
     `Tier presets: ${view.tierFeaturesApplied ? "ON (applied to this workspace)" : "OFF (VS Code settings only)"}`,
     `Confidence: ${view.confidencePct}%`,
+  ];
+  if (profile.userPlan) {
+    lines.push(`Plan: ${profile.userPlan.replace(/-/g, " ")}`);
+  }
+  lines.push(
     "",
     "Features:",
     ...view.features.map((f) => `  ${f.label}: ${f.on ? "ON" : "OFF"}`),
     "",
-    `Estimated extension overhead: ~${formatCompactUsd(view.monthlyOverheadUsd)}/month`,
-  ];
+    `Estimated extension overhead: ~${formatCompactUsd(view.monthlyOverheadUsd)}/month`
+  );
   if (view.monthlySavingsUsd >= 1) {
     lines.push(`Estimated savings vs full stack: ~${formatCompactUsd(view.monthlySavingsUsd)}/month`);
   } else {
@@ -131,8 +139,10 @@ export function formatProjectProfileStatusBarTooltip(profile: ProjectProfileFile
 
 export function formatProjectProfileSummaryBlock(profile: ProjectProfileFile): string {
   const view = buildProjectProfileView(profile);
+  const s = profile.detectedFrom;
   const lines = [
     `=== Project tier: ${view.badge} ===`,
+    formatRepoEvidence(s),
     view.rationale,
     "",
     `Tier presets: ${view.tierFeaturesApplied ? "ON" : "OFF"}`,
@@ -167,11 +177,14 @@ export function formatProjectProfileDashboardHtml(profile: ProjectProfileFile): 
     view.monthlySavingsUsd >= 1
       ? `<p class="note">Estimated savings vs full stack: <b>~${formatCompactUsd(view.monthlySavingsUsd)}/month</b> (extension tokens + background work)</p>`
       : `<p class="note">Full stack enabled for this tier — all key features ON.</p>`;
+  const s = profile.detectedFrom;
+  const repoStats = `${s.trackedFileCount} files · ${s.branchCount} branches · ${s.commitsTotal} commits · ${s.activityLevel} activity`;
   return `
   <div class="panel">
     <h2>Project tier</h2>
     <div class="stat-grid">
       <div class="stat-pill"><b>Detected</b><span class="val">${view.badge}</span></div>
+      <div class="stat-pill"><b>Repo</b><span class="val">${repoStats}</span></div>
       <div class="stat-pill"><b>Tier presets</b><span class="val">${view.tierFeaturesApplied ? "ON" : "off"}</span></div>
       <div class="stat-pill"><b>Overhead</b><span class="val">~${formatCompactUsd(view.monthlyOverheadUsd)}/mo</span></div>
       ${

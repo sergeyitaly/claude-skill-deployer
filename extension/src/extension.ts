@@ -123,7 +123,6 @@ import {
   buildProjectProfile,
   formatProjectProfileSummary,
   PROFILE_TYPE_LABELS,
-  ProjectProfileType,
   readProjectProfile,
   refreshProjectProfileContext,
   writeProjectProfile,
@@ -134,7 +133,12 @@ import {
   formatProjectProfileStatusBarTooltip,
   formatProjectProfileSummaryBlock,
 } from "./projectProfileDisplay";
-import { maybePromptProjectTierOnFirstDetect } from "./projectProfilePrompt";
+import {
+  applyUserProjectPlan,
+  buildProjectPlanQuickPickItems,
+  formatDetectedTierSummary,
+  maybePromptProjectTierOnFirstDetect,
+} from "./projectProfilePrompt";
 import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
 import { localDateKey } from "./localDate";
 import * as crypto from "node:crypto";
@@ -2298,25 +2302,28 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
-      const tiers = (Object.keys(PROFILE_TYPE_LABELS) as ProjectProfileType[]).map((id) => ({
-        label: PROFILE_TYPE_LABELS[id],
-        description: id,
-        id,
-      }));
-      const pick = await vscode.window.showQuickPick(tiers, {
-        title: "Choose project profile tier",
-        placeHolder: "Overrides auto-detect for this workspace (set claudeSkills.projectProfile.lockedTier)",
+      const detected = buildProjectProfile(target);
+      const pick = await vscode.window.showQuickPick(buildProjectPlanQuickPickItems(detected), {
+        title: "Confirm your project plans",
+        placeHolder: formatDetectedTierSummary(detected).replace(/\n/g, " · "),
       });
       if (!pick) {
         return;
       }
       const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
-      await cfg.update("lockedTier", pick.id, vscode.ConfigurationTarget.Workspace);
-      const { profile: lockedProfile } = refreshProjectProfileContext(target);
+      let lockedProfile;
+      if (pick.id === "accept-detected") {
+        await cfg.update("lockedTier", "", vscode.ConfigurationTarget.Workspace);
+        lockedProfile = buildProjectProfile(target, undefined, "accept-detected");
+        writeProjectProfile(target, lockedProfile);
+        refreshProjectProfileContext(target);
+      } else {
+        lockedProfile = await applyUserProjectPlan(target, detected, pick.id);
+      }
       refreshAll();
       if (lockedProfile) {
         outputChannel.show(true);
-        log(`\n=== Project profile tier locked ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);
+        log(`\n=== Project profile plan confirmed ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);
         vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(lockedProfile));
       }
     }),

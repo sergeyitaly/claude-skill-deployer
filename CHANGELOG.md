@@ -2,9 +2,21 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.40** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.41** is the current Marketplace publish target.
 
-## [Unreleased]
+## [1.0.41] - 2026-06-14
+
+### Changed
+
+- **Git-first tier detection** — branches, tracked files, commit history/intensity, authors (30d), repo size, and age drive tier selection; AI tool folders are secondary.
+- **Plans prompt (not tier catalog)** — first-open QuickPick shows repo analysis + detected tier, then asks about your plans (AIDLC greenfield, multi-agent workflow, team product, budget, quick spike, or accept detected).
+- **AIDLC greenfield** — solo developers starting AI-DLC projects can get **TEAM MULTI-AGENT** from day one when `aidlc-state.md`, AIDLC docs, multiple AI tool folders, or pending profile-init are present; pre-selected on new solo repos.
+- **New repos** — nascent git repos default to `solo-dev` instead of `throwaway` unless multi-agent/AIDLC signals are present.
+- **UI** — status bar tooltip, dashboard, and output channel show git analysis evidence.
+
+### Fixed
+
+- **First-open prompt** — `wasProjectTierPromptShown` default no longer skips the plans dialog on new workspaces.
 
 ## [1.0.40] - 2026-06-14
 

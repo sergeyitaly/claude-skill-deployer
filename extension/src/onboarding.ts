@@ -12,9 +12,9 @@ const STEPS: OnboardingStep[] = [
     detail: "This tour walks through one-time setup and optional budget controls.",
   },
   {
-    message: "Step 1: Choose how you use AI agents on this project (solo vs multi-agent).",
+    message: "Step 1: Confirm how you use AI agents on this project (solo vs multi-agent / AIDLC).",
     command: "claudeSkills.chooseProjectProfile",
-    detail: "Pick TEAM MULTI-AGENT if you use Claude + Cursor + Copilot together.",
+    detail: "Pick AIDLC greenfield or multi-agent if you use Claude + Cursor + Copilot together — even on a new solo repo.",
   },
   {
     message: "Step 2: Install the skill library to your machine (one-time).",

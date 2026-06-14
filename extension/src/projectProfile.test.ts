@@ -19,11 +19,38 @@ import {
   shouldRefreshProjectProfile,
   effectiveFeatureMap,
   writeProjectProfile,
+  formatRepoEvidence,
+  isNascentRepo,
+  isMultiAgentGreenfield,
+  detectAidlcWorkflow,
+  tierForUserPlan,
   ProjectProfileSignals,
   ProjectProfileFile,
 } from "./projectProfile";
 
 const workspaces: string[] = [];
+
+function baseSignals(overrides: Partial<ProjectProfileSignals> = {}): ProjectProfileSignals {
+  return {
+    gitRemotes: [],
+    teamSize: "solo",
+    aiTools: [],
+    budgetPattern: "none",
+    hasSharedClaudeSkills: false,
+    isGitRepo: true,
+    hasAidlcWorkflow: false,
+    hasPendingProfileInit: false,
+    branchCount: 1,
+    trackedFileCount: 15,
+    repoSizeKb: 100,
+    commitsLast30d: 2,
+    commitsTotal: 5,
+    projectAgeDays: 14,
+    authorCount30d: 1,
+    activityLevel: "low",
+    ...overrides,
+  };
+}
 
 function makeWorkspace(name: string, files: Record<string, string> = {}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `projprof-${name}-`));
@@ -44,15 +71,7 @@ afterEach(() => {
 
 describe("projectProfile tiers", () => {
   it("solo-dev preset disables multi-agent sync and attribution", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: false,
-      isGitRepo: true,
-    };
-    const preset = tierFeaturePreset("solo-dev", signals);
+    const preset = tierFeaturePreset("solo-dev", baseSignals());
     expect(preset.multiAgent).toBe(false);
     expect(preset.attributionCollector).toBe(false);
     expect(preset.branchProfiles).toBe(true);
@@ -60,92 +79,140 @@ describe("projectProfile tiers", () => {
   });
 
   it("throwaway preset disables almost all features", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: false,
-      isGitRepo: false,
-    };
-    const preset = tierFeaturePreset("throwaway", signals);
+    const preset = tierFeaturePreset("throwaway", baseSignals({ isGitRepo: false }));
     expect(preset.costIntelligence).toBe(false);
     expect(preset.sessionSkillAdaptation).toBe(false);
     expect(preset.branchProfiles).toBe(false);
   });
 
   it("team-multi-agent enables full stack", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: ["git@github.com:acme/app.git"],
-      teamSize: "team",
-      aiTools: ["claude", "cursor", "copilot"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: true,
-      isGitRepo: true,
-    };
-    const preset = tierFeaturePreset("team-multi-agent", signals);
+    const preset = tierFeaturePreset(
+      "team-multi-agent",
+      baseSignals({
+        gitRemotes: ["git@github.com:acme/app.git"],
+        teamSize: "team",
+        hasSharedClaudeSkills: true,
+        branchCount: 5,
+        authorCount30d: 4,
+      })
+    );
     expect(preset.multiAgent).toBe(true);
     expect(preset.autoOptimizer).toBe(true);
     expect(preset.teamCostSharing).toBe(true);
   });
 
-  it("budget-sensitive enables multi-agent only when multiple tools detected", () => {
-    const soloTools: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "configured",
-      hasSharedClaudeSkills: false,
-      isGitRepo: true,
-    };
-    expect(tierFeaturePreset("budget-sensitive", soloTools).multiAgent).toBe(false);
+  it("budget-sensitive enables multi-agent from repo collaboration signals", () => {
+    const soloRepo = baseSignals({ budgetPattern: "configured" });
+    expect(tierFeaturePreset("budget-sensitive", soloRepo).multiAgent).toBe(false);
 
-    const multi: ProjectProfileSignals = { ...soloTools, aiTools: ["claude", "cursor"] };
-    expect(tierFeaturePreset("budget-sensitive", multi).multiAgent).toBe(true);
+    const collaborative = baseSignals({
+      budgetPattern: "configured",
+      branchCount: 4,
+      authorCount30d: 2,
+    });
+    expect(tierFeaturePreset("budget-sensitive", collaborative).multiAgent).toBe(true);
   });
 });
 
 describe("resolveProjectProfileType", () => {
   it("picks throwaway for non-git scratch dirs", () => {
     const target = makeWorkspace("scratch", { "foo.txt": "x" });
-    const signals: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: false,
-      isGitRepo: false,
-    };
+    const signals = baseSignals({ isGitRepo: false, activityLevel: "none" });
     const resolved = resolveProjectProfileType(signals, target);
     expect(resolved.profileType).toBe("throwaway");
   });
 
-  it("picks team-multi-agent when multiple tools and team signals", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: ["https://github.com/acme/repo"],
-      teamSize: "small",
-      aiTools: ["claude", "cursor"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: true,
-      isGitRepo: true,
-    };
-    const target = makeWorkspace("team", { "package.json": "{}", "README.md": "# team" });
+  it("picks solo-dev for nascent git repos without multi-agent signals", () => {
+    const target = makeWorkspace("nascent", { "package.json": "{}", "README.md": "# x" });
+    const signals = baseSignals({
+      commitsTotal: 1,
+      trackedFileCount: 5,
+      branchCount: 1,
+      commitsLast30d: 1,
+      activityLevel: "low",
+    });
+    expect(isNascentRepo(signals)).toBe(true);
+    const resolved = resolveProjectProfileType(signals, target);
+    expect(resolved.profileType).toBe("solo-dev");
+    expect(resolved.rationale).toContain("AIDLC");
+  });
+
+  it("picks team-multi-agent for nascent AIDLC greenfield repos", () => {
+    const target = makeWorkspace("aidlc", {
+      "package.json": "{}",
+      "README.md": "# x",
+      "docs/aidlc/aidlc-state.md": "# state\n",
+    });
+    expect(detectAidlcWorkflow(target)).toBe(true);
+    const signals = baseSignals({
+      commitsTotal: 1,
+      trackedFileCount: 4,
+      branchCount: 1,
+      hasAidlcWorkflow: true,
+    });
+    const resolved = resolveProjectProfileType(signals, target);
+    expect(resolved.profileType).toBe("team-multi-agent");
+    expect(resolved.rationale).toContain("AIDLC");
+  });
+
+  it("picks team-multi-agent for nascent repos with multiple AI tool folders", () => {
+    const target = makeWorkspace("multitool", {
+      "package.json": "{}",
+      "README.md": "# x",
+      ".cursor/rules": "",
+      ".github/copilot-instructions.md": "# copilot",
+    });
+    const signals = baseSignals({
+      commitsTotal: 1,
+      trackedFileCount: 6,
+      aiTools: ["cursor", "copilot"],
+    });
+    expect(isMultiAgentGreenfield(signals)).toBe(true);
     const resolved = resolveProjectProfileType(signals, target);
     expect(resolved.profileType).toBe("team-multi-agent");
   });
 
+  it("picks team-multi-agent from git activity not AI tool folders", () => {
+    const signals = baseSignals({
+      gitRemotes: ["https://github.com/acme/repo"],
+      teamSize: "small",
+      hasSharedClaudeSkills: true,
+      branchCount: 4,
+      trackedFileCount: 50,
+      commitsTotal: 30,
+      commitsLast30d: 10,
+      authorCount30d: 2,
+      activityLevel: "moderate",
+    });
+    const target = makeWorkspace("team", { "package.json": "{}", "README.md": "# team" });
+    const resolved = resolveProjectProfileType(signals, target);
+    expect(resolved.profileType).toBe("team-multi-agent");
+    expect(resolved.rationale).toContain("Git analysis");
+  });
+
   it("picks budget-sensitive when budget configured", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "configured",
-      hasSharedClaudeSkills: false,
-      isGitRepo: true,
-    };
+    const signals = baseSignals({ budgetPattern: "configured" });
     const target = makeWorkspace("budget", { "package.json": "{}" });
     const resolved = resolveProjectProfileType(signals, target);
     expect(resolved.profileType).toBe("budget-sensitive");
+  });
+});
+
+describe("tierForUserPlan", () => {
+  it("maps user plans to tiers", () => {
+    expect(tierForUserPlan("solo-dev", "accept-detected")).toBe("solo-dev");
+    expect(tierForUserPlan("solo-dev", "aidlc-greenfield")).toBe("team-multi-agent");
+    expect(tierForUserPlan("solo-dev", "multi-agent-workflow")).toBe("team-multi-agent");
+    expect(tierForUserPlan("solo-dev", "budget-focused")).toBe("budget-sensitive");
+    expect(tierForUserPlan("team-multi-agent", "quick-spike")).toBe("throwaway");
+  });
+});
+
+describe("formatRepoEvidence", () => {
+  it("summarizes git metrics", () => {
+    const text = formatRepoEvidence(baseSignals({ branchCount: 3, trackedFileCount: 42 }));
+    expect(text).toContain("42 tracked files");
+    expect(text).toContain("3 branches");
   });
 });
 
@@ -162,14 +229,7 @@ describe("buildProjectProfile", () => {
 
 describe("shouldRefreshProjectProfile", () => {
   it("skips rewrite when profile is fresh and unchanged", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: false,
-      isGitRepo: true,
-    };
+    const signals = baseSignals();
     const built = {
       version: 1 as const,
       profileType: "solo-dev" as const,
@@ -183,30 +243,23 @@ describe("shouldRefreshProjectProfile", () => {
     expect(shouldRefreshProjectProfile(built, built)).toBe(false);
   });
 
-  it("refreshes when manual override cleared", () => {
-    const signals: ProjectProfileSignals = {
-      gitRemotes: [],
-      teamSize: "solo",
-      aiTools: ["claude"],
-      budgetPattern: "none",
-      hasSharedClaudeSkills: false,
-      isGitRepo: true,
-    };
+  it("refreshes when user plan changes", () => {
+    const signals = baseSignals();
     const existing: ProjectProfileFile = {
       version: 1,
-      profileType: "enterprise",
+      profileType: "solo-dev",
       detectedFrom: signals,
       enabledFeatures: {},
       costTracking: "minimal",
-      confidence: 1,
+      confidence: 0.75,
       detectedAt: new Date().toISOString(),
-      manualOverride: "enterprise",
-      rationale: "locked",
+      userPlan: "accept-detected",
+      rationale: "solo",
     };
     const built: ProjectProfileFile = {
       ...existing,
-      profileType: "solo-dev",
-      manualOverride: undefined,
+      userPlan: "multi-agent-workflow",
+      profileType: "team-multi-agent",
     };
     expect(shouldRefreshProjectProfile(existing, built)).toBe(true);
   });

@@ -21,6 +21,15 @@ export type ProjectProfileType =
 export type TeamSize = "solo" | "small" | "team";
 export type BudgetPattern = "unlimited" | "configured" | "none";
 export type CostTrackingLevel = "off" | "minimal" | "full";
+export type ActivityLevel = "none" | "low" | "moderate" | "high";
+
+export type UserProjectPlan =
+  | "accept-detected"
+  | "aidlc-greenfield"
+  | "multi-agent-workflow"
+  | "team-product"
+  | "budget-focused"
+  | "quick-spike";
 
 export interface ProjectProfileSignals {
   gitRemotes: string[];
@@ -29,6 +38,16 @@ export interface ProjectProfileSignals {
   budgetPattern: BudgetPattern;
   hasSharedClaudeSkills: boolean;
   isGitRepo: boolean;
+  hasAidlcWorkflow: boolean;
+  hasPendingProfileInit: boolean;
+  branchCount: number;
+  trackedFileCount: number;
+  repoSizeKb: number;
+  commitsLast30d: number;
+  commitsTotal: number;
+  projectAgeDays: number;
+  authorCount30d: number;
+  activityLevel: ActivityLevel;
 }
 
 export interface ProjectProfileFile {
@@ -41,6 +60,7 @@ export interface ProjectProfileFile {
   detectedAt: string;
   appliedAt?: string;
   manualOverride?: ProjectProfileType;
+  userPlan?: UserProjectPlan;
   rationale: string;
 }
 
@@ -53,6 +73,17 @@ export const PROFILE_TYPE_LABELS: Record<ProjectProfileType, string> = {
 };
 
 const THROWAWAY_DIR_RE = /^(tmp|temp|scratch|playground|sandbox|demo|test-)/i;
+
+const EMPTY_REPO_METRICS = {
+  branchCount: 0,
+  trackedFileCount: 0,
+  repoSizeKb: 0,
+  commitsLast30d: 0,
+  commitsTotal: 0,
+  projectAgeDays: 0,
+  authorCount30d: 0,
+  activityLevel: "none" as ActivityLevel,
+};
 
 export function projectProfilePath(target: string): string {
   return path.join(target, ".claude", "learning", "project-profile.json");
@@ -85,12 +116,16 @@ function gitCommand(root: string, args: string[]): string | undefined {
     const out = execFileSync("git", ["-C", root, ...args], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 4000,
+      timeout: 5000,
     }).trim();
     return out || undefined;
   } catch {
     return undefined;
   }
+}
+
+function gitRoot(target: string): string | undefined {
+  return gitCommand(target, ["rev-parse", "--show-toplevel"]);
 }
 
 function detectGitRemotes(target: string): { remotes: string[]; isGitRepo: boolean } {
@@ -113,23 +148,92 @@ function detectGitRemotes(target: string): { remotes: string[]; isGitRepo: boole
   };
 }
 
-function detectTeamSize(target: string, isGitRepo: boolean): TeamSize {
-  if (!isGitRepo) {
-    return "solo";
+function parseCount(raw: string | undefined): number {
+  if (!raw) {
+    return 0;
   }
-  const root = gitCommand(target, ["rev-parse", "--show-toplevel"]) ?? target;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function detectAuthorCount30d(root: string): number {
   const out = gitCommand(root, ["log", "--since=30 days ago", "--format=%ae"]);
   if (!out) {
+    return 0;
+  }
+  return new Set(out.split(/\r?\n/).map((l) => l.trim().toLowerCase()).filter(Boolean)).size;
+}
+
+function detectTeamSize(authorCount30d: number): TeamSize {
+  if (authorCount30d <= 1) {
     return "solo";
   }
-  const authors = new Set(out.split(/\r?\n/).map((l) => l.trim().toLowerCase()).filter(Boolean));
-  if (authors.size <= 1) {
-    return "solo";
-  }
-  if (authors.size <= 4) {
+  if (authorCount30d <= 4) {
     return "small";
   }
   return "team";
+}
+
+function detectActivityLevel(commitsLast30d: number): ActivityLevel {
+  if (commitsLast30d >= 25) {
+    return "high";
+  }
+  if (commitsLast30d >= 8) {
+    return "moderate";
+  }
+  if (commitsLast30d > 0) {
+    return "low";
+  }
+  return "none";
+}
+
+export function detectRepoMetrics(target: string, isGitRepo: boolean): Omit<
+  ProjectProfileSignals,
+  "gitRemotes" | "teamSize" | "aiTools" | "budgetPattern" | "hasSharedClaudeSkills" | "isGitRepo"
+> {
+  if (!isGitRepo) {
+    return { ...EMPTY_REPO_METRICS };
+  }
+  const root = gitRoot(target) ?? target;
+  const branchOut = gitCommand(root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+  const branchCount = branchOut ? branchOut.split(/\r?\n/).filter(Boolean).length : 0;
+  const lsFiles = gitCommand(root, ["ls-files"]);
+  const trackedFiles = lsFiles ? lsFiles.split(/\r?\n/).filter(Boolean).length : 0;
+
+  let repoSizeKb = 0;
+  const countObjects = gitCommand(root, ["count-objects", "-v"]);
+  if (countObjects) {
+    const sizePack = countObjects.match(/^size-pack:\s*(\d+)/m);
+    const sizeLoose = countObjects.match(/^size:\s*(\d+)/m);
+    const packKb = sizePack ? Math.round(parseInt(sizePack[1], 10) / 1024) : 0;
+    const looseKb = sizeLoose ? Math.round(parseInt(sizeLoose[1], 10) / 1024) : 0;
+    repoSizeKb = packKb + looseKb;
+  }
+
+  const commitsLast30d = parseCount(gitCommand(root, ["rev-list", "--count", "--since=30 days ago", "HEAD"]));
+  const commitsTotal = parseCount(gitCommand(root, ["rev-list", "--count", "HEAD"]));
+  const authorCount30d = detectAuthorCount30d(root);
+  const activityLevel = detectActivityLevel(commitsLast30d);
+
+  let projectAgeDays = 0;
+  const firstCommit = gitCommand(root, ["log", "--reverse", "--format=%aI", "-1"]);
+  if (firstCommit) {
+    const firstMs = Date.parse(firstCommit);
+    if (Number.isFinite(firstMs)) {
+      projectAgeDays = Math.max(0, Math.floor((Date.now() - firstMs) / (24 * 60 * 60 * 1000)));
+    }
+  }
+
+  return {
+    branchCount,
+    trackedFileCount: trackedFiles,
+    repoSizeKb,
+    commitsLast30d,
+    commitsTotal,
+    projectAgeDays,
+    authorCount30d,
+    activityLevel,
+  };
 }
 
 function detectAiTools(target: string): AgentId[] {
@@ -146,9 +250,6 @@ function detectAiTools(target: string): AgentId[] {
   }
   if (check(".kiro") || check(".kiro/settings")) {
     tools.add("kiro");
-  }
-  if (tools.size === 0) {
-    tools.add("claude");
   }
   return [...tools];
 }
@@ -181,17 +282,70 @@ function detectSharedClaudeSkills(target: string, isGitRepo: boolean): boolean {
   } catch {
     return false;
   }
-  if (!hasSkill) {
-    return false;
-  }
-  if (!isGitRepo) {
+  if (!hasSkill || !isGitRepo) {
     return false;
   }
   const tracked = gitCommand(target, ["ls-files", "--", ".claude/skills"]);
   return Boolean(tracked?.trim());
 }
 
-function looksThrowaway(target: string, isGitRepo: boolean): boolean {
+const AIDLC_STATE_PATHS = [
+  "aidlc-state.md",
+  "docs/aidlc/aidlc-state.md",
+  "aidlc-docs/aidlc-state.md",
+  ".aidlc-docs/aidlc-state.md",
+];
+
+const AIDLC_DIR_MARKERS = ["docs/aidlc", "aidlc-docs", "AIDLC", ".aidlc-docs"];
+
+const AIDLC_SKILL_NAMES = ["aidlc-tracker", "aidlc-doc-writer"];
+
+export function detectAidlcWorkflow(target: string): boolean {
+  for (const rel of AIDLC_STATE_PATHS) {
+    if (fs.existsSync(path.join(target, rel))) {
+      return true;
+    }
+  }
+  for (const rel of AIDLC_DIR_MARKERS) {
+    const full = path.join(target, rel);
+    try {
+      if (fs.existsSync(full) && fs.statSync(full).isDirectory() && fs.readdirSync(full).length > 0) {
+        return true;
+      }
+    } catch {
+      // ignore unreadable dirs
+    }
+  }
+  for (const skill of AIDLC_SKILL_NAMES) {
+    if (fs.existsSync(path.join(target, ".claude", "skills", skill, "SKILL.md"))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function detectPendingProfileInit(target: string): boolean {
+  const requestPath = path.join(target, ".claude", "learning", "profile-init-request.json");
+  try {
+    if (!fs.existsSync(requestPath)) {
+      return false;
+    }
+    const raw = JSON.parse(fs.readFileSync(requestPath, "utf-8")) as { status?: string };
+    return raw.status === "pending";
+  } catch {
+    return false;
+  }
+}
+
+export function isMultiAgentGreenfield(signals: ProjectProfileSignals): boolean {
+  return (
+    signals.hasAidlcWorkflow ||
+    signals.hasPendingProfileInit ||
+    signals.aiTools.length >= 2
+  );
+}
+
+function looksThrowawayByLayout(target: string, isGitRepo: boolean): boolean {
   if (!isGitRepo) {
     return true;
   }
@@ -201,10 +355,9 @@ function looksThrowaway(target: string, isGitRepo: boolean): boolean {
   }
   const hasPackage = fs.existsSync(path.join(target, "package.json"));
   const hasReadme = fs.existsSync(path.join(target, "README.md"));
-  if (!isGitRepo && !hasPackage && !hasReadme) {
+  if (!hasPackage && !hasReadme) {
     try {
-      const entries = fs.readdirSync(target);
-      if (entries.length <= 4) {
+      if (fs.readdirSync(target).length <= 4) {
         return true;
       }
     } catch {
@@ -214,16 +367,110 @@ function looksThrowaway(target: string, isGitRepo: boolean): boolean {
   return false;
 }
 
+export function formatRepoEvidence(signals: ProjectProfileSignals): string {
+  if (!signals.isGitRepo) {
+    return "No git repository — treated as a scratch workspace.";
+  }
+  const parts = [
+    `${signals.trackedFileCount} tracked files`,
+    `${signals.branchCount} branch${signals.branchCount === 1 ? "" : "es"}`,
+    `${signals.commitsTotal} commits (${signals.commitsLast30d} last 30d)`,
+    `${signals.authorCount30d} author${signals.authorCount30d === 1 ? "" : "s"} (30d)`,
+    `${signals.activityLevel} activity`,
+  ];
+  if (signals.repoSizeKb > 0) {
+    parts.push(`~${signals.repoSizeKb} KB git objects`);
+  }
+  if (signals.projectAgeDays > 0) {
+    parts.push(`${signals.projectAgeDays}d old`);
+  }
+  if (signals.hasAidlcWorkflow) {
+    parts.push("AIDLC workflow");
+  }
+  if (signals.hasPendingProfileInit) {
+    parts.push("profile-init pending");
+  }
+  return `Git analysis: ${parts.join(", ")}.`;
+}
+
 export function detectProjectProfileSignals(target: string): ProjectProfileSignals {
   const { remotes, isGitRepo } = detectGitRemotes(target);
+  const metrics = detectRepoMetrics(target, isGitRepo);
+  const authorCount30d = metrics.authorCount30d;
   return {
     gitRemotes: remotes,
-    teamSize: detectTeamSize(target, isGitRepo),
+    teamSize: detectTeamSize(authorCount30d),
     aiTools: detectAiTools(target),
     budgetPattern: detectBudgetPattern(),
     hasSharedClaudeSkills: detectSharedClaudeSkills(target, isGitRepo),
     isGitRepo,
+    hasAidlcWorkflow: detectAidlcWorkflow(target),
+    hasPendingProfileInit: detectPendingProfileInit(target),
+    ...metrics,
+    authorCount30d,
   };
+}
+
+export function isNascentRepo(signals: ProjectProfileSignals): boolean {
+  return (
+    signals.commitsTotal < 3 &&
+    signals.trackedFileCount < 12 &&
+    signals.branchCount <= 1 &&
+    signals.authorCount30d <= 1
+  );
+}
+
+export function isEnterpriseRepo(signals: ProjectProfileSignals): boolean {
+  return (
+    signals.teamSize === "team" &&
+    signals.branchCount >= 6 &&
+    signals.trackedFileCount >= 100 &&
+    signals.projectAgeDays >= 60 &&
+    signals.budgetPattern === "unlimited"
+  );
+}
+
+export function isTeamProductRepo(signals: ProjectProfileSignals): boolean {
+  const collaborative =
+    signals.teamSize !== "solo" ||
+    signals.hasSharedClaudeSkills ||
+    signals.authorCount30d >= 2;
+  const multiBranch = signals.branchCount >= 3;
+  const substantive = signals.trackedFileCount >= 30 || signals.commitsTotal >= 20;
+  const active = signals.activityLevel === "moderate" || signals.activityLevel === "high";
+  return (collaborative || multiBranch) && substantive && (active || collaborative);
+}
+
+export function wantsMultiAgentSync(signals: ProjectProfileSignals): boolean {
+  return (
+    signals.teamSize !== "solo" ||
+    signals.branchCount >= 3 ||
+    signals.hasSharedClaudeSkills ||
+    signals.authorCount30d >= 2 ||
+    signals.hasAidlcWorkflow ||
+    signals.hasPendingProfileInit ||
+    signals.aiTools.length >= 2
+  );
+}
+
+export function tierForUserPlan(
+  detectedType: ProjectProfileType,
+  plan: UserProjectPlan
+): ProjectProfileType {
+  switch (plan) {
+    case "accept-detected":
+      return detectedType;
+    case "aidlc-greenfield":
+    case "multi-agent-workflow":
+    case "team-product":
+      return "team-multi-agent";
+    case "budget-focused":
+      return "budget-sensitive";
+    case "quick-spike":
+      return "throwaway";
+    default:
+      return detectedType;
+  }
 }
 
 function costTrackingForTier(type: ProjectProfileType): CostTrackingLevel {
@@ -243,7 +490,7 @@ export function tierFeaturePreset(
   type: ProjectProfileType,
   signals: ProjectProfileSignals
 ): Partial<Record<FeatureKey, boolean>> {
-  const multiAgent = signals.aiTools.length >= 2;
+  const multiAgent = wantsMultiAgentSync(signals) || type === "team-multi-agent" || type === "enterprise";
   switch (type) {
     case "throwaway":
       return {
@@ -344,60 +591,109 @@ export function tierFeaturePreset(
   }
 }
 
-export function resolveProjectProfileType(signals: ProjectProfileSignals, target: string): {
+export function resolveProjectProfileType(
+  signals: ProjectProfileSignals,
+  target: string
+): {
   profileType: ProjectProfileType;
   confidence: number;
   rationale: string;
 } {
-  if (looksThrowaway(target, signals.isGitRepo)) {
+  const evidence = formatRepoEvidence(signals);
+
+  if (looksThrowawayByLayout(target, signals.isGitRepo)) {
+    return {
+      profileType: "throwaway",
+      confidence: 0.92,
+      rationale: `${evidence} Scratch or non-git layout — minimal extension overhead.`,
+    };
+  }
+
+  if (!signals.isGitRepo) {
     return {
       profileType: "throwaway",
       confidence: 0.9,
-      rationale: "No git repo or throwaway workspace layout — minimal extension overhead.",
+      rationale: `${evidence} No git repository — minimal extension overhead.`,
     };
   }
-  const multiTool = signals.aiTools.length >= 2;
-  const teamish = signals.teamSize !== "solo" || signals.hasSharedClaudeSkills;
-  if (multiTool && teamish) {
+
+  if (signals.isGitRepo && isNascentRepo(signals)) {
+    if (isMultiAgentGreenfield(signals)) {
+      const reason = signals.hasAidlcWorkflow
+        ? "AIDLC workflow detected"
+        : signals.hasPendingProfileInit
+          ? "profile-init pending"
+          : "multiple AI tool folders";
+      return {
+        profileType: "team-multi-agent",
+        confidence: signals.hasAidlcWorkflow ? 0.84 : 0.76,
+        rationale: `${evidence} New project with ${reason} — full multi-agent sync from day one.`,
+      };
+    }
     return {
-      profileType: "team-multi-agent",
-      confidence: 0.85,
-      rationale: `${signals.aiTools.length} AI tool roots and team/shared-skill signals — full sync and attribution.`,
+      profileType: "solo-dev",
+      confidence: 0.7,
+      rationale: `${evidence} New repo — solo tier by default; choose AIDLC or multi-agent in plans if you use several AI tools.`,
     };
   }
+
   if (signals.budgetPattern === "configured") {
     return {
       profileType: "budget-sensitive",
-      confidence: 0.8,
-      rationale: "Budget or economy mode configured — full cost tracking with alerts.",
+      confidence: 0.82,
+      rationale: `${evidence} Economy budget mode — full cost tracking with alerts.`,
     };
   }
-  if (signals.teamSize === "team" && signals.budgetPattern === "unlimited") {
+
+  if (isEnterpriseRepo(signals)) {
     return {
       profileType: "enterprise",
-      confidence: 0.7,
-      rationale: "Large team with unlimited budget — multi-agent sync without per-skill ROI overhead.",
+      confidence: 0.78,
+      rationale: `${evidence} Mature team repo (many branches/files, long history) — multi-agent without ROI overhead.`,
     };
   }
+
+  if (isTeamProductRepo(signals)) {
+    const confidence =
+      signals.teamSize === "team"
+        ? 0.88
+        : signals.branchCount >= 5 || signals.authorCount30d >= 3
+          ? 0.85
+          : 0.75;
+    return {
+      profileType: "team-multi-agent",
+      confidence,
+      rationale: `${evidence} Collaborative or multi-branch product — full sync and attribution.`,
+    };
+  }
+
+  const soloConfidence =
+    signals.commitsTotal < 10 && signals.trackedFileCount < 40 ? 0.8 : 0.72;
   return {
     profileType: "solo-dev",
-    confidence: 0.75,
-    rationale: "Single-agent solo workflow — branch profiles and token-saving focus, light background work.",
+    confidence: soloConfidence,
+    rationale: `${evidence} Solo, low-intensity product — branch profiles with token-saving focus.`,
   };
 }
 
 export function buildProjectProfile(
   target: string,
-  overrideType?: ProjectProfileType
+  overrideType?: ProjectProfileType,
+  userPlan?: UserProjectPlan
 ): ProjectProfileFile {
   const signals = detectProjectProfileSignals(target);
+  const autoResolved = resolveProjectProfileType(signals, target);
+  const resolvedType = overrideType ?? autoResolved.profileType;
   const resolved = overrideType
     ? {
         profileType: overrideType,
-        confidence: 1,
-        rationale: `Manual tier: ${PROFILE_TYPE_LABELS[overrideType]}.`,
+        confidence: userPlan === "accept-detected" ? autoResolved.confidence : 1,
+        rationale:
+          userPlan && userPlan !== "accept-detected"
+            ? `${formatRepoEvidence(signals)} Plan: ${userPlan.replace(/-/g, " ")} — ${PROFILE_TYPE_LABELS[overrideType]}.`
+            : `Manual tier: ${PROFILE_TYPE_LABELS[overrideType]}. ${formatRepoEvidence(signals)}`,
       }
-    : resolveProjectProfileType(signals, target);
+    : autoResolved;
   const enabledFeatures = tierFeaturePreset(resolved.profileType, signals);
   return {
     version: 1,
@@ -409,6 +705,7 @@ export function buildProjectProfile(
     detectedAt: new Date().toISOString(),
     appliedAt: new Date().toISOString(),
     manualOverride: overrideType,
+    userPlan,
     rationale: resolved.rationale,
   };
 }
@@ -418,6 +715,9 @@ export function shouldRefreshProjectProfile(existing: ProjectProfileFile, built:
     return true;
   }
   if (existing.manualOverride !== built.manualOverride) {
+    return true;
+  }
+  if (existing.userPlan !== built.userPlan) {
     return true;
   }
   const age = Date.now() - new Date(existing.detectedAt).getTime();
@@ -439,7 +739,6 @@ export function writeProjectProfile(target: string, profile: ProjectProfileFile)
 export interface ProjectProfileRefreshResult {
   profile?: ProjectProfileFile;
   changed: boolean;
-  /** True when project-profile.json did not exist before this refresh wrote one. */
   isFirstDetect: boolean;
 }
 
@@ -464,7 +763,10 @@ export function refreshProjectProfileContext(target: string | undefined): Projec
   }
   if (locked) {
     const built = buildProjectProfile(target, locked);
-    const changed = !existing || existing.profileType !== built.profileType || existing.manualOverride !== built.manualOverride;
+    const changed =
+      !existing ||
+      existing.profileType !== built.profileType ||
+      existing.manualOverride !== built.manualOverride;
     writeProjectProfile(target, built);
     setActiveProjectProfileContext(built.enabledFeatures, apply);
     return { profile: built, changed, isFirstDetect: !existing };
@@ -475,14 +777,16 @@ export function refreshProjectProfileContext(target: string | undefined): Projec
 
 export function formatProjectProfileSummary(profile: ProjectProfileFile): string {
   const on = (k: FeatureKey) => profile.enabledFeatures[k] ?? DEFAULTS[k];
+  const s = profile.detectedFrom;
   const lines = [
     `Profile: ${PROFILE_TYPE_LABELS[profile.profileType]} (${profile.profileType})`,
     profile.rationale,
     `Cost tracking: ${profile.costTracking}`,
-    `AI tools: ${profile.detectedFrom.aiTools.join(", ")}`,
-    `Team: ${profile.detectedFrom.teamSize}`,
+    `Repo: ${s.trackedFileCount} files, ${s.branchCount} branches, ${s.commitsTotal} commits, ${s.activityLevel} activity`,
+    `Team (30d): ${s.teamSize} (${s.authorCount30d} authors)`,
+    profile.userPlan ? `Plan: ${profile.userPlan}` : undefined,
     `Features: multiAgent=${on("multiAgent") ? "on" : "off"}, attribution=${on("attributionCollector") ? "on" : "off"}, costIntel=${on("costIntelligence") ? "on" : "off"}, sessionAdapt=${on("sessionSkillAdaptation") ? "on" : "off"}`,
-  ];
+  ].filter((l): l is string => Boolean(l));
   return lines.join("\n");
 }
 

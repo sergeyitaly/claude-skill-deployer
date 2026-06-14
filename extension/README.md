@@ -223,23 +223,23 @@ Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
 
 ## Project profile tiers (auto-configure CPU / tokens)
 
-On workspace open the extension can **auto-detect** your scenario and write `.claude/learning/project-profile.json`, then apply a **feature preset** so solo/throwaway projects avoid multi-agent sync, attribution collectors, and session adaptation overhead.
+On workspace open the extension **analyzes the git repository** (tracked files, branches, commit history and intensity, authors, repo size, age) and writes `.claude/learning/project-profile.json`, then applies a **feature preset** so solo/throwaway projects avoid multi-agent sync, attribution collectors, and session adaptation overhead. AI tool folders (`.cursor/`, `.claude/`, etc.) are secondary signals — not the primary tier driver.
 
 | Tier | Best for | Multi-agent | Attribution | Cost intel | Session adapt |
 |---|---|:---:|:---:|:---:|:---:|
-| `solo-dev` | Single agent, solo | off | off | basic | on (focused) |
-| `team-multi-agent` | Claude + Cursor + Copilot teams | on | on | full | on |
+| `solo-dev` | Single agent, solo / new repo | off | off | basic | on (focused) |
+| `team-multi-agent` | Collaborative product, multi-branch | on | on | full | on |
 | `budget-sensitive` | Economy mode / cost alerts | optional | on | full | on |
 | `enterprise` | Large team, unlimited budget | on | off | minimal | on |
 | `throwaway` | Scripts, no git | off | off | off | off |
 
 Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatures` (default on), `promptOnFirstDetect` (default on — **asks on first open**), `lockedTier` (manual override).
 
-**First open on a new project:** QuickPick asks how you plan to use AI agents (e.g. **TEAM MULTI-AGENT** for Claude + Cursor + Copilot). Auto-detect still runs first; you can accept or override. Pick multi-agent explicitly if you're starting from scratch with one tool folder so far.
+**First open on a new project:** shows **git analysis summary** + detected tier, then asks about **your plans** (AIDLC greenfield, multi-agent workflow, team product, budget focus, quick spike, or accept detected). Solo + new repo defaults to solo-dev, but **AIDLC and multi-tool greenfield projects should pick AIDLC greenfield or multi-agent** — detection also upgrades automatically when `aidlc-state.md`, AIDLC docs, or multiple AI tool folders are present.
 
-**Visible in UI:** status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …), cost dashboard **Project tier** panel, and command **Show Project Tier**.
+**Visible in UI:** status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …), cost dashboard **Project tier** panel (repo stats + rationale), and command **Show Project Tier**.
 
-Commands: **Show Project Tier**, **Detect Project Profile**, **Choose Project Profile Tier**.
+Commands: **Show Project Tier**, **Detect Project Profile**, **Choose Project Profile Tier** (plan confirmation).
 
 ## Skill feedback & task proposals
 
