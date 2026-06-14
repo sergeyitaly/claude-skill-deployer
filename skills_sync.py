@@ -764,10 +764,16 @@ def install_hooks(
         ids = set(enabled_agents(lib, target))
         if "cursor" in ids:
             agent_hooks.extend(_install_cursor_profile_init_hook(target, hooks_source))
+            if full:
+                agent_hooks.extend(_install_cursor_task_drift_hook(target, hooks_source))
         if "kiro" in ids:
             agent_hooks.extend(_install_kiro_profile_init_hook(target, hooks_source))
+            if full:
+                agent_hooks.extend(_install_kiro_task_drift_hook(target, hooks_source))
         if "copilot" in ids:
             agent_hooks.extend(_install_copilot_profile_init_hook(target, hooks_source))
+            if full:
+                agent_hooks.extend(_install_copilot_task_drift_hook(target, hooks_source))
 
     git_hook = _install_git_branch_sync_hook(target) if git_branch_hook else False
 
@@ -828,6 +834,59 @@ def _install_copilot_profile_init_hook(target: Path, hooks_source: Path) -> list
     }
     write_json_atomic(hook_file, payload)
     return ["copilot profile-init"]
+
+
+def _install_cursor_task_drift_hook(target: Path, hooks_source: Path) -> list[str]:
+    cursor_hooks = target / ".cursor" / "hooks"
+    cursor_hooks.mkdir(parents=True, exist_ok=True)
+    src = hooks_source / "task-drift-watch.js"
+    if src.is_file():
+        shutil.copy2(src, cursor_hooks / "task-drift-watch.js")
+    cmd = "node .cursor/hooks/task-drift-watch.js cursor"
+    data = read_json(target / ".cursor" / "hooks.json") or {"version": 1, "hooks": {}}
+    data.setdefault("hooks", {})
+    entries = data["hooks"].setdefault("beforeSubmitPrompt", [])
+    if not any(cmd in (e.get("command") or "") for e in entries):
+        entries.append({"command": cmd, "timeout": 8})
+        write_json_atomic(target / ".cursor" / "hooks.json", data)
+        return ["cursor task-drift"]
+    return []
+
+
+def _install_kiro_task_drift_hook(target: Path, hooks_source: Path) -> list[str]:
+    kiro_hooks = target / ".kiro" / "hooks"
+    kiro_hooks.mkdir(parents=True, exist_ok=True)
+    src = hooks_source / "task-drift-watch.js"
+    if src.is_file():
+        dest = target / ".claude" / "hooks" / "task-drift-watch.js"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+    hook_file = kiro_hooks / "claude-skills-task-drift.kiro.hook"
+    payload = {
+        "name": "claude-skills task-drift",
+        "description": "claude-skills-task-drift",
+        "enabled": True,
+        "when": {"type": "userPromptSubmit"},
+        "then": {"type": "runCommand", "command": "node .claude/hooks/task-drift-watch.js kiro", "timeout": 8},
+    }
+    write_json_atomic(hook_file, payload)
+    return ["kiro task-drift"]
+
+
+def _install_copilot_task_drift_hook(target: Path, hooks_source: Path) -> list[str]:
+    gh_hooks = target / ".github" / "hooks"
+    gh_hooks.mkdir(parents=True, exist_ok=True)
+    cmd = "node .claude/hooks/task-drift-watch.js copilot"
+    hook_file = gh_hooks / "claude-skills-task-drift.json"
+    payload = {
+        "version": 1,
+        "hooks": {
+            "UserPromptSubmit": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 8}],
+            "userPromptSubmitted": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 8}],
+        },
+    }
+    write_json_atomic(hook_file, payload)
+    return ["copilot task-drift"]
 
 
 def run_sync(library_dir: Path, target: Path) -> dict:

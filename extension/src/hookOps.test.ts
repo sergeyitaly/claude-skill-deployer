@@ -77,7 +77,7 @@ describe("installCostControlHooks", () => {
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
   });
 
-  it("registers session, budget, and focus UserPromptSubmit hooks", () => {
+  it("registers session, budget, focus, and task-drift UserPromptSubmit hooks", () => {
     const target = makeWorkspace();
     installCostControlHooks(EXTENSION_PATH, target);
     const settings = JSON.parse(
@@ -91,6 +91,18 @@ describe("installCostControlHooks", () => {
     expect(commands.some((c) => c.includes("context-focus-watch.js"))).toBe(true);
     expect(commands.some((c) => c.includes("practical-focus-watch.js"))).toBe(true);
     expect(commands.some((c) => c.includes("task-drift-watch.js"))).toBe(true);
+
+    const cursorHooks = JSON.parse(fs.readFileSync(path.join(target, ".cursor", "hooks.json"), "utf-8")) as {
+      hooks?: { beforeSubmitPrompt?: { command?: string }[] };
+    };
+    expect(
+      cursorHooks.hooks?.beforeSubmitPrompt?.some((h) => h.command?.includes("task-drift-watch.js"))
+    ).toBe(true);
+
+    expect(fs.existsSync(path.join(target, ".kiro", "hooks", "claude-skills-task-drift.kiro.hook"))).toBe(
+      true
+    );
+    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-task-drift.json"))).toBe(true);
   });
 });
 

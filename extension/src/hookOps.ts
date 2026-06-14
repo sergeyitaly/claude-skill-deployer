@@ -17,8 +17,11 @@ const HOOK_HELPER_FILENAME = "usageParse.js";
 const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
 const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
 const KIRO_PROFILE_INIT_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}-profile-init.kiro.hook`;
+const KIRO_TASK_DRIFT_HOOK_FILE = "claude-skills-task-drift.kiro.hook";
+const TASK_DRIFT_HOOK_MARKER = "claude-skills-task-drift";
 const PROFILE_INIT_HOOK_MARKER = `${ATTRIBUTION_HOOK_MARKER}-profile-init`;
 const COPILOT_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.json`;
+const COPILOT_TASK_DRIFT_HOOK_FILE = "claude-skills-task-drift.json";
 
 const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSION_HOOK_FILENAME}"`;
 const BUDGET_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${BUDGET_HOOK_FILENAME}"`;
@@ -35,6 +38,8 @@ const OFFICIAL_SKILLS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks
 const PROFILE_INIT_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PROFILE_INIT_HOOK_FILENAME}"`;
 const CURSOR_PROFILE_INIT_HOOK_COMMAND = `node .cursor/hooks/${PROFILE_INIT_HOOK_FILENAME} cursor`;
 const CURSOR_TASK_DRIFT_HOOK_COMMAND = `node .cursor/hooks/${TASK_DRIFT_HOOK_FILENAME} cursor`;
+const KIRO_TASK_DRIFT_HOOK_COMMAND = `node .claude/hooks/${TASK_DRIFT_HOOK_FILENAME} kiro`;
+const COPILOT_TASK_DRIFT_HOOK_COMMAND = `node .claude/hooks/${TASK_DRIFT_HOOK_FILENAME} copilot`;
 const KIRO_PROFILE_INIT_HOOK_COMMAND = `node .claude/hooks/${PROFILE_INIT_HOOK_FILENAME} kiro`;
 const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
 const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread";
@@ -217,6 +222,89 @@ function installCursorTaskDriftHook(extensionPath: string, target: string): bool
   existing.hooks.beforeSubmitPrompt = [...entries, desired];
   writeJsonFile(hooksFile, existing);
   return true;
+}
+
+function kiroTaskDriftHookPayload(): KiroHookFile {
+  return {
+    name: "Claude Skills — task drift re-proposal",
+    description: `Managed by Claude Skills Manager (${TASK_DRIFT_HOOK_MARKER})`,
+    version: "1",
+    enabled: true,
+    when: { type: "userPromptSubmit" },
+    then: {
+      type: "runCommand",
+      command: KIRO_TASK_DRIFT_HOOK_COMMAND,
+      timeout: 8,
+    },
+  };
+}
+
+function installKiroTaskDriftHook(extensionPath: string, target: string): boolean {
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", TASK_DRIFT_HOOK_FILENAME),
+    path.join(target, ".claude", "hooks", TASK_DRIFT_HOOK_FILENAME)
+  );
+  const hookPath = path.join(target, ".kiro", "hooks", KIRO_TASK_DRIFT_HOOK_FILE);
+  const desired = kiroTaskDriftHookPayload();
+  const existing = readJsonFile<KiroHookFile>(hookPath);
+  if (existing && existing.description.includes(TASK_DRIFT_HOOK_MARKER)) {
+    const same = JSON.stringify(existing) === JSON.stringify(desired);
+    if (same) {
+      return false;
+    }
+  }
+  writeJsonFile(hookPath, desired);
+  return true;
+}
+
+function copilotTaskDriftHookPayload(): CopilotHooksFile {
+  const command = {
+    type: "command" as const,
+    bash: COPILOT_TASK_DRIFT_HOOK_COMMAND,
+    powershell: COPILOT_TASK_DRIFT_HOOK_COMMAND,
+    timeoutSec: 8,
+  };
+  return {
+    version: 1,
+    hooks: {
+      UserPromptSubmit: [command],
+      userPromptSubmitted: [command],
+    },
+  };
+}
+
+function installCopilotTaskDriftHook(extensionPath: string, target: string): boolean {
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", TASK_DRIFT_HOOK_FILENAME),
+    path.join(target, ".claude", "hooks", TASK_DRIFT_HOOK_FILENAME)
+  );
+  const hookPath = path.join(target, ".github", "hooks", COPILOT_TASK_DRIFT_HOOK_FILE);
+  const desired = copilotTaskDriftHookPayload();
+  const existing = readJsonFile<CopilotHooksFile>(hookPath);
+  if (existing) {
+    const same = JSON.stringify(existing) === JSON.stringify(desired);
+    if (same) {
+      return false;
+    }
+  }
+  writeJsonFile(hookPath, desired);
+  return true;
+}
+
+/** Task-drift prompt hooks for Cursor, Kiro, and Copilot (Claude uses UserPromptSubmit in settings.json). */
+function installAgentTaskDriftHooks(extensionPath: string, target: string, libraryDir: string): boolean {
+  const agents = enabledAgents(libraryDir);
+  let changed = false;
+  if (agents.includes("cursor")) {
+    changed = installCursorTaskDriftHook(extensionPath, target) || changed;
+  }
+  if (agents.includes("kiro")) {
+    changed = installKiroTaskDriftHook(extensionPath, target) || changed;
+  }
+  if (agents.includes("copilot")) {
+    changed = installCopilotTaskDriftHook(extensionPath, target) || changed;
+  }
+  return changed;
 }
 
 function copyAttributionHookScript(extensionPath: string, hooksDir: string): void {
@@ -566,6 +654,7 @@ function agentSupportsAttribution(agent: { supportsAttributionHooks?: boolean })
  * <target>/.claude/settings.json. Idempotent; refreshes hook file contents on each run. */
 export function installCostControlHooks(extensionPath: string, target: string): HookInstallStatus {
   ensureLearningDir(target);
+  const libraryDir = libraryDirFromExtension(extensionPath);
 
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);
@@ -593,15 +682,15 @@ export function installCostControlHooks(extensionPath: string, target: string): 
 
   if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus || addedTaskDrift) {
     writeJsonFile(settingsFile, settings);
-    installCursorTaskDriftHook(extensionPath, target);
+    installAgentTaskDriftHooks(extensionPath, target, libraryDir);
     return installAttributionHooks(extensionPath, target);
   }
 
   if (hadSession && hadBudget && hadContextFocus && hadPracticalFocus && hadTaskDrift) {
-    installCursorTaskDriftHook(extensionPath, target);
+    installAgentTaskDriftHooks(extensionPath, target, libraryDir);
     return installAttributionHooks(extensionPath, target);
   }
-  installCursorTaskDriftHook(extensionPath, target);
+  installAgentTaskDriftHooks(extensionPath, target, libraryDir);
   return installAttributionHooks(extensionPath, target);
 }
 

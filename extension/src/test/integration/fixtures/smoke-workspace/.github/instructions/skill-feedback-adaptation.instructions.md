@@ -136,9 +136,8 @@ previous proposals.
 When `claudeSkills.features.taskDriftReproposal` is on (default), the extension
 may overwrite `task-skill-proposals.json` when agents use skills outside the
 active set (`not_in_active_profile` in `runs.jsonl`) or when the session
-transcript is large (`session-watch.json`). The `task-drift-watch` hook injects
-a one-time refreshed active skill list (Claude `UserPromptSubmit`, Cursor
-`beforeSubmitPrompt`).
+transcript is large. Injected via `task-drift-watch` (all four agents) or
+`profile-init-watch` on the next session start when a drift prompt is pending.
 
 ## 4. Integration with other skills
 

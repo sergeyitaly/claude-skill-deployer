@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.51** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.52** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,34 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.51** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.52** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.52] - 2026-06-14
+
+**Summary:** Releases 1.0.45–1.0.51 are now parity-checked across Claude, Cursor, Kiro, and Copilot — task drift inject, session-start fallbacks, and transcript-based session-size drift for Cursor/Claude.
+
+**Theme:** Four-agent hook parity for cost intelligence & skill adaptation
+
+### Highlights
+
+- **Task drift (1.0.51)** — `task-drift-watch.js` registered for all four agents: Claude `UserPromptSubmit`, Cursor `beforeSubmitPrompt`, Kiro `userPromptSubmit`, Copilot `UserPromptSubmit` / `userPromptSubmitted`
+- **Session-start fallback** — `profile-init-watch.js` delivers pending task-drift prompts on Claude SessionStart, Cursor sessionStart, Kiro agentSpawn, and Copilot SessionStart (same path as 1.0.50 low-trust inject)
+- **Session-size drift** — extension also reads Claude/Cursor transcript file sizes when evaluating task drift (Kiro/Copilot lack local transcripts per `agents.json`)
+- **Attribution & costs (1.0.46–1.0.49)** — unchanged multi-agent PostToolUse hooks; General API panel remains Claude/Cursor transcript–based where transcripts exist
+
+### Technical
+
+- `hookOps.ts` — `installAgentTaskDriftHooks()` for Cursor/Kiro/Copilot; separate `.github/hooks/claude-skills-task-drift.json` and `.kiro/hooks/claude-skills-task-drift.kiro.hook`
+- `taskDriftReproposal.ts` — merges `session-watch.json` with workspace Claude/Cursor transcript byte thresholds
+- `skills_sync.py` — headless task-drift hook install when `hooks install --full`
 
 ---
 
@@ -38,7 +59,7 @@ Each release includes:
 - **Feature** — `claudeSkills.features.taskDriftReproposal` (default on)
 - **Triggers** — `not_in_active_profile` invokes in `runs.jsonl` (default ≥2) and/or session transcript at warn/critical (`session-watch.json`)
 - **Settings** — `claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes`, `taskDriftSessionSizeLevel`, `taskDriftCooldownMinutes`, `taskDriftNotifyUser`
-- **Hook** — `task-drift-watch.js`: Claude Code `UserPromptSubmit` + Cursor `beforeSubmitPrompt` inject refreshed active skill list once per drift event
+- **Hook** — `task-drift-watch.js`: Claude Code `UserPromptSubmit` + Cursor `beforeSubmitPrompt` inject refreshed active skill list once per drift event (Kiro/Copilot added in **1.0.52**)
 - **State files** — `.claude/learning/task-drift-reproposal.json`, `task-drift-prompt.json`
 
 ### Behavior changes
@@ -52,10 +73,11 @@ Each release includes:
 - `taskDriftReproposal.ts` — detection, heuristic refresh, focus re-apply, prompt snapshot
 - Cost-control hook install now registers `task-drift-watch.js` alongside session-size and context-focus hooks
 
-### Known gaps
+### Known gaps (addressed in 1.0.52)
 
-- **Kiro / Copilot** — extension refreshes proposals and can notify you, but mid-session agent inject is only wired for Claude Code (`UserPromptSubmit`) and Cursor (`beforeSubmitPrompt`) today
+- ~~**Kiro / Copilot** — mid-session agent inject~~ → wired in 1.0.52
 - **Heuristic refresh** — extension re-seeds proposals from workspace heuristics; agent refinement via `skill-feedback-adaptation` section 3 is still optional after drift inject
+- **General API spend (1.0.49)** — Kiro/Copilot have no local transcript roots; panel uses Claude/Cursor session data only
 
 ---
 

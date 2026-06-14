@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { enabledAgents, loadAgentsManifest } from "./agentOps";
 import { Manifest } from "./skillOps";
 import { writeJsonAtomic, readJsonFile } from "./fileWriteCoordination";
 import { isFeatureEnabled } from "./featureFlags";
@@ -14,6 +16,8 @@ import {
   TaskSkillProposalsFile,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
+import { claudeParser, cursorParser, listTranscriptFiles } from "./transcriptParsers";
+import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
 export const SESSION_WATCH_REL = path.join(".claude", "learning", "session-watch.json");
 export const TASK_DRIFT_STATE_REL = path.join(".claude", "learning", "task-drift-reproposal.json");
@@ -23,6 +27,29 @@ export type SessionSizeLevel = "ok" | "warn" | "critical";
 export type DriftTrigger = "off_profile" | "session_size";
 
 const LEVEL_RANK: Record<SessionSizeLevel, number> = { ok: 0, warn: 1, critical: 2 };
+const WARN_BYTES = 4 * 1024 * 1024;
+const CRITICAL_BYTES = 10 * 1024 * 1024;
+
+function expandHome(p: string): string {
+  if (p.startsWith("~/")) {
+    return path.join(os.homedir(), p.slice(2));
+  }
+  return p;
+}
+
+function levelForBytes(bytes: number): SessionSizeLevel {
+  if (bytes >= CRITICAL_BYTES) {
+    return "critical";
+  }
+  if (bytes >= WARN_BYTES) {
+    return "warn";
+  }
+  return "ok";
+}
+
+function maxSessionLevel(a: SessionSizeLevel, b: SessionSizeLevel): SessionSizeLevel {
+  return LEVEL_RANK[a] >= LEVEL_RANK[b] ? a : b;
+}
 
 export interface TaskDriftSettings {
   enabled: boolean;
@@ -121,26 +148,60 @@ export function readTaskDriftPrompt(target: string): TaskDriftPromptFile | null 
   return parsed;
 }
 
-function readSessionWatchLevels(target: string): SessionSizeLevel {
+function readSessionWatchLevels(target: string, libraryDir?: string): SessionSizeLevel {
+  let max: SessionSizeLevel = "ok";
   const file = path.join(target, SESSION_WATCH_REL);
-  if (!fs.existsSync(file)) {
-    return "ok";
-  }
-  try {
-    const state = JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, string>;
-    let max: SessionSizeLevel = "ok";
-    for (const level of Object.values(state)) {
-      if (level === "critical") {
-        return "critical";
+  if (fs.existsSync(file)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, string>;
+      for (const level of Object.values(state)) {
+        if (level === "critical") {
+          return "critical";
+        }
+        if (level === "warn") {
+          max = "warn";
+        }
       }
-      if (level === "warn" && LEVEL_RANK[max] < LEVEL_RANK.warn) {
-        max = "warn";
+    } catch {
+      // fall through
+    }
+  }
+
+  if (!libraryDir || !fs.existsSync(path.join(libraryDir, "agents.json"))) {
+    return max;
+  }
+
+  try {
+    const manifest = loadAgentsManifest(libraryDir);
+    for (const agentId of enabledAgents(libraryDir)) {
+      const def = manifest.agents[agentId];
+      if (!def?.transcriptRoots?.length) {
+        continue;
+      }
+      const parser = agentId === "claude" ? claudeParser : agentId === "cursor" ? cursorParser : null;
+      if (!parser) {
+        continue;
+      }
+      for (const root of def.transcriptRoots) {
+        const expanded = expandHome(root);
+        for (const transcriptFile of listTranscriptFiles(expanded)) {
+          if (!transcriptFileMatchesWorkspace(transcriptFile, target)) {
+            continue;
+          }
+          try {
+            const size = fs.statSync(transcriptFile).size;
+            max = maxSessionLevel(max, levelForBytes(size));
+          } catch {
+            // ignore unreadable transcript
+          }
+        }
       }
     }
-    return max;
   } catch {
-    return "ok";
+    // non-fatal when agents manifest unavailable
   }
+
+  return max;
 }
 
 function sinceMs(iso?: string): number {
@@ -180,7 +241,11 @@ function collectOffProfileInvokes(
   return { skills, count };
 }
 
-export function evaluateTaskDrift(target: string, settings = readTaskDriftSettings()): TaskDriftEvaluation {
+export function evaluateTaskDrift(
+  target: string,
+  settings = readTaskDriftSettings(),
+  libraryDir?: string
+): TaskDriftEvaluation {
   const empty: TaskDriftEvaluation = {
     shouldRepropose: false,
     triggers: [],
@@ -210,7 +275,7 @@ export function evaluateTaskDrift(target: string, settings = readTaskDriftSettin
 
   const windowStart = state?.lastReproposalAt ?? proposals.generatedAt;
   const offProfile = collectOffProfileInvokes(target, windowStart);
-  const sessionLevel = readSessionWatchLevels(target);
+  const sessionLevel = readSessionWatchLevels(target, libraryDir);
   const triggers: DriftTrigger[] = [];
 
   if (offProfile.count >= settings.minOffProfileInvokes) {
@@ -371,7 +436,7 @@ export function processTaskDriftReproposal(
     return { evaluated: false, reproposed: false, triggers: [] };
   }
 
-  const evaluation = evaluateTaskDrift(target, settings);
+  const evaluation = evaluateTaskDrift(target, settings, libraryDir);
   if (!evaluation.shouldRepropose) {
     return { evaluated: true, reproposed: false, triggers: [], evaluation };
   }

@@ -14,6 +14,7 @@ const PROPOSALS_REL = ".claude/learning/task-skill-proposals.json";
 const ACTIVE_REL = ".claude/learning/task-active-skills.json";
 const APPLY_REQUEST_REL = ".claude/learning/session-skill-apply-request.json";
 const TRUST_REL = ".claude/learning/attribution-trust.json";
+const DRIFT_REL = ".claude/learning/task-drift-prompt.json";
 const CLI_CONFIG = ".claude/learning/cli-config.json";
 const DEFAULT_REQUIRED_SKILLS = [
   "self-learning",
@@ -86,15 +87,40 @@ function formatLowTrustPrompt(cwd) {
     .join(" ");
 }
 
+function formatTaskDriftPrompt(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  if (cfg?.features?.taskDriftReproposal === false) {
+    return "";
+  }
+  const prompt = readJsonSafe(path.join(cwd, DRIFT_REL));
+  if (!prompt?.shouldInject || !prompt.message) {
+    return "";
+  }
+  try {
+    fs.writeFileSync(
+      path.join(cwd, DRIFT_REL),
+      JSON.stringify(
+        {
+          ...prompt,
+          shouldInject: false,
+          deliveredAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ) + "\n",
+      "utf-8"
+    );
+  } catch {
+    // non-fatal
+  }
+  return prompt.message;
+}
+
 function joinSessionContext(cwd, base) {
   const lowTrust = formatLowTrustPrompt(cwd);
-  if (!base) {
-    return lowTrust;
-  }
-  if (!lowTrust) {
-    return base;
-  }
-  return `${base}\n\n${lowTrust}`;
+  const drift = formatTaskDriftPrompt(cwd);
+  const parts = [base, lowTrust, drift].filter(Boolean);
+  return parts.join("\n\n");
 }
 
 function formatFreshSessionContext(cwd) {

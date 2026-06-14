@@ -3,6 +3,8 @@
 // task scope drift (off-profile skill use or large session transcript).
 // Claude Code: UserPromptSubmit (systemMessage)
 // Cursor: beforeSubmitPrompt (additional_context)
+// Kiro: userPromptSubmit (additional_context)
+// Copilot: UserPromptSubmit / userPromptSubmitted (hookSpecificOutput)
 
 const fs = require("fs");
 const path = require("path");
@@ -32,7 +34,7 @@ function featureEnabled(cwd) {
 }
 
 function resolveCwd(input, platform) {
-  if (platform === "claude" && input.cwd) {
+  if ((platform === "claude" || platform === "copilot") && input.cwd) {
     return input.cwd;
   }
   if (Array.isArray(input.workspace_roots) && input.workspace_roots[0]) {
@@ -58,12 +60,23 @@ function markDelivered(promptFile, prompt) {
 }
 
 function emitOutput(message, platform) {
-  if (platform === "cursor") {
+  if (platform === "cursor" || platform === "kiro") {
     process.stdout.write(
       JSON.stringify({
         additional_context: message,
         additionalContext: message,
         continue: true,
+      })
+    );
+    return;
+  }
+  if (platform === "copilot") {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: message,
+        },
       })
     );
     return;
@@ -77,7 +90,7 @@ function main() {
   try {
     input = JSON.parse(readStdin());
   } catch {
-    return;
+    input = {};
   }
 
   const cwd = resolveCwd(input, platform);

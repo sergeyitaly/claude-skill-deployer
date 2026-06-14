@@ -191,7 +191,7 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
    to see which installed skills were **hook-invoked** or logged by
    self-learning (active / unused / removal candidates), plus workspace
    transcript spend for the last 14 days in **Credits · 14d**.
-7. Optionally run **"Enable Cost Control Hooks"** to install session-size, daily-budget, **context focus**, **practical/deployment focus**, and **task-drift** hooks (`UserPromptSubmit` on Claude Code; `beforeSubmitPrompt` on Cursor for drift inject).
+7. Optionally run **"Enable Cost Control Hooks"** to install session-size, daily-budget, **context focus**, **practical/deployment focus**, and **task-drift** hooks for all enabled agents (Claude `UserPromptSubmit`; Cursor `beforeSubmitPrompt`; Kiro `userPromptSubmit`; Copilot `UserPromptSubmit`).
 8. Set budget caps under **Settings → Extensions → Claude Skills Manager → Budget**, or click the **Economy / Normal / Unlimited** status bar item to cycle modes.
 9. Click **Context focus** (`$(target)`) and **Practical focus** (`$(rocket)`) in the status bar when deploying or in long sessions — reduces hallucination and hand-wavy infra advice.
 10. **New branch?** When prompted, set your position — **start a new AI agent session**; `profile-init` runs automatically (SessionStart hook + synced skill).

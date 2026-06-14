@@ -173,9 +173,10 @@ may **overwrite** `task-skill-proposals.json` without waiting for a new chat:
 - **Large session** — `session-watch.json` reports `warn` or `critical` transcript size
   (threshold: `taskDriftSessionSizeLevel`, default `warn`).
 
-On drift the extension re-applies task focus, may auto-apply proposals, and the
-`task-drift-watch` hook injects a **one-time** message listing the refreshed active
-skills. Cooldown: `taskDriftCooldownMinutes` (default 30).
+On drift the extension re-applies task focus, may auto-apply proposals, and injects a
+**one-time** message via `task-drift-watch` (Claude `UserPromptSubmit`, Cursor
+`beforeSubmitPrompt`, Kiro `userPromptSubmit`, Copilot `UserPromptSubmit`) or on the
+next session start via `profile-init-watch` when a prompt was queued while the IDE was idle.
 
 **Agent behavior after drift inject:**
 
