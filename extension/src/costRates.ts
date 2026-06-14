@@ -15,6 +15,8 @@ export interface ModelPricing {
 }
 
 const PRICING_TIERS: { match: string; pricing: ModelPricing }[] = [
+  { match: "fable", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
+  { match: "mythos", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
   { match: "opus", pricing: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } },
   { match: "haiku", pricing: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 } },
   { match: "sonnet", pricing: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 } },
@@ -67,6 +69,32 @@ export function estimateUsageCostUsd(
     ((usage.outputTokens ?? 0) / 1_000_000) * pricing.output +
     ((usage.cacheCreationTokens ?? 0) / 1_000_000) * pricing.cacheWrite +
     ((usage.cacheReadTokens ?? 0) / 1_000_000) * pricing.cacheRead
+  );
+}
+
+/** Usage block as logged in Claude session transcripts (snake_case). */
+export function estimateUsageCostFromRaw(
+  usage:
+    | {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      }
+    | undefined,
+  model?: string
+): number {
+  if (!usage) {
+    return 0;
+  }
+  return estimateUsageCostUsd(
+    {
+      inputTokens: usage.input_tokens ?? 0,
+      outputTokens: usage.output_tokens ?? 0,
+      cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    },
+    model
   );
 }
 

@@ -1,14 +1,45 @@
-"""Shared cost estimate helpers for generate_skills.py (mirrors extension/src/skillCost.ts)."""
+"""Shared cost estimate helpers for generate_skills.py (mirrors extension/src/costRates.ts)."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import TypedDict
 
 TIER_SESSION_TOKENS = {"low": 8_000, "medium": 25_000, "high": 80_000}
 BLENDED_USD_PER_M_TOKEN = 9.0
 HIGH_TIER_BUDGET_RESERVE_USD = 1.0
+
+SKILL_INVOKE_HOOK_SOURCE = "skill-invoke-hook-v2"
+ATTRIBUTION_COLLECTOR_SOURCE = "attribution-collector"
+
+
+@dataclass(frozen=True)
+class ModelPricing:
+    input: float
+    output: float
+    cache_write: float
+    cache_read: float
+
+
+class UsageBreakdown(TypedDict, total=False):
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+
+
+PRICING_TIERS: list[tuple[str, ModelPricing]] = [
+    ("fable", ModelPricing(10, 50, 12.5, 1)),
+    ("mythos", ModelPricing(10, 50, 12.5, 1)),
+    ("opus", ModelPricing(5, 25, 6.25, 0.5)),
+    ("haiku", ModelPricing(1, 5, 1.25, 0.1)),
+    ("sonnet", ModelPricing(3, 15, 3.75, 0.3)),
+]
+
+DEFAULT_PRICING = ModelPricing(3, 15, 3.75, 0.3)
 
 BUDGET_PATH = Path.home() / ".claude" / "learning" / "budget.json"
 TODAY_COST_PATH = Path.home() / ".claude" / "learning" / "today-cost.json"
@@ -31,6 +62,73 @@ def format_usd(usd: float) -> str:
     if 0 < usd < 0.01:
         return "<$0.01"
     return f"${usd:.2f}"
+
+
+def read_pricing_overrides(target: Path | str | None) -> dict[str, ModelPricing]:
+    if not target:
+        return {}
+    path = Path(target) / ".claude" / "learning" / "pricing-overrides.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if data.get("version") != 1:
+        return {}
+    models = data.get("models") or {}
+    out: dict[str, ModelPricing] = {}
+    for key, raw in models.items():
+        if not isinstance(raw, dict):
+            continue
+        out[key] = ModelPricing(
+            float(raw.get("input", DEFAULT_PRICING.input)),
+            float(raw.get("output", DEFAULT_PRICING.output)),
+            float(raw.get("cacheWrite", raw.get("cache_write", DEFAULT_PRICING.cache_write))),
+            float(raw.get("cacheRead", raw.get("cache_read", DEFAULT_PRICING.cache_read))),
+        )
+    return out
+
+
+def pricing_for_model(model: str | None, overrides: dict[str, ModelPricing] | None = None) -> ModelPricing:
+    lower = (model or "claude-sonnet").lower()
+    for key, pricing in (overrides or {}).items():
+        key_lower = key.lower()
+        if key_lower in lower or lower in key_lower:
+            return pricing
+    for match, pricing in PRICING_TIERS:
+        if match in lower:
+            return pricing
+    return DEFAULT_PRICING
+
+
+def blended_usd_per_m_tokens(model: str | None, overrides: dict[str, ModelPricing] | None = None) -> float:
+    pricing = pricing_for_model(model, overrides)
+    return (pricing.input + pricing.output) / 2
+
+
+def estimate_usage_cost_usd(
+    usage: UsageBreakdown,
+    model: str | None = None,
+    overrides: dict[str, ModelPricing] | None = None,
+) -> float:
+    pricing = pricing_for_model(model, overrides)
+    return (
+        (int(usage.get("input_tokens") or 0) / 1_000_000) * pricing.input
+        + (int(usage.get("output_tokens") or 0) / 1_000_000) * pricing.output
+        + (int(usage.get("cache_creation_input_tokens") or 0) / 1_000_000) * pricing.cache_write
+        + (int(usage.get("cache_read_input_tokens") or 0) / 1_000_000) * pricing.cache_read
+    )
+
+
+def token_cost_usd(
+    tokens: int | float,
+    model: str | None = None,
+    overrides: dict[str, ModelPricing] | None = None,
+) -> float:
+    if tokens <= 0:
+        return 0.0
+    return (float(tokens) / 1_000_000) * blended_usd_per_m_tokens(model, overrides)
 
 
 def read_budget() -> dict:

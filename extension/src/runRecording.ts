@@ -54,7 +54,7 @@ export interface EnrichedRunRecord {
   note?: string;
 }
 
-import { tokenCostUsd as estimateTokenCost } from "./costRates";
+import { tokenCostUsd as estimateTokenCost, estimateUsageCostFromRaw } from "./costRates";
 
 export { BLENDED_USD_PER_M_TOKEN, tokenCostUsd } from "./costRates";
 
@@ -110,6 +110,28 @@ export function normalizeRunRecord(raw: Record<string, unknown>): EnrichedRunRec
   const tokens = typeof raw.tokens === "number" ? raw.tokens : 0;
   const rc = typeof raw.rc === "number" ? raw.rc : raw.success === false ? 1 : 0;
   const agent = (typeof raw.agent === "string" ? raw.agent : "claude") as RunAgent;
+  const metadata = (raw.metadata as RunMetadata) ?? {};
+  const model =
+    typeof raw.model === "string"
+      ? raw.model
+      : typeof metadata.model === "string"
+        ? metadata.model
+        : undefined;
+  const usageRaw = metadata.usage as
+    | {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      }
+    | undefined;
+  const usageCost = estimateUsageCostFromRaw(usageRaw, model);
+  const cost =
+    usageCost > 0
+      ? usageCost
+      : typeof raw.cost === "number"
+        ? raw.cost
+        : estimateTokenCost(tokens, model);
 
   return {
     ts,
@@ -118,13 +140,13 @@ export function normalizeRunRecord(raw: Record<string, unknown>): EnrichedRunRec
     action: typeof raw.action === "string" ? raw.action : "run",
     agent,
     tokens,
-    cost: typeof raw.cost === "number" ? raw.cost : estimateTokenCost(tokens, typeof raw.model === "string" ? raw.model : undefined),
+    cost,
     rc,
     success: typeof raw.success === "boolean" ? raw.success : rc === 0,
     session_id: typeof raw.session_id === "string" ? raw.session_id : `unknown_${ts}`,
     project: typeof raw.project === "string" ? raw.project : "",
     branch: typeof raw.branch === "string" ? raw.branch : null,
-    metadata: (raw.metadata as RunMetadata) ?? {},
+    metadata,
     duration: typeof raw.duration === "number" ? raw.duration : undefined,
     error: typeof raw.error === "string" ? raw.error : undefined,
     hint: typeof raw.hint === "string" ? raw.hint : undefined,

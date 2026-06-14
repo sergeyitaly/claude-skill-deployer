@@ -13,6 +13,7 @@ import { fetchVcsIdentity, parseGitRemote, pickAndStoreVcsToken } from "./vcsRep
 import { formatCompactUsd } from "./skillCost";
 import { loadManifest } from "./skillOps";
 import { readSkillStatsIndex } from "./runsIndex";
+import { isUsageRunRecord } from "./runRecording";
 import {
   enrichUsageStatsWithAttribution,
   formatCrossAgentUsageBrief,
@@ -246,6 +247,9 @@ function weekCostFromRuns(target: string, daysBack: number): { cost: number; tok
   let cost = 0;
   let tokens = 0;
   for (const run of readEnrichedRuns(target)) {
+    if (!isUsageRunRecord(run)) {
+      continue;
+    }
     if (new Date(run.ts).getTime() >= cutoff) {
       cost += run.cost;
       tokens += run.tokens;
@@ -344,6 +348,7 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
 
 function smtpSession(
   socket: net.Socket | tls.TLSSocket,
+  smtpHost: string,
   user: string,
   password: string,
   to: string,
@@ -382,14 +387,14 @@ function smtpSession(
             step = 4;
           }
         } else if (step === 2 && code === "220") {
-          const upgraded = tls.connect({ socket, servername: (socket as net.Socket).remoteAddress ?? "localhost" }, () => {
+          const upgraded = tls.connect({ socket, servername: smtpHost }, () => {
             step = 3;
             send("EHLO localhost");
           });
           upgraded.on("error", reject);
           socket.removeAllListeners("data");
           socket.removeAllListeners("error");
-          smtpSession(upgraded, user, password, to, subject, body).then(resolve).catch(reject);
+          smtpSession(upgraded, smtpHost, user, password, to, subject, body).then(resolve).catch(reject);
           return;
         } else if (step === 3 && code === "250" && line.includes("localhost")) {
           send("AUTH LOGIN");
@@ -435,13 +440,13 @@ function sendSmtpEmail(
   return new Promise((resolve, reject) => {
     if (port === 465) {
       const secure = tls.connect(port, host, { servername: host }, () => {
-        smtpSession(secure, user, password, to, subject, body).then(resolve).catch(reject);
+        smtpSession(secure, host, user, password, to, subject, body).then(resolve).catch(reject);
       });
       secure.on("error", reject);
       return;
     }
     const socket = net.connect(port, host, () => {
-      smtpSession(socket, user, password, to, subject, body).then(resolve).catch(reject);
+      smtpSession(socket, host, user, password, to, subject, body).then(resolve).catch(reject);
     });
     socket.on("error", reject);
   });

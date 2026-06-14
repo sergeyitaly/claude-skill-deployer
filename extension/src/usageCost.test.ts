@@ -49,6 +49,7 @@ describe("computeCreditUsageFromRoots", () => {
     expect(summary.totalTokens).toBe(1700);
     expect(summary.totalCost).toBeGreaterThan(0);
     expect(summary.byModel.some((m) => m.model === "claude-sonnet-4")).toBe(true);
+    expect(summary.byModel[0]?.costBasis).toBe("usage");
     expect(summary.byDay.length).toBeGreaterThan(0);
   });
 
@@ -110,6 +111,8 @@ describe("computeCreditUsageFromRoots", () => {
     expect(scoped.totalTokens).toBeGreaterThan(0);
     expect(scoped.totalCost).toBeGreaterThan(0);
     expect(scoped.byModel.some((m) => m.model === "cursor-agent")).toBe(true);
+    const cursorRow = scoped.byModel.find((m) => m.model === "cursor-agent");
+    expect(cursorRow?.costBasis).toBe("size_estimate");
   });
 
   it("ignores all-zero usage lines", () => {

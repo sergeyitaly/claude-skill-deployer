@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blendedUsdPerMTokens,
+  estimateUsageCostFromRaw,
   estimateUsageCostUsd,
   formatModelRateHint,
   pricingForModel,
@@ -8,10 +9,11 @@ import {
 } from "./costRates";
 
 describe("pricingForModel", () => {
-  it("maps opus, haiku, and sonnet tiers", () => {
+  it("maps opus, haiku, sonnet, and fable tiers", () => {
     expect(pricingForModel("claude-opus-4")).toEqual({ input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 });
     expect(pricingForModel("claude-haiku-3")).toEqual({ input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 });
     expect(pricingForModel("claude-sonnet-4")).toEqual({ input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 });
+    expect(pricingForModel("claude-fable-5")).toEqual({ input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 });
   });
 
   it("defaults unknown models to sonnet pricing", () => {
@@ -36,6 +38,21 @@ describe("estimateUsageCostUsd", () => {
 
   it("returns zero for empty usage", () => {
     expect(estimateUsageCostUsd({}, "claude-opus")).toBe(0);
+  });
+});
+
+describe("estimateUsageCostFromRaw", () => {
+  it("maps snake_case transcript usage to model rates", () => {
+    const cost = estimateUsageCostFromRaw(
+      {
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 1_000_000,
+      },
+      "claude-sonnet-4-6"
+    );
+    expect(cost).toBeCloseTo(3.3, 5);
   });
 });
 

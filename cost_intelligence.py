@@ -7,7 +7,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from cost_utils import BLENDED_USD_PER_M_TOKEN, format_usd
+from cost_utils import BLENDED_USD_PER_M_TOKEN, format_usd, token_cost_usd
+from runs_cost import is_usage_run_record
 
 LEGACY_ATTRIBUTION_PATH = Path.home() / ".claude" / "learning" / "cost-attribution.json"
 
@@ -166,10 +167,14 @@ def weekly_summary_from_runs(target: Path) -> dict:
                 continue
             try:
                 row = json.loads(line)
+                if not is_usage_run_record(row):
+                    continue
                 ts = datetime.fromisoformat((row.get("ts") or row.get("timestamp", "")).replace("Z", "+00:00"))
+                tokens = row.get("tokens") or 0
+                model = row.get("model")
                 cost = row.get("cost")
                 if cost is None:
-                    cost = (row.get("tokens") or 0) / 1_000_000 * BLENDED_USD_PER_M_TOKEN
+                    cost = token_cost_usd(tokens, model if isinstance(model, str) else None)
                 if ts >= week_ago:
                     this_week += cost
                     tokens += row.get("tokens") or 0

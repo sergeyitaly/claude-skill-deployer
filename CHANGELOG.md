@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.45** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.46** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,39 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.45** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.46** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.46] - 2026-06-14
+
+**Summary:** Cost dashboard and CLI now show real per-skill spend from hook invocations at published API rates — not inflated transcript equal-split estimates.
+
+**Theme:** Accurate skill-level cost attribution
+
+### Highlights
+
+- **Top skills · measured** — dashboard ranks skills from `runs.jsonl` hook/self-learning rows with input/output/cache pricing per model
+- **Skill spend** overview stat — separate hook-grounded total in the 14-day Overview panel
+- **Model-aware pricing** — Fable/Mythos/Opus/Sonnet/Haiku tiers; API vs size-estimate labels on agent model rows
+- **Python CLIs** — `scripts/skill_cost_from_runs.py` (per-skill from logs) and `scripts/agent_billing_report.py` (Anthropic/Cursor/Copilot admin APIs)
+
+### Behavior changes
+
+- Attribution-collector transcript rows are excluded from per-skill cost totals (fixes inflated $1k+ weekly figures)
+- Equal-split mis-attribution no longer drives **Top skills** when v2 hook runs exist
+- Weekly report and `cost_intelligence.py` skip collector rows when summing skill spend
+
+### Technical
+
+- New `skillCostFromRuns.ts`, `runs_cost.py`, `agent_billing.py`; hook writes `metadata.usage` + `cost_method: usage_breakdown`
+- `normalizeRunRecord` reads `metadata.model` for usage-based cost recompute
 
 ---
 

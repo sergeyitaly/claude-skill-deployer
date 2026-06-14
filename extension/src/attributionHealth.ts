@@ -2,6 +2,7 @@ import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { buildCostAttribution, resolveDisplayAttribution } from "./costAttribution";
 import { topExpensiveSkills } from "./costOptimizer";
 import { countV2HookRuns } from "./runRecording";
+import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
 import { assessWorkspaceConfidence } from "./attributionConfidence";
 
 export interface AttributionHealth {
@@ -25,7 +26,9 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
   const credit = computeEnabledAgentsCreditUsage(libraryDir, 14, target);
   const highUnattributedRatio =
     v2HookRuns === 0 && credit.totalTokens > 0 && unattributedTokens / credit.totalTokens > 0.3;
-  const noPerSkillData = topExpensiveSkills(attribution, 1).length === 0;
+  const hookSkillCosts = summarizeSkillCostsFromRuns(target, 14);
+  const noPerSkillData =
+    hookSkillCosts.includedRuns === 0 && topExpensiveSkills(attribution, 1).length === 0;
   const reliable = !staleEqualSplit && !highUnattributedRatio && !noPerSkillData;
 
   let summary = "Per-skill attribution looks usable.";

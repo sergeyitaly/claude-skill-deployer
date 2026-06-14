@@ -9,11 +9,17 @@ import { isCursorTranscriptRoot, transcriptFileMatchesWorkspace } from "./worksp
 /** Model id for Cursor agent transcripts (no per-line model metadata; Sonnet-like default rates). */
 export const CURSOR_TRANSCRIPT_MODEL = "cursor-agent";
 
+export type ModelCostBasis = "usage" | "size_estimate";
+
 interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+}
+
+interface ModelBucket extends TokenUsage {
+  costBasis: ModelCostBasis;
 }
 
 function emptyUsage(): TokenUsage {
@@ -31,28 +37,120 @@ function totalTokens(usage: TokenUsage): number {
   return usage.inputTokens + usage.outputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
 }
 
+/** Sum all token fields on a model usage row (dashboard / export). */
 export function totalTokensForModelUsage(usage: TokenUsage): number {
   return totalTokens(usage);
 }
 
-/** Human-readable model label for dashboard rows. */
-export function formatModelLabel(model: string): string {
-  if (model === CURSOR_TRANSCRIPT_MODEL) {
-    return "Cursor agent (transcript size estimate)";
-  }
-  if (model.startsWith("cursor/task:")) {
-    return `Cursor Task subagent (${model.slice("cursor/task:".length)})`;
-  }
-  return model;
+export function creditUsageCostLabel(summary: CreditUsageSummary): string {
+  const hasEstimate = summary.byModel.some((m) => m.costBasis === "size_estimate");
+  return hasEstimate ? "Computed cost (mixed)" : "Computed cost";
 }
 
-function getOrCreate(map: Map<string, TokenUsage>, key: string): TokenUsage {
+export function modelCostCellLabel(costBasis: ModelCostBasis): string {
+  return costBasis === "size_estimate" ? "Est." : "API";
+}
+
+/** Human-readable model label for dashboard rows. */
+export function formatModelLabel(model: string, costBasis?: ModelCostBasis): string {
+  let label: string;
+  if (model === CURSOR_TRANSCRIPT_MODEL) {
+    label = "Cursor agent (transcript size estimate)";
+  } else if (model.startsWith("cursor/task:")) {
+    label = `Cursor Task subagent (${model.slice("cursor/task:".length)})`;
+  } else {
+    label = model;
+  }
+  if (costBasis === "size_estimate") {
+    return `${label} (size est.)`;
+  }
+  return label;
+}
+
+function getOrCreate(map: Map<string, ModelBucket>, key: string): ModelBucket {
   let usage = map.get(key);
   if (!usage) {
-    usage = emptyUsage();
+    usage = { ...emptyUsage(), costBasis: "usage" };
     map.set(key, usage);
   }
   return usage;
+}
+
+function rawUsageToDelta(raw: {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  total_tokens?: number;
+}): TokenUsage | null {
+  const delta = {
+    inputTokens: raw.input_tokens ?? 0,
+    outputTokens: raw.output_tokens ?? 0,
+    cacheCreationTokens: raw.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: raw.cache_read_input_tokens ?? 0,
+  };
+  if (totalTokens(delta) > 0) {
+    return delta;
+  }
+  if (typeof raw.total_tokens === "number" && raw.total_tokens > 0) {
+    const input = Math.round(raw.total_tokens * 0.6);
+    return {
+      inputTokens: input,
+      outputTokens: raw.total_tokens - input,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+  }
+  return null;
+}
+
+interface ParsedUsageLine {
+  timestamp: string;
+  sessionId?: string;
+  model: string;
+  usage: TokenUsage;
+}
+
+function parseUsageLine(line: string): ParsedUsageLine | null {
+  if (!line.includes("usage")) {
+    return null;
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const message = parsed.message;
+  const msg = message && typeof message === "object" ? (message as Record<string, unknown>) : undefined;
+  const usageRaw =
+    (msg?.usage as Record<string, number> | undefined) ??
+    (parsed.usage as Record<string, number> | undefined);
+  const model =
+    (typeof msg?.model === "string" && msg.model) ||
+    (typeof parsed.model === "string" && parsed.model) ||
+    undefined;
+  const timestamp =
+    (typeof parsed.timestamp === "string" && parsed.timestamp) ||
+    (typeof parsed.ts === "string" && parsed.ts) ||
+    undefined;
+
+  if (!usageRaw || !model || !timestamp) {
+    return null;
+  }
+
+  const delta = rawUsageToDelta(usageRaw);
+  if (!delta || totalTokens(delta) === 0) {
+    return null;
+  }
+
+  return {
+    timestamp,
+    sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : undefined,
+    model,
+    usage: delta,
+  };
 }
 
 function estimateCost(model: string, usage: TokenUsage): number {
@@ -75,6 +173,8 @@ export interface DayUsage extends TokenUsage {
 export interface ModelUsage extends TokenUsage {
   model: string;
   cost: number;
+  /** How cost was derived — usage lines from transcripts vs size-based fallback. */
+  costBasis: ModelCostBasis;
 }
 
 export interface CreditUsageSummary {
@@ -92,22 +192,8 @@ export function claudeProjectsDir(): string {
   return path.join(os.homedir(), ".claude", "projects");
 }
 
-interface TranscriptLine {
-  timestamp?: string;
-  sessionId?: string;
-  message?: {
-    model?: string;
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      cache_creation_input_tokens?: number;
-      cache_read_input_tokens?: number;
-    };
-  };
-}
-
 /** date|model -> token usage for that day/model combination. */
-type Buckets = Map<string, TokenUsage>;
+type Buckets = Map<string, ModelBucket>;
 
 const BUCKET_KEY_SEP = "|";
 
@@ -116,41 +202,19 @@ function bucketKey(date: string, model: string): string {
 }
 
 function recordLine(line: string, windowStartMs: number, buckets: Buckets, sessionIds: Set<string>): void {
-  if (!line.includes('"usage"')) {
-    return;
-  }
-  let parsed: TranscriptLine;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
+  const parsed = parseUsageLine(line);
+  if (!parsed) {
     return;
   }
 
-  const usage = parsed.message?.usage;
-  const model = parsed.message?.model;
-  const timestamp = parsed.timestamp;
-  if (!usage || !model || !timestamp) {
-    return;
-  }
-  const tsMs = new Date(timestamp).getTime();
+  const tsMs = new Date(parsed.timestamp).getTime();
   if (Number.isNaN(tsMs) || tsMs < windowStartMs) {
     return;
   }
 
-  const delta: TokenUsage = {
-    inputTokens: usage.input_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
-    cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
-    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-  };
-  if (totalTokens(delta) === 0) {
-    // Synthetic/placeholder messages (e.g. model "<synthetic>") carry an
-    // all-zero usage block and would otherwise show up as noise rows.
-    return;
-  }
-
-  const date = localDateKey(new Date(timestamp));
-  addUsage(getOrCreate(buckets, bucketKey(date, model)), delta);
+  const date = localDateKey(new Date(parsed.timestamp));
+  const bucket = getOrCreate(buckets, bucketKey(date, parsed.model));
+  addUsage(bucket, parsed.usage);
 
   if (parsed.sessionId) {
     sessionIds.add(parsed.sessionId);
@@ -182,18 +246,34 @@ function recordCursorFile(
   }
 
   const parsed = cursorParser.parseFile(file, content);
-  if (!parsed || parsed.tokens <= 0) {
+  if (!parsed) {
     return;
   }
 
   const date = localDateKey(new Date(stat.mtimeMs));
-  const usage: TokenUsage = {
-    inputTokens: Math.round(parsed.tokens * 0.6),
-    outputTokens: parsed.tokens - Math.round(parsed.tokens * 0.6),
-    cacheCreationTokens: 0,
-    cacheReadTokens: 0,
-  };
-  addUsage(getOrCreate(buckets, bucketKey(date, CURSOR_TRANSCRIPT_MODEL)), usage);
+  let recorded = false;
+  for (const line of content.split("\n")) {
+    const usageLine = parseUsageLine(line);
+    if (!usageLine) {
+      continue;
+    }
+    const model = usageLine.model === CURSOR_TRANSCRIPT_MODEL ? CURSOR_TRANSCRIPT_MODEL : usageLine.model;
+    const bucket = getOrCreate(buckets, bucketKey(date, model));
+    addUsage(bucket, usageLine.usage);
+    recorded = true;
+  }
+
+  if (!recorded && parsed.tokens > 0) {
+    const usage: TokenUsage = {
+      inputTokens: Math.round(parsed.tokens * 0.6),
+      outputTokens: parsed.tokens - Math.round(parsed.tokens * 0.6),
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+    };
+    const bucket = getOrCreate(buckets, bucketKey(date, CURSOR_TRANSCRIPT_MODEL));
+    bucket.costBasis = "size_estimate";
+    addUsage(bucket, usage);
+  }
   sessionIds.add(parsed.sessionId);
 }
 
@@ -234,11 +314,11 @@ function recordFile(
 
 function summarizeByDay(buckets: Buckets): DayUsage[] {
   const byDay = new Map<string, { usage: TokenUsage; cost: number }>();
-  for (const [key, usage] of buckets) {
+  for (const [key, bucket] of buckets) {
     const [date, model] = key.split(BUCKET_KEY_SEP);
     const entry = byDay.get(date) ?? { usage: emptyUsage(), cost: 0 };
-    addUsage(entry.usage, usage);
-    entry.cost += estimateCost(model, usage);
+    addUsage(entry.usage, bucket);
+    entry.cost += estimateCost(model, bucket);
     byDay.set(date, entry);
   }
   return [...byDay.entries()]
@@ -247,13 +327,25 @@ function summarizeByDay(buckets: Buckets): DayUsage[] {
 }
 
 function summarizeByModel(buckets: Buckets): ModelUsage[] {
-  const byModel = new Map<string, TokenUsage>();
-  for (const [key, usage] of buckets) {
+  const byModel = new Map<string, ModelBucket>();
+  for (const [key, bucket] of buckets) {
     const [, model] = key.split(BUCKET_KEY_SEP);
-    addUsage(getOrCreate(byModel, model), usage);
+    const target = getOrCreate(byModel, model);
+    addUsage(target, bucket);
+    if (bucket.costBasis === "size_estimate") {
+      target.costBasis = "size_estimate";
+    }
   }
   return [...byModel.entries()]
-    .map(([model, usage]) => ({ model, ...usage, cost: estimateCost(model, usage) }))
+    .map(([model, bucket]) => ({
+      model,
+      inputTokens: bucket.inputTokens,
+      outputTokens: bucket.outputTokens,
+      cacheCreationTokens: bucket.cacheCreationTokens,
+      cacheReadTokens: bucket.cacheReadTokens,
+      cost: estimateCost(model, bucket),
+      costBasis: bucket.costBasis,
+    }))
     .sort((a, b) => totalTokens(b) - totalTokens(a));
 }
 

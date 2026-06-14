@@ -25,6 +25,11 @@ import { readProjectProfile } from "./projectProfile";
 import { formatProjectProfileDashboardHtml } from "./projectProfileDisplay";
 import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
+import {
+  formatSkillCostAgentBreakdown,
+  summarizeSkillCostsFromRuns,
+  topSkillsFromRuns,
+} from "./skillCostFromRuns";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import {
   getOrComputeTeamEconomicsBundle,
@@ -107,7 +112,7 @@ function formatModelsByAgentHtml(agentUsage: AgentCreditRow[]): string {
           const tokens = totalTokensForModelUsage(m);
           const pct = row.tokens > 0 ? Math.round((tokens / row.tokens) * 100) : 0;
           return `<div class="skill-row">
-        <div class="skill-head"><span>${escapeHtml(formatModelLabel(m.model))}</span>
+        <div class="skill-head"><span>${escapeHtml(formatModelLabel(m.model, m.costBasis))}</span>
           <span class="cost">${formatCompactUsd(m.cost)}${pct ? ` (${pct}%)` : ""} · ${formatTokenCount(tokens)} tokens</span>
           ${tokens > 0 ? `<span class="bar">${bar(m.cost, row.cost)}</span>` : ""}</div>
       </div>`;
@@ -317,8 +322,18 @@ export function buildDashboardMainBodyHtml(
   const agentCostTotal = agentUsage.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
   const maxAgentCost = Math.max(...agentUsage.map((r) => r.cost), 1);
   const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
-  const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];
-  const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
+  const skillCostSummary = summarizeSkillCostsFromRuns(target, 14);
+  const useRunsForTopSkills = skillCostSummary.includedRuns > 0;
+  const showTopSkills = useRunsForTopSkills || showPerSkill;
+  const top = useRunsForTopSkills
+    ? topSkillsFromRuns(target, 5, 14)
+    : showPerSkill
+      ? topExpensiveSkills(attribution, 5)
+      : [];
+  const skillCostByName = new Map(skillCostSummary.skills.map((s) => [s.skill, s]));
+  const totalCost =
+    (useRunsForTopSkills ? skillCostSummary.totalCost : top.reduce((s, r) => s + r.cost, 0)) ||
+    credit.totalCost;
   const maxTop = top[0]?.cost ?? 1;
   const savings = showPerSkill
     ? crossAgentSavingsSummary(attribution)
@@ -368,11 +383,23 @@ export function buildDashboardMainBodyHtml(
       roi = upgradeRoiConfidenceFromRuns(roi, health.v2HookRuns > 0 ? v2Runs : 0);
       const conf = skillConfidence.get(row.skill);
       const trust = buildSkillTrustLine(conf, roi.roiBand);
+      const skillRow = skillCostByName.get(row.skill);
+      const agentBreakdown =
+        useRunsForTopSkills && skillRow
+          ? formatSkillCostAgentBreakdown(skillRow)
+          : formatSkillAgentBreakdown(row.skill, attribution);
+      const pricingNote =
+        useRunsForTopSkills && skillRow && skillRow.usageBreakdownRuns > 0
+          ? "API-priced"
+          : useRunsForTopSkills
+            ? "hook-measured"
+            : undefined;
       const hint = [
         formatRoiDashboardLine(roi, formatCompactUsd(row.cost)),
         trust.summary,
+        pricingNote,
         hintForSkill(row.skill, suggestions, usageStats),
-        formatSkillAgentBreakdown(row.skill, attribution),
+        agentBreakdown,
         isFeatureEnabled("communityBenchmarks") ? formatBenchmarkLine(row.skill) : undefined,
       ]
         .filter(Boolean)
@@ -432,7 +459,9 @@ export function buildDashboardMainBodyHtml(
 
   ${
     equalSplitWarn
-      ? `<div class="warn"><b>Per-skill unreliable:</b> ${equalSplitWarn}</div>`
+      ? `<div class="warn"><b>Per-skill unreliable:</b> ${equalSplitWarn}${
+          useRunsForTopSkills ? " Top skills below use hook-measured costs instead." : ""
+        }</div>`
       : unattributedTokens > 0
         ? `<div class="warn"><b>Unattributed:</b> ${formatTokenCount(unattributedTokens)} tokens (~${formatCompactUsd(unattributedCost)}). Reset mis-attributed data, then record <code>invoked: true</code> runs.</div>`
         : ""
@@ -442,10 +471,20 @@ export function buildDashboardMainBodyHtml(
     <h2>Overview · 14d</h2>
     <div class="stat-grid">
       <div class="stat-pill"><b>Est. spend</b><span class="val">${formatCompactUsd(credit.totalCost)}</span></div>
+      ${
+        useRunsForTopSkills
+          ? `<div class="stat-pill"><b>Skill spend</b><span class="val">${formatCompactUsd(skillCostSummary.totalCost)}</span></div>`
+          : ""
+      }
       <div class="stat-pill"><b>Tokens</b><span class="val">${formatTokenCount(credit.totalTokens)}</span></div>
       <div class="stat-pill"><b>Trend</b><span class="val">${escapeHtml(trendLabel)}</span></div>
       ${profile ? `<div class="stat-pill"><b>Typical / mo</b><span class="val">${formatCompactUsd(profile.typical_monthly_cost)}</span></div>` : ""}
     </div>
+    ${
+      useRunsForTopSkills
+        ? `<p class="note" style="margin-top:8px">Skill spend: ${skillCostSummary.includedRuns} hook/self-learning run(s) at published API rates (excludes ${skillCostSummary.excludedCollectorRuns} attribution-collector row(s)).</p>`
+        : ""
+    }
   </div>
 
   <div class="panel">
@@ -459,9 +498,14 @@ export function buildDashboardMainBodyHtml(
   ${showPerSkill ? "" : setupChecklistHtml(health)}
 
   <div class="panel">
-    <h2>Top skills</h2>
+    <h2>Top skills${useRunsForTopSkills ? " · measured" : ""}</h2>
     ${
-      showPerSkill
+      useRunsForTopSkills
+        ? `<p class="note" style="margin-top:0">Costs from skill-invoke hooks and self-learning runs — input/output/cache at published API rates.</p>`
+        : ""
+    }
+    ${
+      showTopSkills
         ? topRows || "<p class=\"note\">No per-skill cost data yet.</p>"
         : "<p class=\"note\">Hidden until attribution setup completes.</p>"
     }
@@ -609,8 +653,17 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
   const agentUsage = computePerAgentCreditUsage(libraryDir, 14, target);
   const showPerSkill = modeCtx.canShowPerSkillCosts;
   const suggestions = showPerSkill ? generateOptimizationSuggestions(target, libraryDir, manifest) : [];
-  const top = showPerSkill ? topExpensiveSkills(attribution, 5) : [];
-  const totalCost = top.reduce((s, r) => s + r.cost, 0) || credit.totalCost;
+  const skillCostSummary = summarizeSkillCostsFromRuns(target, 14);
+  const useRunsForTopSkills = skillCostSummary.includedRuns > 0;
+  const showTopSkills = useRunsForTopSkills || showPerSkill;
+  const top = useRunsForTopSkills
+    ? topSkillsFromRuns(target, 5, 14)
+    : showPerSkill
+      ? topExpensiveSkills(attribution, 5)
+      : [];
+  const totalCost =
+    (useRunsForTopSkills ? skillCostSummary.totalCost : top.reduce((s, r) => s + r.cost, 0)) ||
+    credit.totalCost;
   const maxTop = top[0]?.cost ?? 1;
   const savings = showPerSkill
     ? crossAgentSavingsSummary(attribution)
@@ -624,7 +677,13 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
     `  Last 14 days: ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)}`,
   ];
 
-  if (staleEqualSplit && equalSplitCluster) {
+  if (useRunsForTopSkills) {
+    lines.push(
+      `  Skill spend (hooks/API): ${formatCompactUsd(skillCostSummary.totalCost)} | ${skillCostSummary.includedRuns} run(s)`
+    );
+  }
+
+  if (staleEqualSplit && equalSplitCluster && !useRunsForTopSkills) {
     lines.push(
       "",
       "  *** PER-SKILL COSTS UNRELIABLE ***",
@@ -646,17 +705,22 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
     if (row.models.length > 0) {
       for (const m of row.models) {
         lines.push(
-          `      · ${formatModelLabel(m.model)}: ${formatCompactUsd(m.cost)} | ${formatTokenCount(totalTokensForModelUsage(m))} tokens`
+          `      · ${formatModelLabel(m.model, m.costBasis)}: ${formatCompactUsd(m.cost)} | ${formatTokenCount(totalTokensForModelUsage(m))} tokens`
         );
       }
     }
   }
 
-  if (!showPerSkill) {
+  if (!showTopSkills) {
     lines.push("", "  Per-skill setup:", `    ${health.summary}`);
     lines.push("", "  Top expensive skills: (hidden until attribution is reliable)");
   } else {
-    lines.push("", "  Top expensive skills:");
+    lines.push(
+      "",
+      useRunsForTopSkills
+        ? "  Top skills (measured from hooks/API):"
+        : "  Top expensive skills:"
+    );
     top.forEach((row, i) => {
       const pct = totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
       const hint = suggestions.find((s) => s.skill === row.skill);

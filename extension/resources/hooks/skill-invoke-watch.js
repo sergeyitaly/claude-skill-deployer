@@ -9,7 +9,6 @@ const fs = require("fs");
 const path = require("path");
 
 const SOURCE = "skill-invoke-hook-v2";
-const BLENDED_USD_PER_M_TOKEN = 9;
 const VALID_AGENTS = new Set(["claude", "cursor", "kiro", "copilot"]);
 const DENYLIST = new Set(["claude", "cursor", "api", "claude-api", "unknown", "base", "context", "skill", "skills", "kiro", "copilot"]);
 const SKILL_FILE_PATTERNS = [
@@ -116,6 +115,41 @@ function extractSkillName(toolName, toolInput) {
   return null;
 }
 
+function pricingForModel(model) {
+  const lower = (model || "claude-sonnet").toLowerCase();
+  const tiers = [
+    { match: "fable", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
+    { match: "mythos", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
+    { match: "opus", pricing: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } },
+    { match: "haiku", pricing: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 } },
+    { match: "sonnet", pricing: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 } },
+  ];
+  for (const tier of tiers) {
+    if (lower.includes(tier.match)) {
+      return tier.pricing;
+    }
+  }
+  return tiers[4].pricing;
+}
+
+function estimateUsageCostUsd(usage, model) {
+  if (!usage || typeof usage !== "object") {
+    return 0;
+  }
+  const p = pricingForModel(model);
+  return (
+    ((usage.input_tokens || 0) / 1_000_000) * p.input +
+    ((usage.output_tokens || 0) / 1_000_000) * p.output +
+    ((usage.cache_creation_input_tokens || 0) / 1_000_000) * p.cacheWrite +
+    ((usage.cache_read_input_tokens || 0) / 1_000_000) * p.cacheRead
+  );
+}
+
+function blendedCostUsd(tokens, model) {
+  const p = pricingForModel(model);
+  return (tokens / 1_000_000) * ((p.input + p.output) / 2);
+}
+
 function sumUsage(usage) {
   if (!usage || typeof usage !== "object") {
     return 0;
@@ -129,6 +163,32 @@ function sumUsage(usage) {
     (usage.cache_creation_input_tokens || 0) +
     (usage.cache_read_input_tokens || 0)
   );
+}
+
+function extractUsage(normalized) {
+  const tr = normalized.toolResponse;
+  if (typeof tr === "string") {
+    try {
+      const parsed = JSON.parse(tr);
+      const usage = parsed.usage || parsed.message?.usage;
+      if (usage && sumUsage(usage) > 0) {
+        return usage;
+      }
+    } catch {
+      return null;
+    }
+  }
+  if (tr && typeof tr === "object") {
+    const usage = tr.usage || tr.message?.usage;
+    if (usage && sumUsage(usage) > 0) {
+      return usage;
+    }
+  }
+  const msgUsage = normalized.message?.usage;
+  if (msgUsage && sumUsage(msgUsage) > 0) {
+    return msgUsage;
+  }
+  return null;
 }
 
 function extractTokens(normalized) {
@@ -306,7 +366,10 @@ function main() {
     return;
   }
 
-  const tokens = extractTokens(input);
+  const usage = extractUsage(input);
+  const tokens = usage ? sumUsage(usage) : extractTokens(input);
+  const model = input.model;
+  const cost = usage ? estimateUsageCostUsd(usage, model) : blendedCostUsd(tokens, model);
   const ts = new Date().toISOString();
   const record = {
     ts,
@@ -315,18 +378,19 @@ function main() {
     action: "skill_invoke",
     agent,
     tokens,
-    cost: (tokens / 1_000_000) * BLENDED_USD_PER_M_TOKEN,
+    cost,
     rc: 0,
     success: true,
     session_id: sessionId,
     project: cwd,
-    model: input.model,
+    model: model,
     metadata: {
       source: SOURCE,
       invoked: true,
       tool_name: input.toolName,
       tool_use_id: toolUseId || undefined,
       hook_agent: agent,
+      ...(usage ? { usage, cost_method: "usage_breakdown" } : { cost_method: "model_blended" }),
     },
   };
 

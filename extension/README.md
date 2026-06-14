@@ -307,7 +307,7 @@ The extension tracks **cost** and **estimated value** so optimizations favor hig
 | **Skills detail** | `runs.jsonl` hooks + self-learning | Actual skill invocations / logged runs — not equal-split transcript guesses |
 | **Inefficient skills** | `skill-feedback.jsonl` | User negative reactions; inefficiency % and SKILL.md update hints |
 | **Proposed for current task** | `task-skill-proposals.json` | Agent/heuristic skill set for the active task |
-| **Cost Dashboard per-skill** | Hooks in `runs.jsonl` when v2 active; else `cost-attribution.json` | Dollar attribution with confidence labels |
+| **Cost Dashboard per-skill** | Hook rows in `runs.jsonl` (API-priced when usage present); falls back to `cost-attribution.json` only when no hook runs | Dollar attribution with **API-priced** / **hook-measured** labels |
 
 If Skills detail shows many skills with identical run counts and millions of tokens, run **Reset Mis-attributed Cost Data** once after upgrading to v1.0.18+, then reopen the report.
 
@@ -319,7 +319,8 @@ If Skills detail shows many skills with identical run counts and millions of tok
 | **System state** | Mode, profile, attribution, hooks, pipeline freshness, trace timings, circuit breaker status |
 | **Usage by agent** | Claude/Cursor transcript spend for this workspace (14d); Kiro/Copilot deploy-only unless transcripts exist |
 | **Models by agent** | Per-model tokens and estimated spend per agent (Claude ids from transcripts; Cursor size-based estimate when ids missing) |
-| **Value & ROI** | Total estimated minutes saved, $ value (@ hourly rate), net ROI band |
+| **Top skills · measured** | Hook + self-learning rows from `runs.jsonl` at published API rates (excludes attribution-collector splits) |
+| **Skill spend** | Overview stat — hook-grounded 14d total separate from transcript **Est. spend** |
 | **Cost by repo** | Rollup from `runs.jsonl` `project` field |
 | **Cost by skill owner** | Git author of each `SKILL.md` (proxy — not who invoked the agent) |
 | **Top expensive skills** | Cost + ROI band + confidence per skill |
@@ -519,6 +520,13 @@ The background collector writes transcript-based estimates to **`cost-attributio
 **Confidence labels** on dashboard rows (`high` / `estimated` / `low`) indicate how much to trust per-skill **dollar** costs — not an API invoice. Strongest signal: Attribution v2 hooks across Claude, Cursor, Kiro, and Copilot.
 
 **Predictive alerts** (`claudeSkills.features.predictiveAlerts`) compare **this workspace’s** last-7-day transcript spend to your weekly budget — not all projects under `~/.claude/projects/`.
+
+**CLI (repo root):**
+
+```bash
+py scripts/skill_cost_from_runs.py --target .   # per-skill cost from runs.jsonl
+py scripts/agent_billing_report.py              # Anthropic/Cursor/Copilot admin billing (optional keys)
+```
 
 Record runs with `metadata.invoked: true` via the `self-learning` skill for supplementary KPI data. Keep `claudeSkills.optimizer.autoApply` off until attribution looks correct. Optional: `.claude/learning/pricing-overrides.json` for model rates and ROI hourly wage.
 

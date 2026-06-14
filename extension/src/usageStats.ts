@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
-import { CreditUsageSummary } from "./usageCost";
+import { CreditUsageSummary, creditUsageCostLabel, formatModelLabel, modelCostCellLabel } from "./usageCost";
 import { EnrichedRunRecord, normalizeRunRecord, RunAgent, isUsageRunRecord } from "./runRecording";
 import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { WorkspaceHookStatus } from "./hookOps";
@@ -761,25 +761,25 @@ function creditUsageLines(creditUsage: CreditUsageSummary): string[] {
   }
 
   lines.push(
-    `${formatTokenCount(creditUsage.totalTokens)} tokens, ~${formatCost(creditUsage.totalCost)} estimated, across ${creditUsage.sessionCount} session(s).`,
+    `${formatTokenCount(creditUsage.totalTokens)} tokens, ${creditUsageCostLabel(creditUsage).toLowerCase()} ~${formatCost(creditUsage.totalCost)}, across ${creditUsage.sessionCount} session(s).`,
     "",
-    "| Model | Input | Output | Cache write | Cache read | Tokens | Est. cost |",
-    "|---|---|---|---|---|---|---|"
+    "| Model | Input | Output | Cache write | Cache read | Tokens | Cost | Basis |",
+    "|---|---|---|---|---|---|---|---|"
   );
   for (const m of creditUsage.byModel) {
     lines.push(
-      `| ${m.model} | ${formatTokenCount(m.inputTokens)} | ${formatTokenCount(m.outputTokens)} | ${formatTokenCount(m.cacheCreationTokens)} | ${formatTokenCount(m.cacheReadTokens)} | ${formatTokenCount(tokenSum(m))} | ${formatCost(m.cost)} |`
+      `| ${formatModelLabel(m.model, m.costBasis)} | ${formatTokenCount(m.inputTokens)} | ${formatTokenCount(m.outputTokens)} | ${formatTokenCount(m.cacheCreationTokens)} | ${formatTokenCount(m.cacheReadTokens)} | ${formatTokenCount(tokenSum(m))} | ${formatCost(m.cost)} | ${modelCostCellLabel(m.costBasis)} |`
     );
   }
 
-  lines.push("", "| Date | Tokens | Est. cost |", "|---|---|---|");
+  lines.push("", "| Date | Tokens | Cost |", "|---|---|---|");
   for (const d of creditUsage.byDay) {
     lines.push(`| ${d.date} | ${formatTokenCount(tokenSum(d))} | ${formatCost(d.cost)} |`);
   }
 
   lines.push(
     "",
-    "Estimated cost is based on published per-model API pricing for reference - it is not an actual bill (Pro/Max plans are flat-rate).",
+    "Per-model cost uses published API rates on transcript usage (input/output/cache). Rows marked Est. use size-based fallback. Not an actual bill (Pro/Max are flat-rate).",
     ""
   );
   return lines;
@@ -999,13 +999,14 @@ function htmlCreditUsageSection(creditUsage: CreditUsageSummary): string {
   const modelRows = creditUsage.byModel
     .map(
       (m) => `<tr>
-          <td>${escapeHtml(m.model)}</td>
+          <td>${escapeHtml(formatModelLabel(m.model, m.costBasis))}</td>
           <td class="num">${formatTokenCount(m.inputTokens)}</td>
           <td class="num">${formatTokenCount(m.outputTokens)}</td>
           <td class="num">${formatTokenCount(m.cacheCreationTokens)}</td>
           <td class="num">${formatTokenCount(m.cacheReadTokens)}</td>
           <td class="num">${formatTokenCount(tokenSum(m))}</td>
           <td class="num">${formatCost(m.cost)}</td>
+          <td class="num">${modelCostCellLabel(m.costBasis)}</td>
         </tr>`
     )
     .join("\n");
@@ -1024,18 +1025,18 @@ function htmlCreditUsageSection(creditUsage: CreditUsageSummary): string {
     <h2>${title}</h2>
     <div class="stat-grid">
       <div class="stat-pill"><b>Tokens</b><span class="val">${formatTokenCount(creditUsage.totalTokens)}</span></div>
-      <div class="stat-pill"><b>Est. cost</b><span class="val">${formatCost(creditUsage.totalCost)}</span></div>
+      <div class="stat-pill"><b>${escapeHtml(creditUsageCostLabel(creditUsage))}</b><span class="val">${formatCost(creditUsage.totalCost)}</span></div>
       <div class="stat-pill"><b>Sessions</b><span class="val">${creditUsage.sessionCount}</span></div>
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cache W</th><th>Cache R</th><th>Total</th><th>Cost</th></tr></thead>
+      <thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cache W</th><th>Cache R</th><th>Total</th><th>Cost</th><th>Basis</th></tr></thead>
       <tbody>${modelRows}</tbody>
     </table></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Date</th><th>Tokens</th><th>Cost</th></tr></thead>
       <tbody>${dayRows}</tbody>
     </table></div>
-    <div class="note">Reference API pricing — not an actual bill (Pro/Max are flat-rate).</div>
+    <div class="note">Per-model cost from transcript usage at published API rates. Basis: API = usage breakdown, Est. = size fallback. Not an actual bill.</div>
   </div>`;
 }
 
