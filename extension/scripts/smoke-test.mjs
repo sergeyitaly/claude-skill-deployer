@@ -11,6 +11,7 @@ const required = [
   "resources/hooks/session-size-watch.js",
   "resources/hooks/context-focus-watch.js",
   "resources/hooks/practical-focus-watch.js",
+  "resources/hooks/task-drift-watch.js",
   "resources/hooks/official-skills-watch.js",
 ];
 

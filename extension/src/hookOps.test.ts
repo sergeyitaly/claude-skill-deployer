@@ -90,6 +90,7 @@ describe("installCostControlHooks", () => {
     expect(commands.some((c) => c.includes("budget-watch.js"))).toBe(true);
     expect(commands.some((c) => c.includes("context-focus-watch.js"))).toBe(true);
     expect(commands.some((c) => c.includes("practical-focus-watch.js"))).toBe(true);
+    expect(commands.some((c) => c.includes("task-drift-watch.js"))).toBe(true);
   });
 });
 

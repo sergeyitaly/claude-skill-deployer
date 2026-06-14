@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.50** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.51** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,45 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.50** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.51** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.51] - 2026-06-14
+
+**Summary:** Task scope drift (off-profile skill use or large session) now auto-refreshes `task-skill-proposals.json`, re-applies task focus, and injects a one-time agent hint.
+
+**Theme:** Reactive skill re-proposal when agents drift from the active task set
+
+### Highlights
+
+- **Feature** — `claudeSkills.features.taskDriftReproposal` (default on)
+- **Triggers** — `not_in_active_profile` invokes in `runs.jsonl` (default ≥2) and/or session transcript at warn/critical (`session-watch.json`)
+- **Settings** — `claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes`, `taskDriftSessionSizeLevel`, `taskDriftCooldownMinutes`, `taskDriftNotifyUser`
+- **Hook** — `task-drift-watch.js`: Claude Code `UserPromptSubmit` + Cursor `beforeSubmitPrompt` inject refreshed active skill list once per drift event
+- **State files** — `.claude/learning/task-drift-reproposal.json`, `task-drift-prompt.json`
+
+### Behavior changes
+
+- Extension refresh cycle evaluates drift before normal deterministic proposal refresh; cooldown prevents rapid re-proposal loops (default 30 min)
+- Off-profile skills used by the agent are boosted into the refreshed proposal set with high confidence
+- `applyTaskProposalsIfPending` still auto-installs/enables when `autoApplyTaskProposals` is on
+
+### Technical
+
+- `taskDriftReproposal.ts` — detection, heuristic refresh, focus re-apply, prompt snapshot
+- Cost-control hook install now registers `task-drift-watch.js` alongside session-size and context-focus hooks
+
+### Known gaps
+
+- **Kiro / Copilot** — extension refreshes proposals and can notify you, but mid-session agent inject is only wired for Claude Code (`UserPromptSubmit`) and Cursor (`beforeSubmitPrompt`) today
+- **Heuristic refresh** — extension re-seeds proposals from workspace heuristics; agent refinement via `skill-feedback-adaptation` section 3 is still optional after drift inject
 
 ---
 

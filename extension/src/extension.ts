@@ -89,6 +89,7 @@ import {
   syncContextFocusConfigToDisk,
 } from "./contextFocusConfig";
 import { syncAttributionTrustConfig } from "./attributionTrustConfig";
+import { processTaskDriftReproposal } from "./taskDriftReproposal";
 import {
   PRACTICAL_FOCUS_LABELS,
   PracticalFocusLevel,
@@ -886,9 +887,25 @@ export function activate(context: vscode.ExtensionContext) {
         log(`Skill catalog refresh failed: ${(err as Error).message}`);
       }
     }
-    if (isFeatureEnabled("deterministicTaskProposals")) {
+    if (isFeatureEnabled("deterministicTaskProposals") || isFeatureEnabled("taskDriftReproposal")) {
       const manifest = loadManifest(libraryDir);
-      const proposalRefresh = ensureWorkspaceTaskProposals(target, manifest);
+      if (isFeatureEnabled("taskDriftReproposal")) {
+        const drift = processTaskDriftReproposal(target, libraryDir, manifest);
+        if (drift.reproposed && drift.evaluation) {
+          log(
+            `Task drift: refreshed skill proposals (${drift.triggers.join(", ")} — ${drift.evaluation.reason}).`
+          );
+          const settings = vscode.workspace.getConfiguration("claudeSkills.skillFeedback");
+          if (settings.get<boolean>("taskDriftNotifyUser", true)) {
+            notifyBackground(
+              `Task scope drifted — skill set refreshed (${drift.triggers.join(", ")}).`,
+              log
+            );
+          }
+        }
+      }
+      if (isFeatureEnabled("deterministicTaskProposals")) {
+        const proposalRefresh = ensureWorkspaceTaskProposals(target, manifest);
         if (proposalRefresh.refreshed) {
           log(`Task proposals refreshed locally (${proposalRefresh.file?.proposals.length ?? 0} skills).`);
         }
@@ -900,6 +917,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
       }
       scheduleHighUsageSkillProposalCheck(target);
+    }
     syncCliConfigToWorkspace(target, libraryDir);
     const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
     if (sessionApply.applied && sessionApply.result && sessionApply.request) {

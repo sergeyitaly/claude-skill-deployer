@@ -191,7 +191,7 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
    to see which installed skills were **hook-invoked** or logged by
    self-learning (active / unused / removal candidates), plus workspace
    transcript spend for the last 14 days in **Credits · 14d**.
-7. Optionally run **"Enable Cost Control Hooks"** to install session-size, daily-budget, **context focus**, and **practical/deployment focus** `UserPromptSubmit` hooks (warn at 80% of budget, auto-disable high-tier skills when the cap is hit, grounding and deploy-first guidance).
+7. Optionally run **"Enable Cost Control Hooks"** to install session-size, daily-budget, **context focus**, **practical/deployment focus**, and **task-drift** hooks (`UserPromptSubmit` on Claude Code; `beforeSubmitPrompt` on Cursor for drift inject).
 8. Set budget caps under **Settings → Extensions → Claude Skills Manager → Budget**, or click the **Economy / Normal / Unlimited** status bar item to cycle modes.
 9. Click **Context focus** (`$(target)`) and **Practical focus** (`$(rocket)`) in the status bar when deploying or in long sessions — reduces hallucination and hand-wavy infra advice.
 10. **New branch?** When prompted, set your position — **start a new AI agent session**; `profile-init` runs automatically (SessionStart hook + synced skill).
@@ -391,7 +391,7 @@ Profile-init local files — see [Profile init](#profile-init-role--branch-agent
 | `Claude Skills: Show Skill Usage Report` | WebView KPI report: **Skills detail** from hook + self-learning rows in `runs.jsonl`; **Inefficient skills** from feedback; **Proposed for current task**; **Credits · 14d** from session transcripts for this workspace (by day and model). |
 | `Claude Skills: Apply Suggested Skills for Current Task` | Installs uninstalled skills from `task-skill-proposals.json` to all enabled agent paths. Also offered automatically when branch/task token use exceeds the monthly credit threshold. |
 | `Claude Skills: Enable Session Size Notifications` | Alias for **Enable Cost Control Hooks** (session size + budget). |
-| `Claude Skills: Enable Cost Control Hooks (Budget + Session + Focus)` | Installs session-size, budget, context-focus, and practical-focus hooks; syncs `~/.claude/learning/budget.json`, `context-focus.json`, and `practical-focus.json` from VS Code settings. |
+| `Claude Skills: Enable Cost Control Hooks (Budget + Session + Focus)` | Installs session-size, budget, context-focus, practical-focus, and task-drift hooks; syncs `~/.claude/learning/budget.json`, `context-focus.json`, and `practical-focus.json` from VS Code settings. |
 | `Claude Skills: Cycle Budget Mode (Economy / Normal / Unlimited)` | Cycles global budget mode. Economy disables high-tier skills locally; Normal enforces the daily cap; Unlimited only notifies at a high spend threshold. |
 | `Claude Skills: Cycle Context Focus Level` | Cycles Knowledge-forward → Balanced → Local-first → Strict local → off (reduces hallucination in long sessions). |
 | `Claude Skills: Cycle Practical Focus Level` | Cycles Exploratory → Balanced → Architecture-first → Deploy-ready → off (concrete deploy steps over theory). |

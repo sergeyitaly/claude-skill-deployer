@@ -644,6 +644,7 @@ export function tierFeaturePreset(
         autoApplyTaskProposals: false,
         deterministicTaskProposals: false,
         taskSkillFocus: false,
+        taskDriftReproposal: false,
         skillSetResolver: false,
         costAwareSearch: false,
         contextFocus: false,
@@ -671,6 +672,7 @@ export function tierFeaturePreset(
         sessionSkillAdaptation: true,
         deterministicTaskProposals: true,
         taskSkillFocus: true,
+        taskDriftReproposal: true,
         autoApplyTaskProposals: true,
       };
     case "team-multi-agent":
@@ -686,6 +688,7 @@ export function tierFeaturePreset(
         autoApplyTaskProposals: true,
         deterministicTaskProposals: true,
         taskSkillFocus: true,
+        taskDriftReproposal: true,
         costAwareSearch: true,
         skillSetResolver: true,
         predictiveAlerts: true,
@@ -705,6 +708,7 @@ export function tierFeaturePreset(
         autoApplyTaskProposals: true,
         deterministicTaskProposals: true,
         taskSkillFocus: true,
+        taskDriftReproposal: true,
         costAwareSearch: true,
         predictiveAlerts: true,
         emergencyCutoff: true,
@@ -724,6 +728,7 @@ export function tierFeaturePreset(
         sessionSkillAdaptation: true,
         deterministicTaskProposals: true,
         taskSkillFocus: true,
+        taskDriftReproposal: true,
       };
     default:
       return {};

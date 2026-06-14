@@ -26,6 +26,7 @@ export const TIER_FEATURE_KEYS = [
   "sessionSkillAdaptation",
   "autoOptimizer",
   "taskSkillFocus",
+  "taskDriftReproposal",
 ] as const satisfies readonly FeatureKey[];
 
 export type TierUiFeatureKey = (typeof TIER_FEATURE_KEYS)[number];
@@ -37,6 +38,7 @@ export const TIER_FEATURE_LABELS: Record<TierUiFeatureKey, string> = {
   sessionSkillAdaptation: "Session skill adaptation",
   autoOptimizer: "Auto-optimizer",
   taskSkillFocus: "Task skill focus",
+  taskDriftReproposal: "Task drift re-proposal",
 };
 
 /**

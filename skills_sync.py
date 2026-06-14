@@ -45,6 +45,7 @@ HOOK_FILES = [
     "budget-watch.js",
     "context-focus-watch.js",
     "practical-focus-watch.js",
+    "task-drift-watch.js",
     "skill-invoke-watch.js",
     "official-skills-watch.js",
     "profile-init-watch.js",
@@ -743,6 +744,7 @@ def install_hooks(
             ("budget-watch.js", "budget-watch.js"),
             ("context-focus-watch.js", "context-focus-watch.js"),
             ("practical-focus-watch.js", "practical-focus-watch.js"),
+            ("task-drift-watch.js", "task-drift-watch.js"),
         ]:
             cmd = f'node "${{CLAUDE_PROJECT_DIR}}/.claude/hooks/{var_name}"'
             changed |= _ensure_user_prompt_hook(settings, filename, cmd)

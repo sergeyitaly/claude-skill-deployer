@@ -8,6 +8,7 @@ const SESSION_HOOK_FILENAME = "session-size-watch.js";
 const BUDGET_HOOK_FILENAME = "budget-watch.js";
 const CONTEXT_FOCUS_HOOK_FILENAME = "context-focus-watch.js";
 const PRACTICAL_FOCUS_HOOK_FILENAME = "practical-focus-watch.js";
+const TASK_DRIFT_HOOK_FILENAME = "task-drift-watch.js";
 const SKILL_INVOKE_HOOK_FILENAME = "skill-invoke-watch.js";
 const OFFICIAL_SKILLS_HOOK_FILENAME = "official-skills-watch.js";
 const PROFILE_INIT_HOOK_FILENAME = "profile-init-watch.js";
@@ -23,6 +24,7 @@ const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSI
 const BUDGET_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${BUDGET_HOOK_FILENAME}"`;
 const CONTEXT_FOCUS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${CONTEXT_FOCUS_HOOK_FILENAME}"`;
 const PRACTICAL_FOCUS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PRACTICAL_FOCUS_HOOK_FILENAME}"`;
+const TASK_DRIFT_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${TASK_DRIFT_HOOK_FILENAME}"`;
 const CLAUDE_SKILL_INVOKE_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SKILL_INVOKE_HOOK_FILENAME}" claude`;
 const CURSOR_SKILL_INVOKE_COMMAND = `node .cursor/hooks/${SKILL_INVOKE_HOOK_FILENAME} cursor`;
 const KIRO_SKILL_INVOKE_COMMAND = `node .claude/hooks/${SKILL_INVOKE_HOOK_FILENAME} kiro`;
@@ -32,6 +34,7 @@ const COPILOT_PROFILE_INIT_HOOK_COMMAND = `node .claude/hooks/${PROFILE_INIT_HOO
 const OFFICIAL_SKILLS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${OFFICIAL_SKILLS_HOOK_FILENAME}"`;
 const PROFILE_INIT_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PROFILE_INIT_HOOK_FILENAME}"`;
 const CURSOR_PROFILE_INIT_HOOK_COMMAND = `node .cursor/hooks/${PROFILE_INIT_HOOK_FILENAME} cursor`;
+const CURSOR_TASK_DRIFT_HOOK_COMMAND = `node .cursor/hooks/${TASK_DRIFT_HOOK_FILENAME} cursor`;
 const KIRO_PROFILE_INIT_HOOK_COMMAND = `node .claude/hooks/${PROFILE_INIT_HOOK_FILENAME} kiro`;
 const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
 const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread";
@@ -168,6 +171,7 @@ const ALL_HOOK_FILES = [
   BUDGET_HOOK_FILENAME,
   CONTEXT_FOCUS_HOOK_FILENAME,
   PRACTICAL_FOCUS_HOOK_FILENAME,
+  TASK_DRIFT_HOOK_FILENAME,
   SKILL_INVOKE_HOOK_FILENAME,
   OFFICIAL_SKILLS_HOOK_FILENAME,
   PROFILE_INIT_HOOK_FILENAME,
@@ -183,6 +187,36 @@ function copyHookFiles(extensionPath: string, hooksDir: string): void {
   for (const name of ALL_HOOK_FILES) {
     copyFileWithRetry(path.join(hooksSource, name), path.join(hooksDir, name));
   }
+}
+
+function installCursorTaskDriftHook(extensionPath: string, target: string): boolean {
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", TASK_DRIFT_HOOK_FILENAME),
+    path.join(target, ".cursor", "hooks", TASK_DRIFT_HOOK_FILENAME)
+  );
+  const hooksFile = path.join(target, ".cursor", "hooks.json");
+  const existing = readJsonFile<CursorHooksFile>(hooksFile) ?? { version: 1, hooks: {} };
+  existing.version = 1;
+  existing.hooks = existing.hooks ?? {};
+  const entries = existing.hooks.beforeSubmitPrompt ?? [];
+  const idx = entries.findIndex((e) => (e.command ?? "").includes(TASK_DRIFT_HOOK_FILENAME));
+  const desired = {
+    command: CURSOR_TASK_DRIFT_HOOK_COMMAND,
+    timeout: 8,
+  };
+  if (idx >= 0) {
+    const prev = entries[idx];
+    if (prev.command === desired.command) {
+      return false;
+    }
+    entries[idx] = { ...prev, ...desired };
+    existing.hooks.beforeSubmitPrompt = entries;
+    writeJsonFile(hooksFile, existing);
+    return true;
+  }
+  existing.hooks.beforeSubmitPrompt = [...entries, desired];
+  writeJsonFile(hooksFile, existing);
+  return true;
 }
 
 function copyAttributionHookScript(extensionPath: string, hooksDir: string): void {
@@ -539,6 +573,7 @@ export function installCostControlHooks(extensionPath: string, target: string): 
   const hadBudget = hasHook(settings, BUDGET_HOOK_FILENAME);
   const hadContextFocus = hasHook(settings, CONTEXT_FOCUS_HOOK_FILENAME);
   const hadPracticalFocus = hasHook(settings, PRACTICAL_FOCUS_HOOK_FILENAME);
+  const hadTaskDrift = hasHook(settings, TASK_DRIFT_HOOK_FILENAME);
 
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
 
@@ -554,15 +589,19 @@ export function installCostControlHooks(extensionPath: string, target: string): 
     PRACTICAL_FOCUS_HOOK_FILENAME,
     PRACTICAL_FOCUS_HOOK_COMMAND
   );
+  const addedTaskDrift = ensureHookRegistered(settings, TASK_DRIFT_HOOK_FILENAME, TASK_DRIFT_HOOK_COMMAND);
 
-  if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus) {
+  if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus || addedTaskDrift) {
     writeJsonFile(settingsFile, settings);
+    installCursorTaskDriftHook(extensionPath, target);
     return installAttributionHooks(extensionPath, target);
   }
 
-  if (hadSession && hadBudget && hadContextFocus && hadPracticalFocus) {
+  if (hadSession && hadBudget && hadContextFocus && hadPracticalFocus && hadTaskDrift) {
+    installCursorTaskDriftHook(extensionPath, target);
     return installAttributionHooks(extensionPath, target);
   }
+  installCursorTaskDriftHook(extensionPath, target);
   return installAttributionHooks(extensionPath, target);
 }
 

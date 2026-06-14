@@ -142,6 +142,7 @@ function enabledTierFeatureLines(profile: ProjectProfileFile): string[] {
     sessionSkillAdaptation: "Session skill adaptation",
     autoOptimizer: "Auto-optimizer",
     taskSkillFocus: "Task skill focus",
+    taskDriftReproposal: "Task drift re-proposal",
   };
   return on.map((key) => `- ${labels[key]} — enabled for this project tier`);
 }

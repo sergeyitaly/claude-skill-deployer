@@ -1,6 +1,6 @@
 ---
 name: "skill-feedback-adaptation"
-description: "AUTO-START on new agent session/window (injected by profile-init-watch for Claude, Cursor, Kiro, Copilot) and on new tasks — analyze the prompt and repo, write task-skill-proposals.json, then read top proposed skills before other work. Also register user disagreement into skill-feedback.jsonl when the user says no, not, wrong, stop, or disagrees with agent output."
+description: "Register user disagreement and negative reactions on agent answers or skill behavior into .claude/learning/skill-feedback.jsonl; on new tasks analyze the prompt and repo to write task-skill-proposals.json from the existing skill library. Use when the user says no, not, wrong, stop, or otherwise disagrees with agent output; when starting a new task or feature; or when asked about skill inefficiency, feedback adaptation, or which skills fit this task."
 applyTo:
   - **/.claude/learning/skill-feedback.jsonl
   - **/.claude/learning/task-skill-proposals.json
@@ -14,27 +14,6 @@ applyTo:
 Track when users push back on agent answers or skill-driven behavior, surface
 inefficiency in the Usage Report dashboard, and propose skills when a new task
 starts.
-
-## AUTO-START (new session / new task)
-
-**Run immediately — before any other task work — when any of these is true:**
-
-- Session hook injects `[Claude Skills] NEW SESSION` (Claude Code SessionStart,
-  Cursor `sessionStart`, Kiro `agentSpawn`, Copilot SessionStart via
-  `profile-init-watch.js`).
-- User opens a **new chat** or describes a **new task** (feature, bug, review,
-  assessment) in their first message.
-- User asks which skills fit the current task.
-
-**Do this first:**
-
-1. Read this skill (you are here).
-2. Run **section 3** below — overwrite `.claude/learning/task-skill-proposals.json`
-   for the user's actual task (not a stale profile-init seed).
-3. **Read** the top 3–5 proposed `SKILL.md` files from `.claude/skills/` before
-   answering.
-
-Do not skip step 2 because proposals already exist on disk.
 
 ## Storage layout
 
@@ -114,9 +93,9 @@ Manual apply: **Claude Skills: Apply Suggested Skills for Current Task**.
 
 ## 3. Propose skills for a new task
 
-**When to run:** AUTO-START (above), user starts a clearly **new task** (new
-feature, bug area, refactor scope) — especially the first message describing
-what they want to build or fix — or asks "which skills should I use for this?".
+**When to run:** User starts a clearly **new task** (new feature, bug area,
+refactor scope) — especially the first message describing what they want to
+build or fix. Also when they ask "which skills should I use for this?".
 
 **Steps:**
 
@@ -151,6 +130,15 @@ what they want to build or fix — or asks "which skills should I use for this?"
 
 Regenerate this file when the task scope changes materially — overwrite the
 previous proposals.
+
+### Task scope drift (extension auto-refresh)
+
+When `claudeSkills.features.taskDriftReproposal` is on (default), the extension
+may overwrite `task-skill-proposals.json` when agents use skills outside the
+active set (`not_in_active_profile` in `runs.jsonl`) or when the session
+transcript is large (`session-watch.json`). The `task-drift-watch` hook injects
+a one-time refreshed active skill list (Claude `UserPromptSubmit`, Cursor
+`beforeSubmitPrompt`).
 
 ## 4. Integration with other skills
 

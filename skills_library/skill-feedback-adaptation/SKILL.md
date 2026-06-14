@@ -48,6 +48,8 @@ Do not skip step 2 when proposals already exist on disk.
   skill-feedback.jsonl       append-only negative/correction feedback (gitignore)
   task-skill-proposals.json  latest task → skill proposal set (gitignore)
   task-active-skills.json    active + ignored skill lists for task focus (gitignore)
+  task-drift-reproposal.json last automatic drift refresh state (gitignore)
+  task-drift-prompt.json     one-shot agent inject payload for task-drift-watch hook (gitignore)
 ```
 
 Both files are machine-local (same as `runs.jsonl`). Do not commit them.
@@ -160,6 +162,26 @@ what they want to build or fix — or asks "which skills should I use for this?"
 
 Regenerate this file when the task scope changes materially — overwrite the
 previous proposals.
+
+### Task scope drift (extension auto-refresh)
+
+When `claudeSkills.features.taskDriftReproposal` is on (default), the extension
+may **overwrite** `task-skill-proposals.json` without waiting for a new chat:
+
+- **Off-profile use** — `runs.jsonl` hook rows with `metadata.not_in_active_profile: true`
+  reach `claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes` (default 2).
+- **Large session** — `session-watch.json` reports `warn` or `critical` transcript size
+  (threshold: `taskDriftSessionSizeLevel`, default `warn`).
+
+On drift the extension re-applies task focus, may auto-apply proposals, and the
+`task-drift-watch` hook injects a **one-time** message listing the refreshed active
+skills. Cooldown: `taskDriftCooldownMinutes` (default 30).
+
+**Agent behavior after drift inject:**
+
+1. Follow the refreshed active skill set — do not reload ignored skills.
+2. Refine `task-skill-proposals.json` only if the user's stated goal changed.
+3. Prefer `/compact` when the inject mentions a large session.
 
 ## 4. Integration with other skills
 

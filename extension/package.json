@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.50",
+  "version": "1.0.51",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -558,6 +558,32 @@
             "default": 0,
             "minimum": 0,
             "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget × 30, or 30-day workspace spend if daily budget is off."
+          },
+          "claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes": {
+            "type": "number",
+            "default": 2,
+            "minimum": 1,
+            "description": "Refresh task-skill-proposals.json when this many skill invokes occur outside the active task set (not_in_active_profile in runs.jsonl)."
+          },
+          "claudeSkills.skillFeedback.taskDriftSessionSizeLevel": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "critical"
+            ],
+            "default": "warn",
+            "description": "Refresh proposals when any session transcript reaches this size (from session-size-watch.json)."
+          },
+          "claudeSkills.skillFeedback.taskDriftCooldownMinutes": {
+            "type": "number",
+            "default": 30,
+            "minimum": 5,
+            "description": "Minimum minutes between automatic task-drift skill re-proposals."
+          },
+          "claudeSkills.skillFeedback.taskDriftNotifyUser": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show a background notification when task scope drift triggers a skill set refresh."
           }
         }
       },
@@ -963,6 +989,11 @@
             "type": "boolean",
             "default": true,
             "description": "After auto-apply, disable (skillOverrides off) installed skills outside the task proposal set so agents only see the focused skill list. Re-enable via Skills tree checkbox."
+          },
+          "claudeSkills.features.taskDriftReproposal": {
+            "type": "boolean",
+            "default": true,
+            "description": "When agents use skills outside the active task set or the session grows large, refresh task-skill-proposals.json, re-apply task focus, and inject a one-time agent hint via task-drift-watch hook."
           },
           "claudeSkills.features.contextFocus": {
             "type": "boolean",

@@ -21,7 +21,8 @@ export type FeatureKey =
   | "sessionSkillAdaptation"
   | "autoApplyTaskProposals"
   | "deterministicTaskProposals"
-  | "taskSkillFocus";
+  | "taskSkillFocus"
+  | "taskDriftReproposal";
 
 export const DEFAULTS: Record<FeatureKey, boolean> = {
   budgetControls: true,
@@ -44,6 +45,7 @@ export const DEFAULTS: Record<FeatureKey, boolean> = {
   autoApplyTaskProposals: true,
   deterministicTaskProposals: true,
   taskSkillFocus: true,
+  taskDriftReproposal: true,
 };
 
 export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
@@ -74,6 +76,8 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
     "Extension refreshes task-skill-proposals.json from workspace heuristics and skips agent regeneration on new sessions when proposals are fresh (<24h).",
   taskSkillFocus:
     "After auto-apply, set skillOverrides off for installed skills outside the task proposal set so agents only see the focused skill list (saves tokens).",
+  taskDriftReproposal:
+    "When agents use skills outside the active task set or the session transcript grows large, refresh task-skill-proposals.json and re-apply task focus.",
 };
 
 export function isFeatureEnabled(key: FeatureKey): boolean {

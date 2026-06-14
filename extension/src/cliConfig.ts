@@ -21,6 +21,7 @@ const CLI_RELEVANT_FEATURES: FeatureKey[] = [
   "autoApplyTaskProposals",
   "deterministicTaskProposals",
   "taskSkillFocus",
+  "taskDriftReproposal",
   "branchProfiles",
   "multiAgent",
   "budgetControls",

@@ -131,6 +131,15 @@ build or fix. Also when they ask "which skills should I use for this?".
 Regenerate this file when the task scope changes materially — overwrite the
 previous proposals.
 
+### Task scope drift (extension auto-refresh)
+
+When `claudeSkills.features.taskDriftReproposal` is on (default), the extension
+may overwrite `task-skill-proposals.json` when agents use skills outside the
+active set (`not_in_active_profile` in `runs.jsonl`) or when the session
+transcript is large (`session-watch.json`). The `task-drift-watch` hook injects
+a one-time refreshed active skill list (Claude `UserPromptSubmit`, Cursor
+`beforeSubmitPrompt`).
+
 ## 4. Integration with other skills
 
 - **[[self-learning]]** — run outcomes (`runs.jsonl`); feedback is complementary
