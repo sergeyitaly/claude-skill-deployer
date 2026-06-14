@@ -204,6 +204,3 @@ export function buildUsageSkillConfidenceMap(target: string, skillNames: string[
   }
   return out;
 }
-
-/** Exported for tests — documents v2 hook source id. */
-export { SKILL_INVOKE_HOOK_SOURCE };
