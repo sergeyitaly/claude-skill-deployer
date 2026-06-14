@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -1182,8 +1182,8 @@
           },
           "claudeSkills.weeklyReport.emailSubject": {
             "type": "string",
-            "default": "Weekly AI Agent Usage Report",
-            "description": "Email subject prefix for the weekly AI usage report."
+            "default": "Weekly Claude Skills Benefits Report",
+            "description": "Email subject prefix. Body includes extension benefits from runs.jsonl and project-profile.json plus AI spend."
           },
           "claudeSkills.weeklyReport.emailTo": {
             "type": "string",

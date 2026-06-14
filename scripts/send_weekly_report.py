@@ -18,11 +18,15 @@ from cost_intelligence import generate_suggestions, load_cost_attribution, weekl
 
 def build_email_body(summary: dict, target: Path) -> str:
     lines = [
-        "Weekly Claude Skills Cost Report",
+        "Weekly Claude Skills Benefits Report",
         "",
         f"Workspace: {target}",
-        f"Total: ${summary['total']:.2f} ({summary['total_tokens']:,} tokens)",
-        f"Change: {summary['vs_last_week_percent']:+.1f}%",
+        "",
+        "Extension benefits (from runs.jsonl / project-profile when available):",
+        "  - See VS Code report for tier savings, skill success rates, and cross-agent value.",
+        "",
+        f"AI spend this week: ${summary['total']:.2f} ({summary['total_tokens']:,} tokens)",
+        f"Change vs prior week: {summary['vs_last_week_percent']:+.1f}%",
         "",
         "Top skills by cost:",
     ]

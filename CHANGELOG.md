@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.44** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.45** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,38 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.44** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.45** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.45] - 2026-06-14
+
+**Summary:** Weekly email leads with real extension benefits from your logs; manual tier changes work from the status bar and stick reliably.
+
+**Theme:** Benefits visibility & tier control fixes
+
+### Highlights
+
+- **Weekly benefits report** — email opens with tier savings, skill success rates, hook-tracked invocations, and cross-agent savings from `runs.jsonl` + `project-profile.json`
+- **Status bar tier badge** opens **Choose Project Profile Tier** directly (not a read-only summary)
+- **Tier lock** derives from your chosen plan (`solo-focused` etc.), not a stale `profileType` on disk
+- **Settings `lockedTier`** syncs to `project-profile.json` when no explicit user plan is set
+
+### Behavior changes
+
+- After choosing a tier, a confirmation toast always appears (not gated by `notificationLevel`)
+- **Show Project Tier** still offers **Change tier** via a standard information message
+- Default weekly email subject: **Weekly Claude Skills Benefits Report**
+
+### Technical
+
+- New `weeklyReportBenefits` module; publish workflow skips missing registry secrets gracefully (Node 22)
 
 ---
 

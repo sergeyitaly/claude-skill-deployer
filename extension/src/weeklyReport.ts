@@ -19,6 +19,7 @@ import {
   formatTokenCount,
   readEnrichedRuns,
 } from "./usageStats";
+import { formatWeeklyBenefitsLines } from "./weeklyReportBenefits";
 
 export interface WeeklyReportConfig {
   enabled: boolean;
@@ -67,7 +68,7 @@ export function readWeeklyReportConfig(): WeeklyReportConfig {
     smtpPassword: cfg.get<string>("smtpPassword", "") || process.env.CLAUDE_SKILLS_SMTP_PASSWORD || "",
     emailSubject:
       cfg.get<string>("emailSubject", "") ||
-      cfg.get<string>("issueTitle", "Weekly AI Agent Usage Report"),
+      cfg.get<string>("issueTitle", "Weekly Claude Skills Benefits Report"),
   };
 }
 
@@ -269,6 +270,7 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
   const usageStats = enrichUsageStatsWithAttribution(readSkillStatsIndex(target, manifest), attribution);
   const crossAgentLines = formatCrossAgentUsageBrief(usageStats);
   const suggestions = generateOptimizationSuggestions(target, libraryDir).slice(0, 5);
+  const benefitsLines = formatWeeklyBenefitsLines(target, attribution, usageStats, suggestions);
 
   const agentLines: string[] = [];
   for (const [agent, stats] of Object.entries(built.agentTotals).sort()) {
@@ -291,10 +293,13 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
     .slice(0, 5);
 
   const lines = [
-    "## Weekly AI agent usage",
+    "## Weekly Claude Skills report",
     "",
     `**Workspace:** \`${target}\``,
     `**Week ending:** ${new Date().toISOString().slice(0, 10)}`,
+    "",
+    ...benefitsLines,
+    "## AI usage & spend",
     "",
     "### This week (runs.jsonl)",
     `- Estimated spend: **${formatCompactUsd(thisWeek.cost)}**`,
@@ -323,13 +328,9 @@ export function buildWeeklyReportSummary(target: string, libraryDir: string): We
     lines.push(`### Unattributed tokens`, `- ${formatTokenCount(unattributed)} (no invoked skill detected in transcripts)`, "");
   }
 
-  if (suggestions.length > 0) {
-    lines.push("### Optimization opportunities", ...suggestions.map((s) => `- ${s.action}`), "");
-  }
-
   lines.push(
     "---",
-    "_Sent by Claude Skills Manager. Open **Claude Skills: Show Cost Intelligence Dashboard** for details._"
+    "_Sent by Claude Skills Manager. Benefits and spend are estimated from .claude/learning/runs.jsonl, project-profile.json, and session transcripts — not your Anthropic/Cursor invoice. Open **Claude Skills: Show Cost Intelligence Dashboard** for details._"
   );
 
   return {

@@ -48,6 +48,7 @@ import {
   isTeamProductRepo,
   readProjectProfile,
   refreshProjectProfileContext,
+  syncLockedTierSettingToProfile,
   writeProjectProfile,
   formatRepoEvidence,
   isNascentRepo,
@@ -334,6 +335,17 @@ describe("effectiveLockedTier", { timeout: DISK_PROFILE_TIMEOUT }, () => {
     mockLockedTierSetting = "";
   });
 
+  it("derives lock tier from userPlan when profileType is stale on disk", () => {
+    const target = makeWorkspace("lock-stale-type", { "package.json": "{}", "README.md": "# x" });
+    const profile = buildProjectProfile(target, "solo-dev", "solo-focused");
+    expect(
+      effectiveLockedTier(
+        { ...profile, profileType: "team-multi-agent", userPlan: "solo-focused" },
+        target
+      )
+    ).toBe("solo-dev");
+  });
+
   it("ignores settings when lockedTier is not registered in the manifest", () => {
     mockLockedTierInspectAvailable = false;
     mockLockedTierSetting = "team-multi-agent";
@@ -342,6 +354,34 @@ describe("effectiveLockedTier", { timeout: DISK_PROFILE_TIMEOUT }, () => {
     expect(effectiveLockedTier({ ...profile, userPlan: "accept-detected" }, target)).toBeUndefined();
     expect(lockedProjectProfileTier(target)).toBeUndefined();
     mockLockedTierInspectAvailable = true;
+    mockLockedTierSetting = "";
+  });
+});
+
+describe("syncLockedTierSettingToProfile", { timeout: DISK_PROFILE_TIMEOUT }, () => {
+  it("writes settings lockedTier when no explicit user plan", () => {
+    mockLockedTierSetting = "budget-sensitive";
+    mockLockedTierInspectAvailable = true;
+    const target = makeWorkspace("sync-settings", { "package.json": "{}", "README.md": "# x" });
+    writeProjectProfile(target, {
+      ...buildProjectProfile(target),
+      userPlan: "accept-detected",
+    });
+    syncLockedTierSettingToProfile(target);
+    const onDisk = readProjectProfile(target);
+    expect(onDisk?.profileType).toBe("budget-sensitive");
+    expect(onDisk?.manualOverride).toBe("budget-sensitive");
+    mockLockedTierSetting = "";
+  });
+
+  it("does not override explicit user plan from settings", () => {
+    mockLockedTierSetting = "enterprise";
+    mockLockedTierInspectAvailable = true;
+    const target = makeWorkspace("sync-skip-plan", { "package.json": "{}", "README.md": "# x" });
+    writeProjectProfile(target, buildProjectProfile(target, "solo-dev", "solo-focused"));
+    syncLockedTierSettingToProfile(target);
+    expect(readProjectProfile(target)?.profileType).toBe("solo-dev");
+    expect(readProjectProfile(target)?.userPlan).toBe("solo-focused");
     mockLockedTierSetting = "";
   });
 });
@@ -359,6 +399,20 @@ describe("refreshProjectProfileContext", { timeout: DISK_PROFILE_TIMEOUT }, () =
     expect(result.profile?.profileType).toBe("budget-sensitive");
     expect(result.profile?.userPlan).toBe("budget-focused");
     expect(readProjectProfile(target)?.profileType).toBe("budget-sensitive");
+  });
+
+  it("realigns profileType with locked user plan on refresh", () => {
+    const target = makeWorkspace("realign-plan", { "package.json": "{}", "README.md": "# x" });
+    writeProjectProfile(target, {
+      ...buildProjectProfile(target, "solo-dev", "solo-focused"),
+      profileType: "team-multi-agent",
+      userPlan: "solo-focused",
+      detectedAt: "2020-01-01T00:00:00.000Z",
+    });
+    const result = refreshProjectProfileContext(target);
+    expect(result.profile?.profileType).toBe("solo-dev");
+    expect(result.profile?.userPlan).toBe("solo-focused");
+    expect(readProjectProfile(target)?.profileType).toBe("solo-dev");
   });
 
   it("preserves detectedAt when signals refresh but tier is unchanged", () => {

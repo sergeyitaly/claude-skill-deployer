@@ -32,9 +32,9 @@ export function effectiveLockedTier(
   existing: ProjectProfileFile | undefined,
   target?: string
 ): ProjectProfileType | undefined {
-  // On-disk user choice wins over workspace settings (settings may be stale or fail to write).
+  // Explicit user plan wins — derive tier from plan, not a stale profileType on disk.
   if (existing?.userPlan && existing.userPlan !== "accept-detected") {
-    return existing.profileType;
+    return tierForUserPlan(existing.profileType, existing.userPlan);
   }
   if (existing?.manualOverride) {
     return existing.manualOverride;
@@ -893,6 +893,34 @@ export function readProjectProfile(target: string): ProjectProfileFile | undefin
 export function writeProjectProfile(target: string, profile: ProjectProfileFile): void {
   ensureLearningDir(target);
   writeJsonAtomic(projectProfilePath(target), profile);
+}
+
+/** Mirror workspace lockedTier setting into project-profile.json when no explicit user plan is set. */
+export function syncLockedTierSettingToProfile(target: string): void {
+  const existing = readProjectProfile(target);
+  if (existing?.userPlan && existing.userPlan !== "accept-detected") {
+    return;
+  }
+  const tier = lockedProjectProfileTier(target);
+  if (!tier) {
+    if (existing?.manualOverride) {
+      writeProjectProfile(target, {
+        ...existing,
+        manualOverride: undefined,
+        userPlan: "accept-detected",
+      });
+    }
+    return;
+  }
+  const built = buildProjectProfile(target, tier, undefined, { network: false, useCache: true });
+  writeProjectProfile(target, {
+    ...built,
+    detectedFrom: existing?.detectedFrom ?? built.detectedFrom,
+    detectedAt: existing?.detectedAt ?? built.detectedAt,
+    manualOverride: tier,
+    userPlan: "accept-detected",
+    appliedAt: new Date().toISOString(),
+  });
 }
 
 export interface ProjectProfileRefreshResult {

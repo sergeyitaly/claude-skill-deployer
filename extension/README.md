@@ -416,11 +416,18 @@ Profile-init local files — see [Profile init](#profile-init-role--branch-agent
 | `Claude Skills: Restore Archived Skill` | Move skill back from `.claude/skills-archived/`. |
 | `Claude Skills: Estimate PR Review Cost` | PR cost estimate via `gh` (feature `prCostEstimate`). |
 | `Claude Skills: Configure Weekly Report Email` | One-time setup: GitHub/GitLab token finds your inbox, SMTP sends the report. |
-| `Claude Skills: Send Weekly AI Usage Report` | Sends cost/agent usage summary now (test) or waits for Monday 9:00 schedule. |
+| `Claude Skills: Send Weekly AI Usage Report` | Sends benefits + cost summary now (test) or waits for Monday 9:00 schedule. |
 
-### Weekly AI usage report (informative email)
+### Weekly benefits report (informative email)
 
-When `claudeSkills.weeklyReport.enabled` is on (default), the extension checks every 15 minutes while VS Code/Cursor is open. On the configured day (default **Monday 9:00** local), it sends a plain **informative email** about AI agent usage and cost — no GitHub/GitLab issues.
+When `claudeSkills.weeklyReport.enabled` is on (default), the extension checks every 15 minutes while VS Code/Cursor is open. On the configured day (default **Monday 9:00** local), it sends a plain **informative email** with **extension benefits from your logs** (`runs.jsonl`, `project-profile.json`, attribution) plus AI spend — no GitHub/GitLab issues.
+
+The email leads with:
+
+- **Project tier** — capability %, overhead saved vs full stack, net benefit index
+- **Skill outcomes** — success rate, hook-tracked invocations, reliable vs failing skills
+- **Cross-agent value** — measured Cursor savings and multi-agent skill usage
+- **AI usage & spend** — weekly tokens/cost, agent breakdown, top skills (as before)
 
 **One-time setup**
 

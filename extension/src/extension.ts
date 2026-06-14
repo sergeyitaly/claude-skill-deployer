@@ -138,6 +138,7 @@ import {
   refreshProjectProfileContext,
   setLockedProjectProfileTier,
   effectiveLockedTier,
+  syncLockedTierSettingToProfile,
   writeProjectProfile,
 } from "./projectProfile";
 import {
@@ -431,7 +432,7 @@ function refreshProjectTierStatusBar(target?: string) {
   }
   projectTierStatusBarItem.text = formatProjectProfileStatusBarText(profile);
   projectTierStatusBarItem.tooltip = formatProjectProfileStatusBarTooltip(profile);
-  projectTierStatusBarItem.command = "claudeSkills.showProjectProfile";
+  projectTierStatusBarItem.command = "claudeSkills.chooseProjectProfile";
   projectTierStatusBarItem.show();
 }
 
@@ -1121,6 +1122,9 @@ export function activate(context: vscode.ExtensionContext) {
       if (e.affectsConfiguration("claudeSkills.projectProfile")) {
         const target = getWorkspaceTarget();
         if (target) {
+          if (e.affectsConfiguration("claudeSkills.projectProfile.lockedTier")) {
+            syncLockedTierSettingToProfile(target);
+          }
           refreshProjectProfileContext(target);
         }
         refreshAll();
@@ -2311,11 +2315,10 @@ export function activate(context: vscode.ExtensionContext) {
       log(`\n${formatProjectProfileTierComparisonTable(target, profile.profileType)}`);
       log(`\n${formatProjectProfileSummaryBlock(profile)}`);
       const view = formatProjectProfileNotifyMessage(profile);
-      void notifySuggestion(view, ["Change tier"], { dedupeKey: `show-profile|${target}`, log }).then((pick) => {
-        if (pick === "Change tier") {
-          void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
-        }
-      });
+      const pick = await vscode.window.showInformationMessage(view, "Change tier");
+      if (pick === "Change tier") {
+        void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
+      }
     }),
 
     vscode.commands.registerCommand("claudeSkills.detectProjectProfile", async () => {
@@ -2414,10 +2417,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (lockedProfile) {
         revealOutputPanel();
         log(`\n=== Project profile plan confirmed ===\n${formatProjectProfileSummaryBlock(lockedProfile)}`);
-        void notifySuggestion(formatProjectProfileNotifyMessage(lockedProfile), ["View details"], {
-          dedupeKey: `plan-confirmed|${target}|${lockedProfile.profileType}`,
-          log,
-        }).then((action) => {
+        void vscode.window.showInformationMessage(
+          `Claude Skills: project tier set to ${PROFILE_TYPE_LABELS[lockedProfile.profileType]}.`,
+          "View details"
+        ).then((action) => {
           if (action === "View details") {
             void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
           }
