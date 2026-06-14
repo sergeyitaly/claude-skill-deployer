@@ -1,5 +1,6 @@
 import {
   EnrichedRunRecord,
+  isUsageBreakdownRun,
   isUsageRunRecord,
   isV2HookRun,
   readEnrichedRunsFromFile,
@@ -46,7 +47,7 @@ function shouldIncludeRunForSkillCost(record: EnrichedRunRecord): boolean {
 
 function costMethodForRun(record: EnrichedRunRecord): SkillCostMethod {
   const meta = record.metadata ?? {};
-  if (meta.cost_method === "usage_breakdown" || meta.usage) {
+  if (isUsageBreakdownRun(record)) {
     return "usage_breakdown";
   }
   if (meta.cost_method === "model_blended") {

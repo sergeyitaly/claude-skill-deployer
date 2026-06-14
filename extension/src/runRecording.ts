@@ -25,6 +25,12 @@ export function isUsageRunRecord(entry: {
   return !isCollectorTranscriptRun(entry);
 }
 
+/** Run has API usage breakdown (input/output/cache) for model-aware cost. */
+export function isUsageBreakdownRun(entry: { metadata?: RunMetadata }): boolean {
+  const meta = entry.metadata ?? {};
+  return meta.cost_method === "usage_breakdown" || Boolean(meta.usage);
+}
+
 export interface RunMetadata {
   task_type?: string;
   duration_seconds?: number;

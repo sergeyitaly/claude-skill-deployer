@@ -77,7 +77,7 @@ import {
 } from "./costAttribution";
 import { getOptimalAgent, formatRoutingSuggestion } from "./costRouter";
 import { budgetProgressBar, remainingDailyBudgetUsd, writeTodayCostSnapshot } from "./todayCostSnapshot";
-import { computeCreditUsage } from "./usageCost";
+import { computeCreditUsage, spendPrefixForCreditSummary } from "./usageCost";
 import { formatCompactUsd, sumInstallCostEstimate, tierForSkill } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
 import { BudgetMode, budgetUsagePercent, configFromVsCodeSettings, syncBudgetConfigToDisk } from "./budgetConfig";
@@ -473,6 +473,7 @@ function refreshCreditStatusBar(libraryDir: string, target?: string) {
     ? todayRow.inputTokens + todayRow.outputTokens + todayRow.cacheCreationTokens + todayRow.cacheReadTokens
     : 0;
   const totalCost = todayRow?.cost ?? 0;
+  const spendPrefix = spendPrefixForCreditSummary(summary);
   const pct = budgetUsagePercent(totalCost, config);
   writeTodayCostSnapshot(totalCost, totalTokens);
 
@@ -485,12 +486,19 @@ function refreshCreditStatusBar(libraryDir: string, target?: string) {
       config.dailyBudgetUsd > 0 && pct !== null
         ? ` | ${budgetProgressBar(pct)} ${Math.round(pct)}% of ${formatCompactUsd(config.dailyBudgetUsd)}`
         : "";
-    creditStatusBarItem.text = `$(credit-card) Est. ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}${budgetSuffix}`;
+    const costLabel = spendPrefix === "API" ? "API" : spendPrefix === "Mixed" ? "Mixed" : "Est.";
+    creditStatusBarItem.text = `$(credit-card) ${costLabel} ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}${budgetSuffix}`;
     const remaining = remainingDailyBudgetUsd(config);
+    const basisNote =
+      spendPrefix === "API"
+        ? "Priced from transcript usage at published API rates."
+        : spendPrefix === "Mixed"
+          ? "Mix of API usage lines and size-based estimates."
+          : "Size-based estimate — no usage metadata in today's transcripts.";
     creditStatusBarItem.tooltip =
-      `Estimated usage today: ${formatTokenCount(totalTokens)} tokens (~${formatCompactUsd(totalCost)}).` +
+      `${costLabel} usage today: ${formatTokenCount(totalTokens)} tokens (~${formatCompactUsd(totalCost)}).` +
       (remaining !== null ? ` ~${formatCompactUsd(remaining)} budget remaining.` : "") +
-      " Based on session transcripts, not an actual bill.\n\nClick for the full usage report.";
+      ` ${basisNote} Not an actual bill.\n\nClick for the full usage report.`;
   }
   creditStatusBarItem.command = "claudeSkills.showUsageStats";
   creditStatusBarItem.show();

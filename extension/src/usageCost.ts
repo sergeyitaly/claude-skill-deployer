@@ -43,8 +43,30 @@ export function totalTokensForModelUsage(usage: TokenUsage): number {
 }
 
 export function creditUsageCostLabel(summary: CreditUsageSummary): string {
-  const hasEstimate = summary.byModel.some((m) => m.costBasis === "size_estimate");
-  return hasEstimate ? "Computed cost (mixed)" : "Computed cost";
+  const prefix = spendPrefixForCreditSummary(summary);
+  if (prefix === "API") {
+    return "API cost";
+  }
+  if (prefix === "Mixed") {
+    return "Mixed cost";
+  }
+  return "Est. cost";
+}
+
+/** Status-bar / overview prefix: API when all transcript rows have usage metadata. */
+export function spendPrefixForCreditSummary(summary: CreditUsageSummary): "API" | "Mixed" | "Est." | "" {
+  if (summary.totalTokens === 0) {
+    return "";
+  }
+  const hasEst = summary.byModel.some((m) => m.costBasis === "size_estimate");
+  const hasApi = summary.byModel.some((m) => m.costBasis === "usage");
+  if (hasApi && !hasEst) {
+    return "API";
+  }
+  if (hasEst && !hasApi) {
+    return "Est.";
+  }
+  return "Mixed";
 }
 
 export function modelCostCellLabel(costBasis: ModelCostBasis): string {

@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.46** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.47** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -17,13 +17,34 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
-| **1.0.38 – 1.0.46** | Project tiering & cost optimization |
+| **1.0.38 – 1.0.47** | Project tiering & cost optimization |
 | **1.0.34 – 1.0.35** | Dashboard & cache performance |
 | **1.0.30 – 1.0.33** | Sync engine stability & concurrency |
 | **1.0.36** | Security hardening |
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.47] - 2026-06-14
+
+**Summary:** Skills tree, status bar, and usage report show API-priced costs from real hook usage when available — not blanket "Est." labels.
+
+**Theme:** Measured cost labels everywhere hooks fire
+
+### Highlights
+
+- **Skills library tree** — `$X/session (API)` from measured `runs.jsonl` cost; `(catalog)` only when no runs logged
+- **Status bar** — `API` / `Mixed` / `Est.` prefix based on whether today's transcripts include usage metadata
+- **Usage report** — **Cost/run** column with API vs logged basis per skill
+- **Dashboard overview** — **Session spend** when transcripts have full API usage lines
+
+### Technical
+
+- Per-skill stats aggregate `totalCost`, `avgCostUsd`, and `measuredRuns` from hook rows
+- ROI/confidence upgrades when `usage_breakdown` metadata is present
+- Dashboard top-skill rows show **API-priced (hooks)** trust label when usage breakdown is present
 
 ---
 

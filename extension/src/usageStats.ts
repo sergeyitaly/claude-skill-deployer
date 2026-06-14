@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary, creditUsageCostLabel, formatModelLabel, modelCostCellLabel } from "./usageCost";
-import { EnrichedRunRecord, normalizeRunRecord, RunAgent, isUsageRunRecord } from "./runRecording";
+import { EnrichedRunRecord, isUsageBreakdownRun, isUsageRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
 import { readCachedEnrichedRuns } from "./learningStateIndex";
 import { WorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusBannerHtml } from "./workspaceHookStatus";
@@ -55,6 +55,12 @@ export interface SkillUsageStat {
   /** Token totals per agent from runs.jsonl rows. */
   agentTokens?: Partial<Record<RunAgent, number>>;
   rating: UsageRating;
+  /** Sum of normalized `cost` from runs.jsonl hook/self-learning rows. */
+  totalCost?: number | null;
+  /** Average cost per run when totalCost is known. */
+  avgCostUsd?: number | null;
+  /** Runs priced from API usage breakdown (input/output/cache). */
+  measuredRuns?: number;
 }
 
 export interface SuggestedSkill {
@@ -158,6 +164,19 @@ function statForSkill(name: string, recs: RunRecord[], now: number): SkillUsageS
   const tokenVals = recs.map((r) => r.tokens).filter((t): t is number => typeof t === "number");
   const totalTokens = tokenVals.length > 0 ? tokenVals.reduce((a, b) => a + b, 0) : null;
 
+  let totalCost = 0;
+  let costRows = 0;
+  let measuredRuns = 0;
+  for (const rec of recs) {
+    if (typeof rec.cost === "number" && rec.cost > 0) {
+      totalCost += rec.cost;
+      costRows += 1;
+    }
+    if (isUsageBreakdownRun(rec)) {
+      measuredRuns += 1;
+    }
+  }
+
   const agentRuns: Partial<Record<RunAgent, number>> = {};
   const agentTokens: Partial<Record<RunAgent, number>> = {};
   for (const rec of recs) {
@@ -180,6 +199,9 @@ function statForSkill(name: string, recs: RunRecord[], now: number): SkillUsageS
     lastUsed,
     daysSinceLastUse,
     totalTokens,
+    totalCost: costRows > 0 ? totalCost : null,
+    avgCostUsd: costRows > 0 && runs > 0 ? totalCost / runs : null,
+    measuredRuns: measuredRuns > 0 ? measuredRuns : undefined,
     agentRuns: Object.keys(agentRuns).length > 0 ? agentRuns : undefined,
     agentTokens: Object.keys(agentTokens).length > 0 ? agentTokens : undefined,
   });
@@ -720,6 +742,14 @@ function htmlCrossAgentSection(stats: SkillUsageStat[]): string {
   </div>`;
 }
 
+function formatSkillAvgCost(stat: SkillUsageStat): string {
+  if (!stat.avgCostUsd || stat.avgCostUsd <= 0) {
+    return "-";
+  }
+  const basis = (stat.measuredRuns ?? 0) > 0 ? "API" : "logged";
+  return `${formatCost(stat.avgCostUsd)}/run (${basis})`;
+}
+
 function detailTableLines(stats: SkillUsageStat[], confidence?: Map<string, SkillCostConfidence>): string[] {
   if (stats.length === 0) {
     return [];
@@ -727,15 +757,15 @@ function detailTableLines(stats: SkillUsageStat[], confidence?: Map<string, Skil
   const lines = [
     "## Per-skill detail",
     "",
-    "| Skill | Runs | Success | Tokens | By agent | Last used | Rating | Trust |",
-    "|---|---|---|---|---|---|---|---|",
+    "| Skill | Runs | Success | Cost/run | Tokens | By agent | Last used | Rating | Trust |",
+    "|---|---|---|---|---|---|---|---|---|",
   ];
   for (const s of stats) {
     const successPct = s.successRate === null ? "-" : `${Math.round(s.successRate)}%`;
     const conf = confidence?.get(s.name);
     const trust = buildSkillTrustLine(conf);
     lines.push(
-      `| ${s.name} | ${s.runs} | ${successPct} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} | ${trust.summary} |`
+      `| ${s.name} | ${s.runs} | ${successPct} | ${formatSkillAvgCost(s)} | ${formatTokenCount(s.totalTokens)} | ${formatAgentBreakdown(s.agentRuns, s.agentTokens)} | ${formatRecency(s.daysSinceLastUse)} | ${RATING_LABEL[s.rating]} | ${trust.summary} |`
     );
   }
   return lines;
@@ -961,6 +991,7 @@ function htmlDetailTable(
       const roi = manifest ? computeSkillRoi(s.name, manifest, s) : undefined;
       const trust = buildSkillTrustLine(conf, roi?.roiBand);
       const trustHtml = formatSkillTrustHtml(trust);
+      const costCell = formatSkillAvgCost(s);
       const ineff = inefficiency?.get(s.name);
       const ineffCell =
         ineff && ineff.negativeCount > 0
@@ -970,6 +1001,7 @@ function htmlDetailTable(
           <td>${escapeHtml(s.name)}</td>
           <td class="num">${s.runs}</td>
           <td class="num">${successPct}</td>
+          <td class="num">${escapeHtml(costCell)}</td>
           <td class="num">${formatTokenCount(s.totalTokens)}</td>
           <td class="num">${ineffCell}</td>
           <td class="muted">${escapeHtml(formatAgentBreakdown(s.agentRuns, s.agentTokens))}</td>
@@ -980,12 +1012,12 @@ function htmlDetailTable(
     })
     .join("\n");
   const rowsTable = `<table>
-      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Tokens</th><th>Feedback</th><th>By agent</th><th>Last used</th><th>Rating</th><th>ROI / Trust</th></tr></thead>
+      <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Cost/run</th><th>Tokens</th><th>Feedback</th><th>By agent</th><th>Last used</th><th>Rating</th><th>ROI / Trust</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   return `<div class="panel">
     <h2>Skills detail</h2>
-    <p class="note">Runs and tokens count hook invocations and self-learning records only — not transcript cost estimates (see Credits above for session spend). ROI and confidence are best-effort, not billing data.</p>
+    <p class="note">Cost/run from hook invocations at published API rates when usage metadata is present; catalog-tier skills without runs show no cost here. Session spend is under Credits above.</p>
     <div class="table-wrap">${rowsTable}</div>
   </div>`;
 }

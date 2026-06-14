@@ -99,6 +99,7 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
   and `.claude/skills` / `settings.local.json` changes. Manual:
   **Sync Workspace Skills to All Agents**. `.claude/skills/` stays the
   git-tracked file source of truth.
+- **Cost-aware skills tree** (`claudeSkills.features.costAwareSearch`, default on) — description shows **`$X/session (API)`** from measured hook cost, **`(logged)`** from token totals, or **`~$X/session (catalog)`** from manifest tier before any invoke. Status bar uses **`API` / `Mixed` / `Est.`** for today's session spend.
 - **Per-branch skill profiles** — each git branch can have its own skill
   layout stored in `~/.claude/learning/branch-profiles.json` (global,
   personal, not committed). A **Branch profiles** section at the top of the
@@ -303,8 +304,8 @@ The extension tracks **cost** and **estimated value** so optimizations favor hig
 
 | Section | Data source | What it means |
 |---|---|---|
-| **Credits · 14d** | Session transcripts (this workspace) | Total estimated spend — like a mini invoice preview |
-| **Skills detail** | `runs.jsonl` hooks + self-learning | Actual skill invocations / logged runs — not equal-split transcript guesses |
+| **Credits · 14d** | Session transcripts (this workspace) | Spend at published API rates when usage metadata exists; **Est.** only when transcripts lack usage lines |
+| **Skills detail** | `runs.jsonl` hooks + self-learning | Invocations with **Cost/run** (`API` or `logged`) — not equal-split transcript guesses |
 | **Inefficient skills** | `skill-feedback.jsonl` | User negative reactions; inefficiency % and SKILL.md update hints |
 | **Proposed for current task** | `task-skill-proposals.json` | Agent/heuristic skill set for the active task |
 | **Cost Dashboard per-skill** | Hook rows in `runs.jsonl` (API-priced when usage present); falls back to `cost-attribution.json` only when no hook runs | Dollar attribution with **API-priced** / **hook-measured** labels |

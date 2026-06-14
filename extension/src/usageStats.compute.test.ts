@@ -96,6 +96,34 @@ describe("computeUsageStats", () => {
     expect(ci?.agentRuns).toEqual({ claude: 1, cursor: 1 });
     expect(ci?.agentTokens).toEqual({ claude: 12_000, cursor: 8_000 });
   });
+
+  it("aggregates measured cost from hook runs", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "usage-stats-cost-"));
+    installSkill(target, "profile-init");
+    writeRuns(target, [
+      {
+        ts: "2026-06-12T12:01:00.000Z",
+        skill: "profile-init",
+        action: "skill_invoke",
+        agent: "claude",
+        tokens: 32_000,
+        cost: 0.12,
+        rc: 0,
+        metadata: {
+          source: SKILL_INVOKE_HOOK_SOURCE,
+          invoked: true,
+          cost_method: "usage_breakdown",
+          usage: { input_tokens: 10_000, output_tokens: 2_000 },
+        },
+      },
+    ]);
+
+    const stats = computeUsageStats(target, manifest);
+    const profile = stats.find((s) => s.name === "profile-init");
+    expect(profile?.totalCost).toBeCloseTo(0.06, 2);
+    expect(profile?.avgCostUsd).toBeCloseTo(0.06, 2);
+    expect(profile?.measuredRuns).toBe(1);
+  });
 });
 
 describe("resetMisattributedData", () => {

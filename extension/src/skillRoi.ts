@@ -56,19 +56,62 @@ function minutesSavedForSkill(skillName: string, tier: CostEstimateTier, usageSt
   return minutes;
 }
 
-function confidenceForRoi(dataSource: RoiDataSource, usageStat?: SkillUsageStat): ConfidenceLevel {
-  if (dataSource === "v2-hook") {
-    return "high";
-  }
-  if (dataSource === "runs" && (usageStat?.runs ?? 0) >= 3) {
-    return "estimated";
-  }
-  return "low";
-}
-
 export function sumRoiValue(metrics: { minutesSaved: number }): number {
   const rate = hourlyRateUsd() || DEFAULT_HOURLY_RATE_USD;
   return (metrics.minutesSaved / 60) * rate;
+}
+
+function resolveMeasuredSessionCost(usageStat?: SkillUsageStat): {
+  sessionCostUsd?: number;
+  dataSource?: RoiDataSource;
+  confidence?: ConfidenceLevel;
+} {
+  if (!usageStat || usageStat.runs <= 0) {
+    return {};
+  }
+  if (usageStat.avgCostUsd && usageStat.avgCostUsd > 0) {
+    const measured = usageStat.measuredRuns ?? 0;
+    const allMeasured = measured >= usageStat.runs;
+    const mostlyMeasured = measured >= Math.ceil(usageStat.runs / 2);
+    return {
+      sessionCostUsd: usageStat.avgCostUsd,
+      dataSource: allMeasured || mostlyMeasured ? "v2-hook" : "runs",
+      confidence: measured >= 2 ? "high" : measured >= 1 ? "estimated" : "low",
+    };
+  }
+  if (usageStat.totalCost && usageStat.totalCost > 0) {
+    return {
+      sessionCostUsd: usageStat.totalCost / usageStat.runs,
+      dataSource: "runs",
+      confidence: usageStat.runs >= 3 ? "estimated" : "low",
+    };
+  }
+  if (usageStat.totalTokens && usageStat.totalTokens > 0) {
+    return {
+      sessionCostUsd: tokenCostUsd(usageStat.totalTokens / usageStat.runs),
+      dataSource: "runs",
+      confidence: usageStat.runs >= 3 ? "estimated" : "low",
+    };
+  }
+  return {};
+}
+
+/** Human-readable per-session cost for skills tree and reports. */
+export function formatSessionCostLabel(metrics: SkillRoiMetrics): string {
+  const amount = `$${metrics.sessionCostUsd.toFixed(2)}/session`;
+  if (metrics.dataSource === "heuristic") {
+    return `~${amount} (catalog)`;
+  }
+  if (metrics.dataSource === "v2-hook" && metrics.confidence === "high") {
+    return `${amount} (API)`;
+  }
+  if (metrics.dataSource === "v2-hook") {
+    return `${amount} (API)`;
+  }
+  if (metrics.dataSource === "runs") {
+    return `${amount} (logged)`;
+  }
+  return `Est. ${amount}`;
 }
 
 /** Full ROI model for one skill — optional totalCost overrides session average for dashboard rows. */
@@ -81,13 +124,22 @@ export function computeSkillRoi(
   const tier = tierForSkill(manifest.skills[skillName]?.cost_estimate);
   let sessionCostUsd = estimateSessionCostUsd(tier);
   let dataSource: RoiDataSource = "heuristic";
+  let confidence: ConfidenceLevel = "low";
 
-  if (usageStat?.totalTokens && usageStat.runs > 0) {
-    sessionCostUsd = tokenCostUsd(usageStat.totalTokens / usageStat.runs);
-    dataSource = "runs";
+  const measured = resolveMeasuredSessionCost(usageStat);
+  if (measured.sessionCostUsd !== undefined) {
+    sessionCostUsd = measured.sessionCostUsd;
+    dataSource = measured.dataSource ?? "runs";
+    confidence = measured.confidence ?? "estimated";
   }
   if (totalCostUsd !== undefined && usageStat?.runs && usageStat.runs > 0) {
     sessionCostUsd = totalCostUsd / usageStat.runs;
+    if ((usageStat.measuredRuns ?? 0) > 0) {
+      dataSource = "v2-hook";
+      confidence = (usageStat.measuredRuns ?? 0) >= 2 ? "high" : "estimated";
+    } else {
+      dataSource = "runs";
+    }
   }
 
   const minutesSaved = minutesSavedForSkill(skillName, tier, usageStat);
@@ -99,10 +151,13 @@ export function computeSkillRoi(
     minutesSaved,
     roi: Math.round(roi),
     roiBand: roiBandFromMultiple(roi),
-    confidence: confidenceForRoi(dataSource, usageStat),
+    confidence,
     dataSource,
     successRate: usageStat?.successRate ?? null,
-    empiricalCostUsd: usageStat?.totalTokens && usageStat.runs > 0 ? sessionCostUsd : undefined,
+    empiricalCostUsd:
+      measured.sessionCostUsd !== undefined || (usageStat?.totalCost && usageStat.runs > 0)
+        ? sessionCostUsd
+        : undefined,
   };
 }
 
@@ -116,12 +171,22 @@ export function skillRoiMetrics(
 
 export function formatRoiDescription(metrics: SkillRoiMetrics, highlight = false): string {
   const star = highlight && metrics.roiBand === "HIGH" ? " *" : "";
-  const conf = metrics.confidence === "high" ? "" : ` (${metrics.confidence})`;
-  return `Est. $${metrics.sessionCostUsd.toFixed(2)}/session | ~${metrics.minutesSaved} min saved${conf} | ROI: ${metrics.roiBand}${star}`;
+  const costLine = formatSessionCostLabel(metrics);
+  const conf =
+    metrics.dataSource === "heuristic" && metrics.confidence !== "high"
+      ? ` (${metrics.confidence})`
+      : "";
+  return `${costLine} | ~${metrics.minutesSaved} min saved${conf} | ROI: ${metrics.roiBand}${star}`;
 }
 
 export function formatRoiDashboardLine(metrics: SkillRoiMetrics, costLabel: string): string {
-  return `Saved ~${metrics.minutesSaved} min | ROI: ${metrics.roiBand} | ${costLabel} (confidence: ${metrics.confidence})`;
+  const basis =
+    metrics.dataSource === "v2-hook" && metrics.confidence === "high"
+      ? "API-priced"
+      : metrics.dataSource === "runs"
+        ? "logged"
+        : metrics.confidence;
+  return `Saved ~${metrics.minutesSaved} min | ROI: ${metrics.roiBand} | ${costLabel} (${basis})`;
 }
 
 export function compareSkillsForSort(

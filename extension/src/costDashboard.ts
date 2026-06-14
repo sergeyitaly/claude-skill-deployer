@@ -42,7 +42,7 @@ import { CostPipelineResult, runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage, AgentCreditRow } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
-import { formatModelLabel, totalTokensForModelUsage } from "./usageCost";
+import { formatModelLabel, spendPrefixForCreditSummary, totalTokensForModelUsage } from "./usageCost";
 import { getWorkspaceHookStatus } from "./hookOps";
 import {
   formatHookStatusPanelHtml,
@@ -378,12 +378,14 @@ export function buildDashboardMainBodyHtml(
     .map((row, i) => {
       const pct = totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
       const stat = usageMap.get(row.skill);
-      let roi = computeSkillRoi(row.skill, manifest, stat, row.cost);
-      const v2Runs = stat ? (stat.agentRuns ? Object.values(stat.agentRuns).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) : stat.runs) : 0;
-      roi = upgradeRoiConfidenceFromRuns(roi, health.v2HookRuns > 0 ? v2Runs : 0);
+      let roi = computeSkillRoi(row.skill, manifest, stat, useRunsForTopSkills ? row.cost : undefined);
+      const hookRuns = stat?.measuredRuns ?? (stat ? (stat.agentRuns ? Object.values(stat.agentRuns).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) : stat.runs) : 0);
+      roi = upgradeRoiConfidenceFromRuns(roi, hookRuns);
       const conf = skillConfidence.get(row.skill);
-      const trust = buildSkillTrustLine(conf, roi.roiBand);
       const skillRow = skillCostByName.get(row.skill);
+      const apiPriced = Boolean(useRunsForTopSkills && skillRow && skillRow.usageBreakdownRuns > 0);
+      const trust = buildSkillTrustLine(conf, roi.roiBand);
+      const trustLabel = apiPriced ? "API-priced (hooks)" : trust.summary;
       const agentBreakdown =
         useRunsForTopSkills && skillRow
           ? formatSkillCostAgentBreakdown(skillRow)
@@ -404,12 +406,12 @@ export function buildDashboardMainBodyHtml(
       ]
         .filter(Boolean)
         .join(" | ");
-      const confClass = conf?.level ?? "estimated";
+      const confClass = apiPriced ? "high" : conf?.level ?? "estimated";
       return `<div class="skill-row">
         <div class="skill-head"><span class="rank">${i + 1}.</span> <b>${escapeHtml(row.skill)}</b>
           <span class="roi-${roi.roiBand.toLowerCase()}">${escapeHtml(roi.roiBand)}</span>
           <span class="cost">${formatCompactUsd(row.cost)} (${pct}%)</span>
-          <span class="conf-${confClass}">${escapeHtml(trust.summary)}</span>
+          <span class="conf-${confClass}">${escapeHtml(trustLabel)}</span>
           <span class="bar">${bar(row.cost, maxTop)}</span></div>
         ${hint ? `<div class="hint">${escapeHtml(hint)}</div>` : ""}
       </div>`;
@@ -431,6 +433,13 @@ export function buildDashboardMainBodyHtml(
   const trendLabel = formatTrendLabel(trend);
 
   const globalTrust = buildGlobalTrustBadge(health, hookStatus);
+  const sessionSpendPrefix = spendPrefixForCreditSummary(credit);
+  const sessionSpendLabel =
+    sessionSpendPrefix === "API"
+      ? "Session spend"
+      : sessionSpendPrefix === "Mixed"
+        ? "Session spend (mixed)"
+        : "Est. spend";
 
   const mainBodyHtml = `
   ${formatGlobalTrustBannerHtml(globalTrust)} · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}
@@ -470,7 +479,7 @@ export function buildDashboardMainBodyHtml(
   <div class="panel">
     <h2>Overview · 14d</h2>
     <div class="stat-grid">
-      <div class="stat-pill"><b>Est. spend</b><span class="val">${formatCompactUsd(credit.totalCost)}</span></div>
+      <div class="stat-pill"><b>${escapeHtml(sessionSpendLabel)}</b><span class="val">${formatCompactUsd(credit.totalCost)}</span></div>
       ${
         useRunsForTopSkills
           ? `<div class="stat-pill"><b>Skill spend</b><span class="val">${formatCompactUsd(skillCostSummary.totalCost)}</span></div>`
@@ -669,12 +678,20 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
     ? crossAgentSavingsSummary(attribution)
     : { realizedUsd: 0, speculativeUsd: 0, cursorSkills: 0 };
 
+  const sessionSpendPrefix = spendPrefixForCreditSummary(credit);
+  const sessionSpendLabel =
+    sessionSpendPrefix === "API"
+      ? "Session spend (API)"
+      : sessionSpendPrefix === "Mixed"
+        ? "Session spend (mixed)"
+        : "Est. spend";
+
   const lines = [
     "╔══════════════════════════════════════════════════════════════╗",
     "║  Claude Skills - Cost Intelligence Dashboard                 ║",
     "╠══════════════════════════════════════════════════════════════╣",
     "",
-    `  Last 14 days: ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)}`,
+    `  Last 14 days (${sessionSpendLabel.toLowerCase()}): ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)}`,
   ];
 
   if (useRunsForTopSkills) {

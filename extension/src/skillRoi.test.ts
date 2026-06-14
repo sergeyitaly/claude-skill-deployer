@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSkillRoi, roiBandFromMultiple } from "./skillRoi";
+import { computeSkillRoi, formatRoiDescription, roiBandFromMultiple } from "./skillRoi";
 import { loadManifest } from "./skillOps";
 import * as path from "node:path";
 
@@ -36,5 +36,28 @@ describe("skillRoi", () => {
     });
     expect(metrics.sessionCostUsd).toBeGreaterThan(0);
     expect(metrics.confidence).toBe("estimated");
+  });
+
+  it("shows API-priced label when runs have usage breakdown cost", () => {
+    const manifest = loadManifest(libraryDir);
+    const metrics = computeSkillRoi("deployment-practical", manifest, {
+      name: "deployment-practical",
+      runs: 2,
+      successCount: 2,
+      failureCount: 0,
+      successRate: 100,
+      avgDuration: null,
+      lastUsed: null,
+      daysSinceLastUse: null,
+      totalTokens: 5000,
+      totalCost: 0.24,
+      avgCostUsd: 0.12,
+      measuredRuns: 2,
+      rating: "active",
+    });
+    const line = formatRoiDescription(metrics);
+    expect(line).toContain("(API)");
+    expect(line).not.toMatch(/^Est\./);
+    expect(metrics.dataSource).toBe("v2-hook");
   });
 });

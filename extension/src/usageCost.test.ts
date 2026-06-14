@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { encodeCursorWorkspacePath, encodeWorkspacePath } from "./workspaceTranscripts";
-import { computeCreditUsageFromRoots } from "./usageCost";
+import { computeCreditUsageFromRoots, spendPrefixForCreditSummary } from "./usageCost";
 
 const tempDirs: string[] = [];
 
@@ -136,5 +136,27 @@ describe("computeCreditUsageFromRoots", () => {
     const summary = computeCreditUsageFromRoots([root], 7);
     expect(summary.totalTokens).toBe(0);
     expect(summary.sessionCount).toBe(0);
+  });
+
+  it("labels API spend when all models have usage metadata", () => {
+    const workspace = "/tmp/api-prefix";
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "usage-cost-prefix-"));
+    tempDirs.push(root);
+    const encoded = encodeWorkspacePath(workspace);
+    const sessionDir = path.join(root, "projects", encoded);
+    fs.mkdirSync(sessionDir, { recursive: true });
+    const sessionFile = path.join(sessionDir, "api.jsonl");
+    const line = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      message: {
+        model: "claude-sonnet-4",
+        usage: { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    fs.writeFileSync(sessionFile, line + "\n", "utf-8");
+    fs.utimesSync(sessionFile, new Date(), new Date());
+
+    const summary = computeCreditUsageFromRoots([root], 7, workspace);
+    expect(spendPrefixForCreditSummary(summary)).toBe("API");
   });
 });

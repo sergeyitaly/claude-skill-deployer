@@ -1,7 +1,7 @@
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { SkillAttributionMap } from "./costAttribution";
 import { readCachedEnrichedRuns, countCachedV2HookRuns } from "./learningStateIndex";
-import { isUsageRunRecord, isV2HookRun, SKILL_INVOKE_HOOK_SOURCE } from "./runRecording";
+import { isUsageBreakdownRun, isUsageRunRecord, isV2HookRun } from "./runRecording";
 
 export type ConfidenceLevel = "high" | "estimated" | "low";
 
@@ -86,10 +86,17 @@ export function assessSkillCostConfidence(
   const runs = readCachedEnrichedRuns(target);
   const v2BySkill = new Map<string, number>();
   const runsBySkill = new Map<string, number>();
+  const measuredBySkill = new Map<string, number>();
   for (const r of runs) {
+    if (!isUsageRunRecord(r)) {
+      continue;
+    }
     runsBySkill.set(r.skill, (runsBySkill.get(r.skill) ?? 0) + 1);
     if (isV2HookRun(r)) {
       v2BySkill.set(r.skill, (v2BySkill.get(r.skill) ?? 0) + 1);
+    }
+    if (isUsageBreakdownRun(r)) {
+      measuredBySkill.set(r.skill, (measuredBySkill.get(r.skill) ?? 0) + 1);
     }
   }
 
@@ -98,10 +105,12 @@ export function assessSkillCostConfidence(
 
   for (const skill of Object.keys(attribution)) {
     const v2Count = v2BySkill.get(skill) ?? 0;
+    const measuredCount = measuredBySkill.get(skill) ?? 0;
     const runCount = runsBySkill.get(skill) ?? 0;
     const inTranscript = skill in transcriptSkills;
-    const source = sourceForSkill(skill, options.usesV2HookRuns, inTranscript, v2Count);
-    const score = scoreForSource(source, Math.max(v2Count, runCount), options.staleEqualSplit);
+    const hookSignal = Math.max(v2Count, measuredCount);
+    const source = sourceForSkill(skill, options.usesV2HookRuns, inTranscript, hookSignal);
+    const score = scoreForSource(source, Math.max(hookSignal, runCount), options.staleEqualSplit);
     out.set(skill, {
       skill,
       level: levelFromScore(score),

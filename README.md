@@ -171,19 +171,20 @@ Or Settings → `claudeSkills.features.*`:
 
 ## Cost intelligence
 
-Estimates only — not Anthropic/Cursor invoices. Per-skill data is **best-effort**; confidence labels say how much to trust each row.
+Estimates where no usage data exists — hook/API-priced where hooks logged usage. Per-skill data is **best-effort**; confidence labels say how much to trust each row.
 
 ### Dashboard & ROI
 
 - **Cost Intelligence Dashboard** — agent-level spend for **this workspace** (last 14 days); **Top skills · measured** from hook invocations at published API rates; **Skill spend** overview stat separate from transcript estimates; per-skill costs with **ROI band** and **confidence**; **Value & ROI** summary; **System state** panel; cost by repo and skill owner; cross-agent savings; CSP-hardened webview
-- **ROI in skills tree** — `Cycle Skill Sort (ROI / Cost)` → relevance, lowest cost, highest ROI, best value; tier + skill-specific time-saved heuristics
+- **ROI in skills tree** — each skill shows **`$X/session (API)`** when hooks logged usage, **`(logged)`** from token totals, or **`~$X/session (catalog)`** before first invoke; sort via `Cycle Skill Sort (ROI / Cost)`
+- **Status bar (today)** — **`API` / `Mixed` / `Est.`** prefix from transcript usage metadata (not a flat estimate label)
 - **Graded trust** — workspace confidence score (0–100%) and per-skill `high` / `estimated` / `low`; optimizer runs when confidence ≥ 45% (not only when fully `reliable`)
 
 ### Attribution & data
 
 - **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
 - **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open)
-- **Usage Report split** — **Skills detail** (runs, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts for this workspace; **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
+- **Usage Report split** — **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
 - **Stale data guard** — auto-purges equal-split `transcriptSkills`; **Top skills** uses hook-measured costs when v2 runs exist (even if transcript attribution is stale)
 - **Indexed stats** — `skill-stats.json` + `daily-stats.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
