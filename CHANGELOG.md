@@ -2,9 +2,15 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.35** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.36** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.36] - 2026-06-14
+
+### Security
+
+- **Git command hardening** — `branchProfiles.ts` (`gitCommand`) and `skillOps.ts` (`isSkillCommittedOnBranch`) now call `execFileSync("git", [...])` with argument arrays instead of interpolating workspace paths and skill folder names into a shell string, removing a potential command-injection vector.
 
 ## [1.0.35] - 2026-06-14
 

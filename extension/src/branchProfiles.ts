@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -136,7 +136,7 @@ function getGitApi(): GitApi | undefined {
 
 function gitCommand(root: string, args: string): string | undefined {
   try {
-    const out = execSync(`git -C "${root}" ${args}`, {
+    const out = execFileSync("git", ["-C", root, ...args.split(" ")], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 5000,

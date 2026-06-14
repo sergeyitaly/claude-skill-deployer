@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -125,7 +125,7 @@ function ensureSettingsLocalIgnored(target: string): void {
 export function isSkillCommittedOnBranch(target: string, skillName: string): boolean {
   try {
     const rel = `.claude/skills/${skillName}`;
-    const out = execSync(`git ls-tree -r HEAD --name-only -- "${rel}"`, {
+    const out = execFileSync("git", ["ls-tree", "-r", "HEAD", "--name-only", "--", rel], {
       cwd: target,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
