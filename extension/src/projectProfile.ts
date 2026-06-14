@@ -74,7 +74,19 @@ export const PROFILE_TYPE_LABELS: Record<ProjectProfileType, string> = {
 
 const THROWAWAY_DIR_RE = /^(tmp|temp|scratch|playground|sandbox|demo|test-)/i;
 
-const EMPTY_REPO_METRICS = {
+export type RepoMetrics = Pick<
+  ProjectProfileSignals,
+  | "branchCount"
+  | "trackedFileCount"
+  | "repoSizeKb"
+  | "commitsLast30d"
+  | "commitsTotal"
+  | "projectAgeDays"
+  | "authorCount30d"
+  | "activityLevel"
+>;
+
+const EMPTY_REPO_METRICS: RepoMetrics = {
   branchCount: 0,
   trackedFileCount: 0,
   repoSizeKb: 0,
@@ -82,7 +94,7 @@ const EMPTY_REPO_METRICS = {
   commitsTotal: 0,
   projectAgeDays: 0,
   authorCount30d: 0,
-  activityLevel: "none" as ActivityLevel,
+  activityLevel: "none",
 };
 
 export function projectProfilePath(target: string): string {
@@ -187,10 +199,7 @@ function detectActivityLevel(commitsLast30d: number): ActivityLevel {
   return "none";
 }
 
-export function detectRepoMetrics(target: string, isGitRepo: boolean): Omit<
-  ProjectProfileSignals,
-  "gitRemotes" | "teamSize" | "aiTools" | "budgetPattern" | "hasSharedClaudeSkills" | "isGitRepo"
-> {
+export function detectRepoMetrics(target: string, isGitRepo: boolean): RepoMetrics {
   if (!isGitRepo) {
     return { ...EMPTY_REPO_METRICS };
   }
@@ -205,8 +214,8 @@ export function detectRepoMetrics(target: string, isGitRepo: boolean): Omit<
   if (countObjects) {
     const sizePack = countObjects.match(/^size-pack:\s*(\d+)/m);
     const sizeLoose = countObjects.match(/^size:\s*(\d+)/m);
-    const packKb = sizePack ? Math.round(parseInt(sizePack[1], 10) / 1024) : 0;
-    const looseKb = sizeLoose ? Math.round(parseInt(sizeLoose[1], 10) / 1024) : 0;
+    const packKb = sizePack?.[1] ? Math.round(parseInt(sizePack[1], 10) / 1024) : 0;
+    const looseKb = sizeLoose?.[1] ? Math.round(parseInt(sizeLoose[1], 10) / 1024) : 0;
     repoSizeKb = packKb + looseKb;
   }
 
@@ -404,10 +413,10 @@ export function detectProjectProfileSignals(target: string): ProjectProfileSigna
     budgetPattern: detectBudgetPattern(),
     hasSharedClaudeSkills: detectSharedClaudeSkills(target, isGitRepo),
     isGitRepo,
-    hasAidlcWorkflow: detectAidlcWorkflow(target),
-    hasPendingProfileInit: detectPendingProfileInit(target),
     ...metrics,
     authorCount30d,
+    hasAidlcWorkflow: detectAidlcWorkflow(target),
+    hasPendingProfileInit: detectPendingProfileInit(target),
   };
 }
 

@@ -17,6 +17,7 @@ Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.41** is the cu
 ### Fixed
 
 - **First-open prompt** — `wasProjectTierPromptShown` default no longer skips the plans dialog on new workspaces.
+- **CI compile** — strict `tsc` fixes for `RepoMetrics` typing, tier UI feature labels, and workspace target guard.
 
 ## [1.0.40] - 2026-06-14
 

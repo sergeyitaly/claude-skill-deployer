@@ -744,7 +744,7 @@ export function activate(context: vscode.ExtensionContext) {
           lastProjectProfileLogged = profileKey;
           log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
         }
-        if (projectProfileChanged && projectProfileFirstDetect) {
+        if (projectProfileChanged && projectProfileFirstDetect && target) {
           void maybePromptProjectTierOnFirstDetect(context, target, projectProfile, true).then((finalProfile) => {
             const finalKey = `${target}|${finalProfile.profileType}|${finalProfile.appliedAt ?? finalProfile.detectedAt}`;
             refreshProjectTierStatusBar(target);
