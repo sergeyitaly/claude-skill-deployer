@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { setActiveProjectProfileContext } from "./activeProjectProfile";
 import {
   buildProjectProfile,
+  buildProjectProfileWithRemoteProbe,
   formatRepoEvidence,
   isMultiAgentGreenfield,
   isNascentRepo,
@@ -159,7 +160,7 @@ export function buildProjectPlanQuickPickItems(
 export async function promptProjectPlanOnFirstDetect(
   context: vscode.ExtensionContext,
   target: string,
-  detected: ProjectProfileFile
+  detectedProfile?: ProjectProfileFile
 ): Promise<UserProjectPlan | undefined> {
   if (!projectProfilePromptOnFirstDetectEnabled()) {
     return undefined;
@@ -168,9 +169,10 @@ export async function promptProjectPlanOnFirstDetect(
     return undefined;
   }
 
+  const detected = detectedProfile ?? (await buildProjectProfileWithRemoteProbe(target));
   const items = buildProjectPlanQuickPickItems(detected);
   const pick = await vscode.window.showQuickPick(items, {
-    title: "Claude Skills — repo analyzed, confirm your plans",
+    title: "Claude Skills — remote git + repo analyzed, confirm your plans",
     placeHolder: formatDetectedTierSummary(detected).replace(/\n/g, " · "),
     ignoreFocusOut: true,
   });
@@ -205,15 +207,20 @@ export async function applyUserProjectPlan(
 export async function maybePromptProjectTierOnFirstDetect(
   context: vscode.ExtensionContext,
   target: string,
-  detected: ProjectProfileFile,
   isFirstDetect: boolean
 ): Promise<ProjectProfileFile> {
   if (!isFirstDetect) {
-    return detected;
+    return buildProjectProfile(target);
   }
+  const detected = await buildProjectProfileWithRemoteProbe(target);
   const plan = await promptProjectPlanOnFirstDetect(context, target, detected);
   if (!plan || plan === "accept-detected") {
-    const confirmed = buildProjectProfile(target, undefined, "accept-detected");
+    const confirmed: ProjectProfileFile = {
+      ...detected,
+      userPlan: "accept-detected",
+      manualOverride: undefined,
+      appliedAt: new Date().toISOString(),
+    };
     writeProjectProfile(target, confirmed);
     return confirmed;
   }

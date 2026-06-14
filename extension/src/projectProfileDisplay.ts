@@ -2,6 +2,7 @@ import { DEFAULTS, FeatureKey } from "./featureFlags";
 import { formatCompactUsd } from "./skillCost";
 import {
   formatRepoEvidence,
+  effectiveBranchCount,
   PROFILE_TYPE_LABELS,
   ProjectProfileFile,
   ProjectProfileType,
@@ -180,13 +181,17 @@ export function formatProjectProfileDashboardHtml(profile: ProjectProfileFile): 
       ? `<p class="note">Estimated savings vs full stack: <b>~${formatCompactUsd(view.monthlySavingsUsd)}/month</b> (extension tokens + background work)</p>`
       : `<p class="note">Full stack enabled for this tier — all key features ON.</p>`;
   const s = profile.detectedFrom;
-  const repoStats = `${s.trackedFileCount} files · ${s.branchCount} branches · ${s.commitsTotal} commits · ${s.activityLevel} activity`;
+  const repoStats = `${s.trackedFileCount} files · ${effectiveBranchCount(s)} branches · ${s.commitsTotal} commits`;
+  const remoteStats = s.remoteOriginUrl
+    ? `${s.remoteBranchCount} remote branches · ${s.remoteProbeSource}`
+    : "no origin";
   return `
   <div class="panel">
     <h2>Project tier</h2>
     <div class="stat-grid">
       <div class="stat-pill"><b>Detected</b><span class="val">${view.badge}</span></div>
       <div class="stat-pill"><b>Repo</b><span class="val">${repoStats}</span></div>
+      <div class="stat-pill"><b>Origin</b><span class="val">${remoteStats}</span></div>
       <div class="stat-pill"><b>Tier presets</b><span class="val">${view.tierFeaturesApplied ? "ON" : "off"}</span></div>
       <div class="stat-pill"><b>Overhead</b><span class="val">~${formatCompactUsd(view.monthlyOverheadUsd)}/mo</span></div>
       ${

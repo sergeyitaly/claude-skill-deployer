@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -708,6 +708,18 @@
             "type": "boolean",
             "default": true,
             "description": "On first workspace open (no project-profile.json yet), ask how you plan to use AI agents — e.g. multi-agent team vs solo — instead of silently applying auto-detect."
+          },
+          "claudeSkills.projectProfile.probeRemoteGit": {
+            "type": "boolean",
+            "default": true,
+            "description": "When choosing a project tier, probe origin via git ls-remote (extension-only, no AI agent) for branch/author signals. Cached 1h in .claude/learning/remote-repo-probe.json."
+          },
+          "claudeSkills.projectProfile.remoteProbeTimeoutMs": {
+            "type": "number",
+            "default": 8000,
+            "minimum": 2000,
+            "maximum": 30000,
+            "description": "Timeout for git ls-remote when probing origin during tier selection."
           },
           "claudeSkills.projectProfile.lockedTier": {
             "type": "string",

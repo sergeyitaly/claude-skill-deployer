@@ -18,6 +18,10 @@ import {
   buildProjectProfile,
   shouldRefreshProjectProfile,
   effectiveFeatureMap,
+  effectiveBranchCount,
+  effectiveAuthorCount30d,
+  isRemoteTeamClone,
+  isTeamProductRepo,
   writeProjectProfile,
   formatRepoEvidence,
   isNascentRepo,
@@ -48,6 +52,13 @@ function baseSignals(overrides: Partial<ProjectProfileSignals> = {}): ProjectPro
     projectAgeDays: 14,
     authorCount30d: 1,
     activityLevel: "low",
+    remoteReachable: false,
+    remoteOriginUrl: "",
+    remoteBranchCount: 0,
+    remoteAuthors30d: 0,
+    upstreamAhead: 0,
+    upstreamBehind: 0,
+    remoteProbeSource: "none",
     ...overrides,
   };
 }
@@ -190,6 +201,43 @@ describe("resolveProjectProfileType", () => {
     expect(resolved.rationale).toContain("Git analysis");
   });
 
+  it("picks team-multi-agent for fresh clone of remote team repo", () => {
+    const signals = baseSignals({
+      commitsTotal: 2,
+      trackedFileCount: 8,
+      branchCount: 1,
+      remoteReachable: true,
+      remoteBranchCount: 12,
+      remoteOriginUrl: "https://github.com/acme/monorepo.git",
+      remoteProbeSource: "ls-remote",
+    });
+    expect(isRemoteTeamClone(signals)).toBe(true);
+    const target = makeWorkspace("clone", { "package.json": "{}", "README.md": "# x" });
+    const resolved = resolveProjectProfileType(signals, target);
+    expect(resolved.profileType).toBe("team-multi-agent");
+    expect(resolved.rationale).toContain("Fresh clone");
+  });
+
+  it("picks team-multi-agent from remote branch signals on nascent local clone", () => {
+    const signals = baseSignals({
+      commitsTotal: 1,
+      trackedFileCount: 8,
+      branchCount: 1,
+      remoteReachable: true,
+      remoteBranchCount: 8,
+      remoteOriginUrl: "https://github.com/acme/repo.git",
+      remoteProbeSource: "ls-remote",
+    });
+    expect(effectiveBranchCount(signals)).toBe(8);
+    expect(isTeamProductRepo({ ...signals, trackedFileCount: 40, commitsTotal: 25 })).toBe(true);
+  });
+
+  it("uses effective author count from remote history", () => {
+    const signals = baseSignals({ authorCount30d: 1, remoteAuthors30d: 4, remoteReachable: true });
+    expect(effectiveAuthorCount30d(signals)).toBe(4);
+    expect(detectTeamSizeFromSignals(signals)).toBe("small");
+  });
+
   it("picks budget-sensitive when budget configured", () => {
     const signals = baseSignals({ budgetPattern: "configured" });
     const target = makeWorkspace("budget", { "package.json": "{}" });
@@ -197,6 +245,13 @@ describe("resolveProjectProfileType", () => {
     expect(resolved.profileType).toBe("budget-sensitive");
   });
 });
+
+function detectTeamSizeFromSignals(signals: ProjectProfileSignals): ProjectProfileSignals["teamSize"] {
+  const authors = effectiveAuthorCount30d(signals);
+  if (authors <= 1) return "solo";
+  if (authors <= 4) return "small";
+  return "team";
+}
 
 describe("tierForUserPlan", () => {
   it("maps user plans to tiers", () => {

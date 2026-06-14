@@ -8,6 +8,11 @@ import { setActiveProjectProfileContext } from "./activeProjectProfile";
 import { DEFAULTS, FeatureKey } from "./featureFlags";
 import { ensureLearningDir } from "./usageStats";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
+import {
+  formatRemoteGitEvidence,
+  probeRemoteGitSignals,
+  RemoteGitSignals,
+} from "./repoRemoteProbe";
 
 const PROFILE_REDETECT_MS = 24 * 60 * 60 * 1000;
 
@@ -49,6 +54,13 @@ export interface ProjectProfileSignals {
   projectAgeDays: number;
   authorCount30d: number;
   activityLevel: ActivityLevel;
+  remoteReachable: boolean;
+  remoteOriginUrl: string;
+  remoteBranchCount: number;
+  remoteAuthors30d: number;
+  upstreamAhead: number;
+  upstreamBehind: number;
+  remoteProbeSource: RemoteGitSignals["remoteProbeSource"];
 }
 
 export interface ProjectProfileFile {
@@ -97,6 +109,24 @@ const EMPTY_REPO_METRICS: RepoMetrics = {
   authorCount30d: 0,
   activityLevel: "none",
 };
+
+const EMPTY_REMOTE_SIGNALS: RemoteGitSignals = {
+  remoteReachable: false,
+  remoteOriginUrl: "",
+  remoteBranchCount: 0,
+  remoteAuthors30d: 0,
+  upstreamAhead: 0,
+  upstreamBehind: 0,
+  remoteProbeSource: "none",
+};
+
+export function effectiveBranchCount(signals: ProjectProfileSignals): number {
+  return Math.max(signals.branchCount, signals.remoteBranchCount);
+}
+
+export function effectiveAuthorCount30d(signals: ProjectProfileSignals): number {
+  return Math.max(signals.authorCount30d, signals.remoteAuthors30d);
+}
 
 export function projectProfilePath(target: string): string {
   return path.join(target, ".claude", "learning", "project-profile.json");
@@ -381,11 +411,13 @@ export function formatRepoEvidence(signals: ProjectProfileSignals): string {
   if (!signals.isGitRepo) {
     return "No git repository — treated as a scratch workspace.";
   }
+  const branches = effectiveBranchCount(signals);
+  const authors = effectiveAuthorCount30d(signals);
   const parts = [
     `${signals.trackedFileCount} tracked files`,
-    `${signals.branchCount} branch${signals.branchCount === 1 ? "" : "es"}`,
+    `${branches} branch${branches === 1 ? "" : "es"} (${signals.branchCount} local, ${signals.remoteBranchCount} remote)`,
     `${signals.commitsTotal} commits (${signals.commitsLast30d} last 30d)`,
-    `${signals.authorCount30d} author${signals.authorCount30d === 1 ? "" : "s"} (30d)`,
+    `${authors} author${authors === 1 ? "" : "s"} (30d)`,
     `${signals.activityLevel} activity`,
   ];
   if (signals.repoSizeKb > 0) {
@@ -400,24 +432,45 @@ export function formatRepoEvidence(signals: ProjectProfileSignals): string {
   if (signals.hasPendingProfileInit) {
     parts.push("profile-init pending");
   }
-  return `Git analysis: ${parts.join(", ")}.`;
+  const remoteLine = formatRemoteGitEvidence({
+    remoteReachable: signals.remoteReachable,
+    remoteOriginUrl: signals.remoteOriginUrl,
+    remoteBranchCount: signals.remoteBranchCount,
+    remoteAuthors30d: signals.remoteAuthors30d,
+    upstreamAhead: signals.upstreamAhead,
+    upstreamBehind: signals.upstreamBehind,
+    remoteProbeSource: signals.remoteProbeSource,
+  });
+  const base = `Git analysis: ${parts.join(", ")}.`;
+  return remoteLine ? `${base} ${remoteLine}` : base;
 }
 
-export function detectProjectProfileSignals(target: string): ProjectProfileSignals {
+export function detectProjectProfileSignals(
+  target: string,
+  remoteOpts: { network?: boolean; useCache?: boolean } = { network: false, useCache: true }
+): ProjectProfileSignals {
   const { remotes, isGitRepo } = detectGitRemotes(target);
   const metrics = detectRepoMetrics(target, isGitRepo);
-  const authorCount30d = metrics.authorCount30d;
+  const remote = isGitRepo ? probeRemoteGitSignals(target, remoteOpts) : { ...EMPTY_REMOTE_SIGNALS };
+  const authorEffective = Math.max(metrics.authorCount30d, remote.remoteAuthors30d);
   return {
     gitRemotes: remotes,
-    teamSize: detectTeamSize(authorCount30d),
+    teamSize: detectTeamSize(authorEffective),
     aiTools: detectAiTools(target),
     budgetPattern: detectBudgetPattern(),
     hasSharedClaudeSkills: detectSharedClaudeSkills(target, isGitRepo),
     isGitRepo,
     ...metrics,
-    authorCount30d,
+    authorCount30d: metrics.authorCount30d,
     hasAidlcWorkflow: detectAidlcWorkflow(target),
     hasPendingProfileInit: detectPendingProfileInit(target),
+    remoteReachable: remote.remoteReachable,
+    remoteOriginUrl: remote.remoteOriginUrl,
+    remoteBranchCount: remote.remoteBranchCount,
+    remoteAuthors30d: remote.remoteAuthors30d,
+    upstreamAhead: remote.upstreamAhead,
+    upstreamBehind: remote.upstreamBehind,
+    remoteProbeSource: remote.remoteProbeSource,
   };
 }
 
@@ -425,15 +478,16 @@ export function isNascentRepo(signals: ProjectProfileSignals): boolean {
   return (
     signals.commitsTotal < 3 &&
     signals.trackedFileCount < 12 &&
-    signals.branchCount <= 1 &&
-    signals.authorCount30d <= 1
+    effectiveBranchCount(signals) <= 1 &&
+    effectiveAuthorCount30d(signals) <= 1 &&
+    signals.remoteBranchCount <= 1
   );
 }
 
 export function isEnterpriseRepo(signals: ProjectProfileSignals): boolean {
   return (
     signals.teamSize === "team" &&
-    signals.branchCount >= 6 &&
+    effectiveBranchCount(signals) >= 6 &&
     signals.trackedFileCount >= 100 &&
     signals.projectAgeDays >= 60 &&
     signals.budgetPattern === "unlimited"
@@ -444,22 +498,36 @@ export function isTeamProductRepo(signals: ProjectProfileSignals): boolean {
   const collaborative =
     signals.teamSize !== "solo" ||
     signals.hasSharedClaudeSkills ||
-    signals.authorCount30d >= 2;
-  const multiBranch = signals.branchCount >= 3;
-  const substantive = signals.trackedFileCount >= 30 || signals.commitsTotal >= 20;
+    effectiveAuthorCount30d(signals) >= 2;
+  const multiBranch = effectiveBranchCount(signals) >= 3;
+  const remoteTeam = signals.remoteReachable && signals.remoteBranchCount >= 5;
+  const substantive =
+    signals.trackedFileCount >= 30 ||
+    signals.commitsTotal >= 20 ||
+    remoteTeam;
   const active = signals.activityLevel === "moderate" || signals.activityLevel === "high";
-  return (collaborative || multiBranch) && substantive && (active || collaborative);
+  return (collaborative || multiBranch || remoteTeam) && substantive && (active || collaborative || remoteTeam);
+}
+
+export function isRemoteTeamClone(signals: ProjectProfileSignals): boolean {
+  return (
+    signals.remoteReachable &&
+    signals.remoteBranchCount >= 5 &&
+    signals.commitsTotal < 20 &&
+    signals.trackedFileCount < 30
+  );
 }
 
 export function wantsMultiAgentSync(signals: ProjectProfileSignals): boolean {
   return (
     signals.teamSize !== "solo" ||
-    signals.branchCount >= 3 ||
+    effectiveBranchCount(signals) >= 3 ||
     signals.hasSharedClaudeSkills ||
-    signals.authorCount30d >= 2 ||
+    effectiveAuthorCount30d(signals) >= 2 ||
     signals.hasAidlcWorkflow ||
     signals.hasPendingProfileInit ||
-    signals.aiTools.length >= 2
+    signals.aiTools.length >= 2 ||
+    (signals.remoteReachable && signals.remoteBranchCount >= 3)
   );
 }
 
@@ -649,6 +717,14 @@ export function resolveProjectProfileType(
     };
   }
 
+  if (isRemoteTeamClone(signals)) {
+    return {
+      profileType: "team-multi-agent",
+      confidence: 0.84,
+      rationale: `${evidence} Fresh clone of a multi-branch team repo on origin — full multi-agent sync recommended.`,
+    };
+  }
+
   if (signals.budgetPattern === "configured") {
     return {
       profileType: "budget-sensitive",
@@ -666,10 +742,12 @@ export function resolveProjectProfileType(
   }
 
   if (isTeamProductRepo(signals)) {
+    const branches = effectiveBranchCount(signals);
+    const authors = effectiveAuthorCount30d(signals);
     const confidence =
       signals.teamSize === "team"
         ? 0.88
-        : signals.branchCount >= 5 || signals.authorCount30d >= 3
+        : branches >= 5 || authors >= 3 || signals.remoteBranchCount >= 8
           ? 0.85
           : 0.75;
     return {
@@ -691,9 +769,10 @@ export function resolveProjectProfileType(
 export function buildProjectProfile(
   target: string,
   overrideType?: ProjectProfileType,
-  userPlan?: UserProjectPlan
+  userPlan?: UserProjectPlan,
+  remoteOpts?: { network?: boolean; useCache?: boolean }
 ): ProjectProfileFile {
-  const signals = detectProjectProfileSignals(target);
+  const signals = detectProjectProfileSignals(target, remoteOpts);
   const autoResolved = resolveProjectProfileType(signals, target);
   const resolvedType = overrideType ?? autoResolved.profileType;
   const resolved = overrideType
@@ -720,6 +799,15 @@ export function buildProjectProfile(
     userPlan,
     rationale: resolved.rationale,
   };
+}
+
+/** Probe origin via git ls-remote when choosing a tier (extension-only, no AI agent). */
+export async function buildProjectProfileWithRemoteProbe(
+  target: string,
+  overrideType?: ProjectProfileType,
+  userPlan?: UserProjectPlan
+): Promise<ProjectProfileFile> {
+  return buildProjectProfile(target, overrideType, userPlan, { network: true, useCache: true });
 }
 
 export function shouldRefreshProjectProfile(existing: ProjectProfileFile, built: ProjectProfileFile): boolean {
@@ -794,8 +882,9 @@ export function formatProjectProfileSummary(profile: ProjectProfileFile): string
     `Profile: ${PROFILE_TYPE_LABELS[profile.profileType]} (${profile.profileType})`,
     profile.rationale,
     `Cost tracking: ${profile.costTracking}`,
-    `Repo: ${s.trackedFileCount} files, ${s.branchCount} branches, ${s.commitsTotal} commits, ${s.activityLevel} activity`,
-    `Team (30d): ${s.teamSize} (${s.authorCount30d} authors)`,
+    `Repo: ${s.trackedFileCount} files, ${effectiveBranchCount(s)} branches (${s.branchCount} local, ${s.remoteBranchCount} remote), ${s.commitsTotal} commits, ${s.activityLevel} activity`,
+    `Team (30d): ${s.teamSize} (${effectiveAuthorCount30d(s)} authors)`,
+    s.remoteOriginUrl ? `Origin: ${s.remoteOriginUrl} (${s.remoteProbeSource})` : undefined,
     profile.userPlan ? `Plan: ${profile.userPlan}` : undefined,
     `Features: multiAgent=${on("multiAgent") ? "on" : "off"}, attribution=${on("attributionCollector") ? "on" : "off"}, costIntel=${on("costIntelligence") ? "on" : "off"}, sessionAdapt=${on("sessionSkillAdaptation") ? "on" : "off"}`,
   ].filter((l): l is string => Boolean(l));

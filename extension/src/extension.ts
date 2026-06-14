@@ -122,8 +122,10 @@ import { syncCliConfigToWorkspace } from "./cliConfig";
 import { setActiveProjectProfileContext } from "./activeProjectProfile";
 import {
   buildProjectProfile,
+  buildProjectProfileWithRemoteProbe,
   formatProjectProfileSummary,
   PROFILE_TYPE_LABELS,
+  ProjectProfileFile,
   projectProfileApplyTierEnabled,
   readProjectProfile,
   refreshProjectProfileContext,
@@ -748,7 +750,7 @@ export function activate(context: vscode.ExtensionContext) {
           log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
         }
         if (projectProfileChanged && projectProfileFirstDetect && target) {
-          void maybePromptProjectTierOnFirstDetect(context, target, projectProfile, true).then((finalProfile) => {
+          void maybePromptProjectTierOnFirstDetect(context, target, true).then((finalProfile) => {
             const finalKey = `${target}|${finalProfile.profileType}|${finalProfile.appliedAt ?? finalProfile.detectedAt}`;
             refreshProjectTierStatusBar(target);
             if (finalKey !== profileKey) {
@@ -2292,12 +2294,20 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
-      const profile = buildProjectProfile(target);
+      const profile = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Claude Skills: probing remote git for tier estimate",
+          cancellable: false,
+        },
+        async () => buildProjectProfileWithRemoteProbe(target)
+      );
       writeProjectProfile(target, profile);
       refreshProjectProfileContext(target);
       refreshAll();
       outputChannel.show(true);
-      log(`\n=== Project profile detected ===\n${formatProjectProfileSummaryBlock(profile)}`);
+      log(`\n=== Project profile detected ===\n${formatProjectProfileTierComparisonTable(target, profile.profileType)}`);
+      log(`\n${formatProjectProfileSummaryBlock(profile)}`);
       vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(profile), "View details");
     }),
 
@@ -2306,14 +2316,21 @@ export function activate(context: vscode.ExtensionContext) {
       if (!target) {
         return;
       }
-      const detected = buildProjectProfile(target);
       const current = readProjectProfile(target);
+      const detected = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Claude Skills: probing remote git (extension-only tier estimate)",
+          cancellable: false,
+        },
+        async () => buildProjectProfileWithRemoteProbe(target)
+      );
       outputChannel.show(true);
       log(`\n${formatProjectProfileTierComparisonTable(target, current?.profileType ?? detected.profileType)}`);
       const pick = await vscode.window.showQuickPick(
         buildProjectPlanQuickPickItems(detected, current?.userPlan),
         {
-          title: "Choose project plan (overhead and savings shown per option)",
+          title: "Choose project plan (remote git + local repo analyzed)",
           placeHolder: formatDetectedTierSummary(detected).replace(/\n/g, " · "),
           ignoreFocusOut: true,
         }
@@ -2321,11 +2338,16 @@ export function activate(context: vscode.ExtensionContext) {
       if (!pick) {
         return;
       }
-      let lockedProfile;
+      let lockedProfile: ProjectProfileFile;
       if (pick.id === "accept-detected") {
         const cfg = vscode.workspace.getConfiguration("claudeSkills.projectProfile");
         await cfg.update("lockedTier", "", vscode.ConfigurationTarget.Workspace);
-        lockedProfile = buildProjectProfile(target, undefined, "accept-detected");
+        lockedProfile = {
+          ...detected,
+          userPlan: "accept-detected",
+          manualOverride: undefined,
+          appliedAt: new Date().toISOString(),
+        };
         writeProjectProfile(target, lockedProfile);
         setActiveProjectProfileContext(
           lockedProfile.enabledFeatures,

@@ -223,7 +223,7 @@ Settings: `claudeSkills.profileInit.autoStartOnSession` (default on).
 
 ## Project profile tiers (auto-configure CPU / tokens)
 
-On workspace open the extension **analyzes the git repository** (tracked files, branches, commit history and intensity, authors, repo size, age) and writes `.claude/learning/project-profile.json`, then applies a **feature preset** so solo/throwaway projects avoid multi-agent sync, attribution collectors, and session adaptation overhead. AI tool folders (`.cursor/`, `.claude/`, etc.) are secondary signals — not the primary tier driver.
+On workspace open the extension **analyzes the git repository** locally; when you **choose a tier**, it also **probes `origin` via git** (`ls-remote`, remote-tracking refs, upstream ahead/behind) — extension-only, no AI agent. Signals include tracked files, branches (local + remote), commit history, authors, repo size, and age.
 
 | Tier | Best for | Multi-agent | Attribution | Cost intel | Session adapt |
 |---|---|:---:|:---:|:---:|:---:|

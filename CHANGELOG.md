@@ -2,7 +2,20 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.42** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.43** is the current Marketplace publish target.
+
+## [1.0.43] - 2026-06-14
+
+### Added
+
+- **Remote git tier probe** — when choosing a plan, the extension runs `git ls-remote` + remote-tracking refs (no AI agent) to count remote branches, remote authors (30d), and upstream ahead/behind. Results cached 1h in `.claude/learning/remote-repo-probe.json`.
+- **Settings** — `claudeSkills.projectProfile.probeRemoteGit`, `remoteProbeTimeoutMs`.
+
+### Changed
+
+- **Tier detection** — uses `max(local, remote)` branches and authors for team/multi-agent signals (practical for fresh clones of team repos).
+- **Detect Project Profile** command also probes origin before writing `project-profile.json`.
+- **Choose tier** — accepting detected tier preserves remote-probed signals (no silent revert to local-only metrics).
 
 ## [1.0.42] - 2026-06-14
 
