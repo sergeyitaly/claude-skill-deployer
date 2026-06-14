@@ -72,6 +72,8 @@ def reset_workspace(target: Path) -> dict:
             raw = {}
         raw["transcriptSkills"] = {}
         raw["unattributed"] = {}
+        raw["base_context"] = {}
+        raw.pop("agentTotals", None)
         raw.pop("skills", None)
         raw["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         attr_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")

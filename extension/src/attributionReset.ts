@@ -66,6 +66,8 @@ export function resetMisattributedData(target: string): ResetResult {
       const raw = JSON.parse(fs.readFileSync(attrPath, "utf-8")) as Record<string, unknown>;
       raw.transcriptSkills = {};
       raw.unattributed = {};
+      raw.base_context = {};
+      delete raw.agentTotals;
       raw.updatedAt = new Date().toISOString();
       delete raw.skills;
       fs.writeFileSync(attrPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
