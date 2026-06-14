@@ -233,7 +233,9 @@ On workspace open the extension can **auto-detect** your scenario and write `.cl
 | `enterprise` | Large team, unlimited budget | on | off | minimal | on |
 | `throwaway` | Scripts, no git | off | off | off | off |
 
-Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatures` (default on), `lockedTier` (manual override).
+Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatures` (default on), `promptOnFirstDetect` (default on — **asks on first open**), `lockedTier` (manual override).
+
+**First open on a new project:** QuickPick asks how you plan to use AI agents (e.g. **TEAM MULTI-AGENT** for Claude + Cursor + Copilot). Auto-detect still runs first; you can accept or override. Pick multi-agent explicitly if you're starting from scratch with one tool folder so far.
 
 **Visible in UI:** status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …), cost dashboard **Project tier** panel, and command **Show Project Tier**.
 

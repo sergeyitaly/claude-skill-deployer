@@ -134,6 +134,7 @@ import {
   formatProjectProfileStatusBarTooltip,
   formatProjectProfileSummaryBlock,
 } from "./projectProfileDisplay";
+import { maybePromptProjectTierOnFirstDetect } from "./projectProfilePrompt";
 import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
 import { localDateKey } from "./localDate";
 import * as crypto from "node:crypto";
@@ -726,7 +727,11 @@ export function activate(context: vscode.ExtensionContext) {
   const refreshAllImpl = (opts: { workspaceState: boolean; forceTree: boolean }) => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
-    const { profile: projectProfile, changed: projectProfileChanged } = refreshProjectProfileContext(target);
+    const {
+      profile: projectProfile,
+      changed: projectProfileChanged,
+      isFirstDetect: projectProfileFirstDetect,
+    } = refreshProjectProfileContext(target);
     if (projectProfile) {
       refreshProjectTierStatusBar(target);
       if (opts.workspaceState) {
@@ -735,7 +740,32 @@ export function activate(context: vscode.ExtensionContext) {
           lastProjectProfileLogged = profileKey;
           log(`Project profile: ${PROFILE_TYPE_LABELS[projectProfile.profileType]} — ${projectProfile.rationale}`);
         }
-        if (projectProfileChanged && profileKey !== lastProjectProfileNotified) {
+        if (projectProfileChanged && projectProfileFirstDetect) {
+          void maybePromptProjectTierOnFirstDetect(context, target, projectProfile, true).then((finalProfile) => {
+            const finalKey = `${target}|${finalProfile.profileType}|${finalProfile.appliedAt ?? finalProfile.detectedAt}`;
+            refreshProjectTierStatusBar(target);
+            if (finalKey !== profileKey) {
+              lastProjectProfileLogged = finalKey;
+              lastProjectProfileNotified = finalKey;
+              log(`Project profile: user chose ${PROFILE_TYPE_LABELS[finalProfile.profileType]}`);
+              void vscode.window.showInformationMessage(formatProjectProfileNotifyMessage(finalProfile), "View details");
+              refreshAllImpl({ workspaceState: false, forceTree: false });
+              return;
+            }
+            if (finalKey !== lastProjectProfileNotified) {
+              lastProjectProfileNotified = finalKey;
+              void vscode.window
+                .showInformationMessage(formatProjectProfileNotifyMessage(finalProfile), "View details", "Change tier")
+                .then((pick) => {
+                  if (pick === "View details") {
+                    void vscode.commands.executeCommand("claudeSkills.showProjectProfile");
+                  } else if (pick === "Change tier") {
+                    void vscode.commands.executeCommand("claudeSkills.chooseProjectProfile");
+                  }
+                });
+            }
+          });
+        } else if (projectProfileChanged && profileKey !== lastProjectProfileNotified) {
           lastProjectProfileNotified = profileKey;
           void vscode.window
             .showInformationMessage(formatProjectProfileNotifyMessage(projectProfile), "View details", "Change tier")

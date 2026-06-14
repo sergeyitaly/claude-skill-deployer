@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.39",
+  "version": "1.0.40",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -703,6 +703,11 @@
             "type": "boolean",
             "default": true,
             "description": "When on, tier presets override claudeSkills.features.* for this workspace (reduces CPU/tokens for solo and throwaway projects). VS Code settings still apply when a tier leaves a feature unspecified."
+          },
+          "claudeSkills.projectProfile.promptOnFirstDetect": {
+            "type": "boolean",
+            "default": true,
+            "description": "On first workspace open (no project-profile.json yet), ask how you plan to use AI agents — e.g. multi-agent team vs solo — instead of silently applying auto-detect."
           },
           "claudeSkills.projectProfile.lockedTier": {
             "type": "string",

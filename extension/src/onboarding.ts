@@ -12,22 +12,27 @@ const STEPS: OnboardingStep[] = [
     detail: "This tour walks through one-time setup and optional budget controls.",
   },
   {
-    message: "Step 1: Install the skill library to your machine (one-time).",
+    message: "Step 1: Choose how you use AI agents on this project (solo vs multi-agent).",
+    command: "claudeSkills.chooseProjectProfile",
+    detail: "Pick TEAM MULTI-AGENT if you use Claude + Cursor + Copilot together.",
+  },
+  {
+    message: "Step 2: Install the skill library to your machine (one-time).",
     command: "claudeSkills.installLibraryToGlobal",
     detail: "Copies bundled skills to ~/.claude/skills/",
   },
   {
-    message: "Step 2: Detect and install skills relevant to this workspace.",
+    message: "Step 3: Detect and install skills relevant to this workspace.",
     command: "claudeSkills.generateForWorkspace",
     detail: "Uses manifest detect_globs against your project files.",
   },
   {
-    message: "Step 3: Set a daily budget to control estimated Claude spend.",
+    message: "Step 4: Set a daily budget to control estimated Claude spend.",
     command: "claudeSkills.openBudgetSettings",
     detail: "Settings -> Claude Skills -> Budget",
   },
   {
-    message: "Step 4 (optional): Cost Intelligence Dashboard — needs a few sessions of data.",
+    message: "Step 5 (optional): Cost Intelligence Dashboard — needs a few sessions of data.",
     command: "claudeSkills.showCostDashboard",
     detail: "Agent spend first; per-skill breakdown after runs/transcripts accumulate.",
   },

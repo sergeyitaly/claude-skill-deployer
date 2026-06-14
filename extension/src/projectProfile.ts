@@ -66,6 +66,10 @@ export function projectProfileApplyTierEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.projectProfile").get<boolean>("applyTierFeatures", true);
 }
 
+export function projectProfilePromptOnFirstDetectEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.projectProfile").get<boolean>("promptOnFirstDetect", true);
+}
+
 export function lockedProjectProfileTier(): ProjectProfileType | undefined {
   const raw = vscode.workspace
     .getConfiguration("claudeSkills.projectProfile")
@@ -435,35 +439,38 @@ export function writeProjectProfile(target: string, profile: ProjectProfileFile)
 export interface ProjectProfileRefreshResult {
   profile?: ProjectProfileFile;
   changed: boolean;
+  /** True when project-profile.json did not exist before this refresh wrote one. */
+  isFirstDetect: boolean;
 }
 
 export function refreshProjectProfileContext(target: string | undefined): ProjectProfileRefreshResult {
   const apply = projectProfileApplyTierEnabled();
   if (!target) {
     setActiveProjectProfileContext(null, apply);
-    return { changed: false };
+    return { changed: false, isFirstDetect: false };
   }
   const existing = readProjectProfile(target);
   const locked = lockedProjectProfileTier();
   if (projectProfileAutoDetectEnabled() && !locked) {
     const built = buildProjectProfile(target);
     if (!existing || shouldRefreshProjectProfile(existing, built)) {
+      const isFirstDetect = !existing;
       writeProjectProfile(target, built);
       setActiveProjectProfileContext(built.enabledFeatures, apply);
-      return { profile: built, changed: true };
+      return { profile: built, changed: true, isFirstDetect };
     }
     setActiveProjectProfileContext(existing.enabledFeatures, apply);
-    return { profile: existing, changed: false };
+    return { profile: existing, changed: false, isFirstDetect: false };
   }
   if (locked) {
     const built = buildProjectProfile(target, locked);
     const changed = !existing || existing.profileType !== built.profileType || existing.manualOverride !== built.manualOverride;
     writeProjectProfile(target, built);
     setActiveProjectProfileContext(built.enabledFeatures, apply);
-    return { profile: built, changed };
+    return { profile: built, changed, isFirstDetect: !existing };
   }
   setActiveProjectProfileContext(existing?.enabledFeatures ?? null, apply);
-  return { profile: existing, changed: false };
+  return { profile: existing, changed: false, isFirstDetect: false };
 }
 
 export function formatProjectProfileSummary(profile: ProjectProfileFile): string {

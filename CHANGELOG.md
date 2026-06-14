@@ -2,9 +2,20 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.39** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.40** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.40] - 2026-06-14
+
+### Added
+
+- **First-open project tier prompt** (`claudeSkills.projectProfile.promptOnFirstDetect`, default on) — on a new project with no `project-profile.json`, QuickPick asks solo vs **TEAM MULTI-AGENT** vs other tiers instead of silently applying solo-dev.
+- Locks tier when user picks multi-agent / budget / enterprise so auto-detect does not revert later.
+
+### Changed
+
+- Onboarding tour step 1 — choose project profile tier before installing skills.
 
 ## [1.0.39] - 2026-06-14
 
