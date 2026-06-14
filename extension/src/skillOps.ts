@@ -42,6 +42,16 @@ const EXCLUDE_DIRS = new Set([
   ".terraform",
   "__pycache__",
   ".venv",
+  ".vscode-test",
+  "dist",
+  "out",
+  "build",
+  "coverage",
+  ".turbo",
+  ".next",
+  "target",
+  "vendor",
+  ".cursor",
 ]);
 
 /** Global skills directory: ~/.claude/skills */
@@ -391,13 +401,21 @@ function fnmatchToRegExp(pattern: string): RegExp {
 /** Mirrors generate_skills.py's _pattern_matches_any: also tries the pattern
  * with a leading "**\/" stripped, so "**\/*.tf" also matches a top-level
  * "main.tf". */
+/** Literal extension suffix from globs (e.g. .tf) — narrows candidate paths before regex. */
+function globLiteralExtension(pattern: string): string | null {
+  const match = pattern.match(/\.([a-zA-Z0-9_-]+)$/);
+  return match ? `.${match[1]}` : null;
+}
+
 export function patternMatchesAny(pattern: string, paths: string[]): boolean {
   const candidates = [pattern];
   if (pattern.startsWith("**/")) {
     candidates.push(pattern.slice(3));
   }
   const regexes = candidates.map(fnmatchToRegExp);
-  return paths.some((p) => regexes.some((r) => r.test(p)));
+  const ext = globLiteralExtension(pattern);
+  const scoped = ext ? paths.filter((p) => path.posix.extname(p) === ext) : paths;
+  return scoped.some((p) => regexes.some((r) => r.test(p)));
 }
 
 /** Returns { skillName: matchedGlobs[] } for skills with >=1 match. */

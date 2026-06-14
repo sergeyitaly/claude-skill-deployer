@@ -137,7 +137,8 @@ import { AttributionCollector } from "./attributionCollector";
 import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
-import { formatCostDashboardHtml, formatCostDashboardText } from "./costDashboard";
+import { formatCostDashboardHtml, formatCostDashboardText, formatTeamEconomicsPanelsHtml, getOrBuildDashboardMainBody } from "./costDashboard";
+import { tryReadValidDashboardSnapshot } from "./dashboardSnapshotCache";
 import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from "./autoOptimizer";
 import { checkPredictiveCostAlert } from "./costPredictor";
 import { installGitPostCommitHook } from "./commitCost";
@@ -145,7 +146,8 @@ import { isAutoOptimizeEnabled, runAutoOptimizePass } from "./autoOptimizer";
 import { isFeatureEnabled, featureFlagLines, FeatureKey, FEATURE_DESCRIPTIONS } from "./featureFlags";
 import { checkEmergencyCutoff, resetEmergencyCutoff } from "./emergencyCutoff";
 import { syncCommunityBenchmarks, updateLocalBenchmarks, uploadAnonymizedStats } from "./communityBenchmarks";
-import { attributeCostToAuthors } from "./teamCostSharing";
+import { getOrComputeTeamEconomicsBundle } from "./teamEconomicsCache";
+import { yieldToEventLoop } from "./eventLoop";
 import { listArchivedSkills, restoreArchivedSkill } from "./skillArchival";
 import { estimateAndCommentPR } from "./prCostEstimate";
 import { SkillSortMode } from "./skillRoi";
@@ -252,6 +254,45 @@ function getWorkspaceTarget(): string | undefined {
 
 function log(line: string) {
   outputChannel.appendLine(line);
+}
+
+/** Phase-2 dashboard: fill main + team panels when fast-phase used a loading slot or stale snapshot. */
+async function enhanceCostDashboardPanel(
+  target: string,
+  libraryDir: string,
+  pipeline: import("./costPipeline").CostPipelineResult,
+  panel: vscode.WebviewPanel,
+  hadMainSnapshot: boolean
+): Promise<void> {
+  if (!hadMainSnapshot) {
+    await yieldToEventLoop();
+    const main = getOrBuildDashboardMainBody(target, libraryDir, pipeline);
+    panel.webview.postMessage({ command: "dashboardMainHtml", html: main.mainBodyHtml });
+  }
+  await pushTeamEconomicsToDashboard(target, libraryDir, panel);
+}
+
+/** Phase-2 team economics slot only. */
+async function pushTeamEconomicsToDashboard(
+  target: string,
+  libraryDir: string,
+  panel: vscode.WebviewPanel
+): Promise<void> {
+  const built = buildCostAttribution(target, libraryDir);
+  const { attribution, staleEqualSplit } = resolveDisplayAttribution(built, target);
+  const health = assessAttributionHealth(target, libraryDir);
+  const modeCtx = buildSystemModeContext(health, target, readPipelineCycle(target));
+  if (!modeCtx.canShowPerSkillCosts || staleEqualSplit || !isFeatureEnabled("teamCostSharing")) {
+    panel.webview.postMessage({ command: "teamEconomicsHtml", html: "" });
+    return;
+  }
+  await yieldToEventLoop();
+  const manifest = loadManifest(libraryDir);
+  const bundle = getOrComputeTeamEconomicsBundle(target, libraryDir, manifest, attribution);
+  panel.webview.postMessage({
+    command: "teamEconomicsHtml",
+    html: formatTeamEconomicsPanelsHtml(bundle, true),
+  });
 }
 
 function branchChangeOpts(extensionPath: string, libraryDir: string, target: string) {
@@ -827,7 +868,6 @@ export function activate(context: vscode.ExtensionContext) {
         for (const name of toggled) {
           provider.setSkillSyncing(name, true);
         }
-        invalidateDetectionCache(target);
         invalidateWorkspaceSyncFingerprint(target);
         propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
           saveBranchProfile: true,
@@ -1899,18 +1939,21 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       ensureLearningDir(target);
-      await runCostPipeline(target, libraryDir, {
+      const pipeline = await runCostPipeline(target, libraryDir, {
         collect: isFeatureEnabled("attributionCollector"),
         forceCollect: true,
       });
       persistCostAttribution(target, libraryDir);
-      const pipeline = runCostPipelineSync(target, libraryDir);
       const built = buildCostAttribution(target, libraryDir);
       const merged = { ...built.skills, ...built.transcriptSkills };
       updateLocalBenchmarks(merged);
       void uploadAnonymizedStats(merged);
       const dashboardNonce = crypto.randomBytes(16).toString("base64");
-      const html = formatCostDashboardHtml(target, libraryDir, dashboardNonce, pipeline);
+      const hadMainSnapshot = Boolean(tryReadValidDashboardSnapshot(target, pipeline));
+      const html = formatCostDashboardHtml(target, libraryDir, dashboardNonce, pipeline, {
+        fastPhase: true,
+        includeTeamEconomics: false,
+      });
       if (!costDashboardPanel) {
         costDashboardPanel = vscode.window.createWebviewPanel(
           "claudeSkillsCostDashboard",
@@ -1954,12 +1997,16 @@ export function activate(context: vscode.ExtensionContext) {
                 propagateWorkspaceSkillChange(context.extensionPath, ws, libraryDir, log);
                 refreshAll();
                 const refreshNonce = crypto.randomBytes(16).toString("base64");
+                const refreshPipeline = runCostPipelineSync(ws, libraryDir);
+                const hadSnap = Boolean(tryReadValidDashboardSnapshot(ws, refreshPipeline));
                 costDashboardPanel!.webview.html = formatCostDashboardHtml(
                   ws,
                   libraryDir,
                   refreshNonce,
-                  runCostPipelineSync(ws, libraryDir)
+                  refreshPipeline,
+                  { fastPhase: true, includeTeamEconomics: false }
                 );
+                void enhanceCostDashboardPanel(ws, libraryDir, refreshPipeline, costDashboardPanel!, hadSnap);
                 vscode.window.showInformationMessage(`Claude Skills: ${result.applied[0]}`);
               } else {
                 vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
@@ -1979,6 +2026,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
       costDashboardPanel.webview.html = html;
       costDashboardPanel.reveal(vscode.ViewColumn.Active);
+      void enhanceCostDashboardPanel(target, libraryDir, pipeline, costDashboardPanel, hadMainSnapshot);
       outputChannel.show(true);
       log(`\n${formatCostDashboardText(target, libraryDir)}`);
     }),

@@ -456,21 +456,24 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     const sortMode = vscode.workspace
       .getConfiguration("claudeSkills.search")
       .get<SkillSortMode>("sortBy", "relevance");
+    const costAware = isFeatureEnabled("costAwareSearch");
     const usageMap = new Map(
-      target ? computeUsageStats(target, manifest).map((s) => [s.name, s]) : []
+      target && costAware
+        ? computeUsageStats(target, manifest).map((s) => [s.name, s])
+        : []
     );
 
     statuses.sort((a, b) => {
       if (sortMode === "relevance" && a.isRelevant !== b.isRelevant) {
         return a.isRelevant ? -1 : 1;
       }
-      if (isFeatureEnabled("costAwareSearch") && sortMode !== "relevance") {
+      if (costAware && sortMode !== "relevance") {
         return compareSkillsForSort(a.name, b.name, sortMode, manifest, usageMap);
       }
       return a.name.localeCompare(b.name);
     });
 
-    const showRoi = isFeatureEnabled("costAwareSearch");
+    const showRoi = costAware;
     const skillNodes = statuses.map((s) => {
       let roiLine: string | undefined;
       if (showRoi && s.inLibrary) {

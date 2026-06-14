@@ -47,6 +47,25 @@ function dayKey(iso: string): string {
 
 export function refreshRunsIndex(target: string, manifest: Manifest): void {
   const fp = runsFingerprint(target);
+  let skillFresh = false;
+  let dailyFresh = false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(skillStatsIndexPath(target), "utf-8")) as SkillStatsIndex;
+    skillFresh = indexIsFresh(raw, fp);
+  } catch {
+    // rebuild
+  }
+  try {
+    const daily = JSON.parse(fs.readFileSync(dailyStatsIndexPath(target), "utf-8")) as DailyStatsIndex;
+    dailyFresh = indexIsFresh(daily, fp);
+  } catch {
+    // rebuild
+  }
+  if (skillFresh && dailyFresh) {
+    markPipelineIndexed(target);
+    return;
+  }
+
   const stats = computeUsageStats(target, manifest);
   const skillIndex: SkillStatsIndex = {
     version: 1,

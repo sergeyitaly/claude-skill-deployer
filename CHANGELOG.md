@@ -2,9 +2,30 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.33** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.35** is the current Marketplace publish target.
 
 ## [Unreleased]
+
+## [1.0.35] - 2026-06-14
+
+### Performance (dashboard)
+
+- **Dashboard snapshot cache** — `.claude/learning/dashboard-snapshot.json` stores pre-rendered main body HTML; `fastPhase: true` reads disk only (~1ms, target &lt;30ms).
+- **Progressive injection** — cold cache shows loading slots; phase 2 injects main + team panels via webview `postMessage`.
+- **Persistent team economics cache** — `.claude/learning/team-economics-cache.json` keyed by `gitHead`, `skillsHash`, and attribution/runs fingerprint; warm reads &lt;5ms.
+- **Background precompute** — `runCostPipelineSync` queues dashboard snapshot + team economics warming.
+- **Git blame session cache** — negative lookups cached in-memory (failed `git log` no longer re-spawned every render).
+
+## [1.0.34] - 2026-06-14
+
+### Performance
+
+- **Cost dashboard ~7s → ~200ms** — cache `git log` author lookups by SKILL.md mtime; call `attributeCostToAuthors` once per render instead of twice.
+- **Skill detection** — extension-filtered glob matching and expanded `EXCLUDE_DIRS` (`.vscode-test`, `dist`, `out`, `build`, etc.) shrink workspace walks.
+- **Toggle refresh** — stop invalidating detection cache on checkbox toggle (settings mtime already refreshes skill status cache).
+- **Tree view** — skip `computeUsageStats` when cost-aware search is disabled.
+- **Runs index** — skip rebuild when skill/daily indexes are already fresh.
+- **Dashboard open** — remove redundant second `runCostPipelineSync` after `runCostPipeline`.
 
 ## [1.0.33] - 2026-06-14
 

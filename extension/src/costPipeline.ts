@@ -14,6 +14,8 @@ import { loadManifest } from "./skillOps";
 import { refreshWorkspaceSystemState, readWorkspaceSystemState, WorkspaceSystemState } from "./workspaceSystemState";
 import { SystemMode } from "./systemMode";
 import { scheduleAutoOptimizePass } from "./autoOptimizer";
+import { queueTeamEconomicsPrecompute } from "./teamEconomicsCache";
+import { queueDashboardSnapshotPrecompute } from "./dashboardPrecompute";
 
 export interface CostPipelineRunOptions {
   collectMs?: number;
@@ -93,6 +95,19 @@ export function runCostPipelineSync(
 
     const status = evaluatePipelineStatus(target, readPipelineCycle(target));
     scheduleAutoOptimizePass(target, libraryDir);
+    queueTeamEconomicsPrecompute(target, libraryDir);
+    queueDashboardSnapshotPrecompute(target, libraryDir, {
+      ready: status.ready,
+      fresh: status.fresh,
+      cycle: status.cycle,
+      systemMode: state.systemMode,
+      state,
+      staleMessage: status.staleMessage,
+      trace,
+      circuitOpen: isPipelineCircuitOpen(status.cycle),
+      skipped: false,
+      processedSessions: 0,
+    });
     return {
       ready: status.ready,
       fresh: status.fresh,

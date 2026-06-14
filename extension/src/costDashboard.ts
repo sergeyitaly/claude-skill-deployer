@@ -13,7 +13,6 @@ import {
 } from "./costOptimizer";
 import { calculateTrend, formatTrendLabel } from "./costPredictor";
 import { loadCostProfile } from "./costProfiles";
-import { attributeCostToAuthors } from "./teamCostSharing";
 import { listArchivedSkills } from "./skillArchival";
 import { assessAttributionHealth } from "./attributionHealth";
 import { assessSkillCostConfidence, formatConfidenceBadge } from "./attributionConfidence";
@@ -25,7 +24,12 @@ import { isFeatureEnabled } from "./featureFlags";
 import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
-import { buildTeamEconomicsSnapshot } from "./teamEconomics";
+import {
+  getOrComputeTeamEconomicsBundle,
+  TEAM_ECONOMICS_SLOT_ID,
+  TeamEconomicsCachePayload,
+  tryReadValidTeamEconomicsCache,
+} from "./teamEconomicsCache";
 import { buildSystemModeContext } from "./systemMode";
 import { CostPipelineResult, runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
@@ -38,6 +42,13 @@ import {
 } from "./workspaceHookStatus";
 import { wrapDashboardHtml } from "./dashboardStyles";
 import { loadManifest } from "./skillOps";
+import {
+  buildDashboardSnapshotFingerprint,
+  DASHBOARD_MAIN_SLOT_ID,
+  DashboardSnapshotPayload,
+  tryReadValidDashboardSnapshot,
+  writeDashboardSnapshot,
+} from "./dashboardSnapshotCache";
 
 function escapeHtml(v: string): string {
   return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -126,16 +137,170 @@ function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>):
   return `<div class="panel"><h2>Setup checklist</h2><p class="note">Agent totals are valid. Per-skill breakdown needs:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
 }
 
-export function formatCostDashboardHtml(
+export interface CostDashboardOptions {
+  /** When false, render a loading slot and inject team panels asynchronously. Default true. */
+  includeTeamEconomics?: boolean;
+  /** Precomputed team bundle (disk cache or background job). */
+  teamBundle?: TeamEconomicsCachePayload;
+  /** Hot path: read pre-rendered dashboard body from disk — no sync attribution/transcript work. */
+  fastPhase?: boolean;
+}
+
+export function teamEconomicsLoadingSlotHtml(): string {
+  return `<div id="${TEAM_ECONOMICS_SLOT_ID}" class="panel"><h2>Team economics</h2><p class="note">Loading ROI and skill-owner data…</p></div>`;
+}
+
+export function formatTeamEconomicsPanelsHtml(
+  bundle: TeamEconomicsCachePayload,
+  showPerSkill: boolean
+): string {
+  if (!showPerSkill) {
+    return "";
+  }
+  const { teamEconomics, skillAuthors } = bundle;
+  const parts: string[] = [];
+
+  parts.push(`<div class="panel">
+    <h2>ROI estimate</h2>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>Time saved</b><span class="val">~${teamEconomics.estimatedMinutesSaved} min</span></div>
+      <div class="stat-pill"><b>Value</b><span class="val">${formatCompactUsd(teamEconomics.estimatedValueUsd)}</span></div>
+      <div class="stat-pill"><b>Net ROI</b><span class="val roi-${teamEconomics.netRoiBand.toLowerCase()}">${teamEconomics.netRoiBand} (${teamEconomics.netRoi}x)</span></div>
+    </div>
+    <p class="note">Heuristic tiers — not measured productivity.</p>
+  </div>`);
+
+  if (teamEconomics.byRepo.length > 0) {
+    parts.push(`<div class="panel">
+    <h2>By repo</h2>
+    <ul>${teamEconomics.byRepo.slice(0, 8).map((r) => `<li><b>${escapeHtml(r.repoPath)}</b> ${formatCompactUsd(r.costUsd)} · ${r.runs} runs · ${r.skills.length} skills</li>`).join("")}</ul>
+  </div>`);
+  }
+
+  if (teamEconomics.bySkillOwner.length > 0) {
+    parts.push(`<div class="panel">
+    <h2>By skill owner</h2>
+    <p class="note" style="margin-top:0">Git author of SKILL.md — not who invoked the agent.</p>
+    <ul>${teamEconomics.bySkillOwner.slice(0, 8).map((o) => `<li><b>${escapeHtml(o.author)}</b> ${formatCompactUsd(o.costUsd)} · ${o.skills.length} skills</li>`).join("")}</ul>
+  </div>`);
+  }
+
+  if (skillAuthors.length > 0) {
+    parts.push(
+      `<div class="panel"><h2>Team attribution</h2><ul>${skillAuthors.map((t) => `<li><b>${escapeHtml(t.skill)}</b>: ${escapeHtml(t.line)}</li>`).join("")}</ul></div>`
+    );
+  }
+
+  if (parts.length === 0) {
+    return "";
+  }
+  return `<div id="${TEAM_ECONOMICS_SLOT_ID}">${parts.join("\n  ")}</div>`;
+}
+
+function teamEconomicsListenerScript(nonce: string): string {
+  return `
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (!msg || msg.command !== "teamEconomicsHtml") {
+        return;
+      }
+      const slot = document.getElementById("${TEAM_ECONOMICS_SLOT_ID}");
+      if (!slot) {
+        return;
+      }
+      if (!msg.html) {
+        slot.remove();
+        return;
+      }
+      slot.outerHTML = msg.html;
+    });`;
+}
+
+export function dashboardMainLoadingSlotHtml(): string {
+  return `<div id="${DASHBOARD_MAIN_SLOT_ID}" class="panel"><h2>Cost intelligence</h2><p class="note">Loading spend, agents, and optimizations…</p></div>`;
+}
+
+function dashboardActionsFooterHtml(canApplyOptimizations: boolean): string {
+  return `<div class="actions">
+    <button type="button" id="btn-apply-opts" ${canApplyOptimizations ? "" : "disabled title=\"Paused in safe/degraded mode\""}>Apply optimizations</button>
+    <button type="button" class="secondary" id="btn-export-report">Export report</button>
+    <button type="button" class="secondary" id="btn-open-budget">Configure budget</button>
+  </div>
+  <div class="note">${escapeHtml(ESTIMATE_DISCLAIMER)}</div>`;
+}
+
+function dashboardInjectionListenerScript(): string {
+  return `
+    function rebindDashboardActionListeners() {
+      const vscode = acquireVsCodeApi();
+      document.getElementById("btn-apply-opts")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "applyOptimizations" });
+      });
+      document.getElementById("btn-export-report")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "exportReport" });
+      });
+      document.getElementById("btn-open-budget")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "openBudget" });
+      });
+      document.querySelectorAll(".apply-one").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const el = btn;
+          vscode.postMessage({
+            command: "applySuggestion",
+            skill: el.getAttribute("data-skill"),
+            type: el.getAttribute("data-type"),
+          });
+        });
+      });
+    }
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (!msg || msg.command !== "dashboardMainHtml") {
+        return;
+      }
+      const slot = document.getElementById("${DASHBOARD_MAIN_SLOT_ID}");
+      if (!slot) {
+        return;
+      }
+      if (!msg.html) {
+        return;
+      }
+      slot.innerHTML = msg.html;
+      rebindDashboardActionListeners();
+    });
+    rebindDashboardActionListeners();`;
+}
+
+function wrapCostDashboardDocument(
+  target: string,
+  nonce: string,
+  body: string,
+  includeInjectionListeners: boolean
+): string {
+  return wrapDashboardHtml({
+    title: "Cost Intelligence",
+    headerHtml: `<div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · ${escapeHtml(ESTIMATE_DISCLAIMER_SHORT)}</div>`,
+    nonce,
+    body,
+    scriptHtml: `
+  <script${nonce ? ` nonce="${nonce}"` : ""}>
+    ${teamEconomicsListenerScript(nonce)}
+    ${includeInjectionListeners ? dashboardInjectionListenerScript() : ""}
+  </script>`,
+  });
+}
+
+/** Build main dashboard panels (excludes team economics + footer actions). */
+export function buildDashboardMainBodyHtml(
   target: string,
   libraryDir: string,
-  scriptNonce?: string,
-  pipelineResult?: CostPipelineResult
-): string {
-  const nonce = scriptNonce ?? "";
-  enrichV2HookRunTokens(target, libraryDir);
+  pipeline: CostPipelineResult,
+  options?: { enrichTokens?: boolean }
+): { mainBodyHtml: string; canApplyOptimizations: boolean } {
+  if (options?.enrichTokens !== false) {
+    enrichV2HookRunTokens(target, libraryDir);
+  }
   const manifest = loadManifest(libraryDir);
-  const pipeline = pipelineResult ?? runCostPipelineSync(target, libraryDir);
   const systemState = pipeline.state;
   const built = buildCostAttribution(target, libraryDir);
   const health = assessAttributionHealth(target, libraryDir);
@@ -167,16 +332,12 @@ export function formatCostDashboardHtml(
     staleEqualSplit,
     transcriptSkills: built.transcriptSkills,
   });
-  const teamEconomics = showPerSkill ? buildTeamEconomicsSnapshot(target, libraryDir, manifest, attribution) : null;
+
   const attrByAgent = new Map(
     hookStatus.attribution.agents.filter((a) => a.applicable).map((a) => [a.agent, a.configured])
   );
-  const teamLines =
-    staleEqualSplit || !isFeatureEnabled("teamCostSharing")
-      ? []
-      : attributeCostToAuthors(target, attribution);
-  const archived = isFeatureEnabled("skillArchival") ? listArchivedSkills(target) : [];
   const equalSplitWarn = equalSplitCluster ? formatEqualSplitWarning(equalSplitCluster, true) : null;
+  const archived = isFeatureEnabled("skillArchival") ? listArchivedSkills(target) : [];
 
   const agentRows = agentUsage
     .map((row) => {
@@ -242,11 +403,7 @@ export function formatCostDashboardHtml(
 
   const globalTrust = buildGlobalTrustBadge(health, hookStatus);
 
-  return wrapDashboardHtml({
-    title: "Cost Intelligence",
-    headerHtml: `<div class="subtitle">Workspace: <code>${escapeHtml(target)}</code> · ${escapeHtml(ESTIMATE_DISCLAIMER_SHORT)}</div>`,
-    nonce,
-    body: `
+  const mainBodyHtml = `
   ${formatGlobalTrustBannerHtml(globalTrust)} · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}
 
   ${modeCtx.banner ? `<div class="warn"><b>${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
@@ -294,27 +451,6 @@ export function formatCostDashboardHtml(
 
   ${showPerSkill ? "" : setupChecklistHtml(health)}
 
-  ${showPerSkill && teamEconomics ? `<div class="panel">
-    <h2>ROI estimate</h2>
-    <div class="stat-grid">
-      <div class="stat-pill"><b>Time saved</b><span class="val">~${teamEconomics.estimatedMinutesSaved} min</span></div>
-      <div class="stat-pill"><b>Value</b><span class="val">${formatCompactUsd(teamEconomics.estimatedValueUsd)}</span></div>
-      <div class="stat-pill"><b>Net ROI</b><span class="val roi-${teamEconomics.netRoiBand.toLowerCase()}">${teamEconomics.netRoiBand} (${teamEconomics.netRoi}x)</span></div>
-    </div>
-    <p class="note">Heuristic tiers — not measured productivity.</p>
-  </div>` : ""}
-
-  ${showPerSkill && teamEconomics && teamEconomics.byRepo.length > 0 ? `<div class="panel">
-    <h2>By repo</h2>
-    <ul>${teamEconomics.byRepo.slice(0, 8).map((r) => `<li><b>${escapeHtml(r.repoPath)}</b> ${formatCompactUsd(r.costUsd)} · ${r.runs} runs · ${r.skills.length} skills</li>`).join("")}</ul>
-  </div>` : ""}
-
-  ${showPerSkill && teamEconomics && teamEconomics.bySkillOwner.length > 0 ? `<div class="panel">
-    <h2>By skill owner</h2>
-    <p class="note" style="margin-top:0">Git author of SKILL.md — not who invoked the agent.</p>
-    <ul>${teamEconomics.bySkillOwner.slice(0, 8).map((o) => `<li><b>${escapeHtml(o.author)}</b> ${formatCompactUsd(o.costUsd)} · ${o.skills.length} skills</li>`).join("")}</ul>
-  </div>` : ""}
-
   <div class="panel">
     <h2>Top skills</h2>
     ${
@@ -342,40 +478,117 @@ export function formatCostDashboardHtml(
     }</ul>
   </div>
 
-  ${teamLines.length > 0 ? `<div class="panel"><h2>Team attribution</h2><ul>${teamLines.map((t) => `<li><b>${escapeHtml(t.skill)}</b>: ${escapeHtml(t.line)}</li>`).join("")}</ul></div>` : ""}
+  ${archived.length > 0 ? `<div class="panel"><h2>Archived</h2><p class="note">${archived.map(escapeHtml).join(", ")}</p></div>` : ""}`;
 
-  ${archived.length > 0 ? `<div class="panel"><h2>Archived</h2><p class="note">${archived.map(escapeHtml).join(", ")}</p></div>` : ""}
+  return { mainBodyHtml, canApplyOptimizations };
+}
 
-  <div class="actions">
-    <button type="button" id="btn-apply-opts" ${canApplyOptimizations ? "" : "disabled title=\"Paused in safe/degraded mode\""}>Apply optimizations</button>
-    <button type="button" class="secondary" id="btn-export-report">Export report</button>
-    <button type="button" class="secondary" id="btn-open-budget">Configure budget</button>
-  </div>
-  <div class="note">${escapeHtml(ESTIMATE_DISCLAIMER)}</div>`,
-    scriptHtml: `
-  <script${nonce ? ` nonce="${nonce}"` : ""}>
-    const vscode = acquireVsCodeApi();
-    document.getElementById("btn-apply-opts")?.addEventListener("click", () => {
-      vscode.postMessage({ command: "applyOptimizations" });
-    });
-    document.getElementById("btn-export-report")?.addEventListener("click", () => {
-      vscode.postMessage({ command: "exportReport" });
-    });
-    document.getElementById("btn-open-budget")?.addEventListener("click", () => {
-      vscode.postMessage({ command: "openBudget" });
-    });
-    document.querySelectorAll(".apply-one").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const el = btn;
-        vscode.postMessage({
-          command: "applySuggestion",
-          skill: el.getAttribute("data-skill"),
-          type: el.getAttribute("data-type"),
-        });
-      });
-    });
-  </script>`,
-  });
+export function buildAndCacheDashboardSnapshot(
+  target: string,
+  libraryDir: string,
+  pipeline: CostPipelineResult
+): DashboardSnapshotPayload {
+  const built = buildDashboardMainBodyHtml(target, libraryDir, pipeline);
+  writeDashboardSnapshot(target, buildDashboardSnapshotFingerprint(target, pipeline), built);
+  return built;
+}
+
+export function getOrBuildDashboardMainBody(
+  target: string,
+  libraryDir: string,
+  pipeline: CostPipelineResult
+): DashboardSnapshotPayload {
+  const hit = tryReadValidDashboardSnapshot(target, pipeline);
+  if (hit) {
+    return hit;
+  }
+  return buildAndCacheDashboardSnapshot(target, libraryDir, pipeline);
+}
+
+function resolveTeamEconomicsPanels(
+  target: string,
+  libraryDir: string,
+  manifest: ReturnType<typeof loadManifest>,
+  attribution: SkillAttributionMap,
+  showPerSkill: boolean,
+  staleEqualSplit: boolean,
+  options?: CostDashboardOptions
+): string {
+  const teamSharing = isFeatureEnabled("teamCostSharing") && !staleEqualSplit;
+  if (!showPerSkill || !teamSharing) {
+    return "";
+  }
+  if (options?.includeTeamEconomics === false) {
+    return teamEconomicsLoadingSlotHtml();
+  }
+  const bundle =
+    options?.teamBundle ??
+    tryReadValidTeamEconomicsCache(target) ??
+    getOrComputeTeamEconomicsBundle(target, libraryDir, manifest, attribution);
+  return formatTeamEconomicsPanelsHtml(bundle, showPerSkill);
+}
+
+function formatCostDashboardHtmlFast(
+  target: string,
+  libraryDir: string,
+  nonce: string,
+  pipeline: CostPipelineResult,
+  options?: CostDashboardOptions
+): string {
+  const snap = tryReadValidDashboardSnapshot(target, pipeline);
+  const mainContent = snap?.mainBodyHtml ?? dashboardMainLoadingSlotHtml();
+  const canApply = snap?.canApplyOptimizations ?? true;
+  const teamSlot =
+    options?.includeTeamEconomics === false
+      ? teamEconomicsLoadingSlotHtml()
+      : "";
+  const body = `${mainContent}\n  ${teamSlot}\n  ${dashboardActionsFooterHtml(canApply)}`;
+  return wrapCostDashboardDocument(target, nonce, body, true);
+}
+
+function formatCostDashboardHtmlFull(
+  target: string,
+  libraryDir: string,
+  nonce: string,
+  pipelineResult: CostPipelineResult | undefined,
+  options?: CostDashboardOptions
+): string {
+  const pipeline = pipelineResult ?? runCostPipelineSync(target, libraryDir);
+  const built = buildDashboardMainBodyHtml(target, libraryDir, pipeline);
+  writeDashboardSnapshot(target, buildDashboardSnapshotFingerprint(target, pipeline), built);
+  const manifest = loadManifest(libraryDir);
+  const { attribution, staleEqualSplit } = resolveDisplayAttribution(
+    buildCostAttribution(target, libraryDir),
+    target
+  );
+  const health = assessAttributionHealth(target, libraryDir);
+  const modeCtx = buildSystemModeContext(health, target, pipeline.cycle);
+  const teamPanels = resolveTeamEconomicsPanels(
+    target,
+    libraryDir,
+    manifest,
+    attribution,
+    modeCtx.canShowPerSkillCosts,
+    staleEqualSplit,
+    options
+  );
+  const body = `${built.mainBodyHtml}\n  ${teamPanels}\n  ${dashboardActionsFooterHtml(built.canApplyOptimizations)}`;
+  return wrapCostDashboardDocument(target, nonce, body, true);
+}
+
+export function formatCostDashboardHtml(
+  target: string,
+  libraryDir: string,
+  scriptNonce?: string,
+  pipelineResult?: CostPipelineResult,
+  options?: CostDashboardOptions
+): string {
+  const nonce = scriptNonce ?? "";
+  const pipeline = pipelineResult ?? runCostPipelineSync(target, libraryDir);
+  if (options?.fastPhase) {
+    return formatCostDashboardHtmlFast(target, libraryDir, nonce, pipeline, options);
+  }
+  return formatCostDashboardHtmlFull(target, libraryDir, nonce, pipelineResult, options);
 }
 
 export function formatCostDashboardText(target: string, libraryDir: string): string {

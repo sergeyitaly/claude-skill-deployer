@@ -31,7 +31,7 @@ describe("formatCostDashboardHtml", () => {
     const html = formatCostDashboardHtml(target, libraryDir, nonce);
     expect(html).not.toMatch(/onclick=/);
     expect(html).toContain(`nonce="${nonce}"`);
-    expect(html).toContain('addEventListener("click"');
+    expect(html).toContain("rebindDashboardActionListeners");
     expect(html).toContain("btn-apply-opts");
     expect(html).toContain("acquireVsCodeApi");
   });

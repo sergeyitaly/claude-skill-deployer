@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
-import { attributeCostToAuthors } from "./teamCostSharing";
+import { computeAuthorAttribution, SkillAuthorAttribution } from "./teamCostSharing";
 import { computeSkillRoi, RoiBand, SkillRoiMetrics, sumRoiValue } from "./skillRoi";
 import { Manifest } from "./skillOps";
 import { readCachedEnrichedRuns } from "./learningStateIndex";
@@ -49,7 +49,8 @@ export function buildTeamEconomicsSnapshot(
   target: string,
   libraryDir: string,
   manifest: Manifest,
-  attribution: SkillAttributionMap
+  attribution: SkillAttributionMap,
+  skillOwners?: SkillAuthorAttribution[]
 ): TeamEconomicsSnapshot {
   const usageMap = new Map(computeUsageStats(target, manifest).map((s) => [s.name, s]));
   const runs = readCachedEnrichedRuns(target);
@@ -88,7 +89,7 @@ export function buildTeamEconomicsSnapshot(
 
   const bySkillOwner: TeamEconomicsSnapshot["bySkillOwner"] = [];
   if (isFeatureEnabled("teamCostSharing")) {
-    const owners = attributeCostToAuthors(target, attribution);
+    const owners = skillOwners ?? computeAuthorAttribution(target, attribution);
     const authorMap = new Map<string, { costUsd: number; skills: string[] }>();
     for (const row of owners) {
       const cost = skillTotalCost(row.skill, attribution);
