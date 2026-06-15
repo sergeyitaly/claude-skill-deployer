@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { invalidateLearningCache } from "./learningStateIndex";
+import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
+import { profileInitRequiredSkills } from "./profileInit";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
 export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -225,9 +227,23 @@ export function computeTaskSkillProposals(
     });
   }
 
-  return [...proposals.values()]
-    .sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name))
-    .slice(0, 12);
+  const limits = readTaskFocusLimits();
+  const confidence = new Map(
+    [...proposals.values()].map((p) => [p.name, p.confidence] as const)
+  );
+  const ranked = [...proposals.values()].sort(
+    (a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name)
+  );
+  const { active } = capActiveSkills(
+    ranked.map((p) => p.name),
+    {
+      maxActiveSkills: limits.maxActiveSkills,
+      requiredSkills: profileInitRequiredSkills(),
+      confidenceBySkill: confidence,
+    }
+  );
+  const activeSet = new Set(active);
+  return ranked.filter((p) => activeSet.has(p.name));
 }
 
 /** Merge agent-written proposals file with heuristic refresh (keeps agent reasons when fresher). */

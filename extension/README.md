@@ -36,13 +36,13 @@ for skills and learning data, not a requirement that Claude Code is installed.
 | Branch profiles, skill overrides | Yes | Yes |
 | Attribution v2 hooks | Per enabled agent (e.g. Cursor → `.cursor/hooks.json`) | + Claude hooks |
 | Cost dashboard / ROI | Yes; Cursor transcript spend when Cursor is used | + Claude transcript spend |
-| Budget / session / focus hooks | Not active (Claude Code runs them) | Yes |
-| Profile-init SessionStart hook | Uses synced `profile-init` skill + request file | + Claude SessionStart hook |
-| Session skill adaptation hook | Cursor `sessionStart` + Kiro `agentSpawn` + Copilot `SessionStart` | Same (when enabled agents include those hosts) |
+| Budget / session / focus hooks | Yes — Cursor `beforeSubmitPrompt`, Kiro/Copilot `UserPromptSubmit`, plus Claude Code | Yes |
+| Profile-init SessionStart hook | Cursor `sessionStart` + Kiro `agentSpawn` + Copilot `SessionStart` | + Claude SessionStart |
+| Session skill adaptation hook | Same on all enabled host agents | Same |
 
 Missing Claude data shows empty sections or informational messages — the extension does not error on startup.
 
-**Cursor-only:** Settings → `claudeSkills.agents.enabled` → `["cursor"]` to skip Claude path installs. Workspace skills still live under `.claude/skills/` (git-tracked source of truth) and mirror to `.cursor/skills/`.
+**Cursor-only / host-first:** Settings → `claudeSkills.agents.enabled` → e.g. `["cursor"]` to skip Claude path installs. The extension detects the **running IDE** (`detectHostAgentId`) and creates `.claude/` as the canonical store even if you never open Claude Code — skills and learning import from `.cursor/skills/` (or Copilot/Kiro mirrors) on first activate. Workspace skills still sync from `.claude/skills/` to agent mirrors when `claudeSkills.costDiscipline.propagateToAllAgents` is on (default).
 
 ## Claude CLI (terminal) without VS Code
 
@@ -228,7 +228,7 @@ On workspace open the extension **analyzes the git repository** locally; when yo
 
 | Tier | Best for | Multi-agent | Attribution | Cost intel | Session adapt |
 |---|---|:---:|:---:|:---:|:---:|
-| `solo-dev` | Single agent, solo / new repo | off | off | basic | on (focused) |
+| `solo-dev` | Single agent, solo / new repo | off* | off | basic | on (focused) |
 | `team-multi-agent` | Collaborative product, multi-branch | on | on | full | on |
 | `budget-sensitive` | Economy mode / cost alerts | optional | on | full | on |
 | `enterprise` | Large team, unlimited budget | on | off | minimal | on |
@@ -241,6 +241,24 @@ Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatu
 **Visible in UI:** status bar badge (`TEAM MULTI-AGENT`, `SOLO DEV`, …), cost dashboard **Project tier** panel (repo stats + rationale), and command **Show Project Tier**.
 
 Commands: **Show Project Tier**, **Detect Project Profile**, **Choose Project Profile Tier** (plan confirmation).
+
+\* `solo-dev` disables tier-driven multi-agent sync, but **cost discipline** still propagates to Cursor/Kiro/Copilot when `claudeSkills.costDiscipline.propagateToAllAgents` is on (default). Per-IDE skill sets also work when the extension runs inside Cursor/Kiro/VS Code.
+
+## Cost discipline (task focus & branch economy)
+
+Keeps skill overhead low without manual curation:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `claudeSkills.taskFocus.maxActiveSkills` | 12 | Cap active + proposed skills (required platform skills count toward cap) |
+| `claudeSkills.branchBootstrap.enabled` | on | New git branches get infra/app heuristics + relevant-only install (not main's full library) |
+| `claudeSkills.costDiscipline.enabled` | on | Budget tier gating + irrelevant-skill prune after task focus |
+| `claudeSkills.costDiscipline.propagateToAllAgents` | on | Fan out focus/budget disables to Cursor, Kiro, Copilot even on `solo-dev` tier |
+| `claudeSkills.skillSetResolver.enabled` | tier default | Weekly install relevant / remove idle skills (`solo-dev` and `budget-sensitive` tiers enable the feature when unset) |
+
+**Flow:** extension refreshes `task-skill-proposals.json` → applies `skillOverrides` for skills outside the cap → runs budget tier gating (high-tier off at 80% daily budget) → mirrors learning artifacts to `.cursor/learning` / `.kiro/learning` → syncs effective skill set to all enabled agents.
+
+**Headless parity:** `task-skill-focus.js` reads `taskFocus.maxActiveSkills` from `.claude/learning/cli-config.json` (synced by the extension).
 
 ## Skill feedback & task proposals
 

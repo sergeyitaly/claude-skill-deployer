@@ -662,7 +662,7 @@ export function tierFeaturePreset(
         autoOptimizer: false,
         teamCostSharing: false,
         costAwareSearch: false,
-        skillSetResolver: false,
+        skillSetResolver: true,
         predictiveAlerts: false,
         communityBenchmarks: false,
         prCostEstimate: false,
@@ -710,6 +710,7 @@ export function tierFeaturePreset(
         taskSkillFocus: true,
         taskDriftReproposal: true,
         costAwareSearch: true,
+        skillSetResolver: true,
         predictiveAlerts: true,
         emergencyCutoff: true,
       };

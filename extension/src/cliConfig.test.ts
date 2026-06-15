@@ -58,6 +58,8 @@ describe("cliConfig", () => {
     expect(config.version).toBe(1);
     expect(config.features.sessionSkillAdaptation).toBe(false);
     expect(config.agents.enabled).toEqual(["claude", "cursor"]);
+    expect(config.taskFocus?.maxActiveSkills).toBe(12);
+    expect(config.costDiscipline?.propagateToAllAgents).toBe(true);
 
     const onDisk = JSON.parse(
       fs.readFileSync(path.join(target, ".claude", "learning", "cli-config.json"), "utf-8")

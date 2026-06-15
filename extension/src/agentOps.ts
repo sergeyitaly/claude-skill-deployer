@@ -88,11 +88,11 @@ export function enabledAgents(libraryDir: string): AgentId[] {
 }
 
 /** True when multi-agent feature is on and workspace installs fan out to all enabled agents. */
-export function shouldSyncWorkspaceToAll(): boolean {
-  if (!isFeatureEnabled("multiAgent")) {
-    return false;
+export function shouldSyncWorkspaceToAll(libraryDir?: string, costDisciplinePropagation = false): boolean {
+  if (libraryDir && costDisciplinePropagation) {
+    return workspaceMirrorAllowed(libraryDir, true);
   }
-  return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true);
+  return workspaceMirrorAllowed(libraryDir ?? "", false);
 }
 
 /** True when multi-agent feature is on and global installs fan out to all enabled agents. */
@@ -333,6 +333,20 @@ function listAgentWorkspaceSkills(target: string, agent: AgentDefinition): strin
   return agent.format === "skill-md" ? listSkillMdSkillsInDir(destRoot) : listCopilotInstructionsInDir(destRoot);
 }
 
+/** Installed skill names under an agent's workspace mirror (.cursor/skills, .github/instructions, etc.). */
+export function listWorkspaceSkillsForAgent(
+  target: string,
+  agentId: AgentId,
+  libraryDir: string
+): string[] {
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const agent = agentsManifest.agents[agentId];
+  if (!agent?.supportsWorkspace) {
+    return [];
+  }
+  return listAgentWorkspaceSkills(target, agent);
+}
+
 export interface AgentMirrorGap {
   agent: AgentId;
   missing: string[];
@@ -340,7 +354,7 @@ export interface AgentMirrorGap {
 
 /** Skills present in .claude/skills but missing from another agent's workspace mirror. */
 export function missingAgentMirrorSkills(target: string, libraryDir: string): AgentMirrorGap[] {
-  if (!shouldSyncWorkspaceToAll()) {
+  if (!workspaceMirrorAllowed(libraryDir, false)) {
     return [];
   }
   const effective = listEffectiveEnabledSkills(target);
@@ -453,6 +467,22 @@ export interface WorkspaceAgentSyncOptions {
   skillNames?: string[];
   /** Limit sync to specific agents. Omit for all enabled non-Claude agents. */
   agentIds?: AgentId[];
+  /** Bypass project-tier multiAgent:false for cost-discipline propagation. */
+  costDisciplinePropagation?: boolean;
+}
+
+function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation = false): boolean {
+  if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
+    return false;
+  }
+  if (costDisciplinePropagation) {
+    const cfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
+    if (!cfg.get<boolean>("propagateToAllAgents", true)) {
+      return false;
+    }
+    return enabledAgents(libraryDir).some((id) => id !== "claude");
+  }
+  return isFeatureEnabled("multiAgent");
 }
 
 /** Clear after skill install/remove/override so the next sync is not skipped. */
@@ -548,7 +578,7 @@ export function syncWorkspaceSkillsToAllAgents(
   target: string,
   opts?: WorkspaceAgentSyncOptions
 ): AgentInstallResult[] {
-  if (!shouldSyncWorkspaceToAll()) {
+  if (!workspaceMirrorAllowed(libraryDir, opts?.costDisciplinePropagation ?? false)) {
     return [];
   }
   const force = opts?.force ?? false;
@@ -585,7 +615,7 @@ export async function syncWorkspaceSkillsToAllAgentsAsync(
   target: string,
   opts?: WorkspaceAgentSyncOptions
 ): Promise<AgentInstallResult[]> {
-  if (!shouldSyncWorkspaceToAll()) {
+  if (!workspaceMirrorAllowed(libraryDir, opts?.costDisciplinePropagation ?? false)) {
     return [];
   }
   const force = opts?.force ?? false;

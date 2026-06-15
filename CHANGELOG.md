@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.52** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.53** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -24,6 +24,32 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.53] - 2026-06-14
+
+**Summary:** Cost discipline pack — cap task skills at 8–12, bootstrap new branches with relevant subsets, budget tier gating, and weekly resolver for economy tiers.
+
+**Theme:** Task focus & branch-local skill economy
+
+### Highlights
+
+- **Task skill focus cap** — `claudeSkills.taskFocus.maxActiveSkills` (default 12) limits active + proposed skills; required platform skills count toward the cap
+- **Branch bootstrap** — new branches without a saved profile get infra/app heuristics + relevant-only install instead of inheriting main's full library
+- **Budget tier gating** — high-tier skills outside the active task set auto-disable at 80% daily budget; medium-tier at 95%
+- **Relevant install only** — prunes personal-local irrelevant skills when installs exceed 2× the focus cap
+- **Weekly resolver** — `skillSetResolver` tier feature enabled for `solo-dev` and `budget-sensitive`; unset `skillSetResolver.enabled` follows tier default
+- **Four-agent parity** — cost discipline propagates to Cursor/Kiro/Copilot mirrors + Copilot bootstrap; budget-watch hooks on all four agents; learning artifacts mirrored to `.cursor/learning` / `.kiro/learning`
+- **Host-first entry** — extension detects running IDE (`detectHostAgentId`); imports host mirror skills/learning into canonical `.claude/` when you never opened Claude Code first; per-IDE skill sets work on solo-dev tier in Cursor/Kiro/VS Code
+
+### Behavior changes
+
+- Switching to a new branch seeds a focused skill profile when branch bootstrap is on (profile init prompt still runs when enabled)
+- Task proposals and focus ignore skills beyond the configured cap (extension + `task-skill-focus.js` hook)
+- Cost discipline pass always runs host-first bootstrap, then fans out to non-Claude agents when `propagateToAllAgents` is on (default)
+- Opening the extension in Cursor/Kiro/Copilot bootstraps `.claude/skills` and `.claude/learning` from the host mirror when canonical copies are missing
+- `cli-config.json` includes `taskFocus` and `costDiscipline` blocks for headless hook parity
 
 ---
 

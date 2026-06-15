@@ -89,10 +89,15 @@ function originRemoteUrl(repo: NonNullable<ReturnType<typeof getGitRepository>>)
 }
 
 export function agentProfilesFeatureActive(): boolean {
-  return (
-    isFeatureEnabled("multiAgent") &&
-    vscode.workspace.getConfiguration("claudeSkills.agentProfiles").get<boolean>("enabled", true)
-  );
+  const cfg = vscode.workspace.getConfiguration("claudeSkills.agentProfiles");
+  if (!cfg.get<boolean>("enabled", true)) {
+    return false;
+  }
+  if (isFeatureEnabled("multiAgent")) {
+    return true;
+  }
+  // Host-first: per-IDE skill sets still apply when the extension runs in Cursor/Kiro/VS Code.
+  return detectHostAgentId() !== "claude";
 }
 
 function agentProfilesEnabled(): boolean {

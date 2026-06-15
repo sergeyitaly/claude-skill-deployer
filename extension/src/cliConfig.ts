@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { AgentId, enabledAgents } from "./agentOps";
 import { DEFAULTS, FeatureKey, isFeatureEnabled } from "./featureFlags";
 import { effectiveFeatureMap } from "./projectProfile";
+import { readTaskFocusLimits } from "./taskFocusConfig";
 import { writeJsonAtomic } from "./fileWriteCoordination";
 
 export interface CliConfigFile {
@@ -13,6 +14,14 @@ export interface CliConfigFile {
   features: Record<string, boolean>;
   agents: {
     enabled: AgentId[];
+  };
+  taskFocus?: {
+    enabled: boolean;
+    maxActiveSkills: number;
+  };
+  costDiscipline?: {
+    enabled: boolean;
+    propagateToAllAgents: boolean;
   };
 }
 
@@ -25,6 +34,7 @@ const CLI_RELEVANT_FEATURES: FeatureKey[] = [
   "branchProfiles",
   "multiAgent",
   "budgetControls",
+  "skillSetResolver",
   "contextFocus",
   "practicalFocus",
 ];
@@ -46,6 +56,8 @@ export function buildCliConfig(libraryDir: string, target?: string): CliConfigFi
       features[key] = isFeatureEnabled(key);
     }
   }
+  const taskFocus = readTaskFocusLimits();
+  const costCfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
@@ -53,6 +65,14 @@ export function buildCliConfig(libraryDir: string, target?: string): CliConfigFi
     features,
     agents: {
       enabled: enabledAgents(libraryDir),
+    },
+    taskFocus: {
+      enabled: taskFocus.enabled,
+      maxActiveSkills: taskFocus.maxActiveSkills,
+    },
+    costDiscipline: {
+      enabled: costCfg.get<boolean>("enabled", true),
+      propagateToAllAgents: costCfg.get<boolean>("propagateToAllAgents", true),
     },
   };
 }
@@ -66,7 +86,10 @@ export function syncCliConfigToWorkspace(target: string, libraryDir: string): Cl
       JSON.stringify(existing.features ?? {}) === JSON.stringify(config.features ?? {});
     const sameAgents =
       JSON.stringify(existing.agents?.enabled ?? []) === JSON.stringify(config.agents.enabled);
-    if (sameFeatures && sameAgents) {
+    const sameTaskFocus = JSON.stringify(existing.taskFocus ?? {}) === JSON.stringify(config.taskFocus ?? {});
+    const sameCostDiscipline =
+      JSON.stringify(existing.costDiscipline ?? {}) === JSON.stringify(config.costDiscipline ?? {});
+    if (sameFeatures && sameAgents && sameTaskFocus && sameCostDiscipline) {
       return existing;
     }
   }

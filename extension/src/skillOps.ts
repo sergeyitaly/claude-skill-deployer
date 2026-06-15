@@ -582,6 +582,36 @@ export function generateForWorkspace(
   return results;
 }
 
+/** Copy an explicit skill list from global/library into the workspace (bootstrap path). */
+export function installSkillsToWorkspace(
+  libraryDir: string,
+  target: string,
+  skillNames: string[],
+  opts: { force?: boolean; dryRun?: boolean }
+): InstallResult[] {
+  const globalDir = globalSkillsDir();
+  const destRoot = path.join(target, ".claude", "skills");
+  const results: InstallResult[] = [];
+  const unique = [...new Set(skillNames.filter(Boolean))];
+
+  for (const skillName of unique) {
+    const sourceRoot = fs.existsSync(path.join(globalDir, skillName, "SKILL.md"))
+      ? globalDir
+      : fs.existsSync(path.join(libraryDir, skillName, "SKILL.md"))
+        ? libraryDir
+        : undefined;
+    if (!sourceRoot) {
+      results.push({ skill: skillName, status: "source-missing" });
+      continue;
+    }
+    const status = copySkill(skillName, sourceRoot, destRoot, opts.force ?? false, opts.dryRun ?? false, {
+      libraryDir,
+    });
+    results.push({ skill: skillName, status });
+  }
+  return results;
+}
+
 export interface SkillStatus {
   name: string;
   description: string;

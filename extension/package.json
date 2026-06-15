@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.52",
+  "version": "1.0.53",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -1043,6 +1043,73 @@
         }
       },
       {
+        "id": "taskFocus",
+        "title": "Task Skill Focus",
+        "order": 4,
+        "properties": {
+          "claudeSkills.taskFocus.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Cap the active task skill set (required platform skills + top proposals) to save tokens."
+          },
+          "claudeSkills.taskFocus.maxActiveSkills": {
+            "type": "number",
+            "default": 12,
+            "minimum": 4,
+            "maximum": 30,
+            "description": "Maximum skills kept enabled for the current task (8–12 recommended)."
+          },
+          "claudeSkills.taskFocus.minProposals": {
+            "type": "number",
+            "default": 8,
+            "minimum": 1,
+            "maximum": 30,
+            "description": "Target minimum proposals before capping (informational; cap uses maxActiveSkills)."
+          }
+        }
+      },
+      {
+        "id": "branchBootstrap",
+        "title": "Branch Skill Bootstrap",
+        "order": 4,
+        "properties": {
+          "claudeSkills.branchBootstrap.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "On new git branches without a saved profile, install a relevant capped skill set (infra vs app heuristics) instead of snapshotting main's full library."
+          },
+          "claudeSkills.branchBootstrap.relevantInstallOnly": {
+            "type": "boolean",
+            "default": true,
+            "description": "Prune personal-local library skills that no longer match workspace detect_globs when installs exceed the focus cap."
+          }
+        }
+      },
+      {
+        "id": "costDiscipline",
+        "title": "Cost Discipline",
+        "order": 4,
+        "properties": {
+          "claudeSkills.costDiscipline.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "After task focus, apply budget tier gating and relevant-only pruning."
+          },
+          "claudeSkills.costDiscipline.pruneWhenInstalledOverMultiplier": {
+            "type": "number",
+            "default": 2,
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Prune irrelevant personal installs when installed count exceeds maxActiveSkills × this multiplier."
+          },
+          "claudeSkills.costDiscipline.propagateToAllAgents": {
+            "type": "boolean",
+            "default": true,
+            "description": "Mirror task focus, proposals, and budget-driven disables to Cursor (.cursor/skills), Kiro (.kiro/skills), and Copilot (.github/instructions) even when solo-dev tier disables multiAgent."
+          }
+        }
+      },
+      {
         "id": "lint",
         "title": "Lint",
         "order": 5,
@@ -1289,7 +1356,7 @@
           "claudeSkills.skillSetResolver.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Once per week, install skills that match this workspace and remove library skills that no longer match detect_globs (requires VS Code open at scheduled time)."
+            "description": "Once per week, install skills that match this workspace and remove library skills that no longer match detect_globs (auto-on for solo-dev and budget-sensitive tiers when unset; requires VS Code open at scheduled time)."
           },
           "claudeSkills.skillSetResolver.dayOfWeek": {
             "type": "number",

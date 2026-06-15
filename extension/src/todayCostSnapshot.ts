@@ -6,6 +6,21 @@ import { localDateKey } from "./localDate";
 
 export const TODAY_COST_PATH = path.join(os.homedir(), ".claude", "learning", "today-cost.json");
 
+export function readTodayCostUsd(): number {
+  if (!fs.existsSync(TODAY_COST_PATH)) {
+    return 0;
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(TODAY_COST_PATH, "utf-8")) as { date?: string; costUsd?: number };
+    if (data.date === localDateKey()) {
+      return data.costUsd ?? 0;
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
 export function writeTodayCostSnapshot(costUsd: number, tokens: number): void {
   const payload = {
     date: localDateKey(),
@@ -21,17 +36,7 @@ export function remainingDailyBudgetUsd(config: BudgetConfig): number | null {
   if (config.dailyBudgetUsd <= 0) {
     return null;
   }
-  let spent = 0;
-  if (fs.existsSync(TODAY_COST_PATH)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(TODAY_COST_PATH, "utf-8")) as { date?: string; costUsd?: number };
-      if (data.date === localDateKey()) {
-        spent = data.costUsd ?? 0;
-      }
-    } catch {
-      // ignore
-    }
-  }
+  const spent = readTodayCostUsd();
   return Math.max(0, config.dailyBudgetUsd - spent);
 }
 

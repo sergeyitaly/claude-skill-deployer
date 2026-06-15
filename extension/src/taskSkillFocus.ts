@@ -1,11 +1,13 @@
 import * as path from "node:path";
-import { syncWorkspaceSkillsToAllAgents } from "./agentOps";
+import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
+import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
 import { isFeatureEnabled } from "./featureFlags";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
-import { mergeProfileInitSkills } from "./profileInit";
+import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { setSkillOverride, readSkillOverrides } from "./skillOps";
 import { readTaskSkillProposals } from "./taskSkillProposals";
 import { listInstalledSkills } from "./usageStats";
+import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 
 export const TASK_ACTIVE_SKILLS_REL = path.join(".claude", "learning", "task-active-skills.json");
 
@@ -46,7 +48,17 @@ export function applyTaskSkillFocus(
   source: TaskActiveSkillsFile["source"],
   proposalsGeneratedAt?: string
 ): { activeSkills: string[]; ignoredSkills: string[]; overridesApplied: number } {
-  const activeSkills = mergeProfileInitSkills([...new Set(activeSkillNames.filter(Boolean))]);
+  const limits = readTaskFocusLimits();
+  const required = profileInitRequiredSkills();
+  let cappedNames = activeSkillNames;
+  if (limits.enabled) {
+    const { active } = capActiveSkills(activeSkillNames, {
+      maxActiveSkills: limits.maxActiveSkills,
+      requiredSkills: required,
+    });
+    cappedNames = active;
+  }
+  const activeSkills = mergeProfileInitSkills([...new Set(cappedNames.filter(Boolean))]);
   const activeSet = new Set(activeSkills);
   const installed = listInstalledSkills(target);
   const overrides = readSkillOverrides(target);
@@ -100,7 +112,8 @@ export function applyTaskSkillFocusFromProposals(
   }
   const names = proposals.proposals.map((p) => p.name).filter(Boolean);
   const focus = applyTaskSkillFocus(target, names, "task-skill-proposals", proposals.generatedAt);
-  syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
+  bootstrapWorkspaceForHostAgent(libraryDir, target);
+  propagateCostDisciplineToAgents(libraryDir, target);
   return { applied: true, focus };
 }
 

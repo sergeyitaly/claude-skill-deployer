@@ -18,10 +18,13 @@ const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
 const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
 const KIRO_PROFILE_INIT_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}-profile-init.kiro.hook`;
 const KIRO_TASK_DRIFT_HOOK_FILE = "claude-skills-task-drift.kiro.hook";
+const KIRO_BUDGET_HOOK_FILE = "claude-skills-budget.kiro.hook";
 const TASK_DRIFT_HOOK_MARKER = "claude-skills-task-drift";
+const BUDGET_HOOK_MARKER = "claude-skills-budget";
 const PROFILE_INIT_HOOK_MARKER = `${ATTRIBUTION_HOOK_MARKER}-profile-init`;
 const COPILOT_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.json`;
 const COPILOT_TASK_DRIFT_HOOK_FILE = "claude-skills-task-drift.json";
+const COPILOT_BUDGET_HOOK_FILE = "claude-skills-budget.json";
 
 const SESSION_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${SESSION_HOOK_FILENAME}"`;
 const BUDGET_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${BUDGET_HOOK_FILENAME}"`;
@@ -38,8 +41,11 @@ const OFFICIAL_SKILLS_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks
 const PROFILE_INIT_HOOK_COMMAND = `node "\${CLAUDE_PROJECT_DIR}/.claude/hooks/${PROFILE_INIT_HOOK_FILENAME}"`;
 const CURSOR_PROFILE_INIT_HOOK_COMMAND = `node .cursor/hooks/${PROFILE_INIT_HOOK_FILENAME} cursor`;
 const CURSOR_TASK_DRIFT_HOOK_COMMAND = `node .cursor/hooks/${TASK_DRIFT_HOOK_FILENAME} cursor`;
+const CURSOR_BUDGET_HOOK_COMMAND = `node .cursor/hooks/${BUDGET_HOOK_FILENAME}`;
 const KIRO_TASK_DRIFT_HOOK_COMMAND = `node .claude/hooks/${TASK_DRIFT_HOOK_FILENAME} kiro`;
+const KIRO_BUDGET_HOOK_COMMAND = `node .claude/hooks/${BUDGET_HOOK_FILENAME}`;
 const COPILOT_TASK_DRIFT_HOOK_COMMAND = `node .claude/hooks/${TASK_DRIFT_HOOK_FILENAME} copilot`;
+const COPILOT_BUDGET_HOOK_COMMAND = `node .claude/hooks/${BUDGET_HOOK_FILENAME}`;
 const KIRO_PROFILE_INIT_HOOK_COMMAND = `node .claude/hooks/${PROFILE_INIT_HOOK_FILENAME} kiro`;
 const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
 const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread";
@@ -289,6 +295,160 @@ function installCopilotTaskDriftHook(extensionPath: string, target: string): boo
   }
   writeJsonFile(hookPath, desired);
   return true;
+}
+
+function isCursorBudgetHookConfigured(target: string): boolean {
+  const hooksFile = path.join(target, ".cursor", "hooks.json");
+  const raw = readJsonFile<CursorHooksFile>(hooksFile);
+  if (!raw?.hooks?.beforeSubmitPrompt) {
+    return false;
+  }
+  return raw.hooks.beforeSubmitPrompt.some((entry) => (entry.command ?? "").includes(BUDGET_HOOK_FILENAME));
+}
+
+function installCursorBudgetHook(extensionPath: string, target: string): boolean {
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", BUDGET_HOOK_FILENAME),
+    path.join(target, ".cursor", "hooks", BUDGET_HOOK_FILENAME)
+  );
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", HOOK_HELPER_FILENAME),
+    path.join(target, ".cursor", "hooks", HOOK_HELPER_FILENAME)
+  );
+  const hooksFile = path.join(target, ".cursor", "hooks.json");
+  const existing = readJsonFile<CursorHooksFile>(hooksFile) ?? { version: 1, hooks: {} };
+  existing.version = 1;
+  existing.hooks = existing.hooks ?? {};
+  const entries = existing.hooks.beforeSubmitPrompt ?? [];
+  const idx = entries.findIndex((e) => (e.command ?? "").includes(BUDGET_HOOK_FILENAME));
+  const desired = {
+    command: CURSOR_BUDGET_HOOK_COMMAND,
+    timeout: 8,
+  };
+  if (idx >= 0) {
+    const prev = entries[idx];
+    if (prev.command === desired.command && prev.timeout === desired.timeout) {
+      return false;
+    }
+    entries[idx] = { ...prev, ...desired };
+    existing.hooks.beforeSubmitPrompt = entries;
+    writeJsonFile(hooksFile, existing);
+    return true;
+  }
+  existing.hooks.beforeSubmitPrompt = [...entries, desired];
+  writeJsonFile(hooksFile, existing);
+  return true;
+}
+
+function kiroBudgetHookPayload(): KiroHookFile {
+  return {
+    name: "Claude Skills — budget watch",
+    description: `Managed by Claude Skills Manager (${BUDGET_HOOK_MARKER})`,
+    version: "1",
+    enabled: true,
+    when: { type: "userPromptSubmit" },
+    then: {
+      type: "runCommand",
+      command: KIRO_BUDGET_HOOK_COMMAND,
+      timeout: 8,
+    },
+  };
+}
+
+function isKiroBudgetHookConfigured(target: string): boolean {
+  const hookPath = path.join(target, ".kiro", "hooks", KIRO_BUDGET_HOOK_FILE);
+  const existing = readJsonFile<KiroHookFile>(hookPath);
+  return Boolean(existing?.description?.includes(BUDGET_HOOK_MARKER));
+}
+
+function installKiroBudgetHook(extensionPath: string, target: string): boolean {
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", BUDGET_HOOK_FILENAME),
+    path.join(target, ".claude", "hooks", BUDGET_HOOK_FILENAME)
+  );
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", HOOK_HELPER_FILENAME),
+    path.join(target, ".claude", "hooks", HOOK_HELPER_FILENAME)
+  );
+  const hookPath = path.join(target, ".kiro", "hooks", KIRO_BUDGET_HOOK_FILE);
+  const desired = kiroBudgetHookPayload();
+  const existing = readJsonFile<KiroHookFile>(hookPath);
+  if (existing && existing.description.includes(BUDGET_HOOK_MARKER)) {
+    const same = JSON.stringify(existing) === JSON.stringify(desired);
+    if (same) {
+      return false;
+    }
+  }
+  writeJsonFile(hookPath, desired);
+  return true;
+}
+
+function copilotBudgetHookPayload(): CopilotHooksFile {
+  const command = {
+    type: "command" as const,
+    bash: COPILOT_BUDGET_HOOK_COMMAND,
+    powershell: COPILOT_BUDGET_HOOK_COMMAND,
+    timeoutSec: 8,
+  };
+  return {
+    version: 1,
+    hooks: {
+      UserPromptSubmit: [command],
+      userPromptSubmitted: [command],
+    },
+  };
+}
+
+function isCopilotBudgetHookConfigured(target: string): boolean {
+  const hookPath = path.join(target, ".github", "hooks", COPILOT_BUDGET_HOOK_FILE);
+  const existing = readJsonFile<CopilotHooksFile>(hookPath);
+  return Boolean(existing?.hooks?.UserPromptSubmit?.some((h) => (h.bash ?? "").includes(BUDGET_HOOK_FILENAME)));
+}
+
+function installCopilotBudgetHook(extensionPath: string, target: string): boolean {
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", BUDGET_HOOK_FILENAME),
+    path.join(target, ".claude", "hooks", BUDGET_HOOK_FILENAME)
+  );
+  copyFileWithRetry(
+    path.join(extensionPath, "resources", "hooks", HOOK_HELPER_FILENAME),
+    path.join(target, ".claude", "hooks", HOOK_HELPER_FILENAME)
+  );
+  const hookPath = path.join(target, ".github", "hooks", COPILOT_BUDGET_HOOK_FILE);
+  const desired = copilotBudgetHookPayload();
+  const existing = readJsonFile<CopilotHooksFile>(hookPath);
+  if (existing) {
+    const same = JSON.stringify(existing) === JSON.stringify(desired);
+    if (same) {
+      return false;
+    }
+  }
+  writeJsonFile(hookPath, desired);
+  return true;
+}
+
+/** Budget hooks for Cursor, Kiro, and Copilot (Claude uses UserPromptSubmit in settings.json). */
+function installAgentBudgetHooks(extensionPath: string, target: string, libraryDir: string): boolean {
+  const agents = enabledAgents(libraryDir);
+  let changed = false;
+  if (agents.includes("cursor")) {
+    changed = installCursorBudgetHook(extensionPath, target) || changed;
+  }
+  if (agents.includes("kiro")) {
+    changed = installKiroBudgetHook(extensionPath, target) || changed;
+  }
+  if (agents.includes("copilot")) {
+    changed = installCopilotBudgetHook(extensionPath, target) || changed;
+  }
+  return changed;
+}
+
+function agentBudgetHooksConfigured(target: string, libraryDir: string): boolean {
+  const agents = enabledAgents(libraryDir);
+  const cursorOk = !agents.includes("cursor") || isCursorBudgetHookConfigured(target);
+  const kiroOk = !agents.includes("kiro") || isKiroBudgetHookConfigured(target);
+  const copilotOk = !agents.includes("copilot") || isCopilotBudgetHookConfigured(target);
+  return cursorOk && kiroOk && copilotOk;
 }
 
 /** Task-drift prompt hooks for Cursor, Kiro, and Copilot (Claude uses UserPromptSubmit in settings.json). */
@@ -683,14 +843,17 @@ export function installCostControlHooks(extensionPath: string, target: string): 
   if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus || addedTaskDrift) {
     writeJsonFile(settingsFile, settings);
     installAgentTaskDriftHooks(extensionPath, target, libraryDir);
+    installAgentBudgetHooks(extensionPath, target, libraryDir);
     return installAttributionHooks(extensionPath, target);
   }
 
   if (hadSession && hadBudget && hadContextFocus && hadPracticalFocus && hadTaskDrift) {
     installAgentTaskDriftHooks(extensionPath, target, libraryDir);
+    installAgentBudgetHooks(extensionPath, target, libraryDir);
     return installAttributionHooks(extensionPath, target);
   }
   installAgentTaskDriftHooks(extensionPath, target, libraryDir);
+  installAgentBudgetHooks(extensionPath, target, libraryDir);
   return installAttributionHooks(extensionPath, target);
 }
 
@@ -871,8 +1034,15 @@ export function installProfileInitSessionHook(
 }
 
 /** Copy latest hook scripts into workspace agent hook directories. */
-export function refreshCostControlHookScripts(extensionPath: string, target: string): void {
+export function refreshCostControlHookScripts(
+  extensionPath: string,
+  target: string,
+  libraryDir?: string
+): void {
+  const lib = libraryDir ?? libraryDirFromExtension(extensionPath);
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
+  installAgentBudgetHooks(extensionPath, target, lib);
+  installAgentTaskDriftHooks(extensionPath, target, lib);
   refreshAttributionHookScripts(extensionPath, target);
 }
 
@@ -947,10 +1117,12 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
     },
     costControl: {
       sessionSize: isSessionSizeHookConfigured(target),
-      budget: isBudgetHookConfigured(target),
+      budget:
+        isBudgetHookConfigured(target) && agentBudgetHooksConfigured(target, libraryDir),
       contextFocus: isContextFocusHookConfigured(target),
       practicalFocus: isPracticalFocusHookConfigured(target),
-      configured: areCostControlHooksConfigured(target),
+      configured:
+        areCostControlHooksConfigured(target) && agentBudgetHooksConfigured(target, libraryDir),
     },
   };
 }

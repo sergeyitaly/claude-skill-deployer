@@ -263,6 +263,9 @@ import {
 } from "./sessionSkillApply";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { PROPOSALS_FILE_RELATIVE } from "./taskSkillProposals";
+import { bootstrapWorkspaceForHostAgent, formatHostBootstrapLog } from "./hostAgentBootstrap";
+import { bootstrapBranchSkillSet, branchSkillBootstrapEnabled } from "./branchSkillBootstrap";
+import { runCostDisciplinePass } from "./costDiscipline";
 import { createRefreshScheduler, shouldRunWorkspaceState } from "./workspaceRefresh";
 
 let outputChannel: vscode.OutputChannel;
@@ -345,14 +348,36 @@ async function pushTeamEconomicsToDashboard(
 }
 
 function branchChangeOpts(extensionPath: string, libraryDir: string, target: string) {
-  if (!profileInitEnabled()) {
+  const bootstrap = branchSkillBootstrapEnabled();
+  const profileInit = profileInitEnabled();
+  if (!bootstrap && !profileInit) {
     return undefined;
   }
-  return {
-    onNewBranchWithoutProfile: (branch: string) =>
-      maybePromptProfileInitOnNewBranch(extensionPath, libraryDir, target, branch, log),
-    mergeProfileSkills: mergeProfileInitSkills,
-    recoverRequiredSkills: async (
+
+  const opts: Parameters<typeof handleBranchChange>[3] = {
+    onNewBranchWithoutProfile: async (branch: string) => {
+      if (bootstrap) {
+        const boot = bootstrapBranchSkillSet(libraryDir, target, branch);
+        if (boot.bootstrapped) {
+          log(
+            `Branch bootstrap (${boot.flavor ?? "general"}): ${boot.skills.length} focused skill(s)` +
+              (boot.installed.length ? ` — installed ${boot.installed.join(", ")}` : "") +
+              "."
+          );
+          if (!profileInit) {
+            return;
+          }
+        }
+      }
+      if (profileInit) {
+        await maybePromptProfileInitOnNewBranch(extensionPath, libraryDir, target, branch, log);
+      }
+    },
+  };
+
+  if (profileInit) {
+    opts.mergeProfileSkills = mergeProfileInitSkills;
+    opts.recoverRequiredSkills = async (
       branch: string,
       context: { isFirstSync: boolean; hasSavedProfile: boolean }
     ): Promise<boolean> => {
@@ -375,8 +400,10 @@ function branchChangeOpts(extensionPath: string, libraryDir: string, target: str
         return true;
       }
       return false;
-    },
-  };
+    };
+  }
+
+  return opts;
 }
 
 async function maybeNotifyOfficialSkillUpdates(target: string): Promise<void> {
@@ -916,6 +943,22 @@ export function activate(context: vscode.ExtensionContext) {
           `Task skill focus: ${focusApply.focus.activeSkills.length} active, ${focusApply.focus.ignoredSkills.length} ignored for this task.`
         );
       }
+      const discipline = runCostDisciplinePass(libraryDir, target);
+      if (discipline.hostBootstrapMessage) {
+        log(discipline.hostBootstrapMessage);
+      }
+      if (discipline.budgetDisabled.length > 0) {
+        log(`Budget tier gating: disabled ${discipline.budgetDisabled.join(", ")} (${discipline.reason ?? "budget"}).`);
+      }
+      if (discipline.prunedIrrelevant.length > 0) {
+        log(`Relevant-only prune: removed ${discipline.prunedIrrelevant.join(", ")}.`);
+      }
+      if (discipline.mirroredArtifacts.length > 0) {
+        log(`Mirrored cost-discipline artifacts: ${discipline.mirroredArtifacts.join(", ")}.`);
+      }
+      if (discipline.agentPathsUpdated > 0) {
+        log(`Propagated focused skill set to ${discipline.agentPathsUpdated} Cursor/Kiro/Copilot path(s).`);
+      }
       scheduleHighUsageSkillProposalCheck(target);
     }
     syncCliConfigToWorkspace(target, libraryDir);
@@ -1076,6 +1119,11 @@ export function activate(context: vscode.ExtensionContext) {
   startExtensionAutoUpdate(context, log);
 
   if (initialTarget && !integrationTestMode()) {
+    const hostBoot = bootstrapWorkspaceForHostAgent(libraryDir, initialTarget);
+    const hostBootLog = formatHostBootstrapLog(hostBoot);
+    if (hostBootLog) {
+      log(hostBootLog);
+    }
     setTimeout(() => {
       warmupWorkspaceCaches(initialTarget, libraryDir);
     }, 1000);

@@ -74,8 +74,45 @@ function mergeRequired(names) {
   return [...out];
 }
 
+function readTaskFocusLimits(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  const tf = cfg?.taskFocus;
+  return {
+    enabled: tf?.enabled !== false,
+    maxActiveSkills: Math.max(4, Math.min(30, tf?.maxActiveSkills ?? 12)),
+  };
+}
+
+function capActiveNames(names, limits) {
+  const required = [...DEFAULT_REQUIRED];
+  const requiredSet = new Set(required);
+  const seen = new Set();
+  const active = [];
+  for (const name of required) {
+    if (!name || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    active.push(name);
+  }
+  const optional = [...new Set(names.filter((n) => n && !requiredSet.has(n)))];
+  for (const name of optional) {
+    if (active.length >= limits.maxActiveSkills) {
+      break;
+    }
+    if (seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    active.push(name);
+  }
+  return active;
+}
+
 function applyFocus(cwd, activeNames, source, proposalsGeneratedAt) {
-  const active = mergeRequired(activeNames);
+  const limits = readTaskFocusLimits(cwd);
+  const capped = limits.enabled ? capActiveNames(activeNames, limits) : mergeRequired(activeNames);
+  const active = capped;
   const activeSet = new Set(active);
   const installed = listInstalled(cwd);
   const overrides = { ...readOverrides(cwd) };
@@ -154,7 +191,9 @@ function main() {
     return;
   }
   const names = proposals.proposals.map((p) => p?.name).filter(Boolean);
-  const result = applyFocus(cwd, names, "task-skill-proposals", proposals.generatedAt);
+  const limits = readTaskFocusLimits(cwd);
+  const cappedNames = limits.enabled ? capActiveNames(names, limits) : names;
+  const result = applyFocus(cwd, cappedNames, "task-skill-proposals", proposals.generatedAt);
   if (result.applied || result.ignored.length) {
     process.stderr.write(
       `[claude-skills] task-focus: ${result.active.length} active, ${result.ignored.length} ignored\n`

@@ -118,8 +118,15 @@ function readUsageRules(cfg: vscode.WorkspaceConfiguration): SkillSetUsageRules 
 
 export function readSkillSetResolverConfig(): SkillSetResolverConfig {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.skillSetResolver");
+  const inspected = cfg.inspect<boolean>("enabled");
+  const tierDefault = isFeatureEnabled("skillSetResolver");
+  const enabled =
+    inspected?.workspaceFolderValue ??
+    inspected?.workspaceValue ??
+    inspected?.globalValue ??
+    tierDefault;
   return {
-    enabled: cfg.get<boolean>("enabled", false),
+    enabled,
     dayOfWeek: cfg.get<number>("dayOfWeek", 1),
     hour: cfg.get<number>("hour", 8),
     minute: cfg.get<number>("minute", 0),

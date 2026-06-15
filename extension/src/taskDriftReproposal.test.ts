@@ -27,6 +27,7 @@ const manifest: Manifest = {
 };
 
 vi.mock("vscode", () => ({
+  env: { appName: "Visual Studio Code" },
   workspace: {
     getConfiguration: () => ({
       get: (key: string, defaultValue: unknown) => defaultValue,

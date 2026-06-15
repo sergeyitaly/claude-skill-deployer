@@ -132,10 +132,20 @@ py generate_skills.py sync-branch --target "$(git rev-parse --show-toplevel)"
   "features": {
     "sessionSkillAdaptation": true,
     "branchProfiles": true,
-    "multiAgent": true
+    "multiAgent": true,
+    "taskSkillFocus": true,
+    "skillSetResolver": true
   },
   "agents": {
     "enabled": ["claude", "cursor", "kiro", "copilot"]
+  },
+  "taskFocus": {
+    "enabled": true,
+    "maxActiveSkills": 12
+  },
+  "costDiscipline": {
+    "enabled": true,
+    "propagateToAllAgents": true
   }
 }
 ```
@@ -168,6 +178,10 @@ Or Settings → `claudeSkills.features.*`:
 | `costAwareSearch` | on | ROI/cost labels and sort in skills tree |
 | `sessionSkillAdaptation` | on | Auto install/enable proposed skills on new agent session or window |
 | `autoApplyTaskProposals` | on | Auto-install all **Proposed for current task** skills (+ required platform skills) locally |
+| `taskSkillFocus` | on | Cap active skills via `skillOverrides`; syncs to all enabled agents |
+| `skillSetResolver` | tier default | Weekly relevant install + idle prune (`solo-dev` / `budget-sensitive` when unset) |
+
+**Cost discipline settings** (Settings → `claudeSkills.taskFocus.*`, `branchBootstrap.*`, `costDiscipline.*`): cap at 12 active skills, branch bootstrap on new git branches, budget tier gating, and `propagateToAllAgents` for Cursor/Kiro/Copilot on `solo-dev` tier.
 
 ## Cost intelligence
 
@@ -184,6 +198,7 @@ Estimates where no usage data exists — hook/API-priced where hooks logged usag
 
 - **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
 - **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open)
+- **Budget / task-focus hooks** — `budget-watch.js` and `task-drift-watch.js` on all four agents; `task-skill-focus.js` caps via `cli-config.json`
 - **Usage Report split** — **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
 - **Stale data guard** — auto-purges equal-split `transcriptSkills`; **Top skills** uses hook-measured costs when v2 runs exist (even if transcript attribution is stale)
