@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.61** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.60** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -27,21 +27,9 @@ Each release includes:
 
 ---
 
-## [1.0.61] - 2026-06-15
-
-**Summary:** Fix false-positive `tierChanged` when refreshing an unchanged project profile.
-
-**Theme:** Profile refresh stability
-
-### Bug fixes
-
-- **`tierChanged` detection** — treat missing `userPlan` as `accept-detected` and ignore partial `multiAgent` preset keys so signal-only refreshes do not trigger mirror cleanup
-
----
-
 ## [1.0.60] - 2026-06-15
 
-**Summary:** Tier downgrade now reliably removes excess agent mirror folders and stops recreating them on sync.
+**Summary:** Tier downgrade reliably removes excess agent mirror folders; profile refresh no longer false-triggers cleanup.
 
 **Theme:** Host-only tier cleanup fix
 
@@ -50,6 +38,7 @@ Each release includes:
 - **Tier cleanup gate** — prune uses `project-profile.json` on disk (`hostOnlyMirrorModeForTarget`) instead of stale in-memory `multiAgent` state
 - **No recreate after prune** — `installSkillToAllWorkspaceAgents` respects host-only mirror targets (was fanning out to all enabled agents via profile-init and single-skill install)
 - **Broader tier triggers** — cleanup also runs on `multiAgent` flag change, `lockedTier` setting change, and feature toggle off; toast + output log when folders are removed
+- **`tierChanged` detection** — treat missing `userPlan` as `accept-detected` and ignore partial `multiAgent` preset keys so signal-only refreshes do not trigger mirror cleanup
 
 ---
 
