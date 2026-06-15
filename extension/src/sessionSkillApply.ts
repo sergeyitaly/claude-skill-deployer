@@ -13,9 +13,12 @@ import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit
 import { listInstalledSkills } from "./usageStats";
 import {
   readTaskSkillProposals,
+  resolveProposalSkillNames,
   TaskSkillProposalsFile,
+  taskSkillSetApprovalPending,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
+import { readTaskFocusLimits } from "./taskFocusConfig";
 import {
   applyTaskSkillFocus,
   taskSkillFocusEnabled,
@@ -151,12 +154,16 @@ function readAppliedProfileSkillNames(target: string): string[] {
 }
 
 function proposalNamesForApply(proposals: TaskSkillProposalsFile): string[] {
-  if (taskProposalsAutoApplyEnabled()) {
-    return proposals.proposals.map((p) => p.name).filter(Boolean);
+  if (taskSkillSetApprovalPending(proposals)) {
+    return [];
   }
+  if (taskProposalsAutoApplyEnabled()) {
+    return resolveProposalSkillNames(proposals);
+  }
+  const minConfidence = readTaskFocusLimits().minProposalConfidence;
   const names = new Set<string>();
   for (const p of proposals.proposals) {
-    if (p.confidence >= 50) {
+    if (p.confidence >= minConfidence) {
       names.add(p.name);
     }
   }
@@ -273,7 +280,13 @@ export function applyTaskProposalsIfPending(
   if (state.lastGeneratedAt === proposals.generatedAt) {
     return { applied: false };
   }
+  if (taskSkillSetApprovalPending(proposals)) {
+    return { applied: false };
+  }
   const names = proposalNamesForApply(proposals);
+  if (names.length === 0) {
+    return { applied: false };
+  }
   const result = applyProposedSkillsLocally(libraryDir, target, names);
   writeTaskProposalsApplyState(target, {
     version: 1,

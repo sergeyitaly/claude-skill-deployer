@@ -77,10 +77,35 @@ function mergeRequired(names) {
 function readTaskFocusLimits(cwd) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
   const tf = cfg?.taskFocus;
+  const rawMin = tf?.minProposalConfidence;
+  const minProposalConfidence =
+    typeof rawMin === "number" && Number.isFinite(rawMin)
+      ? Math.min(100, Math.max(0, Math.round(rawMin)))
+      : 50;
   return {
     enabled: tf?.enabled !== false,
     maxActiveSkills: Math.max(4, Math.min(30, tf?.maxActiveSkills ?? 12)),
+    minProposalConfidence,
   };
+}
+
+function resolveProposalSkillNames(proposals, cwd) {
+  if (!proposals || !Array.isArray(proposals.proposals)) {
+    return [];
+  }
+  const limits = readTaskFocusLimits(cwd);
+  const required = new Set(DEFAULT_REQUIRED);
+  const filtered = proposals.proposals.filter(
+    (p) => p && typeof p.name === "string" && (required.has(p.name) || (p.confidence ?? 0) >= limits.minProposalConfidence)
+  );
+  const allowed = new Set(filtered.map((p) => p.name));
+  if (proposals.selectedOptionId && Array.isArray(proposals.options)) {
+    const selected = proposals.options.find((o) => o && o.id === proposals.selectedOptionId);
+    if (selected && Array.isArray(selected.skills) && selected.skills.length) {
+      return selected.skills.filter((name) => required.has(name) || allowed.has(name));
+    }
+  }
+  return filtered.map((p) => p.name).filter(Boolean);
 }
 
 function capActiveNames(names, limits) {
@@ -186,11 +211,20 @@ function main() {
   if (!proposals || !Array.isArray(proposals.proposals) || !proposals.proposals.length) {
     return;
   }
+  if (proposals.approvalStatus === "pending" && Array.isArray(proposals.options) && proposals.options.length) {
+    const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+    if (cfg?.taskFocus?.approveSkillSets !== false) {
+      return;
+    }
+  }
   const state = readJsonSafe(path.join(cwd, ACTIVE_REL));
   if (state && state.proposalsGeneratedAt === proposals.generatedAt) {
     return;
   }
-  const names = proposals.proposals.map((p) => p?.name).filter(Boolean);
+  const names = resolveProposalSkillNames(proposals, cwd);
+  if (names.length === 0) {
+    return;
+  }
   const limits = readTaskFocusLimits(cwd);
   const cappedNames = limits.enabled ? capActiveNames(names, limits) : names;
   const result = applyFocus(cwd, cappedNames, "task-skill-proposals", proposals.generatedAt);

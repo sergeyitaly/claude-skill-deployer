@@ -11,11 +11,15 @@ import { isV2HookRun } from "./runRecording";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import {
   computeTaskSkillProposals,
+  computeTaskSkillSetOptions,
+  filterProposalsByMinConfidence,
+  rankAllTaskSkillProposals,
   readTaskSkillProposals,
   TaskSkillProposal,
   TaskSkillProposalsFile,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
+import { readTaskFocusLimits, taskSkillSetApprovalEnabled } from "./taskFocusConfig";
 import { claudeParser, cursorParser, listTranscriptFiles } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
@@ -364,11 +368,21 @@ export function refreshProposalsForDrift(
   const installed = new Set(
     computed.filter((p) => p.installed).map((p) => p.name)
   );
-  const merged = boostOffProfileSkills(computed, evaluation.offProfileSkills, installed);
+  const limits = readTaskFocusLimits();
+  const merged = filterProposalsByMinConfidence(
+    boostOffProfileSkills(computed, evaluation.offProfileSkills, installed),
+    limits.minProposalConfidence
+  );
 
   if (merged.length === 0) {
     return { refreshed: false };
   }
+
+  const allRanked = rankAllTaskSkillProposals(target, manifest, basePrompt);
+  const boostedRanked = boostOffProfileSkills(allRanked, evaluation.offProfileSkills, installed);
+  const options = taskSkillSetApprovalEnabled()
+    ? computeTaskSkillSetOptions(boostedRanked, limits)
+    : undefined;
 
   const triggerLabel = evaluation.triggers.join("+");
   const data: TaskSkillProposalsFile = {
@@ -377,6 +391,9 @@ export function refreshProposalsForDrift(
     taskSummary: `Task drift refresh (${triggerLabel})`,
     promptExcerpt: basePrompt.slice(0, 240),
     proposals: merged,
+    options,
+    approvalStatus: taskSkillSetApprovalEnabled() ? "pending" : "approved",
+    selectedOptionId: taskSkillSetApprovalEnabled() ? undefined : options?.[0]?.id,
   };
   writeTaskSkillProposals(target, data);
   return { refreshed: true, file: data };

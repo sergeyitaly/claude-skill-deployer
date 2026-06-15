@@ -262,6 +262,7 @@ import {
   SESSION_APPLY_REQUEST_REL,
 } from "./sessionSkillApply";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
+import { maybePromptTaskSkillSetApproval, promptTaskSkillSetApproval } from "./taskSkillSetApproval";
 import { PROPOSALS_FILE_RELATIVE } from "./taskSkillProposals";
 import { bootstrapWorkspaceForHostAgent, formatHostBootstrapLog } from "./hostAgentBootstrap";
 import { bootstrapBranchSkillSet, branchSkillBootstrapEnabled } from "./branchSkillBootstrap";
@@ -937,29 +938,32 @@ export function activate(context: vscode.ExtensionContext) {
           log(`Task proposals refreshed locally (${proposalRefresh.file?.proposals.length ?? 0} skills).`);
         }
       }
-      const focusApply = applyTaskSkillFocusFromProposals(libraryDir, target);
-      if (focusApply.applied && focusApply.focus) {
-        log(
-          `Task skill focus: ${focusApply.focus.activeSkills.length} active, ${focusApply.focus.ignoredSkills.length} ignored for this task.`
-        );
-      }
-      const discipline = runCostDisciplinePass(libraryDir, target);
-      if (discipline.hostBootstrapMessage) {
-        log(discipline.hostBootstrapMessage);
-      }
-      if (discipline.budgetDisabled.length > 0) {
-        log(`Budget tier gating: disabled ${discipline.budgetDisabled.join(", ")} (${discipline.reason ?? "budget"}).`);
-      }
-      if (discipline.prunedIrrelevant.length > 0) {
-        log(`Relevant-only prune: removed ${discipline.prunedIrrelevant.join(", ")}.`);
-      }
-      if (discipline.mirroredArtifacts.length > 0) {
-        log(`Mirrored cost-discipline artifacts: ${discipline.mirroredArtifacts.join(", ")}.`);
-      }
-      if (discipline.agentPathsUpdated > 0) {
-        log(`Propagated focused skill set to ${discipline.agentPathsUpdated} Cursor/Kiro/Copilot path(s).`);
-      }
-      scheduleHighUsageSkillProposalCheck(target);
+      void (async () => {
+        await maybePromptTaskSkillSetApproval(target, log);
+        const focusApply = applyTaskSkillFocusFromProposals(libraryDir, target);
+        if (focusApply.applied && focusApply.focus) {
+          log(
+            `Task skill focus: ${focusApply.focus.activeSkills.length} active, ${focusApply.focus.ignoredSkills.length} ignored for this task.`
+          );
+        }
+        const discipline = runCostDisciplinePass(libraryDir, target);
+        if (discipline.hostBootstrapMessage) {
+          log(discipline.hostBootstrapMessage);
+        }
+        if (discipline.budgetDisabled.length > 0) {
+          log(`Budget tier gating: disabled ${discipline.budgetDisabled.join(", ")} (${discipline.reason ?? "budget"}).`);
+        }
+        if (discipline.prunedIrrelevant.length > 0) {
+          log(`Relevant-only prune: removed ${discipline.prunedIrrelevant.join(", ")}.`);
+        }
+        if (discipline.mirroredArtifacts.length > 0) {
+          log(`Mirrored cost-discipline artifacts: ${discipline.mirroredArtifacts.join(", ")}.`);
+        }
+        if (discipline.agentPathsUpdated > 0) {
+          log(`Propagated focused skill set to ${discipline.agentPathsUpdated} Cursor/Kiro/Copilot path(s).`);
+        }
+        scheduleHighUsageSkillProposalCheck(target);
+      })();
     }
     syncCliConfigToWorkspace(target, libraryDir);
     const sessionApply = processSessionSkillApplyRequest(libraryDir, target);
@@ -1606,6 +1610,39 @@ export function activate(context: vscode.ExtensionContext) {
         );
       } else {
         void notifyUserSuccess("Claude Skills: could not install suggested skills.");
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.chooseTaskSkillSet", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      let file = readTaskSkillProposals(target);
+      if (!file?.options?.length) {
+        ensureWorkspaceTaskProposals(target, loadManifest(libraryDir));
+        file = readTaskSkillProposals(target);
+      }
+      if (!file?.options?.length) {
+        void notifyUserWarn(
+          "Claude Skills: no task skill options yet — describe a new task in chat or run skill-feedback-adaptation."
+        );
+        return;
+      }
+      const approved = await promptTaskSkillSetApproval(target, log, { force: true });
+      if (!approved) {
+        return;
+      }
+      const focusApply = applyTaskSkillFocusFromProposals(libraryDir, target);
+      if (focusApply.applied && focusApply.focus) {
+        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+          forceAgentSync: true,
+        });
+        refreshAll();
+        void notifyUserSuccess(
+          `Claude Skills: ${focusApply.focus.activeSkills.length} skill(s) active for this task.`
+        );
       }
     }),
 

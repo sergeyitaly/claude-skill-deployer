@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.57",
+  "version": "1.0.58",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -123,6 +123,12 @@
         "command": "claudeSkills.applyTaskSkillProposals",
         "title": "Apply Suggested Skills for Current Task",
         "icon": "$(lightbulb-autofix)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.chooseTaskSkillSet",
+        "title": "Choose Task Skill Set",
+        "icon": "$(list-selection)",
         "category": "Claude Skills"
       },
       {
@@ -1095,6 +1101,18 @@
             "minimum": 1,
             "maximum": 30,
             "description": "Target minimum proposals before capping (informational; cap uses maxActiveSkills)."
+          },
+          "claudeSkills.taskFocus.minProposalConfidence": {
+            "type": "number",
+            "default": 50,
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Only propose task skills at or above this confidence (0–100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
+          },
+          "claudeSkills.taskFocus.approveSkillSets": {
+            "type": "boolean",
+            "default": true,
+            "description": "Offer 2–3 skill-set options for user approval before auto-applying task focus. When off, the extension picks one set automatically (previous behavior)."
           }
         }
       },
@@ -1135,7 +1153,7 @@
           "claudeSkills.costDiscipline.propagateToAllAgents": {
             "type": "boolean",
             "default": true,
-            "description": "Mirror task focus, proposals, and budget-driven disables to Cursor (.cursor/skills), Kiro (.kiro/skills), and Copilot (.github/instructions) even when solo-dev tier disables multiAgent."
+            "description": "When multi-agent sync is enabled, mirror task focus, proposals, and budget-driven disables to Cursor (.cursor/skills), Kiro (.kiro/skills), and Copilot (.github/instructions). Requires claudeSkills.features.multiAgent."
           }
         }
       },

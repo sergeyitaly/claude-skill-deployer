@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.57** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.58** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -24,6 +24,20 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.58] - 2026-06-15
+
+**Summary:** Task skill sets need user approval, respect a configurable confidence floor, and multi-agent mirroring requires multi-agent mode.
+
+**Theme:** Task skill focus & multi-agent gating
+
+### Behavior changes
+
+- **Skill-set approval** — extension offers Focused / Workspace / Broader option sets (`claudeSkills.taskFocus.approveSkillSets`, default on); auto-apply and task focus wait until you pick **Choose Task Skill Set** or the startup quick pick
+- **Minimum proposal confidence** — `claudeSkills.taskFocus.minProposalConfidence` (default 50) filters heuristics, drift refresh, usage report, and hooks; required platform skills stay exempt; generic tokens (`skill`, `skills`, `set`, …) no longer inflate scores
+- **Multi-agent mirroring** — Claude → Cursor/Kiro/Copilot skill/learning mirror only when `claudeSkills.features.multiAgent` is on (removed solo-dev cost-discipline bypass)
 
 ---
 

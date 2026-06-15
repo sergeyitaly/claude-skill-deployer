@@ -5,7 +5,7 @@ import { isFeatureEnabled } from "./featureFlags";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { setSkillOverride, readSkillOverrides } from "./skillOps";
-import { readTaskSkillProposals } from "./taskSkillProposals";
+import { readTaskSkillProposals, resolveProposalSkillNames, taskSkillSetApprovalPending } from "./taskSkillProposals";
 import { listInstalledSkills } from "./usageStats";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 
@@ -106,11 +106,14 @@ export function applyTaskSkillFocusFromProposals(
   if (!proposals?.proposals.length) {
     return { applied: false };
   }
+  if (taskSkillSetApprovalPending(proposals)) {
+    return { applied: false };
+  }
   const state = readTaskActiveSkills(target);
   if (state?.proposalsGeneratedAt === proposals.generatedAt) {
     return { applied: false };
   }
-  const names = proposals.proposals.map((p) => p.name).filter(Boolean);
+  const names = resolveProposalSkillNames(proposals).filter(Boolean);
   const focus = applyTaskSkillFocus(target, names, "task-skill-proposals", proposals.generatedAt);
   bootstrapWorkspaceForHostAgent(libraryDir, target);
   propagateCostDisciplineToAgents(libraryDir, target);

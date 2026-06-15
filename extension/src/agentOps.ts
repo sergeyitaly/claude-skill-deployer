@@ -467,7 +467,7 @@ export interface WorkspaceAgentSyncOptions {
   skillNames?: string[];
   /** Limit sync to specific agents. Omit for all enabled non-Claude agents. */
   agentIds?: AgentId[];
-  /** Bypass project-tier multiAgent:false for cost-discipline propagation. */
+  /** Cost-discipline fan-out; still requires claudeSkills.features.multiAgent. */
   costDisciplinePropagation?: boolean;
 }
 
@@ -475,14 +475,20 @@ function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation = 
   if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
     return false;
   }
+  if (!isFeatureEnabled("multiAgent")) {
+    return false;
+  }
   if (costDisciplinePropagation) {
     const cfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
     if (!cfg.get<boolean>("propagateToAllAgents", true)) {
       return false;
     }
-    return enabledAgents(libraryDir).some((id) => id !== "claude");
+    if (libraryDir && fs.existsSync(path.join(libraryDir, "agents.json"))) {
+      return enabledAgents(libraryDir).some((id) => id !== "claude");
+    }
+    return false;
   }
-  return isFeatureEnabled("multiAgent");
+  return true;
 }
 
 /** Clear after skill install/remove/override so the next sync is not skipped. */
@@ -681,6 +687,9 @@ export function syncCopilotBootstrap(target: string, libraryDir: string): string
 
 /** Mirror learning artifacts (reports, budget, branch profiles) to other agents' learning dirs. */
 export function mirrorLearningArtifacts(target: string, libraryDir: string): string[] {
+  if (!isFeatureEnabled("multiAgent")) {
+    return [];
+  }
   const agentsManifest = loadAgentsManifest(libraryDir);
   const ids = enabledAgents(libraryDir).filter((id) => id !== "claude");
   const sourceDir = path.join(target, ".claude", "learning");

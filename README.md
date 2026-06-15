@@ -181,7 +181,7 @@ Or Settings → `claudeSkills.features.*`:
 | `taskSkillFocus` | on | Cap active skills via `skillOverrides`; syncs to all enabled agents |
 | `skillSetResolver` | tier default | Weekly relevant install + idle prune (`solo-dev` / `budget-sensitive` when unset) |
 
-**Cost discipline settings** (Settings → `claudeSkills.taskFocus.*`, `branchBootstrap.*`, `costDiscipline.*`): cap at 12 active skills, branch bootstrap on new git branches, budget tier gating, and `propagateToAllAgents` for Cursor/Kiro/Copilot on `solo-dev` tier.
+**Cost discipline settings** (Settings → `claudeSkills.taskFocus.*`, `branchBootstrap.*`, `costDiscipline.*`): cap at 12 active skills, branch bootstrap on new git branches, budget tier gating, and optional `propagateToAllAgents` when multi-agent sync is enabled.
 
 ## Cost intelligence
 

@@ -4,6 +4,9 @@ export interface TaskFocusLimits {
   enabled: boolean;
   maxActiveSkills: number;
   minProposals: number;
+  /** Minimum confidence (0–100, inclusive) for task-scoped proposals; required platform skills exempt. */
+  minProposalConfidence: number;
+  approveSkillSets: boolean;
 }
 
 /** Cap active task skills (default 12) — required platform skills count toward the cap. */
@@ -11,11 +14,22 @@ export function readTaskFocusLimits(): TaskFocusLimits {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.taskFocus");
   const rawMax = cfg.get<number>("maxActiveSkills", 12);
   const maxActiveSkills = Math.max(4, Math.min(30, rawMax));
+  const rawMinConf = cfg.get<number>("minProposalConfidence", 50);
+  const minProposalConfidence = Number.isFinite(rawMinConf)
+    ? Math.min(100, Math.max(0, Math.round(rawMinConf)))
+    : 50;
   return {
     enabled: cfg.get<boolean>("enabled", true),
     maxActiveSkills,
     minProposals: Math.max(1, cfg.get<number>("minProposals", 8)),
+    minProposalConfidence,
+    approveSkillSets: cfg.get<boolean>("approveSkillSets", true),
   };
+}
+
+/** When on, show 2–3 skill-set options and wait for user approval before auto-apply/focus. */
+export function taskSkillSetApprovalEnabled(): boolean {
+  return readTaskFocusLimits().approveSkillSets;
 }
 
 export interface CapActiveSkillsOptions {

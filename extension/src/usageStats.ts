@@ -11,7 +11,7 @@ import { formatConfidenceBadge, SkillCostConfidence, WorkspaceConfidence } from 
 import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml, formatSkillTrustHtml, GlobalTrustBadge } from "./attributionTrust";
 import { DASHBOARD_USAGE_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
 import { computeSkillInefficiencyStats, SkillInefficiencyStat } from "./skillFeedback";
-import { resolveTaskSkillProposals, TaskSkillProposal } from "./taskSkillProposals";
+import { resolveTaskSkillProposals, TaskSkillProposal, readTaskSkillProposals } from "./taskSkillProposals";
 import { formatOutdatedSkillsLines, SkillVersionStatus } from "./skillLifecycle";
 import { computeSkillRoi } from "./skillRoi";
 
@@ -919,10 +919,15 @@ function htmlInefficiencySection(stats: SkillInefficiencyStat[]): string {
   return `<div class="panel inefficiency-panel"><h2>Inefficient skills (user feedback)</h2><ul class="inefficiency-list">${items}</ul><div class="note">Deeper red = more negative feedback. Update SKILL.md or review <code>skill-feedback.jsonl</code>.</div></div>`;
 }
 
-function htmlTaskProposalsSection(proposals: TaskSkillProposal[], taskSummary?: string): string {
+function htmlTaskProposalsSection(
+  target: string,
+  proposals: TaskSkillProposal[],
+  taskSummary?: string
+): string {
   if (proposals.length === 0) {
     return "";
   }
+  const file = readTaskSkillProposals(target);
   const summary = taskSummary ? `<p class="muted task-summary">${escapeHtml(taskSummary)}</p>` : "";
   const items = proposals
     .slice(0, 8)
@@ -931,7 +936,22 @@ function htmlTaskProposalsSection(proposals: TaskSkillProposal[], taskSummary?: 
         `<li><b>${escapeHtml(p.name)}</b> <span class="badge task-conf">${p.confidence}%</span> ${p.installed ? '<span class="badge active">installed</span>' : '<span class="badge low-usage">install</span>'} — ${escapeHtml(p.reason)}</li>`
     )
     .join("\n");
-  return `<div class="panel"><h2>Proposed for current task</h2>${summary}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes.</div></div>`;
+  let approvalNote = "";
+  if (file?.approvalStatus === "pending" && file.options?.length) {
+    const optionLines = file.options
+      .map(
+        (o) =>
+          `<li><b>${escapeHtml(o.label)}</b> (${o.skills.length} skills) — ${escapeHtml(o.description)}</li>`
+      )
+      .join("\n");
+    approvalNote = `<div class="note">Waiting for approval — run <b>Claude Skills: Choose Task Skill Set</b>.</div><ul>${optionLines}</ul>`;
+  } else if (file?.selectedOptionId && file.options?.length) {
+    const picked = file.options.find((o) => o.id === file.selectedOptionId);
+    if (picked) {
+      approvalNote = `<div class="note">Active set: <b>${escapeHtml(picked.label)}</b> (${picked.skills.length} skills).</div>`;
+    }
+  }
+  return `<div class="panel"><h2>Proposed for current task</h2>${summary}${approvalNote}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes.</div></div>`;
 }
 
 function htmlMisusedSection(stats: SkillUsageStat[]): string {
@@ -1120,7 +1140,7 @@ export function formatUsageReportHtml(
       htmlCrossAgentSection(stats),
       htmlInefficiencySection(inefficiency),
       htmlOutdatedSection(opts?.versionStatuses ?? []),
-      htmlTaskProposalsSection(opts?.taskProposals ?? [], opts?.taskSummary),
+      htmlTaskProposalsSection(target, opts?.taskProposals ?? [], opts?.taskSummary),
       htmlMisusedSection(stats),
       htmlSuggestedSection(suggested),
       htmlRemovalSection(stats),

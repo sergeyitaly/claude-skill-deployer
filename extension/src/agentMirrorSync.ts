@@ -12,6 +12,9 @@ import { isFeatureEnabled } from "./featureFlags";
 
 /** Whether cost-discipline changes should fan out to Cursor/Kiro/Copilot mirrors. */
 export function shouldPropagateCostDisciplineToAgents(libraryDir: string): boolean {
+  if (!isFeatureEnabled("multiAgent")) {
+    return false;
+  }
   const cfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
   if (!cfg.get<boolean>("propagateToAllAgents", true)) {
     return false;
@@ -26,10 +29,13 @@ function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation: b
   if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
     return false;
   }
-  if (costDisciplinePropagation && shouldPropagateCostDisciplineToAgents(libraryDir)) {
-    return true;
+  if (!isFeatureEnabled("multiAgent")) {
+    return false;
   }
-  return isFeatureEnabled("multiAgent");
+  if (costDisciplinePropagation) {
+    return shouldPropagateCostDisciplineToAgents(libraryDir);
+  }
+  return true;
 }
 
 /** Mirror learning artifacts + effective skill set to all enabled non-Claude agents. */

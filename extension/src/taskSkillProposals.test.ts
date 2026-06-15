@@ -6,7 +6,9 @@ import { Manifest } from "./skillOps";
 import {
   areTaskSkillProposalsFresh,
   computeTaskSkillProposals,
+  computeTaskSkillSetOptions,
   ensureWorkspaceTaskProposals,
+  filterProposalsByMinConfidence,
   readTaskSkillProposals,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
@@ -79,5 +81,35 @@ describe("computeTaskSkillProposals", () => {
     });
     const out = ensureWorkspaceTaskProposals(target, manifest);
     expect(out.refreshed).toBe(false);
+  });
+
+  it("computeTaskSkillSetOptions dedupes identical sets", () => {
+    const proposals = [
+      { name: "pdf", reason: "pdf task", confidence: 90, installed: true },
+      { name: "ci-pipeline-debug", reason: "ci", confidence: 80, installed: true, matchedGlobs: ["**/.gitlab-ci.yml"] },
+    ];
+    const options = computeTaskSkillSetOptions(proposals, {
+      enabled: true,
+      maxActiveSkills: 12,
+      minProposals: 8,
+      minProposalConfidence: 50,
+      approveSkillSets: true,
+    });
+    expect(options.length).toBeGreaterThan(0);
+    expect(options.every((o) => o.skills.length > 0)).toBe(true);
+  });
+
+  it("filterProposalsByMinConfidence drops low scores but keeps required platform skills", () => {
+    const filtered = filterProposalsByMinConfidence(
+      [
+        { name: "drawio-diagrams", reason: "weak", confidence: 35, installed: true },
+        { name: "ci-pipeline-debug", reason: "strong", confidence: 80, installed: true },
+        { name: "self-learning", reason: "required", confidence: 10, installed: true },
+      ],
+      50
+    );
+    expect(filtered.map((p) => p.name)).toContain("ci-pipeline-debug");
+    expect(filtered.map((p) => p.name)).toContain("self-learning");
+    expect(filtered.map((p) => p.name)).not.toContain("drawio-diagrams");
   });
 });

@@ -109,8 +109,9 @@ describe("applyTaskProposalsIfPending", () => {
       version: 1,
       generatedAt: new Date().toISOString(),
       taskSummary: "test task",
+      approvalStatus: "approved",
       proposals: [
-        { name: "ci-preflight", reason: "test", confidence: 40, installed: false },
+        { name: "ci-preflight", reason: "test", confidence: 80, installed: false },
         { name: "self-learning", reason: "required", confidence: 95, installed: false },
       ],
     });
@@ -118,6 +119,19 @@ describe("applyTaskProposalsIfPending", () => {
     expect(out.applied).toBe(true);
     expect(fs.existsSync(path.join(target, ".claude", "skills", "ci-preflight", "SKILL.md"))).toBe(true);
     expect(fs.existsSync(path.join(target, ".claude", "skills", "skill-creator", "SKILL.md"))).toBe(true);
+  });
+
+  it("skips apply when skill-set approval is pending", () => {
+    const target = makeGitWorkspace();
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "test task",
+      approvalStatus: "pending",
+      options: [{ id: "focused", label: "Focused", description: "Top picks", skills: ["ci-preflight"] }],
+      proposals: [{ name: "ci-preflight", reason: "test", confidence: 80, installed: false }],
+    });
+    expect(applyTaskProposalsIfPending(libraryDir, target).applied).toBe(false);
   });
 
   it("resolveProposedSkillNamesWithSource merges required skills", () => {

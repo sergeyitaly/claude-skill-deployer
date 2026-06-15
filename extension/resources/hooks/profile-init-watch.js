@@ -41,6 +41,47 @@ function sessionSkillAdaptationEnabled(cwd) {
   return features?.sessionSkillAdaptation !== false;
 }
 
+function taskSkillSetApprovalEnabled(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  return cfg?.taskFocus?.approveSkillSets !== false;
+}
+
+function minProposalConfidence(cwd) {
+  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
+  const raw = cfg?.taskFocus?.minProposalConfidence;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.min(100, Math.max(0, Math.round(raw)));
+  }
+  return 50;
+}
+
+function taskProposalsPendingApproval(cwd) {
+  if (!taskSkillSetApprovalEnabled(cwd)) {
+    return false;
+  }
+  const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
+  return proposals?.approvalStatus === "pending" && Array.isArray(proposals?.options) && proposals.options.length > 0;
+}
+
+function resolveProposalSkillNamesFromFile(proposals, cwd) {
+  if (!proposals || !Array.isArray(proposals.proposals)) {
+    return [];
+  }
+  const minConf = minProposalConfidence(cwd);
+  const required = new Set(readRequiredSkills(cwd));
+  const filtered = proposals.proposals.filter(
+    (p) => p && typeof p.name === "string" && (required.has(p.name) || (p.confidence ?? 0) >= minConf)
+  );
+  const allowed = new Set(filtered.map((p) => p.name));
+  if (proposals.selectedOptionId && Array.isArray(proposals.options)) {
+    const selected = proposals.options.find((o) => o && o.id === proposals.selectedOptionId);
+    if (selected && Array.isArray(selected.skills) && selected.skills.length) {
+      return selected.skills.filter((name) => required.has(name) || allowed.has(name));
+    }
+  }
+  return filtered.map((p) => p.name);
+}
+
 function taskProposalsAutoApply(cwd) {
   if (!sessionSkillAdaptationEnabled(cwd)) {
     return false;
@@ -225,28 +266,26 @@ function resolveSkillsToEnable(cwd) {
 
   const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
   if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length && taskProposalsAutoApply(cwd)) {
-    const ranked = proposals.proposals
-      .filter((p) => p && typeof p.name === "string")
-      .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
-    for (const p of ranked) {
-      names.add(p.name);
-      fromProposals = true;
-    }
-  } else if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length) {
-    const ranked = proposals.proposals
-      .filter((p) => p && typeof p.name === "string")
-      .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
-    for (const p of ranked) {
-      if ((p.confidence ?? 0) >= 50) {
-        names.add(p.name);
+    if (!taskProposalsPendingApproval(cwd)) {
+      for (const name of resolveProposalSkillNamesFromFile(proposals, cwd)) {
+        names.add(name);
         fromProposals = true;
       }
     }
+  } else if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length) {
+    const resolved = resolveProposalSkillNamesFromFile(proposals, cwd);
+    for (const name of resolved) {
+      names.add(name);
+      fromProposals = true;
+    }
     if (names.size === 0) {
-      ranked.slice(0, 15).forEach((p) => {
-        names.add(p.name);
-        fromProposals = true;
-      });
+      proposals.proposals
+        .filter((p) => p && typeof p.name === "string")
+        .slice(0, 15)
+        .forEach((p) => {
+          names.add(p.name);
+          fromProposals = true;
+        });
     }
   }
 
