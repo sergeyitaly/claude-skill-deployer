@@ -55,6 +55,7 @@ export function applyHostOnlyTierMirrorCleanup(
   log?: (line: string) => void
 ): { pruned: PrunedAgentMirror[]; agentResults: AgentInstallResult[] } {
   if (!hostOnlyMirrorModeForTarget(target)) {
+    log?.("Host-only mirror cleanup skipped (multi-agent tier or profile not host-only).");
     return { pruned: [], agentResults: [] };
   }
   const pruned = pruneExcessAgentMirrors(target, libraryDir);

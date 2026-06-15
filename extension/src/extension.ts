@@ -792,13 +792,14 @@ export function activate(context: vscode.ExtensionContext) {
   let lastWorkspaceStateAt = 0;
   let lastProjectProfileLogged: string | undefined;
   let lastProjectProfileNotified: string | undefined;
+  const mirrorCleanupCheckedTargets = new Set<string>();
 
   function cleanupExcessAgentMirrorsForTier(target: string): void {
     const { pruned } = applyHostOnlyTierMirrorCleanup(target, libraryDir, log);
     if (pruned.length > 0) {
       syncCliConfigToWorkspace(target, libraryDir);
       void notifyUserSuccess(
-        `Claude Skills: removed ${pruned.length} excess agent mirror folder(s) for host-only tier.`
+        `Claude Skills: removed ${pruned.length} excess agent mirror path(s) for host-only tier.`
       );
     }
   }
@@ -814,6 +815,10 @@ export function activate(context: vscode.ExtensionContext) {
     } = refreshProjectProfileContext(target);
     if (projectProfile) {
       refreshProjectTierStatusBar(target);
+      if (!mirrorCleanupCheckedTargets.has(target!) && hostOnlyMirrorModeForTarget(target!)) {
+        mirrorCleanupCheckedTargets.add(target!);
+        cleanupExcessAgentMirrorsForTier(target!);
+      }
       if (opts.workspaceState) {
         const profileLogKey = `${target}|${projectProfile.profileType}`;
         if (profileLogKey !== lastProjectProfileLogged) {

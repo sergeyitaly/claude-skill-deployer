@@ -609,6 +609,48 @@ def workspace_mirror_allowed(library_dir: Path, target: Path) -> bool:
     return len(workspace_mirror_agent_ids(library_dir, target)) > 0
 
 
+_KIRO_HOOK_PATTERN = re.compile(r"^claude-skills.*\.kiro\.hook$", re.IGNORECASE)
+_COPILOT_HOOK_PATTERN = re.compile(r"^claude-skills.*\.json$", re.IGNORECASE)
+
+
+def _remove_dir_if_empty(dir_path: Path) -> bool:
+    if not dir_path.is_dir():
+        return False
+    try:
+        if not any(dir_path.iterdir()):
+            dir_path.rmdir()
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def _prune_extension_hooks_for_agent(target: Path, agent_id: str) -> list[dict]:
+    pruned: list[dict] = []
+    if agent_id == "kiro":
+        hooks_dir = target / ".kiro" / "hooks"
+        if hooks_dir.is_dir():
+            for child in list(hooks_dir.iterdir()):
+                if child.is_file() and _KIRO_HOOK_PATTERN.match(child.name):
+                    child.unlink(missing_ok=True)
+                    pruned.append({"agent": agent_id, "path": str(child), "kind": "hook"})
+            if _remove_dir_if_empty(hooks_dir):
+                pruned.append({"agent": agent_id, "path": str(hooks_dir), "kind": "agent-dir"})
+        kiro_root = target / ".kiro"
+        if _remove_dir_if_empty(kiro_root):
+            pruned.append({"agent": agent_id, "path": str(kiro_root), "kind": "agent-dir"})
+    if agent_id == "copilot":
+        hooks_dir = target / ".github" / "hooks"
+        if hooks_dir.is_dir():
+            for child in list(hooks_dir.iterdir()):
+                if child.is_file() and _COPILOT_HOOK_PATTERN.match(child.name):
+                    child.unlink(missing_ok=True)
+                    pruned.append({"agent": agent_id, "path": str(child), "kind": "hook"})
+            if _remove_dir_if_empty(hooks_dir):
+                pruned.append({"agent": agent_id, "path": str(hooks_dir), "kind": "agent-dir"})
+    return pruned
+
+
 def prune_excess_agent_mirrors(library_dir: Path, target: Path) -> list[dict]:
     if feature_enabled(target, "multiAgent"):
         return []
@@ -630,6 +672,7 @@ def prune_excess_agent_mirrors(library_dir: Path, target: Path) -> list[dict]:
             if learn_dir.is_dir():
                 shutil.rmtree(learn_dir, ignore_errors=True)
                 pruned.append({"agent": agent_id, "path": str(learn_dir), "kind": "learning"})
+        pruned.extend(_prune_extension_hooks_for_agent(target, agent_id))
 
     if "copilot" not in keep:
         bootstrap = target / ".github" / "copilot-instructions.md"

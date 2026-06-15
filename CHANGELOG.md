@@ -37,6 +37,8 @@ Each release includes:
 
 - **Tier cleanup gate** — prune uses `project-profile.json` on disk (`hostOnlyMirrorModeForTarget`) instead of stale in-memory `multiAgent` state
 - **No recreate after prune** — `installSkillToAllWorkspaceAgents` respects host-only mirror targets (was fanning out to all enabled agents via profile-init and single-skill install)
+- **Hook cleanup on downgrade** — removes extension-managed `claude-skills*` hooks under `.kiro/hooks` and `.github/hooks`, drops empty `.kiro/` when nothing remains; hook install respects host-only targets (no Kiro/Copilot re-install on solo-dev)
+- **Profile-based host-only detection** — `solo-dev`, `budget-sensitive`, `solo-focused`, and `budget-focused` profiles trigger cleanup even when `multiAgent` is absent from disk
 - **Broader tier triggers** — cleanup also runs on `multiAgent` flag change, `lockedTier` setting change, and feature toggle off; toast + output log when folders are removed
 - **`tierChanged` detection** — treat missing `userPlan` as `accept-detected` and ignore partial `multiAgent` preset keys so signal-only refreshes do not trigger mirror cleanup
 

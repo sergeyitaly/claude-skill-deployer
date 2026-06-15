@@ -63,4 +63,20 @@ describe("pruneExcessAgentMirrors", () => {
     expect(fs.existsSync(path.join(target, ".kiro", "skills"))).toBe(false);
     expect(fs.existsSync(path.join(target, ".github", "instructions"))).toBe(false);
   });
+
+  it("removes extension-managed kiro and copilot hooks and empty .kiro root", () => {
+    const target = makeWorkspace(libraryDir);
+    const kiroHooks = path.join(target, ".kiro", "hooks");
+    const copilotHooks = path.join(target, ".github", "hooks");
+    fs.mkdirSync(kiroHooks, { recursive: true });
+    fs.mkdirSync(copilotHooks, { recursive: true });
+    fs.writeFileSync(path.join(kiroHooks, "claude-skills-skill-invoke.kiro.hook"), "{}", "utf-8");
+    fs.writeFileSync(path.join(copilotHooks, "claude-skills-skill-invoke.json"), "{}", "utf-8");
+
+    const pruned = pruneExcessAgentMirrors(target, libraryDir);
+    expect(pruned.some((p) => p.kind === "hook" && p.agent === "kiro")).toBe(true);
+    expect(pruned.some((p) => p.kind === "hook" && p.agent === "copilot")).toBe(true);
+    expect(fs.existsSync(path.join(target, ".kiro"))).toBe(false);
+    expect(fs.existsSync(copilotHooks)).toBe(false);
+  });
 });

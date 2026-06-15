@@ -526,7 +526,69 @@ function workspaceSyncFingerprint(target: string): string {
 export interface PrunedAgentMirror {
   agent: AgentId;
   path: string;
-  kind: "skills" | "learning" | "copilot-bootstrap";
+  kind: "skills" | "learning" | "copilot-bootstrap" | "hook" | "agent-dir";
+}
+
+/** Extension-managed hook filenames under `.kiro/hooks` and `.github/hooks`. */
+const EXTENSION_KIRO_HOOK_PATTERN = /^claude-skills.*\.kiro\.hook$/i;
+const EXTENSION_COPILOT_HOOK_PATTERN = /^claude-skills.*\.json$/i;
+
+function removeDirIfEmpty(dir: string): boolean {
+  if (!fs.existsSync(dir)) {
+    return false;
+  }
+  try {
+    if (fs.readdirSync(dir).length === 0) {
+      fs.rmdirSync(dir);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function pruneExtensionHooksForAgent(target: string, agentId: AgentId): PrunedAgentMirror[] {
+  const pruned: PrunedAgentMirror[] = [];
+  if (agentId === "kiro") {
+    const hooksDir = path.join(target, ".kiro", "hooks");
+    if (fs.existsSync(hooksDir)) {
+      for (const name of fs.readdirSync(hooksDir)) {
+        if (!EXTENSION_KIRO_HOOK_PATTERN.test(name)) {
+          continue;
+        }
+        const hookPath = path.join(hooksDir, name);
+        fs.unlinkSync(hookPath);
+        pruned.push({ agent: agentId, path: hookPath, kind: "hook" });
+      }
+      if (removeDirIfEmpty(hooksDir)) {
+        pruned.push({ agent: agentId, path: hooksDir, kind: "agent-dir" });
+      }
+    }
+    const kiroRoot = path.join(target, ".kiro");
+    if (removeDirIfEmpty(kiroRoot)) {
+      pruned.push({ agent: agentId, path: kiroRoot, kind: "agent-dir" });
+    }
+  }
+
+  if (agentId === "copilot") {
+    const hooksDir = path.join(target, ".github", "hooks");
+    if (fs.existsSync(hooksDir)) {
+      for (const name of fs.readdirSync(hooksDir)) {
+        if (!EXTENSION_COPILOT_HOOK_PATTERN.test(name)) {
+          continue;
+        }
+        const hookPath = path.join(hooksDir, name);
+        fs.unlinkSync(hookPath);
+        pruned.push({ agent: agentId, path: hookPath, kind: "hook" });
+      }
+      if (removeDirIfEmpty(hooksDir)) {
+        pruned.push({ agent: agentId, path: hooksDir, kind: "agent-dir" });
+      }
+    }
+  }
+
+  return pruned;
 }
 
 /**
@@ -561,6 +623,7 @@ export function pruneExcessAgentMirrors(target: string, libraryDir: string): Pru
         pruned.push({ agent: agentId, path: learnDir, kind: "learning" });
       }
     }
+    pruned.push(...pruneExtensionHooksForAgent(target, agentId));
   }
 
   if (!keep.has("copilot")) {

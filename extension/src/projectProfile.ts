@@ -1065,5 +1065,14 @@ export function effectiveFeatureMap(target: string): Record<string, boolean> {
 
 /** True when project tier/settings require mirroring to the host IDE only (solo-dev, budget-focused, …). */
 export function hostOnlyMirrorModeForTarget(target: string): boolean {
+  const profile = readProjectProfile(target);
+  if (
+    profile?.profileType === "solo-dev" ||
+    profile?.profileType === "budget-sensitive" ||
+    profile?.userPlan === "solo-focused" ||
+    profile?.userPlan === "budget-focused"
+  ) {
+    return true;
+  }
   return effectiveFeatureMap(target).multiAgent === false;
 }

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { AgentId, enabledAgents, loadAgentsManifest } from "./agentOps";
+import { AgentId, enabledAgents, loadAgentsManifest, workspaceMirrorAgentIds } from "./agentOps";
 import { assessClaudeVscodeAttributionGap, ClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 import { copyFileWithRetry } from "./fileWriteCoordination";
 import { ensureLearningDir } from "./usageStats";
@@ -419,12 +419,16 @@ function installCopilotPromptHook(extensionPath: string, target: string, spec: C
   return true;
 }
 
+function workspaceHookTargetAgents(libraryDir: string): AgentId[] {
+  return workspaceMirrorAgentIds(libraryDir);
+}
+
 function agentPromptHookConfigured(target: string, libraryDir: string, scriptFile: string): boolean {
   const spec = COST_CONTROL_PROMPT_HOOK_SPECS.find((s) => s.scriptFile === scriptFile);
   if (!spec) {
     return true;
   }
-  const agents = enabledAgents(libraryDir);
+  const agents = workspaceHookTargetAgents(libraryDir);
   const cursorOk = !agents.includes("cursor") || isCursorPromptHookConfigured(target, scriptFile);
   const kiroOk = !agents.includes("kiro") || isKiroPromptHookConfigured(target, spec);
   const copilotOk = !agents.includes("copilot") || isCopilotPromptHookConfigured(target, spec);
@@ -433,7 +437,7 @@ function agentPromptHookConfigured(target: string, libraryDir: string, scriptFil
 
 /** Cost-control prompt hooks for Cursor, Kiro, and Copilot (Claude uses UserPromptSubmit in settings.json). */
 function installAgentCostControlPromptHooks(extensionPath: string, target: string, libraryDir: string): boolean {
-  const agents = enabledAgents(libraryDir);
+  const agents = workspaceHookTargetAgents(libraryDir);
   let changed = false;
   for (const spec of COST_CONTROL_PROMPT_HOOK_SPECS) {
     if (agents.includes("cursor")) {
@@ -893,24 +897,25 @@ export function installAttributionHooks(extensionPath: string, target: string): 
 
   const libraryDir = libraryDirFromExtension(extensionPath);
   const manifest = loadAgentsManifest(libraryDir);
-  const active = enabledAgents(libraryDir);
+  const enabled = enabledAgents(libraryDir);
+  const workspaceAgents = workspaceHookTargetAgents(libraryDir);
 
   let changed = false;
   let hadAny = false;
 
-  if (active.includes("claude") && agentSupportsAttribution(manifest.agents.claude)) {
+  if (enabled.includes("claude") && agentSupportsAttribution(manifest.agents.claude)) {
     hadAny = isClaudeAttributionHookConfigured(target) || hadAny;
     changed = installClaudeAttributionHook(extensionPath, target) || changed;
   }
-  if (active.includes("cursor") && agentSupportsAttribution(manifest.agents.cursor)) {
+  if (workspaceAgents.includes("cursor") && agentSupportsAttribution(manifest.agents.cursor)) {
     hadAny = isCursorAttributionHookConfigured(target) || hadAny;
     changed = installCursorAttributionHook(extensionPath, target) || changed;
   }
-  if (active.includes("kiro") && agentSupportsAttribution(manifest.agents.kiro)) {
+  if (workspaceAgents.includes("kiro") && agentSupportsAttribution(manifest.agents.kiro)) {
     hadAny = isKiroAttributionHookConfigured(target) || hadAny;
     changed = installKiroAttributionHook(extensionPath, target) || changed;
   }
-  if (active.includes("copilot") && agentSupportsAttribution(manifest.agents.copilot)) {
+  if (workspaceAgents.includes("copilot") && agentSupportsAttribution(manifest.agents.copilot)) {
     hadAny = isCopilotAttributionHookConfigured(target) || hadAny;
     changed = installCopilotAttributionHook(extensionPath, target) || changed;
   }
@@ -985,9 +990,10 @@ export function installOfficialSkillsSessionHook(extensionPath: string, target: 
 
 export function areProfileInitHooksConfigured(target: string, libraryDir?: string): boolean {
   const lib = libraryDir ?? "";
-  const cursorEnabled = lib ? enabledAgents(lib).includes("cursor") : isCursorProfileInitHookConfigured(target);
-  const kiroEnabled = lib ? enabledAgents(lib).includes("kiro") : isKiroProfileInitHookConfigured(target);
-  const copilotEnabled = lib ? enabledAgents(lib).includes("copilot") : isCopilotProfileInitHookConfigured(target);
+  const workspaceAgents = lib ? workspaceHookTargetAgents(lib) : (["cursor", "kiro", "copilot"] as AgentId[]);
+  const cursorEnabled = workspaceAgents.includes("cursor");
+  const kiroEnabled = workspaceAgents.includes("kiro");
+  const copilotEnabled = workspaceAgents.includes("copilot");
   const cursorOk = !cursorEnabled || isCursorProfileInitHookConfigured(target);
   const kiroOk = !kiroEnabled || isKiroProfileInitHookConfigured(target);
   const copilotOk = !copilotEnabled || isCopilotProfileInitHookConfigured(target);
@@ -1009,14 +1015,15 @@ export function installProfileInitSessionHook(
 ): HookInstallStatus {
   ensureLearningDir(target);
   const lib = libraryDir ?? libraryDirFromExtension(extensionPath);
-  const agents = enabledAgents(lib);
+  const enabled = enabledAgents(lib);
+  const workspaceAgents = workspaceHookTargetAgents(lib);
 
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
 
   let changed = false;
   let hadAny = false;
 
-  if (agents.includes("claude")) {
+  if (enabled.includes("claude")) {
     const settingsFile = path.join(target, ".claude", "settings.json");
     const settings = readSettings(settingsFile);
     const had = hasSessionStartHook(settings, PROFILE_INIT_HOOK_FILENAME);
@@ -1033,19 +1040,19 @@ export function installProfileInitSessionHook(
     }
   }
 
-  if (agents.includes("cursor")) {
+  if (workspaceAgents.includes("cursor")) {
     const had = isCursorProfileInitHookConfigured(target);
     hadAny = hadAny || had;
     changed = installCursorProfileInitHook(extensionPath, target) || changed;
   }
 
-  if (agents.includes("kiro")) {
+  if (workspaceAgents.includes("kiro")) {
     const had = isKiroProfileInitHookConfigured(target);
     hadAny = hadAny || had;
     changed = installKiroProfileInitHook(extensionPath, target) || changed;
   }
 
-  if (agents.includes("copilot")) {
+  if (workspaceAgents.includes("copilot")) {
     const had = isCopilotProfileInitHookConfigured(target);
     hadAny = hadAny || had;
     changed = installCopilotProfileInitHook(extensionPath, target) || changed;

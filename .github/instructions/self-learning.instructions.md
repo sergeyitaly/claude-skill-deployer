@@ -23,9 +23,12 @@ first use):
   patterns.md             auto-generated report (gitignore this)
   session-learnings.md    human/agent-curated decisions and fixes (commit this)
   knowledge-cache.md      cached answers to repeated questions (commit this)
+  skill-feedback.jsonl    user negative reactions to agent/skill behavior (gitignore)
+  task-skill-proposals.json  proposed skills for the current task (gitignore)
 ```
 
-Add `.claude/learning/runs.jsonl` and `.claude/learning/patterns.md` to
+Add `.claude/learning/runs.jsonl`, `.claude/learning/patterns.md`,
+`.claude/learning/skill-feedback.jsonl`, and `.claude/learning/task-skill-proposals.json` to
 `.gitignore` if not already ignored — they're machine-local history.
 `session-learnings.md` and `knowledge-cache.md` should be committed: they're
 durable, reviewable output.
@@ -33,12 +36,16 @@ durable, reviewable output.
 ## Run record schema (one JSON object per line in runs.jsonl)
 
 ```json
-{"ts": "2026-06-11T14:32:00", "skill": "terraform", "action": "validate",
- "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345}
+{"ts": "2026-06-11T14:32:00", "skill": "terraform-plan-review", "action": "plan",
+ "rc": 0, "duration": 4.2, "error": "", "hint": "", "note": "", "tokens": 12345,
+ "metadata": {"invoked": true}}
 ```
 
 - `skill`/`action`: a short identifier for what was run (e.g. skill name +
   subcommand, or `"task"` + a short task name).
+- `metadata.invoked`: set to `true` when this skill was **actually invoked**
+  in the session (not merely listed in context). Cost attribution uses this to
+  distinguish active skills from enabled-but-unused skills.
 - `rc`: 0 for success, non-zero for failure.
 - `error`: first meaningful error line (truncate to ~200 chars), empty on
   success.
@@ -127,8 +134,19 @@ work.
 
 ## 3. After running something non-trivial
 
-Append a record to `runs.jsonl` with the outcome. Then regenerate
-`patterns.md` (see structure below) by aggregating all records:
+Append a record to `runs.jsonl` with the outcome. When token/cost data is
+available, also record prediction accuracy via the repo helper (from project
+root):
+
+```bash
+py -c "from cost_learning import record_cost_outcome; record_cost_outcome('skill-name', expected_cost=0.25, actual_cost=0.31, success=True)"
+```
+
+This writes to `.claude/learning/cost-learning.jsonl` and updates
+`~/.claude/learning/cost-models.json` multipliers for future estimates.
+
+Then regenerate `patterns.md` (see structure below) by aggregating all
+records:
 
 - **Reliable commands** — 100% pass rate over 3+ runs: list as
   `skill | action | runs | avg duration`.
@@ -152,6 +170,11 @@ When the user states a decision, a fix, or "we learned X", append a
 structured entry to `session-learnings.md` rather than just replying in
 chat — this is what makes it available to future sessions (load this file
 into context at the start of any session on this project).
+
+When the user expresses **disagreement** with agent output driven by a skill
+(`no`, `wrong`, `not that`, etc.), also record via [[skill-feedback-adaptation]]
+to `.claude/learning/skill-feedback.jsonl` so the Usage Report can flag
+inefficient skills.
 
 - **Successes** (`### S-NN — <label>`): a pattern/decision that worked,
   with date, the pattern itself, and source.
