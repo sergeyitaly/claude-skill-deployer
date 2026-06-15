@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { areAttributionHooksConfigured } from "./hookOps";
+import { areAttributionHooksConfigured, costControlHooksActive, installCostControlHooks } from "./hookOps";
 import { ensureAttributionHooksActive, flushDebouncedWorkspaceSkillSync, propagateWorkspaceSkillChange, resetWorkspaceSyncQueueForTests } from "./workspaceSkillSync";
 
 vi.mock("vscode", () => ({
@@ -63,6 +63,32 @@ describe("propagateWorkspaceSkillChange", () => {
       forceAgentSync: true,
     });
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
+  });
+
+  it("does not install cost-control copilot hooks when only attribution is active", () => {
+    const target = makeWorkspace();
+    fs.mkdirSync(path.join(target, ".claude", "skills", "alpha-skill"), { recursive: true });
+    fs.writeFileSync(path.join(target, ".claude", "skills", "alpha-skill", "SKILL.md"), "# Alpha\n", "utf-8");
+    propagateWorkspaceSkillChange(EXTENSION_PATH, target, path.join(__dirname, "..", "skills_library"), () => {}, {
+      saveBranchProfile: false,
+      forceAgentSync: true,
+    });
+    expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
+    expect(costControlHooksActive(target)).toBe(false);
+    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-budget.json"))).toBe(false);
+  });
+
+  it("refreshes cost-control hooks on all agents when cost control is active", () => {
+    const target = makeWorkspace();
+    fs.mkdirSync(path.join(target, ".claude", "skills", "alpha-skill"), { recursive: true });
+    fs.writeFileSync(path.join(target, ".claude", "skills", "alpha-skill", "SKILL.md"), "# Alpha\n", "utf-8");
+    installCostControlHooks(EXTENSION_PATH, target);
+    propagateWorkspaceSkillChange(EXTENSION_PATH, target, path.join(__dirname, "..", "skills_library"), () => {}, {
+      saveBranchProfile: false,
+      forceAgentSync: true,
+    });
+    expect(costControlHooksActive(target)).toBe(true);
+    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-context-focus.json"))).toBe(true);
   });
 
   it("debounces repeated propagate calls into one run", () => {

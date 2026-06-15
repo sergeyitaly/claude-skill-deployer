@@ -12,10 +12,11 @@ import {
 } from "./agentOps";
 import {
   areAttributionHooksConfigured,
-  areCostControlHooksConfigured,
+  costControlHooksActive,
   HookInstallStatus,
   installAttributionHooks,
   installOfficialSkillsSessionHook,
+  refreshAttributionHookScripts,
   refreshCostControlHookScripts,
 } from "./hookOps";
 import { measureSync, recordPerf } from "./perfTelemetry";
@@ -311,14 +312,14 @@ function runHooksAndLint(
   }
 
   if (syncHooksOnSkillChangeEnabled() && listInstalledSkills(target).length > 0) {
-    if (areCostControlHooksConfigured(target)) {
+    if (costControlHooksActive(target)) {
       refreshCostControlHookScripts(extensionPath, target);
       if (!result.hooksStatus) {
         result.hooksStatus = "refreshed";
       }
-      log("Cost control hook scripts refreshed in .claude/hooks/.");
+      log("Cost control hook scripts refreshed across Claude, Cursor, Kiro, and Copilot paths.");
     } else if (areAttributionHooksConfigured(target, extensionPath)) {
-      refreshCostControlHookScripts(extensionPath, target);
+      refreshAttributionHookScripts(extensionPath, target);
     }
   }
 

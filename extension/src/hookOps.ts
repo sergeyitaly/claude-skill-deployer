@@ -163,6 +163,17 @@ export function areCostControlHooksConfigured(target: string): boolean {
   return isSessionSizeHookConfigured(target) && isBudgetHookConfigured(target);
 }
 
+/** True when any Claude UserPromptSubmit cost-control hook is registered. */
+export function costControlHooksActive(target: string): boolean {
+  return (
+    isSessionSizeHookConfigured(target) ||
+    isBudgetHookConfigured(target) ||
+    isContextFocusHookConfigured(target) ||
+    isPracticalFocusHookConfigured(target) ||
+    isTaskDriftHookConfigured(target)
+  );
+}
+
 export function isSessionSizeHookConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));

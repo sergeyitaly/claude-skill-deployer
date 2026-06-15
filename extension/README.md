@@ -260,6 +260,20 @@ Keeps skill overhead low without manual curation:
 
 **Headless parity:** `task-skill-focus.js` reads `taskFocus.maxActiveSkills` from `.claude/learning/cli-config.json` (synced by the extension).
 
+### Cost-control hooks (all agents)
+
+Five prompt-time hooks share `hookPlatform.js` for cwd resolution and per-agent output:
+
+| Hook | Purpose |
+|---|---|
+| `budget-watch.js` | Daily budget / economy mode warnings + skill disables |
+| `session-size-watch.js` | Large transcript nudge (`/compact`) — needs `transcript_path` (Claude + Cursor) |
+| `context-focus-watch.js` | Grounding level (balanced → strict-local) |
+| `practical-focus-watch.js` | Architecture-first / deploy-ready delivery mode |
+| `task-drift-watch.js` | One-shot inject when task skill set is refreshed |
+
+Registered on Claude `UserPromptSubmit`, Cursor `beforeSubmitPrompt`, Kiro `promptSubmit`, Copilot `UserPromptSubmit`. CLI: `py generate_skills.py hooks install --target . --full`.
+
 ## Skill feedback & task proposals
 
 Personal learning loop when agent answers miss the mark or a new task needs the right skills.
@@ -496,7 +510,7 @@ Find all options under **Settings → Extensions → Claude Skills Manager** (or
 | `claudeSkills.agents.syncWorkspaceToAll` | `true` | Fan out workspace install to all enabled agent paths (requires `multiAgent` feature) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Fan out global library install to all enabled agent paths |
 | `claudeSkills.agents.autoInstallAttributionHooks` | `true` | Auto-install Attribution v2 hooks on extension activate / workspace setup |
-| `claudeSkills.agents.syncHooksOnSkillChange` | `true` | Refresh hook scripts when workspace skills change (cost-control only if already enabled) |
+| `claudeSkills.agents.syncHooksOnSkillChange` | `true` | Refresh cost-control scripts on all agent paths when any Claude cost hook is active; attribution-only workspaces refresh attribution scripts only |
 | `claudeSkills.preferLocalSkillOverrides` | `true` | Uncheck branch skill → `skillOverrides` off (no git diff) |
 | `claudeSkills.features.costIntelligence` | `true` | Dashboard, suggestions, export |
 | `claudeSkills.features.predictiveAlerts` | `true` | Workspace spend vs weekly budget warning (sanitized WoW trend) |

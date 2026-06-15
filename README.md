@@ -104,7 +104,7 @@ Or from the repo CLI:
 # One-time per repo: copy hooks + register SessionStart / PostToolUse in .claude/settings.json
 py generate_skills.py hooks install --target .
 
-# Optional: budget/session/focus hooks too
+# Optional: all five cost-control hooks on Claude + Cursor + Kiro + Copilot
 py generate_skills.py hooks install --target . --full
 
 # After profile-init or SessionStart hook writes request files:
@@ -198,7 +198,7 @@ Estimates where no usage data exists — hook/API-priced where hooks logged usag
 
 - **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
 - **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open)
-- **Budget / task-focus hooks** — `budget-watch.js` and `task-drift-watch.js` on all four agents; `task-skill-focus.js` caps via `cli-config.json`
+- **Cost-control hooks** — all five prompt hooks (`session-size`, `budget`, `context-focus`, `practical-focus`, `task-drift`) on Claude, Cursor, Kiro, and Copilot via `hookPlatform.js`; `task-skill-focus.js` caps via `cli-config.json`. Session-size needs `transcript_path` (Claude + Cursor only).
 - **Usage Report split** — **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
 - **Stale data guard** — auto-purges equal-split `transcriptSkills`; **Top skills** uses hook-measured costs when v2 runs exist (even if transcript attribution is stale)
@@ -396,9 +396,9 @@ See `skills_library/agents.json`.
 | `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro`, `copilot` | Which agents receive clones |
 | `claudeSkills.agents.syncWorkspaceToAll` | `true` | Workspace installs fan out to all enabled paths (requires `multiAgent` feature) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Global library install fans out to all enabled agents |
-| `claudeSkills.agents.syncHooksOnSkillChange` | `true` | After any workspace skill change, install or refresh cost-control hooks when `budgetControls` is on (or hooks already exist) |
+| `claudeSkills.agents.syncHooksOnSkillChange` | `true` | After any workspace skill change, refresh cost-control hook scripts (all agent paths) when any cost hook is already enabled on Claude; attribution-only workspaces refresh attribution scripts only |
 
-Adding, removing, or editing skills under `.claude/skills/` automatically propagates to Cursor, Kiro, and Copilot paths when `syncWorkspaceToAll` is on. The same path runs on checkbox toggles, branch profile apply, generate/install commands, and file watchers (create, change, delete). With `syncHooksOnSkillChange` (default on), cost-control hook scripts in `.claude/hooks/` are refreshed when skills change.
+Adding, removing, or editing skills under `.claude/skills/` automatically propagates to Cursor, Kiro, and Copilot paths when `syncWorkspaceToAll` is on. The same path runs on checkbox toggles, branch profile apply, generate/install commands, and file watchers (create, change, delete). With `syncHooksOnSkillChange` (default on), cost-control scripts refresh in `.claude/hooks/`, `.cursor/hooks/`, `.kiro/hooks/`, and `.github/hooks/` when cost control is active.
 
 **Local-only skills:** unchecking a branch-committed skill disables it for you via `.claude/settings.local.json` (`skillOverrides`) without deleting shared files. Checking a skill not on the branch installs it as personal-only (`.git/info/exclude`). Other agents mirror your **effective** enabled set, not the raw folder listing.
 
