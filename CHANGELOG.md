@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.60** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.61** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -24,6 +24,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.61] - 2026-06-15
+
+**Summary:** Fix false-positive `tierChanged` when refreshing an unchanged project profile.
+
+**Theme:** Profile refresh stability
+
+### Bug fixes
+
+- **`tierChanged` detection** — treat missing `userPlan` as `accept-detected` and ignore partial `multiAgent` preset keys so signal-only refreshes do not trigger mirror cleanup
 
 ---
 

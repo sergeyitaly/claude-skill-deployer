@@ -941,15 +941,30 @@ export interface ProjectProfileRefreshResult {
   isFirstDetect: boolean;
 }
 
+/** True when tier/plan/mirror mode meaningfully changed (not preset key presence noise). */
+function tierMirrorSemanticsChanged(existing: ProjectProfileFile, built: ProjectProfileFile): boolean {
+  if (existing.profileType !== built.profileType) {
+    return true;
+  }
+  if ((existing.userPlan ?? "accept-detected") !== (built.userPlan ?? "accept-detected")) {
+    return true;
+  }
+  const existingMa = existing.enabledFeatures?.multiAgent;
+  const builtMa = built.enabledFeatures?.multiAgent;
+  if (existingMa === builtMa) {
+    return false;
+  }
+  if (existingMa === undefined || builtMa === undefined) {
+    return false;
+  }
+  return existingMa !== builtMa;
+}
+
 function mergeProjectProfileRefresh(
   existing: ProjectProfileFile | undefined,
   built: ProjectProfileFile
 ): { profile: ProjectProfileFile; tierChanged: boolean } {
-  const tierChanged =
-    !existing ||
-    existing.profileType !== built.profileType ||
-    existing.userPlan !== built.userPlan ||
-    existing.enabledFeatures?.multiAgent !== built.enabledFeatures?.multiAgent;
+  const tierChanged = !existing || tierMirrorSemanticsChanged(existing, built);
   if (!existing || tierChanged) {
     return {
       profile: {
