@@ -59,6 +59,14 @@ describe("installAttributionHooks", () => {
       )
     ).toBe(true);
 
+    expect(
+      claudeSettings.hooks?.PreToolUse?.some(
+        (m) =>
+          m.matcher.includes("Skill") &&
+          m.hooks.some((h) => h.command.includes("skill-invoke-watch.js"))
+      )
+    ).toBe(true);
+
     const cursorHooks = JSON.parse(fs.readFileSync(path.join(target, ".cursor", "hooks.json"), "utf-8")) as {
       hooks?: { postToolUse?: { command?: string; matcher?: string }[] };
     };

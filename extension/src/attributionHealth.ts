@@ -1,3 +1,4 @@
+import { assessClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { buildCostAttribution, resolveDisplayAttribution } from "./costAttribution";
 import { topExpensiveSkills } from "./costOptimizer";
@@ -39,8 +40,13 @@ export function assessAttributionHealth(target: string, libraryDir: string): Att
   if (staleEqualSplit) {
     summary = "Equal-split mis-attribution detected — run Reset Mis-attributed Cost Data.";
   } else if (noPerSkillData && v2HookRuns === 0) {
-    summary =
-      "No per-skill cost data yet — enable Attribution Hooks (v2) or collect runs/transcripts.";
+    const gap = assessClaudeVscodeAttributionGap(target);
+    if (gap.detected) {
+      summary = gap.recommendation || gap.summary;
+    } else {
+      summary =
+        "No per-skill cost data yet — enable Attribution Hooks (v2) or collect runs/transcripts.";
+    }
   } else if (noPerSkillData) {
     summary = "Invoke skills in Claude Code to populate v2 hook runs, then reopen the dashboard.";
   } else if (highUnattributedRatio) {

@@ -74,9 +74,26 @@ export function formatHookStatusPanelHtml(status: WorkspaceHookStatus): string {
         ? `Attribution v2 active for all ${status.attribution.applicableCount} enabled agent(s).`
         : `${status.attribution.configuredCount} of ${status.attribution.applicableCount} agent(s) have attribution hooks — reload the window or run Enable Attribution Hooks (v2).`;
 
+  const gap = status.claudeVscodeGap;
+  const gapBlock =
+    gap && (gap.detected || gap.mitigated)
+      ? `<div class="warn" style="margin-top:0.75rem"><b>Claude VS Code</b> — ${escapeHtml(gap.summary)}${
+          gap.recommendation ? `<br><span class="note">${escapeHtml(gap.recommendation)}</span>` : ""
+        }${
+          gap.preToolWorkaroundInstalled
+            ? `<br><span class="hook-badge hook-on">PreToolUse workaround installed</span>`
+            : gap.detected
+              ? `<br><span class="hook-badge hook-off">PreToolUse workaround missing — re-sync hooks</span>`
+              : ""
+        }</div>`
+      : gap?.summary
+        ? `<p class="note">${escapeHtml(gap.summary)}</p>`
+        : "";
+
   return `<div class="panel hook-panel">
     <h2>Workspace hooks</h2>
     <p class="note" style="margin-top:0">${escapeHtml(attrSummary)} Session/budget hooks apply to Claude Code only.</p>
+    ${gapBlock}
     <div class="hook-section-label">Attribution v2 (per-skill logging)</div>
     ${agentRows || "<p class=\"note\">No attribution-capable agents enabled.</p>"}
     <div class="hook-section-label">Cost control (Claude Code)</div>

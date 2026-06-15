@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * PostToolUse hook (Attribution v2): log explicit Skill tool invocations to runs.jsonl.
+ * Also registered on PreToolUse for Claude VS Code where PostToolUse does not fire.
  * Supports Claude Code, Cursor, Kiro (stdin + USER_PROMPT), and GitHub Copilot.
  *
  * Usage: node skill-invoke-watch.js [claude|cursor|kiro|copilot]

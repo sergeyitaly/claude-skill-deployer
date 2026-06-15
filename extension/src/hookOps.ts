@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AgentId, enabledAgents, loadAgentsManifest } from "./agentOps";
+import { assessClaudeVscodeAttributionGap, ClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 import { copyFileWithRetry } from "./fileWriteCoordination";
 import { ensureLearningDir } from "./usageStats";
 
@@ -543,6 +544,38 @@ function hasPostToolHook(settings: Settings, filename: string): boolean {
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
 }
 
+function hasPreToolHook(settings: Settings, filename: string): boolean {
+  const matchers = settings.hooks?.PreToolUse ?? [];
+  return matchers.some((m) => m.hooks.some((h) => h.command.includes(filename)));
+}
+
+function ensurePreToolHookRegistered(settings: Settings, matcher: string, filename: string, command: string): boolean {
+  settings.hooks = settings.hooks ?? {};
+  settings.hooks.PreToolUse = settings.hooks.PreToolUse ?? [];
+
+  if (hasPreToolHook(settings, filename)) {
+    return migrateAttributionPreToolMatcher(settings);
+  }
+
+  settings.hooks.PreToolUse.push({
+    matcher,
+    hooks: [{ type: "command", command, timeout: 8 }],
+  });
+  return true;
+}
+
+function migrateAttributionPreToolMatcher(settings: Settings): boolean {
+  let changed = false;
+  for (const matcher of settings.hooks?.PreToolUse ?? []) {
+    const usesHook = matcher.hooks.some((h) => h.command.includes(SKILL_INVOKE_HOOK_FILENAME));
+    if (usesHook && matcher.matcher !== ATTRIBUTION_HOOK_MATCHER) {
+      matcher.matcher = ATTRIBUTION_HOOK_MATCHER;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function migrateAttributionHookMatcher(settings: Settings): boolean {
   let changed = false;
   for (const matcher of settings.hooks?.PostToolUse ?? []) {
@@ -656,17 +689,24 @@ function installClaudeAttributionHook(extensionPath: string, target: string): bo
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);
   copyHookFiles(extensionPath, path.join(target, ".claude", "hooks"));
-  const added = ensurePostToolHookRegistered(
+  const addedPost = ensurePostToolHookRegistered(
     settings,
     ATTRIBUTION_HOOK_MATCHER,
     SKILL_INVOKE_HOOK_FILENAME,
     CLAUDE_SKILL_INVOKE_COMMAND
   );
-  const migrated = migrateAttributionHookMatcher(settings);
-  if (added || migrated) {
+  const addedPre = ensurePreToolHookRegistered(
+    settings,
+    ATTRIBUTION_HOOK_MATCHER,
+    SKILL_INVOKE_HOOK_FILENAME,
+    CLAUDE_SKILL_INVOKE_COMMAND
+  );
+  const migratedPost = migrateAttributionHookMatcher(settings);
+  const migratedPre = migrateAttributionPreToolMatcher(settings);
+  if (addedPost || addedPre || migratedPost || migratedPre) {
     writeJsonFile(settingsFile, settings);
   }
-  return added || migrated;
+  return addedPost || addedPre || migratedPost || migratedPre;
 }
 
 function installCursorAttributionHook(extensionPath: string, target: string): boolean {
@@ -846,7 +886,7 @@ export function installSessionWatchHook(extensionPath: string, target: string): 
   return installCostControlHooks(extensionPath, target);
 }
 
-/** Install PostToolUse skill-invoke hooks for all enabled agents (Attribution v2). Idempotent. */
+/** Install skill-invoke hooks for all enabled agents (PostToolUse + Claude PreToolUse workaround). Idempotent. */
 export function installAttributionHooks(extensionPath: string, target: string): HookInstallStatus {
   ensureLearningDir(target);
   refreshAttributionHookScripts(extensionPath, target);
@@ -1055,6 +1095,8 @@ export interface WorkspaceHookStatus {
     practicalFocus: boolean;
     configured: boolean;
   };
+  /** Claude VS Code PostToolUse gap + PreToolUse workaround state. */
+  claudeVscodeGap?: ClaudeVscodeAttributionGap;
 }
 
 function attributionConfiguredForAgent(target: string, agentId: AgentId): boolean {
@@ -1114,5 +1156,6 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
         claudeCostControlHooksFullyConfigured(target) &&
         agentCostControlPromptHooksConfigured(target, libraryDir),
     },
+    claudeVscodeGap: assessClaudeVscodeAttributionGap(target),
   };
 }

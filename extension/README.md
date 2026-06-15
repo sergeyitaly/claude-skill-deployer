@@ -118,9 +118,10 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
 - **SKILL.md lint** — source + Cursor/Kiro/Copilot mirror checks on sync (`claudeSkills.lint.*`); blocks multi-agent sync only when `blockSyncOnError` is on.
 - **Attribution v2 hooks** — installed automatically when you open a workspace
   (`claudeSkills.agents.autoInstallAttributionHooks`, default on) for **Claude Code**
-  (`.claude/settings.json`), **Cursor** (`.cursor/hooks.json`), **Kiro**
+  (`.claude/settings.json` — **PostToolUse** plus **PreToolUse** workaround for the VS Code extension when PostToolUse does not fire), **Cursor** (`.cursor/hooks.json`), **Kiro**
   (`.kiro/hooks/*.kiro.hook`, stdin or `USER_PROMPT`), and **GitHub Copilot**
   (`.github/hooks/*.json`, matches Skill tool and `.github/instructions/*.instructions.md` reads).
+  The cost dashboard **Workspace hooks** panel warns when Claude VS Code sessions show tool use but zero PostToolUse fires.
   All agents log hook invocations to `.claude/learning/runs.jsonl` with the correct `agent` field.
 - **Copilot bootstrap** — multi-agent sync writes `.github/copilot-instructions.md`
   (always-on index) plus per-skill `.github/instructions/*.instructions.md`.
@@ -254,6 +255,7 @@ Keeps skill overhead low without manual curation:
 | `claudeSkills.branchBootstrap.enabled` | on | New git branches get infra/app heuristics + relevant-only install (not main's full library) |
 | `claudeSkills.costDiscipline.enabled` | on | Budget tier gating + irrelevant-skill prune after task focus |
 | `claudeSkills.costDiscipline.propagateToAllAgents` | on | Fan out focus/budget disables to Cursor, Kiro, Copilot even on `solo-dev` tier |
+| `claudeSkills.skillFeedback.taskSkillUnderusePromote` | on | After a busy session with zero active-skill invokes, promote high-confidence ignored skills from `task-skill-proposals.json` back into task focus |
 | `claudeSkills.skillSetResolver.enabled` | tier default | Weekly install relevant / remove idle skills (`solo-dev` and `budget-sensitive` tiers enable the feature when unset) |
 
 **Flow:** extension refreshes `task-skill-proposals.json` → applies `skillOverrides` for skills outside the cap → runs budget tier gating (high-tier off at 80% daily budget) → mirrors learning artifacts to `.cursor/learning` / `.kiro/learning` → syncs effective skill set to all enabled agents.

@@ -133,15 +133,24 @@ function formatModelsByAgentHtml(agentUsage: AgentCreditRow[]): string {
   </div>`;
 }
 
-function setupChecklistHtml(health: ReturnType<typeof assessAttributionHealth>): string {
+function setupChecklistHtml(
+  health: ReturnType<typeof assessAttributionHealth>,
+  hookStatus: ReturnType<typeof getWorkspaceHookStatus>
+): string {
+  const gap = hookStatus.claudeVscodeGap;
   const items = [
     health.staleEqualSplit
       ? "<li>Run <b>Reset Mis-attributed Cost Data</b> (Command Palette)</li>"
       : "<li>Reset mis-attributed data — only if you see identical costs per skill</li>",
     "<li>Attribution v2 hooks auto-install for <b>Claude, Cursor, Kiro, and Copilot</b> (reload workspace if hook files are missing)</li>",
+    gap?.detected
+      ? "<li><b>Claude VS Code:</b> PostToolUse hooks often do not fire — run <b>Enable Attribution Hooks (v2)</b> for the PreToolUse workaround, or use <b>Claude Code CLI</b> for full per-invoke API costs</li>"
+      : gap?.mitigated
+        ? "<li><b>Claude VS Code:</b> PreToolUse workaround active — prefer CLI when you need API usage breakdown per skill invoke</li>"
+        : "",
     "<li>Use the <b>self-learning</b> skill on real tasks (<code>metadata.invoked: true</code>)</li>",
     "<li>Work in any enabled agent for a few sessions, then reopen this dashboard</li>",
-  ];
+  ].filter(Boolean);
   return `<div class="panel"><h2>Setup checklist</h2><p class="note">Agent totals are valid. Per-skill breakdown needs:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
 }
 
@@ -532,7 +541,7 @@ export function buildDashboardMainBodyHtml(
 
   ${formatModelsByAgentHtml(agentUsage)}
 
-  ${showPerSkill ? "" : setupChecklistHtml(health)}
+  ${showPerSkill ? "" : setupChecklistHtml(health, hookStatus)}
 
   <div class="panel">
     <h2>Top skills${useRunsForTopSkills ? " · measured" : ""}</h2>

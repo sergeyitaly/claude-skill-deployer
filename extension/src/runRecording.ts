@@ -4,7 +4,7 @@ import { invalidateLearningCache, countCachedV2HookRuns, sessionHasCachedV2HookR
 
 export type RunAgent = "claude" | "cursor" | "kiro" | "copilot";
 
-/** Attribution v2: explicit per-invoke rows from PostToolUse hook. */
+/** Attribution v2: explicit per-invoke rows from PostToolUse / PreToolUse hooks. */
 export const SKILL_INVOKE_HOOK_SOURCE = "skill-invoke-hook-v2";
 
 /** Background collector writes equal-split transcript rows (cost-attribution only). */

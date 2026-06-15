@@ -8,6 +8,7 @@ import { tokenCostUsd } from "./costRates";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 import { markPipelineCollected } from "./pipelineCycle";
 import { scheduleCostPipelineSync } from "./costPipelineScheduler";
+import { maybePromoteIgnoredSkillsOnUnderuse } from "./taskSkillUnderuse";
 import { generalApiTokensForSession } from "./generalApiSpend";
 import { invalidateTranscriptUsageCache } from "./transcriptUsageIndex";
 import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript, TranscriptParser } from "./transcriptParsers";
@@ -257,6 +258,7 @@ export class AttributionCollector {
     saveAttribution(this.target, store);
     invalidateTranscriptUsageCache(this.target);
     markPipelineCollected(this.target);
+    maybePromoteIgnoredSkillsOnUnderuse(this.target, this.libraryDir);
     if (opts?.schedulePipeline !== false) {
       scheduleCostPipelineSync(this.target, this.libraryDir);
     }

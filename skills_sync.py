@@ -659,6 +659,22 @@ def _ensure_session_start_hook(settings: dict, filename: str, command: str) -> b
     return True
 
 
+def _ensure_pre_tool_hook(settings: dict, filename: str, command: str) -> bool:
+    settings.setdefault("hooks", {})
+    pre = settings["hooks"].setdefault("PreToolUse", [])
+    for entry in pre:
+        for hook in entry.get("hooks", []):
+            if filename in hook.get("command", ""):
+                return False
+    pre.append(
+        {
+            "matcher": ATTRIBUTION_MATCHER,
+            "hooks": [{"type": "command", "command": command, "timeout": 8}],
+        }
+    )
+    return True
+
+
 def _ensure_post_tool_hook(settings: dict, filename: str, command: str) -> bool:
     settings.setdefault("hooks", {})
     post = settings["hooks"].setdefault("PostToolUse", [])
@@ -739,6 +755,7 @@ def install_hooks(
 
     invoke_cmd = 'node "${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-invoke-watch.js" claude'
     changed |= _ensure_post_tool_hook(settings, "skill-invoke-watch.js", invoke_cmd)
+    changed |= _ensure_pre_tool_hook(settings, "skill-invoke-watch.js", invoke_cmd)
 
     if full:
         for filename, var_name in [

@@ -17,6 +17,7 @@ import { isFeatureEnabled } from "./featureFlags";
 import { scheduleAutoOptimizePass } from "./autoOptimizer";
 import { queueTeamEconomicsPrecompute } from "./teamEconomicsCache";
 import { queueDashboardSnapshotPrecompute } from "./dashboardPrecompute";
+import { maybePromoteIgnoredSkillsOnUnderuse } from "./taskSkillUnderuse";
 
 export interface CostPipelineRunOptions {
   collectMs?: number;
@@ -103,6 +104,7 @@ export function runCostPipelineSync(
 
     const analyzeStarted = Date.now();
     const state = refreshWorkspaceSystemState(target, libraryDir);
+    maybePromoteIgnoredSkillsOnUnderuse(target, libraryDir);
     trace.analyzeMs = Date.now() - analyzeStarted;
 
     trace.totalMs = Date.now() - runStarted;

@@ -64,6 +64,26 @@ describe("workspaceHookStatus formatting", () => {
     expect(html).toContain("hook-off");
   });
 
+  it("shows VS Code attribution gap warning in panel HTML", () => {
+    const withGap: WorkspaceHookStatus = {
+      ...allOn,
+      claudeVscodeGap: {
+        detected: true,
+        preToolWorkaroundInstalled: false,
+        mitigated: false,
+        vscodeSessionCount: 1,
+        toolUseCount: 20,
+        postToolUseHookFires: 0,
+        postToolUseConfigured: true,
+        summary: "Claude VS Code gap: 20 tool use(s), zero PostToolUse hook fires.",
+        recommendation: "Re-sync hooks to install the PreToolUse workaround.",
+      },
+    };
+    const html = formatHookStatusPanelHtml(withGap);
+    expect(html).toContain("Claude VS Code");
+    expect(html).toContain("PreToolUse workaround missing");
+  });
+
   it("formats plain status for onboarding", () => {
     expect(formatHookStatusPlain(partial)).toContain("Attribution v2: partial (1/2 agents)");
     expect(formatHookStatusPlain(partial)).toContain("Session size warnings: off");

@@ -1648,7 +1648,7 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         const status = installAttributionHooks(context.extensionPath, target);
         maybeRevealOutputPanel();
-        log(`\n=== Attribution v2 hooks (PostToolUse Skill|Read) -> ${target} ===`);
+        log(`\n=== Attribution v2 hooks (PostToolUse + PreToolUse Skill|Read) -> ${target} ===`);
         log(status);
         void notifyUserSuccess(`Claude Skills: attribution hooks ${status}.`);
       } catch (err) {

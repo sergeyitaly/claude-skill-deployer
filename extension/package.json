@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.56",
+  "version": "1.0.57",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -584,6 +584,36 @@
             "type": "boolean",
             "default": true,
             "description": "Show a background notification when task scope drift triggers a skill set refresh."
+          },
+          "claudeSkills.skillFeedback.taskSkillUnderusePromote": {
+            "type": "boolean",
+            "default": true,
+            "description": "When task skill focus is on but no active skill was invoked during a busy session, promote high-confidence ignored skills from task proposals back into the active set."
+          },
+          "claudeSkills.skillFeedback.taskSkillUnderuseCooldownMinutes": {
+            "type": "number",
+            "default": 60,
+            "minimum": 15,
+            "description": "Minimum minutes between automatic task-focus expansions when active skills go unused."
+          },
+          "claudeSkills.skillFeedback.taskSkillUnderuseMaxPromote": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 8,
+            "description": "Maximum ignored skills to promote per underuse event."
+          },
+          "claudeSkills.skillFeedback.taskSkillUnderuseMinConfidence": {
+            "type": "number",
+            "default": 70,
+            "minimum": 50,
+            "maximum": 100,
+            "description": "Minimum task-proposal confidence for an ignored skill to be promoted on underuse."
+          },
+          "claudeSkills.skillFeedback.taskSkillUnderuseNotifyUser": {
+            "type": "boolean",
+            "default": true,
+            "description": "Notify when task focus expands because no active skills were used."
           }
         }
       },

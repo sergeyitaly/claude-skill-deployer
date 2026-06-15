@@ -197,7 +197,7 @@ Estimates where no usage data exists — hook/API-priced where hooks logged usag
 ### Attribution & data
 
 - **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
-- **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open)
+- **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open). **Claude VS Code:** also registers **PreToolUse** workaround when PostToolUse does not fire; dashboard warns when a gap is detected
 - **Cost-control hooks** — all five prompt hooks (`session-size`, `budget`, `context-focus`, `practical-focus`, `task-drift`) on Claude, Cursor, Kiro, and Copilot via `hookPlatform.js`; `task-skill-focus.js` caps via `cli-config.json`. Session-size needs `transcript_path` (Claude + Cursor only).
 - **Usage Report split** — **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
