@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-// Claude Code UserPromptSubmit hook: enforces daily token budget and economy
-// mode. Reads ~/.claude/learning/budget.json (synced by the VS Code extension).
+// Daily budget + economy mode on every prompt submit.
+// Claude: UserPromptSubmit (systemMessage)
+// Cursor: beforeSubmitPrompt (additional_context)
+// Kiro: promptSubmit (additional_context)
+// Copilot: UserPromptSubmit (hookSpecificOutput)
 
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { computeTodayUsageAcrossProjects, formatTokenCount, formatUsd } = require("./usageParse");
+const { readStdin, parsePlatform, resolveCwd, writePromptOutput } = require("./hookPlatform");
 
 const LEARNING_DIR = path.join(os.homedir(), ".claude", "learning");
 const BUDGET_CONFIG_PATH = path.join(LEARNING_DIR, "budget.json");
@@ -60,14 +64,6 @@ function writeJsonSafe(file, data) {
     fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
   } catch {
     // non-fatal
-  }
-}
-
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf-8");
-  } catch {
-    return "";
   }
 }
 
@@ -181,14 +177,15 @@ function todayNotifications(state, today) {
 }
 
 function main() {
+  const platform = parsePlatform(process.argv);
   let input;
   try {
     input = JSON.parse(readStdin());
   } catch {
-    return;
+    input = {};
   }
 
-  const cwd = input.cwd;
+  const cwd = resolveCwd(input, platform);
   if (!cwd) {
     return;
   }
@@ -268,7 +265,7 @@ function main() {
   writeJsonSafe(BUDGET_STATE_PATH, state);
 
   if (messages.length > 0) {
-    process.stdout.write(JSON.stringify({ systemMessage: messages.join(" ") }));
+    writePromptOutput(messages.join(" "), platform, "systemMessage");
   }
 }
 

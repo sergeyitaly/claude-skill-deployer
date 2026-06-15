@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Claude Code UserPromptSubmit hook: nudges the user toward /compact or
-// /clear once the session transcript grows large, with estimated token/cost
-// and projected savings from /compact.
+// Nudges toward /compact or /clear when the session transcript grows large.
+// Claude/Cursor: needs transcript_path + session_id (no-op on Kiro/Copilot without transcripts).
 
 const fs = require("fs");
 const path = require("path");
 const { sumTranscriptUsage, formatTokenCount, formatUsd } = require("./usageParse");
+const { readStdin, parsePlatform, resolveCwd, resolveSessionId, writePromptOutput } = require("./hookPlatform");
 
 const WARN_BYTES = 4 * 1024 * 1024;
 const CRITICAL_BYTES = 10 * 1024 * 1024;
@@ -71,25 +71,18 @@ function readJsonSafe(file) {
   }
 }
 
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf-8");
-  } catch {
-    return "";
-  }
-}
-
 function main() {
+  const platform = parsePlatform(process.argv);
   let input;
   try {
     input = JSON.parse(readStdin());
   } catch {
-    return;
+    input = {};
   }
 
   const transcriptPath = input.transcript_path;
-  const sessionId = input.session_id;
-  const cwd = input.cwd;
+  const sessionId = resolveSessionId(input);
+  const cwd = resolveCwd(input, platform);
   if (!transcriptPath || !sessionId || !cwd) {
     return;
   }
@@ -116,7 +109,7 @@ function main() {
 
   const escalated = LEVEL_RANK[level] > LEVEL_RANK[previous];
   if (escalated && (level === "warn" || level === "critical")) {
-    process.stdout.write(JSON.stringify({ systemMessage: MESSAGES[level](transcriptPath) }));
+    writePromptOutput(MESSAGES[level](transcriptPath), platform, "systemMessage");
   }
 }
 

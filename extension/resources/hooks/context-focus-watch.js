@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Claude Code UserPromptSubmit hook: injects grounding instructions that balance
-// local workspace context vs general LLM knowledge. Config from
-// ~/.claude/learning/context-focus.json (synced by the VS Code extension).
+// Grounding instructions balancing local workspace context vs general knowledge.
+// Config from ~/.claude/learning/context-focus.json (synced by the VS Code extension).
 
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { readStdin, parsePlatform, resolveCwd, resolveSessionId, writePromptOutput } = require("./hookPlatform");
 
 const CONFIG_PATH =
   process.env.CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG ||
@@ -59,14 +59,6 @@ function readJsonSafe(file, fallback) {
   }
 }
 
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf-8");
-  } catch {
-    return "";
-  }
-}
-
 function sessionSizeLevel(transcriptPath) {
   if (!transcriptPath) {
     return "ok";
@@ -91,7 +83,7 @@ function escalateLevel(base, steps) {
   if (idx < 0) {
     return "balanced";
   }
-  return LEVEL_ORDER[Math.min(LEVEL_ORDER.length - 1, idx + 1)];
+  return LEVEL_ORDER[Math.min(LEVEL_ORDER.length - 1, idx + steps)];
 }
 
 function effectiveLevel(config, sizeLevel) {
@@ -164,15 +156,16 @@ function buildContext(config, level, cwd, sizeLevel) {
 }
 
 function main() {
+  const platform = parsePlatform(process.argv);
   let input;
   try {
     input = JSON.parse(readStdin());
   } catch {
-    return;
+    input = {};
   }
 
-  const cwd = input.cwd;
-  const sessionId = input.session_id;
+  const cwd = resolveCwd(input, platform);
+  const sessionId = resolveSessionId(input);
   const transcriptPath = input.transcript_path;
   if (!cwd) {
     return;
@@ -188,14 +181,7 @@ function main() {
   const level = effectiveLevel(config, sizeLevel);
   const context = buildContext(config, level, cwd, sizeLevel);
 
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: context,
-      },
-    })
-  );
+  writePromptOutput(context, platform, "hookSpecificOutput");
 }
 
 main();

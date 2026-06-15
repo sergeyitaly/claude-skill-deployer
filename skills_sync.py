@@ -765,15 +765,15 @@ def install_hooks(
         if "cursor" in ids:
             agent_hooks.extend(_install_cursor_profile_init_hook(target, hooks_source))
             if full:
-                agent_hooks.extend(_install_cursor_task_drift_hook(target, hooks_source))
+                agent_hooks.extend(_install_cursor_cost_control_hooks(target, hooks_source))
         if "kiro" in ids:
             agent_hooks.extend(_install_kiro_profile_init_hook(target, hooks_source))
             if full:
-                agent_hooks.extend(_install_kiro_task_drift_hook(target, hooks_source))
+                agent_hooks.extend(_install_kiro_cost_control_hooks(target, hooks_source))
         if "copilot" in ids:
             agent_hooks.extend(_install_copilot_profile_init_hook(target, hooks_source))
             if full:
-                agent_hooks.extend(_install_copilot_task_drift_hook(target, hooks_source))
+                agent_hooks.extend(_install_copilot_cost_control_hooks(target, hooks_source))
 
     git_hook = _install_git_branch_sync_hook(target) if git_branch_hook else False
 
@@ -834,6 +834,95 @@ def _install_copilot_profile_init_hook(target: Path, hooks_source: Path) -> list
     }
     write_json_atomic(hook_file, payload)
     return ["copilot profile-init"]
+
+
+COST_CONTROL_PROMPT_HOOKS = [
+    ("session-size-watch.js", "claude-skills-session-size", True),
+    ("budget-watch.js", "claude-skills-budget", True),
+    ("context-focus-watch.js", "claude-skills-context-focus", False),
+    ("practical-focus-watch.js", "claude-skills-practical-focus", False),
+    ("task-drift-watch.js", "claude-skills-task-drift", False),
+]
+
+
+def _copy_cost_control_scripts(target: Path, hooks_source: Path, script: str, needs_usage_parse: bool) -> None:
+    dest_claude = target / ".claude" / "hooks"
+    dest_cursor = target / ".cursor" / "hooks"
+    dest_claude.mkdir(parents=True, exist_ok=True)
+    dest_cursor.mkdir(parents=True, exist_ok=True)
+    src = hooks_source / script
+    if src.is_file():
+        shutil.copy2(src, dest_claude / script)
+        shutil.copy2(src, dest_cursor / script)
+    platform_src = hooks_source / "hookPlatform.js"
+    if platform_src.is_file():
+        shutil.copy2(platform_src, dest_claude / "hookPlatform.js")
+        shutil.copy2(platform_src, dest_cursor / "hookPlatform.js")
+    if needs_usage_parse:
+        usage_src = hooks_source / "usageParse.js"
+        if usage_src.is_file():
+            shutil.copy2(usage_src, dest_claude / "usageParse.js")
+            shutil.copy2(usage_src, dest_cursor / "usageParse.js")
+
+
+def _install_cursor_cost_control_hooks(target: Path, hooks_source: Path) -> list[str]:
+    installed: list[str] = []
+    cursor_hooks = target / ".cursor" / "hooks"
+    cursor_hooks.mkdir(parents=True, exist_ok=True)
+    data = read_json(target / ".cursor" / "hooks.json") or {"version": 1, "hooks": {}}
+    data.setdefault("hooks", {})
+    entries = data["hooks"].setdefault("beforeSubmitPrompt", [])
+    for script, _marker, needs_usage in COST_CONTROL_PROMPT_HOOKS:
+        _copy_cost_control_scripts(target, hooks_source, script, needs_usage)
+        cmd = f"node .cursor/hooks/{script} cursor"
+        if not any(cmd in (e.get("command") or "") for e in entries):
+            entries.append({"command": cmd, "timeout": 8})
+            installed.append(f"cursor {script}")
+    write_json_atomic(target / ".cursor" / "hooks.json", data)
+    return installed
+
+
+def _install_kiro_cost_control_hooks(target: Path, hooks_source: Path) -> list[str]:
+    installed: list[str] = []
+    kiro_hooks = target / ".kiro" / "hooks"
+    kiro_hooks.mkdir(parents=True, exist_ok=True)
+    for script, marker, needs_usage in COST_CONTROL_PROMPT_HOOKS:
+        _copy_cost_control_scripts(target, hooks_source, script, needs_usage)
+        hook_file = kiro_hooks / f"{marker}.kiro.hook"
+        payload = {
+            "name": f"claude-skills {marker}",
+            "description": marker,
+            "enabled": True,
+            "when": {"type": "promptSubmit"},
+            "then": {
+                "type": "runCommand",
+                "command": f"node .claude/hooks/{script} kiro",
+                "timeout": 8,
+            },
+        }
+        write_json_atomic(hook_file, payload)
+        installed.append(f"kiro {script}")
+    return installed
+
+
+def _install_copilot_cost_control_hooks(target: Path, hooks_source: Path) -> list[str]:
+    installed: list[str] = []
+    gh_hooks = target / ".github" / "hooks"
+    gh_hooks.mkdir(parents=True, exist_ok=True)
+    for script, marker, needs_usage in COST_CONTROL_PROMPT_HOOKS:
+        _copy_cost_control_scripts(target, hooks_source, script, needs_usage)
+        cmd = f"node .claude/hooks/{script} copilot"
+        hook_file = gh_hooks / f"{marker}.json"
+        payload = {
+            "version": 1,
+            "hooks": {
+                "UserPromptSubmit": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 8}],
+                "userPromptSubmitted": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 8}],
+            },
+        }
+        write_json_atomic(hook_file, payload)
+        installed.append(f"copilot {script}")
+    return installed
 
 
 def _install_cursor_task_drift_hook(target: Path, hooks_source: Path) -> list[str]:

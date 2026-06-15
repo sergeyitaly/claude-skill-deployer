@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 // Injects once when the extension refreshes task-skill-proposals.json due to
 // task scope drift (off-profile skill use or large session transcript).
-// Claude Code: UserPromptSubmit (systemMessage)
-// Cursor: beforeSubmitPrompt (additional_context)
-// Kiro: promptSubmit (additional_context)
-// Copilot: UserPromptSubmit / userPromptSubmitted (hookSpecificOutput)
 
 const fs = require("fs");
 const path = require("path");
+const { readStdin, parsePlatform, resolveCwd, writePromptOutput } = require("./hookPlatform");
 
 const PROMPT_REL = ".claude/learning/task-drift-prompt.json";
 const CLI_CONFIG = ".claude/learning/cli-config.json";
@@ -20,30 +17,9 @@ function readJsonSafe(file) {
   }
 }
 
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf-8");
-  } catch {
-    return "";
-  }
-}
-
 function featureEnabled(cwd) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
   return cfg?.features?.taskDriftReproposal !== false;
-}
-
-function resolveCwd(input, platform) {
-  if ((platform === "claude" || platform === "copilot") && input.cwd) {
-    return input.cwd;
-  }
-  if (Array.isArray(input.workspace_roots) && input.workspace_roots[0]) {
-    return input.workspace_roots[0];
-  }
-  if (input.workingDirectory || input.working_directory) {
-    return input.workingDirectory || input.working_directory;
-  }
-  return input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 }
 
 function markDelivered(promptFile, prompt) {
@@ -59,33 +35,8 @@ function markDelivered(promptFile, prompt) {
   }
 }
 
-function emitOutput(message, platform) {
-  if (platform === "cursor" || platform === "kiro") {
-    process.stdout.write(
-      JSON.stringify({
-        additional_context: message,
-        additionalContext: message,
-        continue: true,
-      })
-    );
-    return;
-  }
-  if (platform === "copilot") {
-    process.stdout.write(
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "UserPromptSubmit",
-          additionalContext: message,
-        },
-      })
-    );
-    return;
-  }
-  process.stdout.write(JSON.stringify({ systemMessage: message }));
-}
-
 function main() {
-  const platform = (process.argv[2] || "claude").toLowerCase();
+  const platform = parsePlatform(process.argv);
   let input;
   try {
     input = JSON.parse(readStdin());
@@ -105,7 +56,7 @@ function main() {
   }
 
   markDelivered(promptFile, prompt);
-  emitOutput(prompt.message, platform);
+  writePromptOutput(prompt.message, platform, "systemMessage");
 }
 
 main();

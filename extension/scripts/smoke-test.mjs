@@ -7,6 +7,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const required = [
   "package.json",
   "out/extension.js",
+  "resources/hooks/hookPlatform.js",
   "resources/hooks/budget-watch.js",
   "resources/hooks/session-size-watch.js",
   "resources/hooks/context-focus-watch.js",

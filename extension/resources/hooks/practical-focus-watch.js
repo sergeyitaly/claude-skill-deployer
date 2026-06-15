@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Claude Code UserPromptSubmit hook: shifts agent behavior from theoretical advice
-// toward concrete architecture and first-try deployment guidance.
+// Shifts agent behavior from theoretical advice toward concrete deployment guidance.
 // Config from ~/.claude/learning/practical-focus.json (synced by VS Code extension).
 
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { readStdin, parsePlatform, resolveCwd, resolveSessionId, writePromptOutput } = require("./hookPlatform");
 
 const CONFIG_PATH =
   process.env.CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG ||
@@ -57,14 +57,6 @@ function readJsonSafe(file, fallback) {
   }
 }
 
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf-8");
-  } catch {
-    return "";
-  }
-}
-
 function detectInfraSignals(cwd) {
   const signals = [];
   const checks = [
@@ -74,7 +66,7 @@ function detectInfraSignals(cwd) {
     ["Docker", () => fileExists(path.join(cwd, "Dockerfile")) || globExists(cwd, (p) => p.startsWith("Dockerfile."))],
     ["GitLab CI", () => fileExists(path.join(cwd, ".gitlab-ci.yml"))],
     ["GitHub Actions", () => dirHasFiles(path.join(cwd, ".github", "workflows"))],
-    ["Kubernetes", () => globExists(cwd, (p) => p.includes("k8s") || p.endsWith(".yaml") && p.includes("deployment"))],
+    ["Kubernetes", () => globExists(cwd, (p) => p.includes("k8s") || (p.endsWith(".yaml") && p.includes("deployment")))],
   ];
   for (const [label, fn] of checks) {
     try {
@@ -185,15 +177,16 @@ function buildContext(config, level, cwd) {
 }
 
 function main() {
+  const platform = parsePlatform(process.argv);
   let input;
   try {
     input = JSON.parse(readStdin());
   } catch {
-    return;
+    input = {};
   }
 
-  const cwd = input.cwd;
-  const sessionId = input.session_id;
+  const cwd = resolveCwd(input, platform);
+  const sessionId = resolveSessionId(input);
   if (!cwd) {
     return;
   }
@@ -206,14 +199,7 @@ function main() {
   const level = config.level;
   const context = buildContext(config, level, cwd);
 
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: context,
-      },
-    })
-  );
+  writePromptOutput(context, platform, "hookSpecificOutput");
 }
 
 main();

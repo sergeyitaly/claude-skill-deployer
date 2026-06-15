@@ -77,7 +77,7 @@ describe("installCostControlHooks", () => {
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
   });
 
-  it("registers session, budget, focus, and task-drift UserPromptSubmit hooks", () => {
+  it("registers all cost-control hooks for Claude and every enabled agent", () => {
     const target = makeWorkspace();
     installCostControlHooks(EXTENSION_PATH, target);
     const settings = JSON.parse(
@@ -86,31 +86,53 @@ describe("installCostControlHooks", () => {
     const commands = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) =>
       m.hooks.map((h) => h.command)
     );
-    expect(commands.some((c) => c.includes("session-size-watch.js"))).toBe(true);
-    expect(commands.some((c) => c.includes("budget-watch.js"))).toBe(true);
-    expect(commands.some((c) => c.includes("context-focus-watch.js"))).toBe(true);
-    expect(commands.some((c) => c.includes("practical-focus-watch.js"))).toBe(true);
-    expect(commands.some((c) => c.includes("task-drift-watch.js"))).toBe(true);
+    const claudeHooks = [
+      "session-size-watch.js",
+      "budget-watch.js",
+      "context-focus-watch.js",
+      "practical-focus-watch.js",
+      "task-drift-watch.js",
+    ];
+    for (const hook of claudeHooks) {
+      expect(commands.some((c) => c.includes(hook))).toBe(true);
+    }
 
     const cursorHooks = JSON.parse(fs.readFileSync(path.join(target, ".cursor", "hooks.json"), "utf-8")) as {
       hooks?: { beforeSubmitPrompt?: { command?: string }[] };
     };
-    expect(
-      cursorHooks.hooks?.beforeSubmitPrompt?.some((h) => h.command?.includes("task-drift-watch.js"))
-    ).toBe(true);
+    const cursorEntries = cursorHooks.hooks?.beforeSubmitPrompt ?? [];
+    for (const hook of claudeHooks) {
+      expect(cursorEntries.some((h) => h.command?.includes(hook) && h.command?.includes(" cursor"))).toBe(
+        true
+      );
+    }
+    expect(fs.existsSync(path.join(target, ".cursor", "hooks", "hookPlatform.js"))).toBe(true);
 
-    expect(fs.existsSync(path.join(target, ".kiro", "hooks", "claude-skills-task-drift.kiro.hook"))).toBe(
-      true
-    );
-    const kiroTaskDrift = JSON.parse(
-      fs.readFileSync(path.join(target, ".kiro", "hooks", "claude-skills-task-drift.kiro.hook"), "utf-8")
-    ) as { when?: { type?: string } };
-    expect(kiroTaskDrift.when?.type).toBe("promptSubmit");
-    const kiroBudget = JSON.parse(
-      fs.readFileSync(path.join(target, ".kiro", "hooks", "claude-skills-budget.kiro.hook"), "utf-8")
-    ) as { when?: { type?: string } };
-    expect(kiroBudget.when?.type).toBe("promptSubmit");
-    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-task-drift.json"))).toBe(true);
+    const kiroSpecs = [
+      ["claude-skills-session-size.kiro.hook", "promptSubmit", "session-size-watch.js kiro"],
+      ["claude-skills-budget.kiro.hook", "promptSubmit", "budget-watch.js kiro"],
+      ["claude-skills-context-focus.kiro.hook", "promptSubmit", "context-focus-watch.js kiro"],
+      ["claude-skills-practical-focus.kiro.hook", "promptSubmit", "practical-focus-watch.js kiro"],
+      ["claude-skills-task-drift.kiro.hook", "promptSubmit", "task-drift-watch.js kiro"],
+    ] as const;
+    for (const [file, whenType, cmdPart] of kiroSpecs) {
+      const kiroHook = JSON.parse(
+        fs.readFileSync(path.join(target, ".kiro", "hooks", file), "utf-8")
+      ) as { when?: { type?: string }; then?: { command?: string } };
+      expect(kiroHook.when?.type).toBe(whenType);
+      expect(kiroHook.then?.command).toContain(cmdPart);
+    }
+
+    const copilotFiles = [
+      "claude-skills-session-size.json",
+      "claude-skills-budget.json",
+      "claude-skills-context-focus.json",
+      "claude-skills-practical-focus.json",
+      "claude-skills-task-drift.json",
+    ];
+    for (const file of copilotFiles) {
+      expect(fs.existsSync(path.join(target, ".github", "hooks", file))).toBe(true);
+    }
   });
 });
 

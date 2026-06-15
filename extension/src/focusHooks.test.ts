@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 const HOOKS_DIR = path.join(__dirname, "..", "resources", "hooks");
 const CONTEXT_HOOK = path.join(HOOKS_DIR, "context-focus-watch.js");
 const PRACTICAL_HOOK = path.join(HOOKS_DIR, "practical-focus-watch.js");
+const BUDGET_HOOK = path.join(HOOKS_DIR, "budget-watch.js");
 const PROFILE_INIT_HOOK = path.join(HOOKS_DIR, "profile-init-watch.js");
 
 const workspaces: string[] = [];
@@ -107,6 +108,53 @@ describe("context-focus-watch.js", () => {
       hookSpecificOutput?: { additionalContext?: string };
     };
     expect(parsed.hookSpecificOutput?.additionalContext).toContain("STRICT LOCAL");
+  });
+});
+
+describe("budget-watch.js", () => {
+  it("emits Cursor additional_context when workspace_roots is set", () => {
+    const cwd = makeWorkspace();
+    const budgetDir = path.join(os.homedir(), ".claude", "learning");
+    fs.mkdirSync(budgetDir, { recursive: true });
+    const budgetFile = path.join(budgetDir, "budget.json");
+    const budgetStateFile = path.join(budgetDir, "budget-state.json");
+    const prevBudget = fs.existsSync(budgetFile) ? fs.readFileSync(budgetFile, "utf-8") : null;
+    const prevState = fs.existsSync(budgetStateFile) ? fs.readFileSync(budgetStateFile, "utf-8") : null;
+    try {
+      fs.writeFileSync(
+        budgetFile,
+        JSON.stringify({ mode: "economy", economyWarnUsd: 0, highTierSkills: ["expensive-skill"] }) + "\n",
+        "utf-8"
+      );
+      fs.writeFileSync(path.join(cwd, ".claude", "settings.local.json"), "{}\n", "utf-8");
+      const result = spawnSync(process.execPath, [BUDGET_HOOK, "cursor"], {
+        input: JSON.stringify({ workspace_roots: [cwd], session_id: "cursor-budget-1" }),
+        encoding: "utf-8",
+        cwd,
+      });
+      expect(result.stdout.trim()).not.toBe("");
+      const parsed = JSON.parse(result.stdout.trim()) as { additional_context?: string };
+      expect(parsed.additional_context).toContain("Claude Skills");
+    } finally {
+      if (prevBudget === null) {
+        try {
+          fs.rmSync(budgetFile, { force: true });
+        } catch {
+          // ignore
+        }
+      } else {
+        fs.writeFileSync(budgetFile, prevBudget, "utf-8");
+      }
+      if (prevState === null) {
+        try {
+          fs.rmSync(budgetStateFile, { force: true });
+        } catch {
+          // ignore
+        }
+      } else {
+        fs.writeFileSync(budgetStateFile, prevState, "utf-8");
+      }
+    }
   });
 });
 
