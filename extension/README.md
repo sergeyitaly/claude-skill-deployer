@@ -23,6 +23,175 @@ development skills, synchronizes them across tools like Cursor and Copilot,
 tracks how those skills are actually used, calculates cost and value, and
 continuously optimizes your setup based on real usage.
 
+On first open it **probes your git repo** (local history + optional `origin`
+check) and suggests a **project tier**. You confirm or override with
+**Choose Project Profile Tier** — that choice controls multi-agent sync,
+attribution overhead, budget hooks, and how aggressively skills are trimmed.
+
+## Examples: different teams, tools, and budgets
+
+These are practical walkthroughs — not theory. Each row is a common situation;
+pick the closest match when the tier prompt appears (or run **Choose Project
+Profile Tier** later).
+
+| You are… | Pick this plan / tier | Multi-agent sync | Cost tracking | Typical daily budget |
+|---|---|:---:|:---:|---|
+| One person, Cursor only, new repo | **Solo developer** → `solo-dev` | Host IDE only (`.cursor/skills/`) | Basic dashboard | `$5` Normal (adjust in Settings) |
+| One person on a **shared team repo** | **Solo developer** (override detection) | Host IDE only; `.claude/skills/` still git-shared | Basic + branch profiles | `$5` Normal or **Economy** |
+| Shipping with Claude + Cursor + Copilot | **Multi-agent workflow** → `team-multi-agent` | All enabled paths | Full attribution + ROI | `$5–15` Normal |
+| Product team, many branches/authors | **Team product** (or accept detected) | Full fan-out | Full + team cost sharing | `$10+` Normal |
+| Every token counts | **Tight budget / economy** → `budget-sensitive` | Host IDE only (even on shared repos) | Full alerts + optimizer hints | **`$2–3` + Economy mode** |
+| Large org, compliance, unlimited spend | **Enterprise team** | Full fan-out | Minimal ROI overhead | Unlimited or high cap |
+| Scratch script, no git | **Quick spike** → `throwaway` | Off | Off | N/A |
+
+Status bar shows your tier (`SOLO DEV`, `TEAM MULTI-AGENT`, …). **Show Project Tier** prints repo signals and rationale.
+
+### Example 1 — Solo developer in Cursor (new repo)
+
+**Situation:** You cloned an empty repo, use **Cursor only**, never open Claude Code.
+
+**What you pick:** **Plan: solo developer** (or accept detected `solo-dev`).
+
+**What the extension does:**
+
+1. Creates `.claude/skills/` as the **git-tracked source of truth** (even without Claude Code).
+2. Installs relevant skills from the bundled library (**Install Relevant Skills for Workspace**).
+3. Mirrors skills **only to** `.cursor/skills/` — not `.kiro/` or `.github/instructions/`.
+4. Turns **off** heavy attribution collector overhead; keeps session skill adaptation and task focus (cap ~12 active skills).
+5. Writes `.claude/learning/project-profile.json` with `multiAgent: false`.
+
+**Folders you should see:**
+
+```
+your-repo/
+  .claude/skills/          ← commit these (team source of truth)
+  .claude/learning/        ← local metrics (usually gitignored)
+  .cursor/skills/          ← Cursor mirror (auto-synced from .claude/)
+```
+
+**If you were wrongly detected as multi-agent first:** choosing **solo developer** again **removes** auto-created `.kiro/skills/`, `.github/instructions/`, and extra learning mirrors — only your running IDE keeps a clone.
+
+**Budget tip:** leave **Normal** mode (`$5`/day default). Click the status bar budget chip to switch to **Economy** — high-tier skills are disabled locally via `skillOverrides` without deleting shared files.
+
+---
+
+### Example 2 — Solo on a shared product repo
+
+**Situation:** Company monorepo with 20 contributors; you work alone in Cursor but `.claude/skills/` is committed for the team.
+
+**What you pick:** **Plan: solo developer** — overrides “team” detection without forcing full multi-agent sync on your machine.
+
+**What the extension does:**
+
+- **Does not** fan out to Kiro/Copilot paths on your laptop.
+- **Respects** branch-committed skills in `.claude/skills/` — unchecking a skill in the tree sets `"skill": "off"` in **your** `.claude/settings.local.json` only (eye icon / local disable).
+- Saves **your** effective set per branch in `~/.claude/learning/branch-profiles.json` (personal, not committed).
+- Optional: team layout in `.claude/skills-profile.json` still applies on branch switch before your personal overrides.
+
+**Typical workflow:**
+
+1. `git checkout feature/payments` → extension restores your saved branch profile.
+2. **Choose Task Skill Set** when prompted → pick **Focused** (3–5 skills) or **Workspace** (~12 cap).
+3. Work in Cursor; hooks log usage to `.claude/learning/runs.jsonl` for your usage report.
+
+---
+
+### Example 3 — Tight budget / economy mode
+
+**Situation:** Personal side project; you want cost alerts, skill pruning, and no wasted tokens on unused skills.
+
+**What you pick:** **Plan: tight budget / economy mode** → `budget-sensitive` with **`multiAgent` forced off** (host IDE only).
+
+**What the extension does:**
+
+- Enables **full cost intelligence**: dashboard, predictive alerts, optimization suggestions, task drift reproposal.
+- **Choose Task Skill Set** before auto-apply — default **approveSkillSets** offers Focused / Workspace / Broader options (confidence floor 50% by default).
+- **Cost discipline** after focus: disables skills outside the cap via `skillOverrides`, prunes irrelevant personal installs.
+- **Economy** budget mode (status bar): locally disables expensive catalog tiers; **Normal** enforces daily USD cap; hooks warn on large sessions.
+
+**Suggested settings:**
+
+| Setting | Suggested value |
+|---|---|
+| `claudeSkills.budget.mode` | `economy` |
+| `claudeSkills.budget.dailyBudgetUsd` | `2`–`3` |
+| `claudeSkills.taskFocus.maxActiveSkills` | `8`–`10` |
+| `claudeSkills.features.skillSetResolver` | on (weekly prune idle skills) |
+
+**Weekly check:** **Show Cost Intelligence Dashboard** → **Optimization** panel → apply safe disables (keep `claudeSkills.optimizer.autoApply` off until attribution looks healthy).
+
+---
+
+### Example 4 — Multi-agent team (Claude Code + Cursor + Copilot)
+
+**Situation:** Platform team; developers use different AI tools on the same repo.
+
+**What you pick:** **Plan: multiple AI tools** or **AIDLC greenfield** → `team-multi-agent`.
+
+**What the extension does:**
+
+1. One skill change in `.claude/skills/` propagates to:
+   - `.cursor/skills/` (SKILL.md)
+   - `.kiro/skills/` (SKILL.md)
+   - `.github/instructions/*.instructions.md` (Copilot)
+2. **Attribution v2 hooks** on all enabled agents → per-skill cost in `runs.jsonl`.
+3. **Team cost sharing** attributes skill maintenance to git authors of each `SKILL.md`.
+4. **Export Team Branch Profile to Git** → commit `.claude/skills-profile.json` for shared branch layouts.
+
+**Typical workflow:**
+
+1. Add `terraform-module-ops` via checkbox → all agent paths update on save.
+2. **Enable Cost Control Hooks** once per repo (budget + session size + focus).
+3. New branch → **Init Profile for Current Branch** → agent picks skills → auto-install + multi-agent mirror.
+
+---
+
+### Example 5 — Enterprise team (high volume, minimal attribution overhead)
+
+**Situation:** Large engineering org; unlimited budget; want multi-tool sync without per-invoke attribution CPU cost.
+
+**What you pick:** **Plan: enterprise team** → `enterprise`.
+
+**Multi-agent sync stays on**; **attribution collector defaults off** (transcript/dashboard still available). Good when hook volume across hundreds of devs would be noisy.
+
+---
+
+### Example 6 — Quick spike (minimal extension footprint)
+
+**Situation:** Temporary folder, experiment, or non-git scratch work.
+
+**What you pick:** **Plan: quick spike** → `throwaway`.
+
+Almost all features off — no branch profiles, no multi-agent sync, no cost pipeline. Install skills manually if needed, then delete the folder.
+
+---
+
+### How tiers change what runs (cheat sheet)
+
+```text
+                    solo-dev / budget-focused     team-multi-agent / enterprise
+                    ─────────────────────────     ───────────────────────────────
+Skills source       .claude/skills/ (git)       same
+IDE mirrors         running IDE only            cursor + kiro + copilot paths
+Task skill sets     approve 2–3 options         same (recommended on teams too)
+Branch profiles     personal + optional team    personal + team export
+Attribution hooks   lighter (solo) / full (budget)   full (team) / off (enterprise)
+Downgrade cleanup   removes other agent folders  N/A (full sync expected)
+```
+
+**Commands worth bookmarking:**
+
+| Goal | Command |
+|---|---|
+| Confirm or change tier | **Choose Project Profile Tier** |
+| See why a tier was picked | **Show Project Tier** |
+| Pick skill set before apply | **Choose Task Skill Set** |
+| Force mirror refresh (team tier) | **Sync Workspace Skills to All Agents** |
+| Cut spend today | **Cycle Budget Mode** → Economy |
+| See ROI / waste | **Show Cost Intelligence Dashboard** |
+
+Full tier table and feature flags: [Project profile tiers](#project-profile-tiers-auto-configure-cpu--tokens) below.
+
 ## Do you need Claude Code?
 
 **No.** Install this extension in VS Code or Cursor and open a workspace folder.
