@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.53** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.54** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -24,6 +24,21 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.54] - 2026-06-14
+
+**Summary:** Fix Kiro `.kiro.hook` schema — use `promptSubmit` and `sessionStart` for `when.type` (Kiro rejects `userPromptSubmit` / `agentSpawn`).
+
+**Theme:** Four-agent hook parity (Kiro schema compliance)
+
+### Behavior changes
+
+- Kiro budget and task-drift hooks now register `when.type: promptSubmit` instead of `userPromptSubmit`
+- Kiro profile-init hook now registers `when.type: sessionStart` instead of `agentSpawn`
+- Re-run **Enable Cost Control Hooks** or **Install Profile Init Session Hook** (or reload the workspace) to rewrite existing `.kiro/hooks/*.kiro.hook` files
+- `profile-init-watch.js` still accepts legacy `agentSpawn` stdin events for backward compatibility
 
 ---
 

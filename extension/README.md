@@ -36,8 +36,8 @@ for skills and learning data, not a requirement that Claude Code is installed.
 | Branch profiles, skill overrides | Yes | Yes |
 | Attribution v2 hooks | Per enabled agent (e.g. Cursor → `.cursor/hooks.json`) | + Claude hooks |
 | Cost dashboard / ROI | Yes; Cursor transcript spend when Cursor is used | + Claude transcript spend |
-| Budget / session / focus hooks | Yes — Cursor `beforeSubmitPrompt`, Kiro/Copilot `UserPromptSubmit`, plus Claude Code | Yes |
-| Profile-init SessionStart hook | Cursor `sessionStart` + Kiro `agentSpawn` + Copilot `SessionStart` | + Claude SessionStart |
+| Budget / session / focus hooks | Yes — Cursor `beforeSubmitPrompt`, Kiro `promptSubmit`, Copilot `UserPromptSubmit`, plus Claude Code | Yes |
+| Profile-init SessionStart hook | Cursor `sessionStart` + Kiro `sessionStart` + Copilot `SessionStart` | + Claude SessionStart |
 | Session skill adaptation hook | Same on all enabled host agents | Same |
 
 Missing Claude data shows empty sections or informational messages — the extension does not error on startup.
@@ -191,7 +191,7 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
    to see which installed skills were **hook-invoked** or logged by
    self-learning (active / unused / removal candidates), plus workspace
    transcript spend for the last 14 days in **Credits · 14d**.
-7. Optionally run **"Enable Cost Control Hooks"** to install session-size, daily-budget, **context focus**, **practical/deployment focus**, and **task-drift** hooks for all enabled agents (Claude `UserPromptSubmit`; Cursor `beforeSubmitPrompt`; Kiro `userPromptSubmit`; Copilot `UserPromptSubmit`).
+7. Optionally run **"Enable Cost Control Hooks"** to install session-size, daily-budget, **context focus**, **practical/deployment focus**, and **task-drift** hooks for all enabled agents (Claude `UserPromptSubmit`; Cursor `beforeSubmitPrompt`; Kiro `promptSubmit`; Copilot `UserPromptSubmit`).
 8. Set budget caps under **Settings → Extensions → Claude Skills Manager → Budget**, or click the **Economy / Normal / Unlimited** status bar item to cycle modes.
 9. Click **Context focus** (`$(target)`) and **Practical focus** (`$(rocket)`) in the status bar when deploying or in long sessions — reduces hallucination and hand-wavy infra advice.
 10. **New branch?** When prompted, set your position — **start a new AI agent session**; `profile-init` runs automatically (SessionStart hook + synced skill).

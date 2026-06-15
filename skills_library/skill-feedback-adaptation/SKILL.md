@@ -22,7 +22,7 @@ starts.
 **Run immediately — before any other task work — when any of these is true:**
 
 - Session hook injects `[Claude Skills] NEW SESSION` (Claude Code SessionStart,
-  Cursor `sessionStart`, Kiro `agentSpawn`, Copilot SessionStart via
+  Cursor `sessionStart`, Kiro `sessionStart`, Copilot SessionStart via
   `profile-init-watch.js`).
 - User opens a **new chat** or describes a **new task** (feature, bug, review,
   assessment) in their first message.
@@ -175,7 +175,7 @@ may **overwrite** `task-skill-proposals.json` without waiting for a new chat:
 
 On drift the extension re-applies task focus, may auto-apply proposals, and injects a
 **one-time** message via `task-drift-watch` (Claude `UserPromptSubmit`, Cursor
-`beforeSubmitPrompt`, Kiro `userPromptSubmit`, Copilot `UserPromptSubmit`) or on the
+`beforeSubmitPrompt`, Kiro `promptSubmit`, Copilot `UserPromptSubmit`) or on the
 next session start via `profile-init-watch` when a prompt was queued while the IDE was idle.
 
 **Agent behavior after drift inject:**

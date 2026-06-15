@@ -428,7 +428,7 @@ export function ensureProfileInitSessionReady(
   }
   const hookStatus = installProfileInitSessionHook(extensionPath, target, libraryDir);
   if (hookStatus === "installed" || hookStatus === "updated") {
-    log(`Profile init session hook ${hookStatus} (Claude SessionStart + Cursor sessionStart + Kiro agentSpawn + Copilot SessionStart when enabled).`);
+    log(`Profile init session hook ${hookStatus} (Claude SessionStart + Cursor sessionStart + Kiro sessionStart + Copilot SessionStart when enabled).`);
   }
   seedProfileInitSkillProposals(target);
   installProfileInitSkill(libraryDir, target);
@@ -824,7 +824,7 @@ export async function startProfileInitFlow(
   log(`Catalog: ${skillsCatalogPath(target)} (${request.skillCount} skills)`);
   log(`Relevant to workspace: ${request.relevantSkillNames.join(", ") || "(none detected)"}`);
   log(`Required platform skills: ${request.requiredSkillNames.join(", ")}`);
-  log(`SessionStart / sessionStart / agentSpawn hooks will inject profile-init on the next AI agent session.`);
+  log(`SessionStart / sessionStart hooks will inject profile-init on the next AI agent session.`);
   log(`Skill proposals seeded to .claude/learning/task-skill-proposals.json (agent refines on session start).`);
 
   void vscode.window.showInformationMessage(

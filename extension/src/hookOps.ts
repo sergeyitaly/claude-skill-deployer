@@ -19,6 +19,10 @@ const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
 const KIRO_PROFILE_INIT_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}-profile-init.kiro.hook`;
 const KIRO_TASK_DRIFT_HOOK_FILE = "claude-skills-task-drift.kiro.hook";
 const KIRO_BUDGET_HOOK_FILE = "claude-skills-budget.kiro.hook";
+/** Kiro `.kiro.hook` schema: when.type must be promptSubmit (not userPromptSubmit). */
+const KIRO_WHEN_PROMPT_SUBMIT = "promptSubmit";
+/** Kiro session-start hooks use sessionStart (not agentSpawn). */
+const KIRO_WHEN_SESSION_START = "sessionStart";
 const TASK_DRIFT_HOOK_MARKER = "claude-skills-task-drift";
 const BUDGET_HOOK_MARKER = "claude-skills-budget";
 const PROFILE_INIT_HOOK_MARKER = `${ATTRIBUTION_HOOK_MARKER}-profile-init`;
@@ -236,7 +240,7 @@ function kiroTaskDriftHookPayload(): KiroHookFile {
     description: `Managed by Claude Skills Manager (${TASK_DRIFT_HOOK_MARKER})`,
     version: "1",
     enabled: true,
-    when: { type: "userPromptSubmit" },
+    when: { type: KIRO_WHEN_PROMPT_SUBMIT },
     then: {
       type: "runCommand",
       command: KIRO_TASK_DRIFT_HOOK_COMMAND,
@@ -346,7 +350,7 @@ function kiroBudgetHookPayload(): KiroHookFile {
     description: `Managed by Claude Skills Manager (${BUDGET_HOOK_MARKER})`,
     version: "1",
     enabled: true,
-    when: { type: "userPromptSubmit" },
+    when: { type: KIRO_WHEN_PROMPT_SUBMIT },
     then: {
       type: "runCommand",
       command: KIRO_BUDGET_HOOK_COMMAND,
@@ -527,7 +531,7 @@ function kiroProfileInitHookPayload(): KiroHookFile {
     description: `Managed by Claude Skills Manager (${PROFILE_INIT_HOOK_MARKER})`,
     version: "1",
     enabled: true,
-    when: { type: "agentSpawn" },
+    when: { type: KIRO_WHEN_SESSION_START },
     then: {
       type: "runCommand",
       command: KIRO_PROFILE_INIT_HOOK_COMMAND,

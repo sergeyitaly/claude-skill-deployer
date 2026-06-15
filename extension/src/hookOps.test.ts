@@ -102,6 +102,14 @@ describe("installCostControlHooks", () => {
     expect(fs.existsSync(path.join(target, ".kiro", "hooks", "claude-skills-task-drift.kiro.hook"))).toBe(
       true
     );
+    const kiroTaskDrift = JSON.parse(
+      fs.readFileSync(path.join(target, ".kiro", "hooks", "claude-skills-task-drift.kiro.hook"), "utf-8")
+    ) as { when?: { type?: string } };
+    expect(kiroTaskDrift.when?.type).toBe("promptSubmit");
+    const kiroBudget = JSON.parse(
+      fs.readFileSync(path.join(target, ".kiro", "hooks", "claude-skills-budget.kiro.hook"), "utf-8")
+    ) as { when?: { type?: string } };
+    expect(kiroBudget.when?.type).toBe("promptSubmit");
     expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-task-drift.json"))).toBe(true);
   });
 });
@@ -141,7 +149,7 @@ describe("installProfileInitSessionHook", () => {
         "utf-8"
       )
     ) as { when?: { type?: string }; then?: { command?: string } };
-    expect(kiroHook.when?.type).toBe("agentSpawn");
+    expect(kiroHook.when?.type).toBe("sessionStart");
     expect(kiroHook.then?.command).toContain("profile-init-watch.js kiro");
     expect(fs.existsSync(path.join(target, ".claude", "hooks", "profile-init-watch.js"))).toBe(true);
 

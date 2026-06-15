@@ -444,7 +444,7 @@ Profile init is **agent-agnostic** for apply/catalog. **`profile-init`** syncs t
 |---|---|
 | Claude | `.claude/skills/profile-init/SKILL.md` + SessionStart hook |
 | Cursor | `.cursor/skills/profile-init/SKILL.md` |
-| Kiro | `.kiro/skills/profile-init/SKILL.md` + `agentSpawn` hook (`.kiro/hooks/*.kiro.hook`) |
+| Kiro | `.kiro/skills/profile-init/SKILL.md` + `sessionStart` hook (`.kiro/hooks/*.kiro.hook`) |
 | Copilot | `.github/instructions/profile-init.instructions.md` + `SessionStart` hook (`.github/hooks/*.json`) |
 
 ## Library layout

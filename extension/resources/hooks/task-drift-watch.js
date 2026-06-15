@@ -3,7 +3,7 @@
 // task scope drift (off-profile skill use or large session transcript).
 // Claude Code: UserPromptSubmit (systemMessage)
 // Cursor: beforeSubmitPrompt (additional_context)
-// Kiro: userPromptSubmit (additional_context)
+// Kiro: promptSubmit (additional_context)
 // Copilot: UserPromptSubmit / userPromptSubmitted (hookSpecificOutput)
 
 const fs = require("fs");

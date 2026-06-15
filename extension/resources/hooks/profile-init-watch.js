@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Profile-init + session skill apply hook for Claude Code (SessionStart), Cursor (sessionStart),
-// Kiro IDE (agentSpawn), and GitHub Copilot in VS Code (SessionStart / sessionStart).
+// Kiro IDE (sessionStart), and GitHub Copilot in VS Code (SessionStart / sessionStart).
 // 1. When profile-init is pending, inject context so the agent runs profile-init.
 // 2. On every new session, queue proposed/profile skills for local enablement via the extension.
 
@@ -287,7 +287,13 @@ function resolvePlatform(input, argvPlatform) {
   if (argvPlatform === "cursor" || argvPlatform === "claude" || argvPlatform === "kiro" || argvPlatform === "copilot") {
     return argvPlatform;
   }
-  if (input && (input.hook_event_name === "agentSpawn" || input.event === "agentSpawn")) {
+  if (
+    input &&
+    (input.hook_event_name === "sessionStart" ||
+      input.event === "sessionStart" ||
+      input.hook_event_name === "agentSpawn" ||
+      input.event === "agentSpawn")
+  ) {
     return "kiro";
   }
   if (

@@ -285,7 +285,7 @@ describe("profile-init-watch.js", () => {
     expect(applyRequest.skills).toContain("self-learning");
   });
 
-  it("emits Kiro agentSpawn additional_context when profile-init request is pending", () => {
+  it("emits Kiro sessionStart additional_context when profile-init request is pending", () => {
     const cwd = makeWorkspace();
     fs.mkdirSync(path.join(cwd, ".claude", "learning"), { recursive: true });
     fs.writeFileSync(
@@ -305,7 +305,7 @@ describe("profile-init-watch.js", () => {
     );
 
     const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "kiro"], {
-      input: JSON.stringify({ hook_event_name: "agentSpawn", session_id: "kiro-sess-1" }),
+      input: JSON.stringify({ hook_event_name: "sessionStart", session_id: "kiro-sess-1" }),
       encoding: "utf-8",
       cwd,
     });
@@ -412,7 +412,7 @@ describe("profile-init-watch.js", () => {
     expect(parsed.additional_context).toContain("task-skill-proposals.json");
   });
 
-  it("emits NEW SESSION context on Kiro agentSpawn when profile is applied", () => {
+  it("emits NEW SESSION context on Kiro sessionStart when profile is applied", () => {
     const cwd = makeWorkspace();
     fs.mkdirSync(path.join(cwd, ".claude"), { recursive: true });
     fs.writeFileSync(
@@ -422,7 +422,7 @@ describe("profile-init-watch.js", () => {
     );
 
     const result = spawnSync(process.execPath, [PROFILE_INIT_HOOK, "kiro"], {
-      input: JSON.stringify({ hook_event_name: "agentSpawn", session_id: "kiro-new-session" }),
+      input: JSON.stringify({ hook_event_name: "sessionStart", session_id: "kiro-new-session" }),
       encoding: "utf-8",
       cwd,
     });

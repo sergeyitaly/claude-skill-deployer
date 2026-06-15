@@ -813,7 +813,7 @@ def _install_kiro_profile_init_hook(target: Path, hooks_source: Path) -> list[st
         "name": "claude-skills profile-init",
         "description": "claude-skills-skill-invoke-profile-init",
         "enabled": True,
-        "when": {"type": "agentSpawn"},
+        "when": {"type": "sessionStart"},
         "then": {"type": "runCommand", "command": "node .claude/hooks/profile-init-watch.js kiro"},
     }
     write_json_atomic(hook_file, payload)
@@ -866,7 +866,7 @@ def _install_kiro_task_drift_hook(target: Path, hooks_source: Path) -> list[str]
         "name": "claude-skills task-drift",
         "description": "claude-skills-task-drift",
         "enabled": True,
-        "when": {"type": "userPromptSubmit"},
+        "when": {"type": "promptSubmit"},
         "then": {"type": "runCommand", "command": "node .claude/hooks/task-drift-watch.js kiro", "timeout": 8},
     }
     write_json_atomic(hook_file, payload)
