@@ -362,8 +362,8 @@ async function propagateWorkspaceSkillChangeInternalAsync(
         log(`SKILL lint: catch-up sync for ${gap.agent} — missing ${gap.missing.length} mirror(s).`);
       }
     }
-  } else if (catchUpMirrors && !shouldSyncWorkspaceToAll()) {
-    log("Multi-agent mirror catch-up skipped — enable claudeSkills.features.multiAgent and claudeSkills.agents.syncWorkspaceToAll.");
+  } else if (catchUpMirrors && !shouldSyncWorkspaceToAll(libraryDir)) {
+    log("Agent mirror catch-up skipped — enable claudeSkills.agents.syncWorkspaceToAll (host IDE only on solo-dev tier).");
   }
 
   lintAgentMirrorsOnSync(target, libraryDir, log);
@@ -402,8 +402,8 @@ function propagateWorkspaceSkillChangeInternal(
           log(`SKILL lint: catch-up sync for ${gap.agent} — missing ${gap.missing.length} mirror(s).`);
         }
       }
-    } else if (catchUpMirrors && !shouldSyncWorkspaceToAll()) {
-      log("Multi-agent mirror catch-up skipped — enable claudeSkills.features.multiAgent and claudeSkills.agents.syncWorkspaceToAll.");
+    } else if (catchUpMirrors && !shouldSyncWorkspaceToAll(libraryDir)) {
+      log("Agent mirror catch-up skipped — enable claudeSkills.agents.syncWorkspaceToAll (host IDE only on solo-dev tier).");
     }
 
     lintAgentMirrorsOnSync(target, libraryDir, log);

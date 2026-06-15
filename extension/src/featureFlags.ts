@@ -51,7 +51,7 @@ export const DEFAULTS: Record<FeatureKey, boolean> = {
 export const FEATURE_DESCRIPTIONS: Record<FeatureKey, string> = {
   budgetControls: "Daily budget, economy mode, and cost control hooks.",
   branchProfiles: "Per-git-branch skill profiles.",
-  multiAgent: "Deploy skills to Cursor, Kiro, and Copilot.",
+  multiAgent: "Deploy skills to all enabled agents (solo-dev: host IDE only).",
   attributionCollector: "Background transcript attribution collector.",
   costIntelligence: "Cost dashboard, optimization suggestions, and reports.",
   autoOptimizer: "Enable the auto-optimizer timer (off by default; turn on only after attribution looks reliable).",

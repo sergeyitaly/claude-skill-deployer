@@ -52,6 +52,7 @@ import {
   ensureAttributionHooksActive,
   propagateWorkspaceSkillChange,
 } from "./workspaceSkillSync";
+import { applyHostOnlyTierMirrorCleanup } from "./agentMirrorSync";
 import { ensureWorkspaceCachesWarm, warmupWorkspaceCaches } from "./cacheWarmup";
 import { registerSyncStatusBar } from "./syncFeedback";
 import { markPreToggleFingerprint } from "./syncPredict";
@@ -791,6 +792,10 @@ export function activate(context: vscode.ExtensionContext) {
   let lastProjectProfileLogged: string | undefined;
   let lastProjectProfileNotified: string | undefined;
 
+  function cleanupExcessAgentMirrorsForTier(target: string): void {
+    applyHostOnlyTierMirrorCleanup(target, libraryDir, log);
+  }
+
   const refreshAllImpl = (opts: { workspaceState: boolean; forceTree: boolean }) => {
     const target = getWorkspaceTarget();
     setPricingContext(target);
@@ -839,11 +844,13 @@ export function activate(context: vscode.ExtensionContext) {
             if (tierChangedByUser || explicitPlan) {
               lastProjectProfileLogged = `${target}|${finalProfile.profileType}`;
               log(`Project profile: user chose ${PROFILE_TYPE_LABELS[finalProfile.profileType]}`);
+              cleanupExcessAgentMirrorsForTier(target);
               notifyTierChange(finalProfile);
             }
             refreshAllImpl({ workspaceState: false, forceTree: false });
           });
         } else if (projectProfileChanged && projectProfileTierChanged) {
+          cleanupExcessAgentMirrorsForTier(target!);
           notifyTierChange(projectProfile);
         }
       }
@@ -2152,9 +2159,9 @@ export function activate(context: vscode.ExtensionContext) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
-      if (!shouldSyncWorkspaceToAll()) {
+      if (!shouldSyncWorkspaceToAll(libraryDir)) {
         vscode.window.showWarningMessage(
-          "Claude Skills: enable claudeSkills.features.multiAgent and claudeSkills.agents.syncWorkspaceToAll."
+          "Claude Skills: enable claudeSkills.agents.syncWorkspaceToAll (solo-dev mirrors to the running IDE only)."
         );
         return;
       }
@@ -2534,6 +2541,7 @@ export function activate(context: vscode.ExtensionContext) {
         lockedProfile.enabledFeatures,
         projectProfileApplyTierEnabled(target)
       );
+      cleanupExcessAgentMirrorsForTier(target);
       refreshProjectTierStatusBar(target);
       refreshAll({ workspaceState: false, forceTree: true });
       if (lockedProfile) {

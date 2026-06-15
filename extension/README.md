@@ -42,7 +42,7 @@ for skills and learning data, not a requirement that Claude Code is installed.
 
 Missing Claude data shows empty sections or informational messages — the extension does not error on startup.
 
-**Cursor-only / host-first:** Settings → `claudeSkills.agents.enabled` → e.g. `["cursor"]` to skip Claude path installs. The extension detects the **running IDE** (`detectHostAgentId`) and creates `.claude/` as the canonical store even if you never open Claude Code — skills and learning import from `.cursor/skills/` (or Copilot/Kiro mirrors) on first activate. Workspace skills sync to other agent paths only when `claudeSkills.features.multiAgent` is on.
+**Cursor-only / host-first:** Settings → `claudeSkills.agents.enabled` → e.g. `["cursor"]` to skip Claude path installs. The extension detects the **running IDE** (`detectHostAgentId`) and creates `.claude/` as the canonical store even if you never open Claude Code — skills and learning import from `.cursor/skills/` (or Copilot/Kiro mirrors) on first activate. With `multiAgent` off (solo-dev tier), workspace sync mirrors **only to that host IDE**; enable `multiAgent` for full Cursor + Kiro + Copilot fan-out.
 
 ## Claude CLI (terminal) without VS Code
 
@@ -90,15 +90,14 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
 - **Multi-agent clones (auto-sync by default)** — one `skills_library/` fans
   out to Claude, Cursor, Kiro (`SKILL.md`), and Copilot
   (`.github/instructions/*.instructions.md`). When
-  `claudeSkills.features.multiAgent` is on and
   `claudeSkills.agents.syncWorkspaceToAll` is `true` (default), your
   **effective** skill set (enabled for you, respecting `skillOverrides`)
-  is mirrored to **all enabled agent paths**:
-  `.cursor/skills/`, `.kiro/skills/`, `.github/instructions/` (Copilot).
-  Sync runs on checkbox/eye toggle, branch profile apply, extension startup,
-  and `.claude/skills` / `settings.local.json` changes. Manual:
-  **Sync Workspace Skills to All Agents**. `.claude/skills/` stays the
-  git-tracked file source of truth.
+  is mirrored to agent paths: **all enabled agents** when
+  `claudeSkills.features.multiAgent` is on, or **only the running IDE**
+  (Cursor/Kiro/Copilot) on solo-dev tier. Sync runs on checkbox/eye toggle,
+  branch profile apply, extension startup, and `.claude/skills` /
+  `settings.local.json` changes. Manual: **Sync Workspace Skills to All Agents**.
+  `.claude/skills/` stays the git-tracked file source of truth.
 - **Cost-aware skills tree** (`claudeSkills.features.costAwareSearch`, default on) — description shows **`$X/session (API)`** from measured hook cost, **`(logged)`** from token totals, or **`~$X/session (catalog)`** from manifest tier before any invoke. Status bar uses **`API` / `Mixed` / `Est.`** for today's session spend.
 - **Per-branch skill profiles** — each git branch can have its own skill
   layout stored in `~/.claude/learning/branch-profiles.json` (global,
@@ -243,7 +242,7 @@ Settings: `claudeSkills.projectProfile.autoDetect` (default on), `applyTierFeatu
 
 Commands: **Show Project Tier**, **Detect Project Profile**, **Choose Project Profile Tier** (plan confirmation).
 
-\* `solo-dev` disables tier-driven multi-agent sync — skills are not mirrored to Cursor/Kiro/Copilot until you enable multi-agent (tier or `claudeSkills.features.multiAgent`). Per-IDE skill sets still work when the extension runs inside Cursor/Kiro/VS Code.
+\* `solo-dev` keeps `multiAgent` off — workspace skills mirror **only to the running IDE** (Cursor/Kiro/Copilot), not all enabled agents. Choosing **solo developer** or **tight budget** in the tier picker also **removes** auto-created mirror folders for other agents (`.kiro/skills/`, `.github/instructions/`, etc.). Turn on `claudeSkills.features.multiAgent` (or pick a team tier) for full multi-agent fan-out.
 
 ## Cost discipline (task focus & branch economy)
 
@@ -260,7 +259,7 @@ Keeps skill overhead low without manual curation:
 | `claudeSkills.skillFeedback.taskSkillUnderusePromote` | on | After a busy session with zero active-skill invokes, promote high-confidence ignored skills from `task-skill-proposals.json` back into task focus |
 | `claudeSkills.skillSetResolver.enabled` | tier default | Weekly install relevant / remove idle skills (`solo-dev` and `budget-sensitive` tiers enable the feature when unset) |
 
-**Flow:** extension refreshes `task-skill-proposals.json` with **2–3 option sets** → user picks one (**Choose Task Skill Set** command or startup quick pick) → applies `skillOverrides` for skills outside the cap → runs budget tier gating → mirrors learning artifacts → syncs effective skill set to all enabled agents (multi-agent mode only).
+**Flow:** extension refreshes `task-skill-proposals.json` with **2–3 option sets** → user picks one (**Choose Task Skill Set** command or startup quick pick) → applies `skillOverrides` for skills outside the cap → runs budget tier gating → mirrors learning artifacts → syncs effective skill set to agent mirror paths (all enabled agents, or host IDE only on solo-dev).
 
 **Headless parity:** `task-skill-focus.js` reads `taskFocus.maxActiveSkills` from `.claude/learning/cli-config.json` (synced by the extension).
 
@@ -511,7 +510,7 @@ Find all options under **Settings → Extensions → Claude Skills Manager** (or
 | `claudeSkills.lifecycle.alertOnOutdated` | `true` | Detect catalog version newer than installed copy |
 | `claudeSkills.lifecycle.autoSuggestUpgrades` | `true` | Periodic popup to upgrade outdated skills |
 | `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro`, `copilot` | Agents that receive skill clones |
-| `claudeSkills.agents.syncWorkspaceToAll` | `true` | Fan out workspace install to all enabled agent paths (requires `multiAgent` feature) |
+| `claudeSkills.agents.syncWorkspaceToAll` | `true` | Mirror workspace installs to agent paths (all enabled when `multiAgent` on; host IDE only on solo-dev) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Fan out global library install to all enabled agent paths |
 | `claudeSkills.agents.autoInstallAttributionHooks` | `true` | Auto-install Attribution v2 hooks on extension activate / workspace setup |
 | `claudeSkills.agents.syncHooksOnSkillChange` | `true` | Refresh cost-control scripts on all agent paths when any Claude cost hook is active; attribution-only workspaces refresh attribution scripts only |

@@ -20,7 +20,7 @@ continuously optimizes your setup based on real usage.
 
 **No.** The VS Code extension works in **VS Code or Cursor** without the [Claude Code](https://docs.claude.com/claude-code) app or CLI installed.
 
-Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout convention** — the extension **creates them** on install. They are not proof that Claude Code is on your machine. With `multiAgent` on (default), skills also deploy to `.cursor/skills/`, `.kiro/skills/`, and `.github/instructions/` for the agents you enable.
+Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout convention** — the extension **creates them** on install. They are not proof that Claude Code is on your machine. With `multiAgent` on (default), skills deploy to all enabled agent paths (`.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`). On **solo-dev** tier (`multiAgent` off), skills mirror only to the **running IDE** (Cursor, Kiro, or Copilot).
 
 | You primarily use… | Works without Claude Code? | What you get |
 |---|---|---|
@@ -394,7 +394,7 @@ See `skills_library/agents.json`.
 | Setting | Default | Effect |
 |---|---|---|
 | `claudeSkills.agents.enabled` | `claude`, `cursor`, `kiro`, `copilot` | Which agents receive clones |
-| `claudeSkills.agents.syncWorkspaceToAll` | `true` | Workspace installs fan out to all enabled paths (requires `multiAgent` feature) |
+| `claudeSkills.agents.syncWorkspaceToAll` | `true` | Mirror workspace installs to agent paths (all enabled when `multiAgent` on; host IDE only on solo-dev) |
 | `claudeSkills.agents.syncGlobalToAll` | `true` | Global library install fans out to all enabled agents |
 | `claudeSkills.agents.syncHooksOnSkillChange` | `true` | After any workspace skill change, refresh cost-control hook scripts (all agent paths) when any cost hook is already enabled on Claude; attribution-only workspaces refresh attribution scripts only |
 

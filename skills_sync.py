@@ -325,7 +325,7 @@ def apply_branch_profile(
             set_skill_override(target, skill, value)
             result["overrides_applied"] += 1
 
-    should_sync = sync_agents if sync_agents is not None else feature_enabled(target, "multiAgent")
+    should_sync = sync_agents if sync_agents is not None else workspace_mirror_allowed(library_dir, target)
     if should_sync:
         sync_workspace_agents(library_dir, target)
 
@@ -575,12 +575,81 @@ def build_copilot_instructions(skill: str, skill_md: Path, detect_globs: list[st
     return "\n".join(lines)
 
 
-def sync_workspace_agents(library_dir: Path, target: Path, agent_ids: list[str] | None = None) -> list[dict]:
-    if not feature_enabled(target, "multiAgent"):
+def resolve_host_agent(target: Path) -> str | None:
+    cfg = load_cli_config(target)
+    agents_cfg = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+    host = agents_cfg.get("hostAgent")
+    if isinstance(host, str) and host.strip():
+        return host.strip()
+    env = os.environ.get("CLAUDE_SKILLS_HOST_AGENT", "").strip()
+    return env or None
+
+
+def workspace_mirror_agent_ids(
+    library_dir: Path,
+    target: Path,
+    agent_ids: list[str] | None = None,
+) -> list[str]:
+    if agent_ids:
+        return [a for a in agent_ids if a != "claude"]
+    enabled = enabled_agents(library_dir, target)
+    if feature_enabled(target, "multiAgent"):
+        return [a for a in enabled if a != "claude"]
+    host = resolve_host_agent(target)
+    if not host or host == "claude" or host not in enabled:
         return []
-    manifest = json.loads((library_dir / "manifest.json").read_text(encoding="utf-8"))
+    return [host]
+
+
+def workspace_mirror_allowed(library_dir: Path, target: Path) -> bool:
+    cfg = load_cli_config(target)
+    agents_cfg = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+    if agents_cfg.get("syncWorkspaceToAll") is False:
+        return False
+    return len(workspace_mirror_agent_ids(library_dir, target)) > 0
+
+
+def prune_excess_agent_mirrors(library_dir: Path, target: Path) -> list[dict]:
+    if feature_enabled(target, "multiAgent"):
+        return []
+    keep = set(workspace_mirror_agent_ids(library_dir, target))
     agents_manifest = load_agents_manifest(library_dir)
-    ids = agent_ids or [a for a in enabled_agents(library_dir, target) if a != "claude"]
+    pruned: list[dict] = []
+
+    for agent_id, agent in agents_manifest["agents"].items():
+        if agent_id == "claude" or agent_id in keep:
+            continue
+        if agent.get("supportsWorkspace"):
+            ws_dir = target / agent["workspaceDir"]
+            if ws_dir.is_dir():
+                shutil.rmtree(ws_dir, ignore_errors=True)
+                pruned.append({"agent": agent_id, "path": str(ws_dir), "kind": "skills"})
+        learning_rel = agent.get("learningDir")
+        if learning_rel:
+            learn_dir = target / learning_rel
+            if learn_dir.is_dir():
+                shutil.rmtree(learn_dir, ignore_errors=True)
+                pruned.append({"agent": agent_id, "path": str(learn_dir), "kind": "learning"})
+
+    if "copilot" not in keep:
+        bootstrap = target / ".github" / "copilot-instructions.md"
+        if bootstrap.is_file():
+            bootstrap.unlink(missing_ok=True)
+            pruned.append({"agent": "copilot", "path": str(bootstrap), "kind": "copilot-bootstrap"})
+    return pruned
+
+
+def sync_workspace_agents(library_dir: Path, target: Path, agent_ids: list[str] | None = None) -> list[dict]:
+    prune_excess_agent_mirrors(library_dir, target)
+    if agent_ids:
+        ids = workspace_mirror_agent_ids(library_dir, target, agent_ids)
+    elif not workspace_mirror_allowed(library_dir, target):
+        return []
+    else:
+        ids = workspace_mirror_agent_ids(library_dir, target)
+    if not ids:
+        return []
+    agents_manifest = load_agents_manifest(library_dir)
     effective = set(list_effective_enabled_skills(target))
     claude_dir = target / ".claude" / "skills"
     results: list[dict] = []

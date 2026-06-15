@@ -152,6 +152,15 @@ describe("projectProfile tiers", () => {
     });
     expect(tierFeaturePreset("budget-sensitive", collaborative).multiAgent).toBe(true);
   });
+
+  it("budget-focused plan disables multi-agent even on collaborative repos", () => {
+    const collaborative = baseSignals({
+      budgetPattern: "configured",
+      branchCount: 4,
+      authorCount30d: 2,
+    });
+    expect(tierFeaturePreset("budget-sensitive", collaborative, "budget-focused").multiAgent).toBe(false);
+  });
 });
 
 describe("resolveProjectProfileType", () => {

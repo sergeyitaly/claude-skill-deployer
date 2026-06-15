@@ -299,7 +299,7 @@ def cmd_sync_agents(args) -> int:
         agent_ids = [a.strip() for a in args.agents.split(",") if a.strip()]
     results = sync_workspace_agents(LIBRARY_DIR, target, agent_ids)
     if not results:
-        print("sync-agents: nothing to sync (multiAgent off or no enabled agents)")
+        print("sync-agents: nothing to sync (mirror disabled, host unknown, or no enabled agents)")
         return 0
     for row in results:
         print(f"{row.get('agent')}/{row.get('skill')}: {row.get('status')}")

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId, enabledAgents } from "./agentOps";
+import { detectHostAgentId } from "./agentSkillProfiles";
 import { DEFAULTS, FeatureKey, isFeatureEnabled } from "./featureFlags";
 import { effectiveFeatureMap } from "./projectProfile";
 import { readTaskFocusLimits } from "./taskFocusConfig";
@@ -14,6 +15,7 @@ export interface CliConfigFile {
   features: Record<string, boolean>;
   agents: {
     enabled: AgentId[];
+    hostAgent?: AgentId;
   };
   taskFocus?: {
     enabled: boolean;
@@ -67,6 +69,7 @@ export function buildCliConfig(libraryDir: string, target?: string): CliConfigFi
     features,
     agents: {
       enabled: enabledAgents(libraryDir),
+      hostAgent: detectHostAgentId(),
     },
     taskFocus: {
       enabled: taskFocus.enabled,

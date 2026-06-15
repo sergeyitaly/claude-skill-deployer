@@ -3,18 +3,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   AgentInstallResult,
-  enabledAgents,
+  isFullMultiAgentMirrorMode,
   mirrorLearningArtifacts,
+  pruneExcessAgentMirrors,
+  PrunedAgentMirror,
   syncCopilotBootstrap,
   syncWorkspaceSkillsToAllAgents,
+  workspaceMirrorAgentIds,
+  workspaceMirrorAllowed,
 } from "./agentOps";
-import { isFeatureEnabled } from "./featureFlags";
 
-/** Whether cost-discipline changes should fan out to Cursor/Kiro/Copilot mirrors. */
+/** Whether cost-discipline changes should fan out to agent mirrors (host-only on solo-dev). */
 export function shouldPropagateCostDisciplineToAgents(libraryDir: string): boolean {
-  if (!isFeatureEnabled("multiAgent")) {
-    return false;
-  }
   const cfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
   if (!cfg.get<boolean>("propagateToAllAgents", true)) {
     return false;
@@ -22,23 +22,10 @@ export function shouldPropagateCostDisciplineToAgents(libraryDir: string): boole
   if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
     return false;
   }
-  return enabledAgents(libraryDir).some((id) => id !== "claude");
+  return workspaceMirrorAgentIds(libraryDir).length > 0;
 }
 
-function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation: boolean): boolean {
-  if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
-    return false;
-  }
-  if (!isFeatureEnabled("multiAgent")) {
-    return false;
-  }
-  if (costDisciplinePropagation) {
-    return shouldPropagateCostDisciplineToAgents(libraryDir);
-  }
-  return true;
-}
-
-/** Mirror learning artifacts + effective skill set to all enabled non-Claude agents. */
+/** Mirror learning artifacts + effective skill set to enabled agent paths (host IDE only on solo-dev). */
 export function propagateCostDisciplineToAgents(
   libraryDir: string,
   target: string
@@ -55,6 +42,30 @@ export function propagateCostDisciplineToAgents(
     force: true,
     costDisciplinePropagation: true,
   });
-  const copilotBootstrap = syncCopilotBootstrap(target, libraryDir);
+  const copilotBootstrap = workspaceMirrorAgentIds(libraryDir).includes("copilot")
+    ? syncCopilotBootstrap(target, libraryDir)
+    : undefined;
   return { mirrored, agentResults, copilotBootstrap };
+}
+
+/** Drop non-host agent mirrors after switching to solo-dev / budget-focused tier, then re-sync host. */
+export function applyHostOnlyTierMirrorCleanup(
+  target: string,
+  libraryDir: string,
+  log?: (line: string) => void
+): { pruned: PrunedAgentMirror[]; agentResults: AgentInstallResult[] } {
+  if (isFullMultiAgentMirrorMode()) {
+    return { pruned: [], agentResults: [] };
+  }
+  const pruned = pruneExcessAgentMirrors(target, libraryDir);
+  if (pruned.length > 0) {
+    log?.(`Removed ${pruned.length} excess agent mirror path(s) for host-only tier.`);
+    for (const row of pruned) {
+      const rel = row.path.replace(/\\/g, "/");
+      log?.(`  - ${row.agent}: ${rel}`);
+    }
+  }
+  const agentResults =
+    workspaceMirrorAllowed(libraryDir, false) ? syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true }) : [];
+  return { pruned, agentResults };
 }

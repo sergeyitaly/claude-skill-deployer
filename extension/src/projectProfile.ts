@@ -627,9 +627,13 @@ function costTrackingForTier(type: ProjectProfileType): CostTrackingLevel {
 /** Tier presets — only keys that differ from DEFAULTS unless tier is exhaustive. */
 export function tierFeaturePreset(
   type: ProjectProfileType,
-  signals: ProjectProfileSignals
+  signals: ProjectProfileSignals,
+  userPlan?: UserProjectPlan
 ): Partial<Record<FeatureKey, boolean>> {
-  const multiAgent = wantsMultiAgentSync(signals) || type === "team-multi-agent" || type === "enterprise";
+  const multiAgent =
+    userPlan === "budget-focused"
+      ? false
+      : wantsMultiAgentSync(signals) || type === "team-multi-agent" || type === "enterprise";
   switch (type) {
     case "throwaway":
       return {
@@ -850,7 +854,7 @@ export function buildProjectProfile(
             : `Manual tier: ${PROFILE_TYPE_LABELS[overrideType]}. ${formatRepoEvidence(signals)}`,
       }
     : autoResolved;
-  const enabledFeatures = tierFeaturePreset(resolved.profileType, signals);
+  const enabledFeatures = tierFeaturePreset(resolved.profileType, signals, userPlan);
   return {
     version: 1,
     profileType: resolved.profileType,

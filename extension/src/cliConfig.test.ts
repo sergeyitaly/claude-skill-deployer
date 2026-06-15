@@ -7,6 +7,7 @@ vi.mock("vscode", () => ({
   Uri: {
     file: (p: string) => ({ fsPath: p }),
   },
+  env: { appName: "Cursor" },
   workspace: {
     getWorkspaceFolder: () => undefined,
     getConfiguration: (section: string) => ({
@@ -58,6 +59,7 @@ describe("cliConfig", () => {
     expect(config.version).toBe(1);
     expect(config.features.sessionSkillAdaptation).toBe(false);
     expect(config.agents.enabled).toEqual(["claude", "cursor"]);
+    expect(config.agents.hostAgent).toBe("cursor");
     expect(config.taskFocus?.maxActiveSkills).toBe(12);
     expect(config.costDiscipline?.propagateToAllAgents).toBe(true);
 

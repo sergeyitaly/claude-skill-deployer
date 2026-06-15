@@ -26,6 +26,7 @@ import { computeCreditUsageFromRoots, mergeHookModelsIntoAgentRows, ModelUsage }
 import { readCachedCreditUsageFromRoots } from "./transcriptUsageIndex";
 import { fileContentHash, shouldCopyPath, stringContentHash } from "./fileHash";
 import { yieldToEventLoop } from "./eventLoop";
+import { detectHostAgentId } from "./agentSkillProfiles";
 
 export type AgentId = "claude" | "cursor" | "kiro" | "copilot";
 
@@ -87,7 +88,56 @@ export function enabledAgents(libraryDir: string): AgentId[] {
   return configured.filter((id) => id in manifest.agents);
 }
 
-/** True when multi-agent feature is on and workspace installs fan out to all enabled agents. */
+/** Full fan-out to all enabled agents (team-multi-agent tier). */
+export function isFullMultiAgentMirrorMode(): boolean {
+  return isFeatureEnabled("multiAgent");
+}
+
+/**
+ * Workspace mirror targets: all enabled non-Claude agents when multiAgent is on;
+ * on solo-dev tier, only the running IDE agent (Cursor/Kiro/Copilot).
+ */
+function configuredEnabledAgents(): AgentId[] {
+  return vscode.workspace.getConfiguration("claudeSkills.agents").get<AgentId[]>("enabled", [
+    "claude",
+    "cursor",
+    "kiro",
+    "copilot",
+  ]);
+}
+
+export function workspaceMirrorAgentIds(libraryDir: string, opts?: { agentIds?: AgentId[] }): AgentId[] {
+  if (opts?.agentIds?.length) {
+    return [...new Set(opts.agentIds.filter((id) => id !== "claude"))];
+  }
+  const enabled = libraryDir ? enabledAgents(libraryDir) : configuredEnabledAgents();
+  if (isFullMultiAgentMirrorMode()) {
+    return enabled.filter((id) => id !== "claude");
+  }
+  const host = detectHostAgentId();
+  if (host === "claude" || !enabled.includes(host)) {
+    return [];
+  }
+  return [host];
+}
+
+export function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation = false): boolean {
+  if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
+    return false;
+  }
+  if (workspaceMirrorAgentIds(libraryDir).length === 0) {
+    return false;
+  }
+  if (costDisciplinePropagation) {
+    const cfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
+    if (!cfg.get<boolean>("propagateToAllAgents", true)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** True when workspace installs should mirror to agent paths (all enabled agents, or host IDE only on solo-dev). */
 export function shouldSyncWorkspaceToAll(libraryDir?: string, costDisciplinePropagation = false): boolean {
   if (libraryDir && costDisciplinePropagation) {
     return workspaceMirrorAllowed(libraryDir, true);
@@ -364,10 +414,7 @@ export function missingAgentMirrorSkills(target: string, libraryDir: string): Ag
   const agentsManifest = loadAgentsManifest(libraryDir);
   const gaps: AgentMirrorGap[] = [];
 
-  for (const agentId of enabledAgents(libraryDir)) {
-    if (agentId === "claude") {
-      continue;
-    }
+  for (const agentId of workspaceMirrorAgentIds(libraryDir)) {
     const agent = agentsManifest.agents[agentId];
     if (!agent.supportsWorkspace) {
       continue;
@@ -399,16 +446,13 @@ export function agentMirrorsNeedSync(target: string, libraryDir: string): boolea
 
 /** Agent mirrors present for skills the user has disabled or removed from the effective set. */
 export function hasStaleAgentMirrorSkills(target: string, libraryDir: string): boolean {
-  if (!shouldSyncWorkspaceToAll()) {
+  if (!workspaceMirrorAllowed(libraryDir, false)) {
     return false;
   }
   const effective = new Set(listEffectiveEnabledSkills(target));
   const agentsManifest = loadAgentsManifest(libraryDir);
 
-  for (const agentId of enabledAgents(libraryDir)) {
-    if (agentId === "claude") {
-      continue;
-    }
+  for (const agentId of workspaceMirrorAgentIds(libraryDir)) {
     const agent = agentsManifest.agents[agentId];
     if (!agent.supportsWorkspace) {
       continue;
@@ -461,34 +505,71 @@ function workspaceSyncFingerprint(target: string): string {
   return buildWorkspaceSyncFingerprint(target);
 }
 
+export interface PrunedAgentMirror {
+  agent: AgentId;
+  path: string;
+  kind: "skills" | "learning" | "copilot-bootstrap";
+}
+
+/**
+ * Remove workspace mirrors for agents outside host-only mode (solo-dev / budget-focused).
+ * Keeps `.claude/skills` and the running IDE mirror when applicable.
+ */
+export function pruneExcessAgentMirrors(target: string, libraryDir: string): PrunedAgentMirror[] {
+  if (isFullMultiAgentMirrorMode()) {
+    return [];
+  }
+  if (!fs.existsSync(path.join(libraryDir, "agents.json"))) {
+    return [];
+  }
+
+  const keep = new Set(workspaceMirrorAgentIds(libraryDir));
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const pruned: PrunedAgentMirror[] = [];
+
+  for (const agentId of Object.keys(agentsManifest.agents) as AgentId[]) {
+    if (agentId === "claude" || keep.has(agentId)) {
+      continue;
+    }
+    const agent = agentsManifest.agents[agentId];
+    if (agent.supportsWorkspace) {
+      const wsDir = workspaceDirFor(target, agent);
+      if (fs.existsSync(wsDir)) {
+        fs.rmSync(wsDir, { recursive: true, force: true });
+        pruned.push({ agent: agentId, path: wsDir, kind: "skills" });
+      }
+    }
+    if (agent.learningDir) {
+      const learnDir = path.join(target, agent.learningDir);
+      if (fs.existsSync(learnDir)) {
+        fs.rmSync(learnDir, { recursive: true, force: true });
+        pruned.push({ agent: agentId, path: learnDir, kind: "learning" });
+      }
+    }
+  }
+
+  if (!keep.has("copilot")) {
+    const bootstrap = path.join(target, ".github", "copilot-instructions.md");
+    if (fs.existsSync(bootstrap)) {
+      fs.unlinkSync(bootstrap);
+      pruned.push({ agent: "copilot", path: bootstrap, kind: "copilot-bootstrap" });
+    }
+  }
+
+  if (pruned.length > 0) {
+    invalidateWorkspaceSyncFingerprint(target);
+  }
+  return pruned;
+}
+
 export interface WorkspaceAgentSyncOptions {
   force?: boolean;
   /** Sync only these skills (agent-diff). Omit for full workspace mirror. */
   skillNames?: string[];
   /** Limit sync to specific agents. Omit for all enabled non-Claude agents. */
   agentIds?: AgentId[];
-  /** Cost-discipline fan-out; still requires claudeSkills.features.multiAgent. */
+  /** Cost-discipline fan-out; solo-dev mirrors host IDE only, team tier mirrors all enabled agents. */
   costDisciplinePropagation?: boolean;
-}
-
-function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation = false): boolean {
-  if (!vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncWorkspaceToAll", true)) {
-    return false;
-  }
-  if (!isFeatureEnabled("multiAgent")) {
-    return false;
-  }
-  if (costDisciplinePropagation) {
-    const cfg = vscode.workspace.getConfiguration("claudeSkills.costDiscipline");
-    if (!cfg.get<boolean>("propagateToAllAgents", true)) {
-      return false;
-    }
-    if (libraryDir && fs.existsSync(path.join(libraryDir, "agents.json"))) {
-      return enabledAgents(libraryDir).some((id) => id !== "claude");
-    }
-    return false;
-  }
-  return true;
 }
 
 /** Clear after skill install/remove/override so the next sync is not skipped. */
@@ -597,7 +678,7 @@ export function syncWorkspaceSkillsToAllAgents(
   const globalDir = globalSkillsDir();
   const claudeDir = path.join(target, ".claude", "skills");
   const effective = new Set(listEffectiveEnabledSkills(target));
-  const agentLoop = (opts?.agentIds ?? enabledAgents(libraryDir)).filter((id) => id !== "claude");
+  const agentLoop = workspaceMirrorAgentIds(libraryDir, { agentIds: opts?.agentIds });
   const skillsToTouch = opts?.skillNames ?? [...effective];
   const shared = { partial, force, effective, skillsToTouch, claudeDir, globalDir };
 
@@ -605,7 +686,7 @@ export function syncWorkspaceSkillsToAllAgents(
     syncWorkspaceAgentSkills(libraryDir, target, agentId, shared)
   );
 
-  if (enabledAgents(libraryDir).includes("copilot") && (!partial || skillsToTouch.length > 0)) {
+  if (agentLoop.includes("copilot") && (!partial || skillsToTouch.length > 0)) {
     syncCopilotBootstrap(target, libraryDir);
   }
 
@@ -634,7 +715,7 @@ export async function syncWorkspaceSkillsToAllAgentsAsync(
   const globalDir = globalSkillsDir();
   const claudeDir = path.join(target, ".claude", "skills");
   const effective = new Set(listEffectiveEnabledSkills(target));
-  const agentLoop = (opts?.agentIds ?? enabledAgents(libraryDir)).filter((id) => id !== "claude");
+  const agentLoop = workspaceMirrorAgentIds(libraryDir, { agentIds: opts?.agentIds });
   const skillsToTouch = opts?.skillNames ?? [...effective];
   const shared = { partial, force, effective, skillsToTouch, claudeDir, globalDir };
 
@@ -644,7 +725,7 @@ export async function syncWorkspaceSkillsToAllAgentsAsync(
     await yieldToEventLoop();
   }
 
-  if (enabledAgents(libraryDir).includes("copilot") && (!partial || skillsToTouch.length > 0)) {
+  if (agentLoop.includes("copilot") && (!partial || skillsToTouch.length > 0)) {
     await yieldToEventLoop();
     syncCopilotBootstrap(target, libraryDir);
   }
@@ -687,11 +768,11 @@ export function syncCopilotBootstrap(target: string, libraryDir: string): string
 
 /** Mirror learning artifacts (reports, budget, branch profiles) to other agents' learning dirs. */
 export function mirrorLearningArtifacts(target: string, libraryDir: string): string[] {
-  if (!isFeatureEnabled("multiAgent")) {
+  const agentsManifest = loadAgentsManifest(libraryDir);
+  const ids = workspaceMirrorAgentIds(libraryDir);
+  if (ids.length === 0) {
     return [];
   }
-  const agentsManifest = loadAgentsManifest(libraryDir);
-  const ids = enabledAgents(libraryDir).filter((id) => id !== "claude");
   const sourceDir = path.join(target, ".claude", "learning");
   if (!fs.existsSync(sourceDir)) {
     return [];

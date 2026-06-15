@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.58** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.59** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -24,6 +24,21 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.59] - 2026-06-15
+
+**Summary:** Solo-dev tier mirrors workspace skills to the running IDE only (Cursor/Kiro/Copilot), not all enabled agents.
+
+**Theme:** Solo-dev host-only mirroring
+
+### Behavior changes
+
+- **Solo-dev mirroring** — when `claudeSkills.features.multiAgent` is off, workspace skill and learning sync targets only `detectHostAgentId()` (the IDE you have open), not Cursor + Kiro + Copilot together
+- **Multi-agent unchanged** — when `multiAgent` is on, full fan-out to all enabled agents still applies
+- **CLI parity** — `skills_sync.py` reads `agents.hostAgent` from `cli-config.json` (written by the extension) or `CLAUDE_SKILLS_HOST_AGENT`; use `--agents` to override headless sync
+- **Tier downgrade cleanup** — manually choosing solo-dev or budget-focused removes auto-created `.cursor/`, `.kiro/`, and Copilot mirror folders except the running IDE; budget-focused also forces host-only mirroring on collaborative repos
 
 ---
 
