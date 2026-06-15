@@ -2,7 +2,7 @@
 
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.59** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.60** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -24,6 +24,20 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.60] - 2026-06-15
+
+**Summary:** Tier downgrade now reliably removes excess agent mirror folders and stops recreating them on sync.
+
+**Theme:** Host-only tier cleanup fix
+
+### Bug fixes
+
+- **Tier cleanup gate** — prune uses `project-profile.json` on disk (`hostOnlyMirrorModeForTarget`) instead of stale in-memory `multiAgent` state
+- **No recreate after prune** — `installSkillToAllWorkspaceAgents` respects host-only mirror targets (was fanning out to all enabled agents via profile-init and single-skill install)
+- **Broader tier triggers** — cleanup also runs on `multiAgent` flag change, `lockedTier` setting change, and feature toggle off; toast + output log when folders are removed
 
 ---
 

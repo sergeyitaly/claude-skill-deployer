@@ -290,7 +290,25 @@ export function generateForAllAgents(
   return results;
 }
 
-/** Install one skill into every enabled agent workspace path (.claude, .cursor, .kiro, .github/instructions). */
+/** Claude source + mirror targets for this workspace (host IDE only on solo-dev tier). */
+export function workspaceInstallAgentIds(libraryDir: string, agentIds?: AgentId[]): AgentId[] {
+  if (agentIds?.length) {
+    return [...new Set(agentIds)];
+  }
+  const enabled = new Set(enabledAgents(libraryDir));
+  const ids: AgentId[] = [];
+  if (enabled.has("claude")) {
+    ids.push("claude");
+  }
+  for (const id of workspaceMirrorAgentIds(libraryDir)) {
+    if (enabled.has(id) && !ids.includes(id)) {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/** Install one skill into Claude + applicable workspace mirror paths. */
 export function installSkillToAllWorkspaceAgents(
   libraryDir: string,
   target: string,
@@ -305,7 +323,7 @@ export function installSkillToAllWorkspaceAgents(
   const resolvedSource = resolveSkillSourceRoot(skillName, sourceRoot, libraryDir);
   const results: AgentInstallResult[] = [];
 
-  for (const agentId of agentIds ?? enabledAgents(libraryDir)) {
+  for (const agentId of workspaceInstallAgentIds(libraryDir, agentIds)) {
     const agent = agentsManifest.agents[agentId];
     if (!agent.supportsWorkspace) {
       continue;
@@ -516,9 +534,6 @@ export interface PrunedAgentMirror {
  * Keeps `.claude/skills` and the running IDE mirror when applicable.
  */
 export function pruneExcessAgentMirrors(target: string, libraryDir: string): PrunedAgentMirror[] {
-  if (isFullMultiAgentMirrorMode()) {
-    return [];
-  }
   if (!fs.existsSync(path.join(libraryDir, "agents.json"))) {
     return [];
   }

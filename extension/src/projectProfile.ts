@@ -945,7 +945,11 @@ function mergeProjectProfileRefresh(
   existing: ProjectProfileFile | undefined,
   built: ProjectProfileFile
 ): { profile: ProjectProfileFile; tierChanged: boolean } {
-  const tierChanged = !existing || existing.profileType !== built.profileType;
+  const tierChanged =
+    !existing ||
+    existing.profileType !== built.profileType ||
+    existing.userPlan !== built.userPlan ||
+    existing.enabledFeatures?.multiAgent !== built.enabledFeatures?.multiAgent;
   if (!existing || tierChanged) {
     return {
       profile: {
@@ -1042,4 +1046,9 @@ export function effectiveFeatureMap(target: string): Record<string, boolean> {
     out[key] = vscode.workspace.getConfiguration("claudeSkills.features").get<boolean>(key, DEFAULTS[key]);
   }
   return out;
+}
+
+/** True when project tier/settings require mirroring to the host IDE only (solo-dev, budget-focused, …). */
+export function hostOnlyMirrorModeForTarget(target: string): boolean {
+  return effectiveFeatureMap(target).multiAgent === false;
 }

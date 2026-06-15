@@ -141,6 +141,7 @@ import {
   refreshProjectProfileContext,
   setLockedProjectProfileTier,
   effectiveLockedTier,
+  hostOnlyMirrorModeForTarget,
   syncLockedTierSettingToProfile,
   writeProjectProfile,
 } from "./projectProfile";
@@ -793,7 +794,13 @@ export function activate(context: vscode.ExtensionContext) {
   let lastProjectProfileNotified: string | undefined;
 
   function cleanupExcessAgentMirrorsForTier(target: string): void {
-    applyHostOnlyTierMirrorCleanup(target, libraryDir, log);
+    const { pruned } = applyHostOnlyTierMirrorCleanup(target, libraryDir, log);
+    if (pruned.length > 0) {
+      syncCliConfigToWorkspace(target, libraryDir);
+      void notifyUserSuccess(
+        `Claude Skills: removed ${pruned.length} excess agent mirror folder(s) for host-only tier.`
+      );
+    }
   }
 
   const refreshAllImpl = (opts: { workspaceState: boolean; forceTree: boolean }) => {
@@ -1222,8 +1229,15 @@ export function activate(context: vscode.ExtensionContext) {
             syncLockedTierSettingToProfile(target);
           }
           refreshProjectProfileContext(target);
+          cleanupExcessAgentMirrorsForTier(target);
         }
         refreshAll();
+      }
+      if (e.affectsConfiguration("claudeSkills.features.multiAgent")) {
+        const target = getWorkspaceTarget();
+        if (target && hostOnlyMirrorModeForTarget(target)) {
+          cleanupExcessAgentMirrorsForTier(target);
+        }
       }
     })
   );
@@ -2426,6 +2440,12 @@ export function activate(context: vscode.ExtensionContext) {
       }
       if (pick.key === "practicalFocus") {
         syncPracticalFocusConfigToDisk();
+      }
+      if (pick.key === "multiAgent" && !next) {
+        const t = getWorkspaceTarget();
+        if (t) {
+          cleanupExcessAgentMirrorsForTier(t);
+        }
       }
       refreshAll();
       maybeRevealOutputPanel();

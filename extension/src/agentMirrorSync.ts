@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   AgentInstallResult,
-  isFullMultiAgentMirrorMode,
   mirrorLearningArtifacts,
   pruneExcessAgentMirrors,
   PrunedAgentMirror,
@@ -12,6 +11,7 @@ import {
   workspaceMirrorAgentIds,
   workspaceMirrorAllowed,
 } from "./agentOps";
+import { hostOnlyMirrorModeForTarget } from "./projectProfile";
 
 /** Whether cost-discipline changes should fan out to agent mirrors (host-only on solo-dev). */
 export function shouldPropagateCostDisciplineToAgents(libraryDir: string): boolean {
@@ -54,7 +54,7 @@ export function applyHostOnlyTierMirrorCleanup(
   libraryDir: string,
   log?: (line: string) => void
 ): { pruned: PrunedAgentMirror[]; agentResults: AgentInstallResult[] } {
-  if (isFullMultiAgentMirrorMode()) {
+  if (!hostOnlyMirrorModeForTarget(target)) {
     return { pruned: [], agentResults: [] };
   }
   const pruned = pruneExcessAgentMirrors(target, libraryDir);

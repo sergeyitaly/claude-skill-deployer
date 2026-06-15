@@ -13,7 +13,9 @@ vi.mock("./agentSkillProfiles", () => ({
 
 import {
   missingAgentMirrorSkills,
+  installSkillToAllWorkspaceAgents,
   syncWorkspaceSkillsToAllAgents,
+  workspaceInstallAgentIds,
   workspaceMirrorAgentIds,
 } from "./agentOps";
 
@@ -56,6 +58,15 @@ describe("solo-dev host-only mirror", () => {
 
   it("targets only the running IDE agent when multiAgent is off", () => {
     expect(workspaceMirrorAgentIds(libraryDir)).toEqual(["cursor"]);
+    expect(workspaceInstallAgentIds(libraryDir)).toEqual(["claude", "cursor"]);
+  });
+
+  it("installSkillToAllWorkspaceAgents does not recreate kiro or copilot paths", () => {
+    const target = makeWorkspace(libraryDir);
+    fs.mkdirSync(path.join(target, ".kiro", "skills", "alpha-skill"), { recursive: true });
+    installSkillToAllWorkspaceAgents(libraryDir, target, "alpha-skill", path.join(target, ".claude", "skills"), true, false);
+    expect(fs.existsSync(path.join(target, ".kiro", "skills", "alpha-skill", "SKILL.md"))).toBe(false);
+    expect(fs.existsSync(path.join(target, ".cursor", "skills", "alpha-skill", "SKILL.md"))).toBe(true);
   });
 
   it("syncs workspace skills to cursor only", () => {
