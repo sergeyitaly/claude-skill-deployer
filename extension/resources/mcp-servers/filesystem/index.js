@@ -159,12 +159,40 @@ function dispatchTool(id, toolName, args) {
       case "list_directory": {
         const resolved = assertAllowed(args.path);
         const entries = fs.readdirSync(resolved, { withFileTypes: true });
+        logExtra.entryCount = entries.length;
         result = {
           entries: entries.map((e) => ({
             name: e.name,
             type: e.isDirectory() ? "directory" : "file",
           })),
         };
+        break;
+      }
+      case "search_files": {
+        const resolved = assertAllowed(args.path);
+        const pattern = typeof args.pattern === "string" ? args.pattern : "";
+        const maxResults = typeof args.max_results === "number" ? Math.min(args.max_results, 200) : 100;
+        const MAX_DEPTH = 10;
+        const results = [];
+        let depthReached = false;
+        function searchDir(dir, depth) {
+          if (results.length >= maxResults) return;
+          if (depth > MAX_DEPTH) { depthReached = true; return; }
+          let dirEntries;
+          try { dirEntries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+          for (const e of dirEntries) {
+            if (results.length >= maxResults) break;
+            const full = path.join(dir, e.name);
+            if (!pattern || e.name.includes(pattern)) {
+              results.push({ name: e.name, path: full, type: e.isDirectory() ? "directory" : "file" });
+            }
+            if (e.isDirectory()) searchDir(full, depth + 1);
+          }
+        }
+        searchDir(resolved, 0);
+        logExtra.entryCount = results.length;
+        if (depthReached) logExtra.depthReached = true;
+        result = { results, depthReached };
         break;
       }
       case "delete_file": {
@@ -271,6 +299,20 @@ rl.on("line", async (line) => {
                   path: { type: "string", description: "Absolute file path to delete" },
                 },
                 required: ["path"],
+              },
+            },
+            {
+              name: "search_files",
+              description:
+                "Recursively search for files whose name contains the given pattern. Only searches inside configured allowed directories.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  path: { type: "string", description: "Absolute directory path to search in" },
+                  pattern: { type: "string", description: "Filename substring to match (case-sensitive)" },
+                  max_results: { type: "number", description: "Maximum results (default 100, max 200)" },
+                },
+                required: ["path", "pattern"],
               },
             },
           ],

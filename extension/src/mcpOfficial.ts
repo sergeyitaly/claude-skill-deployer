@@ -10,6 +10,7 @@ const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 const CLAUDE_CONFIG_PATH = path.join(os.homedir(), ".claude.json");
 const MCP_SERVERS_HOME = path.join(CLAUDE_HOME, "mcp-servers");
 const FILESYSTEM_SERVER_DIR = path.join(MCP_SERVERS_HOME, "filesystem");
+const FILESYSTEM_SERVER_PATH = path.join(FILESYSTEM_SERVER_DIR, "index.js");
 const ALLOWED_DIRS_CONFIG_PATH = path.join(FILESYSTEM_SERVER_DIR, "allowed-dirs.json");
 const FILESYSTEM_SERVER_KEY = "filesystem";
 
@@ -106,14 +107,10 @@ function claudeServerEntry(serverPath: string): McpServerEntry {
   };
 }
 
-function upsertClaudeServer(config: ClaudeConfig, entry: McpServerEntry): boolean {
-  const previous = JSON.stringify(config.mcpServers?.[FILESYSTEM_SERVER_KEY]);
-  config.mcpServers = config.mcpServers ?? {};
-  config.mcpServers[FILESYSTEM_SERVER_KEY] = entry;
-  return previous !== JSON.stringify(config.mcpServers[FILESYSTEM_SERVER_KEY]);
-}
-
-function upsertCursorKiroServer(config: CursorKiroConfig, entry: McpServerEntry): boolean {
+function upsertMcpServerEntry(
+  config: ClaudeConfig | CursorKiroConfig,
+  entry: McpServerEntry
+): boolean {
   const previous = JSON.stringify(config.mcpServers?.[FILESYSTEM_SERVER_KEY]);
   config.mcpServers = config.mcpServers ?? {};
   config.mcpServers[FILESYSTEM_SERVER_KEY] = entry;
@@ -124,7 +121,7 @@ async function enableAgentMcp(agentId: FilesystemMcpAgentId, serverPath: string)
   switch (agentId) {
     case "claude": {
       const config = readJsonConfig<ClaudeConfig>(CLAUDE_CONFIG_PATH) ?? {};
-      if (upsertClaudeServer(config, claudeServerEntry(serverPath))) {
+      if (upsertMcpServerEntry(config, claudeServerEntry(serverPath))) {
         writeJsonConfig(CLAUDE_CONFIG_PATH, config);
       }
       return;
@@ -132,7 +129,7 @@ async function enableAgentMcp(agentId: FilesystemMcpAgentId, serverPath: string)
     case "cursor": {
       const configPath = AGENT_CONFIG_PATHS.cursor;
       const config = readJsonConfig<CursorKiroConfig>(configPath) ?? {};
-      if (upsertCursorKiroServer(config, claudeServerEntry(serverPath))) {
+      if (upsertMcpServerEntry(config, claudeServerEntry(serverPath))) {
         writeJsonConfig(configPath, config);
       }
       return;
@@ -140,7 +137,7 @@ async function enableAgentMcp(agentId: FilesystemMcpAgentId, serverPath: string)
     case "kiro": {
       const configPath = AGENT_CONFIG_PATHS.kiro;
       const config = readJsonConfig<CursorKiroConfig>(configPath) ?? {};
-      if (upsertCursorKiroServer(config, claudeServerEntry(serverPath))) {
+      if (upsertMcpServerEntry(config, claudeServerEntry(serverPath))) {
         writeJsonConfig(configPath, config);
       }
       return;
@@ -219,6 +216,18 @@ export function getEnabledFilesystemMcpAgentIds(): FilesystemMcpAgentId[] {
   return enabledMcpAgentIds();
 }
 
+/**
+ * Returns true when a full setup run is needed: either the server binary has not been
+ * deployed yet, or the Claude agent config in ~/.claude.json has no filesystem entry.
+ * Copilot is excluded from this check because it is always "enabled" via package.json
+ * contributes.mcpServers and does not require a config-file write.
+ */
+export function needsFilesystemMcpSetup(): boolean {
+  if (!fs.existsSync(FILESYSTEM_SERVER_PATH)) return true;
+  const config = readJsonConfig<ClaudeConfig>(CLAUDE_CONFIG_PATH);
+  return !config?.mcpServers?.[FILESYSTEM_SERVER_KEY];
+}
+
 export function getFilesystemMcpServerStatus(agentIds = enabledMcpAgentIds()): {
   enabled: boolean;
   activeAgents: FilesystemMcpAgentId[];
@@ -289,7 +298,7 @@ export async function enableOfficialFilesystemServer(
     }
 
     log(
-      `Filesystem MCP server configured and will be auto-optimized by the MCP proxy for Claude Code when applicable.`
+      `Filesystem MCP server configured for direct use by all enabled agents.`
     );
     onStatusChanged?.();
     return result;

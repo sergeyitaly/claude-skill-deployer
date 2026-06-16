@@ -209,6 +209,10 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
       lines.push("  No-op writes (auto-skipped):");
       for (const n of m.noOpWrites) lines.push(`    ✓ ${n.description}`);
     }
+    if (m.excessiveScans.length > 0) {
+      lines.push("  Excessive directory scans:");
+      for (const sc of m.excessiveScans) lines.push(`    ⚠ ${sc.description} — ${sc.path}`);
+    }
     if (m.suggestions.length > 0) {
       lines.push("  Suggestions:");
       for (const s of m.suggestions) {
@@ -254,44 +258,66 @@ function stackedTokenBar(useful: number, wasted: number, total: number, widthPx 
   </div>`;
 }
 
-export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
-  const hasSkills = metrics.costPerSkill.length > 0;
-  const hasAgents = metrics.costPerAgent.length > 0;
-  const hasSessions = metrics.recentSessions.length > 0;
-  const hasMcp = metrics.mcp.totalCalls > 0;
+function buildMcpWarningBlocks(m: McpUsageSummary): string[] {
+  const shortPath = (p: string, max: number) => p.length > max ? "…" + p.slice(-(max - 3)) : p;
+  const blocks: string[] = [];
 
-  if (!hasSkills && !hasAgents && !hasSessions && !hasMcp) {
-    return "";
+  if (m.wasteWarnings.length > 0) {
+    const rows = m.wasteWarnings.map((w) =>
+      `<div class="skill-row warn-row"><div class="skill-head"><span>⚠</span> <code>${esc(shortPath(w.path, 45))}</code></div><div class="hint">${esc(w.description)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px"><b>Repeated reads</b>${rows}</div>`);
   }
+  if (m.agentLoops.length > 0) {
+    const rows = m.agentLoops.map((l) =>
+      `<div class="skill-row warn-row"><div class="skill-head"><span>🔁</span> <code>${esc(shortPath(l.path, 45))}</code><span class="cost">~${esc(formatTokenCount(l.estimatedWastedTokens))} wasted</span></div><div class="hint">${esc(l.description)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px"><b>Agent loops</b>${rows}</div>`);
+  }
+  if (m.readAfterWrite.length > 0) {
+    const rows = m.readAfterWrite.map((r) =>
+      `<div class="skill-row warn-row"><div class="skill-head"><span>⚠</span> <code>${esc(shortPath(r.path, 45))}</code></div><div class="hint">${esc(r.description)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px"><b>Read-after-write</b>${rows}</div>`);
+  }
+  if (m.largeFiles.length > 0) {
+    const rows = m.largeFiles.map((f) =>
+      `<div class="skill-row warn-row"><div class="skill-head"><span>⚠</span> <code>${esc(shortPath(f.path, 45))}</code><span class="cost">${Math.round(f.bytes / 1024)}KB</span></div><div class="hint">${esc(f.suggestion)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px"><b>Large files</b>${rows}</div>`);
+  }
+  if (m.noOpWrites.length > 0) {
+    const rows = m.noOpWrites.map((n) =>
+      `<div class="skill-row"><div class="skill-head"><span>✓</span> <code>${esc(shortPath(n.path, 45))}</code></div><div class="hint">${esc(n.description)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px"><b>No-op writes (auto-skipped)</b>${rows}</div>`);
+  }
+  if (m.excessiveScans.length > 0) {
+    const rows = m.excessiveScans.map((sc) =>
+      `<div class="skill-row warn-row"><div class="skill-head"><span>⚠</span> <code>${esc(shortPath(sc.path, 45))}</code><span class="cost">${sc.scans}× scanned</span></div><div class="hint">${esc(sc.description)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px"><b>Excessive directory scans</b>${rows}</div>`);
+  }
+  return blocks;
+}
 
-  const parts: string[] = [];
-  const m = metrics.mcp;
-
-  // -- Efficiency score banner (only when MCP data exists) --
-  let scoreBanner = "";
-  if (hasMcp) {
-    const sc = m.efficiencyScore;
-    const totalIssues =
-      m.wasteWarnings.length + m.readAfterWrite.length + m.agentLoops.length + m.largeFiles.length;
-    const issueText =
-      totalIssues > 0
-        ? `${totalIssues} issue(s): ${[
-            m.wasteWarnings.length > 0 && "repeated reads",
-            m.readAfterWrite.length > 0 && "read-after-write",
-            m.agentLoops.length > 0 && "agent loops",
-            m.largeFiles.length > 0 && "large files",
-          ]
-            .filter(Boolean)
-            .join(", ")}`
-        : "No issues detected";
-    const totalSavedTokens = m.suggestions.reduce((s, sg) => s + (sg.estimatedSavedTokens ?? 0), 0);
-    const dollarSavingsText = totalSavedTokens > 0
-      ? `~$${(totalSavedTokens / 1_000_000 * 3).toFixed(3)} saveable`
-      : "";
-    const savingsPill = dollarSavingsText
-      ? `<div class="stat-pill"><b>Potential saving</b><span class="val roi-high">${esc(dollarSavingsText)}</span></div>`
-      : "";
-    scoreBanner = `
+function buildScoreBannerHtml(m: McpUsageSummary, mcpFileTokens: number): string {
+  const sc = m.efficiencyScore;
+  const issueLabels = [
+    m.wasteWarnings.length > 0 && "repeated reads",
+    m.readAfterWrite.length > 0 && "read-after-write",
+    m.agentLoops.length > 0 && "agent loops",
+    m.largeFiles.length > 0 && "large files",
+    m.excessiveScans.length > 0 && "excessive scans",
+  ].filter(Boolean);
+  const issueText = issueLabels.length > 0
+    ? `${issueLabels.length} issue(s): ${issueLabels.join(", ")}`
+    : "No issues detected";
+  const totalSavedTokens = m.suggestions.reduce((s, sg) => s + (sg.estimatedSavedTokens ?? 0), 0);
+  const savingsPill = totalSavedTokens > 0
+    ? `<div class="stat-pill"><b>Potential saving</b><span class="val roi-high">~$${(totalSavedTokens / 1_000_000 * 3).toFixed(3)} saveable</span></div>`
+    : "";
+  return `
   <div class="stat-grid" style="margin-bottom:10px">
     <div class="stat-pill" title="Efficiency = (useful ops) / (total ops). Useful = total − redundant reads − read-after-writes − loop reads − no-op writes.">
       <b>Efficiency</b>
@@ -299,183 +325,95 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     </div>
     <div class="stat-pill"><b>MCP calls</b><span class="val">${m.totalCalls}</span></div>
     <div class="stat-pill"><b>Wasteful ops</b><span class="val">${sc.wastefulOps}</span></div>
-    <div class="stat-pill"><b>Tokens read</b><span class="val">${esc(formatTokenCount(metrics.mcpFileTokens))}</span></div>
+    <div class="stat-pill"><b>Tokens read</b><span class="val">${esc(formatTokenCount(mcpFileTokens))}</span></div>
     ${savingsPill}
   </div>
   <p class="note" style="margin-top:0">${esc(issueText)}</p>`;
-  }
+}
 
-  // -- Token KPI panel --
-  if (hasMcp && m.totalEstimatedTokens > 0) {
-    const totalMcp = m.totalEstimatedTokens;
-    const wasted = m.totalWastedTokens;
-    const useful = Math.max(0, totalMcp - wasted);
-    const wastedPct = Math.round((wasted / totalMcp) * 100);
-    const usefulPct = 100 - wastedPct;
-    const wastedUsd = (wasted / 1_000_000 * 3).toFixed(3);
-    const totalApiTokens = metrics.recentSessions.reduce((s, r) => s + r.totalTokens, 0);
-    const apiCompareLine = totalApiTokens > 0
-      ? `<div class="hint" style="margin-top:2px">MCP waste = ${Math.round((wasted / totalApiTokens) * 100)}% of total API tokens in last 14d sessions</div>`
-      : "";
-    parts.push(`<div class="sub-panel" style="grid-column: 1 / -1">
-      <h3>Token quality · MCP reads</h3>
-      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-        <div>
-          ${stackedTokenBar(useful, wasted, totalMcp, 220)}
-          <div style="display:flex;gap:12px;font-size:11px;margin-top:2px">
-            <span><span style="color:var(--vscode-charts-green,#4CAF50)">■</span> Useful ${esc(formatTokenCount(useful))} (${usefulPct}%)</span>
-            <span><span style="color:var(--vscode-charts-red,#F44336)">■</span> Wasted ${esc(formatTokenCount(wasted))} (${wastedPct}%)</span>
-          </div>
-          ${apiCompareLine}
+function buildTokenKpiPanelHtml(m: McpUsageSummary, totalApiTokens: number): string {
+  const totalMcp = m.totalEstimatedTokens;
+  const wasted = m.totalWastedTokens;
+  const useful = Math.max(0, totalMcp - wasted);
+  const wastedPct = Math.round((wasted / totalMcp) * 100);
+  const wastedUsd = (wasted / 1_000_000 * 3).toFixed(3);
+  const apiCompareLine = totalApiTokens > 0
+    ? `<div class="hint" style="margin-top:2px">MCP waste = ${Math.round((wasted / totalApiTokens) * 100)}% of total API tokens in last 14d sessions</div>`
+    : "";
+  return `<div class="sub-panel" style="grid-column: 1 / -1">
+    <h3>Token quality · MCP reads</h3>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div>
+        ${stackedTokenBar(useful, wasted, totalMcp, 220)}
+        <div style="display:flex;gap:12px;font-size:11px;margin-top:2px">
+          <span><span style="color:var(--vscode-charts-green,#4CAF50)">■</span> Useful ${esc(formatTokenCount(useful))} (${100 - wastedPct}%)</span>
+          <span><span style="color:var(--vscode-charts-red,#F44336)">■</span> Wasted ${esc(formatTokenCount(wasted))} (${wastedPct}%)</span>
         </div>
-        <div class="stat-grid" style="margin:0">
-          <div class="stat-pill"><b>Total MCP reads</b><span class="val">${esc(formatTokenCount(totalMcp))}</span></div>
-          <div class="stat-pill"><b>Wasted</b><span class="val roi-low">${esc(formatTokenCount(wasted))}</span></div>
-          <div class="stat-pill"><b>Cost of waste</b><span class="val roi-low">~$${esc(wastedUsd)}</span></div>
-        </div>
+        ${apiCompareLine}
       </div>
-    </div>`);
-  }
+      <div class="stat-grid" style="margin:0">
+        <div class="stat-pill"><b>Total MCP reads</b><span class="val">${esc(formatTokenCount(totalMcp))}</span></div>
+        <div class="stat-pill"><b>Wasted</b><span class="val roi-low">${esc(formatTokenCount(wasted))}</span></div>
+        <div class="stat-pill"><b>Cost of waste</b><span class="val roi-low">~$${esc(wastedUsd)}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
 
-  // -- Cost per skill run --
-  if (hasSkills) {
+function buildCostPanelsHtml(metrics: EfficiencyMetrics, m: McpUsageSummary): string[] {
+  const panels: string[] = [];
+  if (metrics.costPerSkill.length > 0) {
     const maxAvg = metrics.costPerSkill[0].avgCostPerRun;
-    const rows = metrics.costPerSkill
-      .slice(0, 6)
-      .map(
-        (r) => `<div class="skill-row">
-          <div class="skill-head"><b>${esc(r.skill)}</b>
-            <span class="cost">${esc(formatCompactUsd(r.avgCostPerRun))}/run</span>
-            <span class="bar">${miniBar(r.avgCostPerRun, maxAvg)}</span>
-          </div>
-          <div class="hint">${r.totalRuns} run(s) · ${esc(formatCompactUsd(r.totalCost))} total</div>
-        </div>`
-      )
-      .join("");
-    parts.push(`<div class="sub-panel"><h3>Cost per skill run</h3>${rows}</div>`);
+    const rows = metrics.costPerSkill.slice(0, 6).map((r) =>
+      `<div class="skill-row"><div class="skill-head"><b>${esc(r.skill)}</b><span class="cost">${esc(formatCompactUsd(r.avgCostPerRun))}/run</span><span class="bar">${miniBar(r.avgCostPerRun, maxAvg)}</span></div><div class="hint">${r.totalRuns} run(s) · ${esc(formatCompactUsd(r.totalCost))} total</div></div>`
+    ).join("");
+    panels.push(`<div class="sub-panel"><h3>Cost per skill run</h3>${rows}</div>`);
   }
-
-  // -- Cost per agent --
-  if (hasAgents) {
+  if (metrics.costPerAgent.length > 0) {
     const maxCost = metrics.costPerAgent[0].totalCost;
-    const rows = metrics.costPerAgent
-      .map(
-        (r) => `<div class="skill-row">
-          <div class="skill-head"><b>${esc(r.agent)}</b>
-            <span class="cost">${esc(formatCompactUsd(r.totalCost))}</span>
-            <span class="bar">${miniBar(r.totalCost, maxCost)}</span>
-          </div>
-          <div class="hint">${r.totalRuns} run(s) · avg ${esc(formatCompactUsd(r.avgCostPerRun))}/run</div>
-        </div>`
-      )
-      .join("");
-    parts.push(`<div class="sub-panel"><h3>Cost per agent</h3>${rows}</div>`);
+    const rows = metrics.costPerAgent.map((r) =>
+      `<div class="skill-row"><div class="skill-head"><b>${esc(r.agent)}</b><span class="cost">${esc(formatCompactUsd(r.totalCost))}</span><span class="bar">${miniBar(r.totalCost, maxCost)}</span></div><div class="hint">${r.totalRuns} run(s) · avg ${esc(formatCompactUsd(r.avgCostPerRun))}/run</div></div>`
+    ).join("");
+    panels.push(`<div class="sub-panel"><h3>Cost per agent</h3>${rows}</div>`);
   }
-
-  // -- Cost per session (task) --
-  if (hasSessions) {
+  if (metrics.recentSessions.length > 0) {
     const maxCost = Math.max(...metrics.recentSessions.map((s) => s.totalCost), 0.000001);
-    const rows = metrics.recentSessions
-      .map((s) => {
-        const date = new Date(s.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        const skillSummary =
-          s.skills.slice(0, 3).join(", ") + (s.skills.length > 3 ? ` +${s.skills.length - 3}` : "");
-        return `<div class="skill-row">
-          <div class="skill-head"><span class="agent-id">${esc(s.sessionId.slice(0, 8))}…</span>
-            <span>${esc(date)}</span>
-            <span class="cost">${esc(formatCompactUsd(s.totalCost))}</span>
-            <span class="bar">${miniBar(s.totalCost, maxCost)}</span>
-          </div>
-          <div class="hint">${esc(formatTokenCount(s.totalTokens))} tokens${skillSummary ? ` · ${esc(skillSummary)}` : ""}</div>
-        </div>`;
-      })
-      .join("");
-    parts.push(`<div class="sub-panel"><h3>Cost per task (session)</h3>${rows}</div>`);
+    const rows = metrics.recentSessions.map((s) => {
+      const date = new Date(s.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      const skillSummary = s.skills.slice(0, 3).join(", ") + (s.skills.length > 3 ? ` +${s.skills.length - 3}` : "");
+      const skillSuffix = skillSummary ? " · " + esc(skillSummary) : "";
+      return `<div class="skill-row"><div class="skill-head"><span class="agent-id">${esc(s.sessionId.slice(0, 8))}…</span><span>${esc(date)}</span><span class="cost">${esc(formatCompactUsd(s.totalCost))}</span><span class="bar">${miniBar(s.totalCost, maxCost)}</span></div><div class="hint">${esc(formatTokenCount(s.totalTokens))} tokens${skillSuffix}</div></div>`;
+    }).join("");
+    panels.push(`<div class="sub-panel"><h3>Cost per task (session)</h3>${rows}</div>`);
+  }
+  if (m.topFiles.length > 0) {
+    const maxCalls = m.topFiles[0].calls;
+    const rows = m.topFiles.map((f) =>
+      `<div class="skill-row"><div class="skill-head"><code>${esc(f.path.length > 55 ? "…" + f.path.slice(-52) : f.path)}</code><span class="cost">${f.calls}×</span><span class="bar">${miniBar(f.calls, maxCalls)}</span></div><div class="hint">~${esc(formatTokenCount(f.estimatedTokens))} tokens · avg ${f.avgDurationMs}ms</div></div>`
+    ).join("");
+    panels.push(`<div class="sub-panel"><h3>Cost per file (MCP reads)</h3>${rows}</div>`);
+  }
+  return panels;
+}
+
+export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
+  const hasMcp = metrics.mcp.totalCalls > 0;
+  if (!metrics.costPerSkill.length && !metrics.costPerAgent.length && !metrics.recentSessions.length && !hasMcp) {
+    return "";
   }
 
-  // -- Cost per file (MCP access) --
-  if (hasMcp && m.topFiles.length > 0) {
-    const maxCalls = m.topFiles[0].calls;
-    const fileRows = m.topFiles
-      .map(
-        (f) => `<div class="skill-row">
-          <div class="skill-head"><code>${esc(f.path.length > 55 ? "…" + f.path.slice(-52) : f.path)}</code>
-            <span class="cost">${f.calls}×</span>
-            <span class="bar">${miniBar(f.calls, maxCalls)}</span>
-          </div>
-          <div class="hint">~${esc(formatTokenCount(f.estimatedTokens))} tokens · avg ${f.avgDurationMs}ms</div>
-        </div>`
-      )
-      .join("");
-    parts.push(`<div class="sub-panel"><h3>Cost per file (MCP reads)</h3>${fileRows}</div>`);
+  const m = metrics.mcp;
+  const scoreBanner = hasMcp ? buildScoreBannerHtml(m, metrics.mcpFileTokens) : "";
+  const totalApiTokens = metrics.recentSessions.reduce((s, r) => s + r.totalTokens, 0);
+
+  const parts: string[] = [];
+  if (hasMcp && m.totalEstimatedTokens > 0) {
+    parts.push(buildTokenKpiPanelHtml(m, totalApiTokens));
   }
+  parts.push(...buildCostPanelsHtml(metrics, m));
 
   // -- Warnings section --
-  const warningBlocks: string[] = [];
-
-  if (m.wasteWarnings.length > 0) {
-    const rows = m.wasteWarnings
-      .map(
-        (w) => `<div class="skill-row warn-row">
-          <div class="skill-head"><span>⚠</span> <code>${esc(w.path.length > 45 ? "…" + w.path.slice(-42) : w.path)}</code></div>
-          <div class="hint">${esc(w.description)}</div>
-        </div>`
-      )
-      .join("");
-    warningBlocks.push(`<div style="margin-bottom:8px"><b>Repeated reads</b>${rows}</div>`);
-  }
-
-  if (m.agentLoops.length > 0) {
-    const rows = m.agentLoops
-      .map(
-        (l) => `<div class="skill-row warn-row">
-          <div class="skill-head"><span>🔁</span> <code>${esc(l.path.length > 45 ? "…" + l.path.slice(-42) : l.path)}</code>
-            <span class="cost">~${esc(formatTokenCount(l.estimatedWastedTokens))} wasted</span>
-          </div>
-          <div class="hint">${esc(l.description)}</div>
-        </div>`
-      )
-      .join("");
-    warningBlocks.push(`<div style="margin-bottom:8px"><b>Agent loops</b>${rows}</div>`);
-  }
-
-  if (m.readAfterWrite.length > 0) {
-    const rows = m.readAfterWrite
-      .map(
-        (r) => `<div class="skill-row warn-row">
-          <div class="skill-head"><span>⚠</span> <code>${esc(r.path.length > 45 ? "…" + r.path.slice(-42) : r.path)}</code></div>
-          <div class="hint">${esc(r.description)}</div>
-        </div>`
-      )
-      .join("");
-    warningBlocks.push(`<div style="margin-bottom:8px"><b>Read-after-write</b>${rows}</div>`);
-  }
-
-  if (m.largeFiles.length > 0) {
-    const rows = m.largeFiles
-      .map(
-        (f) => `<div class="skill-row warn-row">
-          <div class="skill-head"><span>⚠</span> <code>${esc(f.path.length > 45 ? "…" + f.path.slice(-42) : f.path)}</code>
-            <span class="cost">${Math.round(f.bytes / 1024)}KB</span>
-          </div>
-          <div class="hint">${esc(f.suggestion)}</div>
-        </div>`
-      )
-      .join("");
-    warningBlocks.push(`<div style="margin-bottom:8px"><b>Large files</b>${rows}</div>`);
-  }
-
-  if (m.noOpWrites.length > 0) {
-    const rows = m.noOpWrites
-      .map(
-        (n) => `<div class="skill-row">
-          <div class="skill-head"><span>✓</span> <code>${esc(n.path.length > 45 ? "…" + n.path.slice(-42) : n.path)}</code></div>
-          <div class="hint">${esc(n.description)}</div>
-        </div>`
-      )
-      .join("");
-    warningBlocks.push(`<div style="margin-bottom:8px"><b>No-op writes (auto-skipped)</b>${rows}</div>`);
-  }
+  const warningBlocks = buildMcpWarningBlocks(m);
 
   // -- Suggestions --
   const suggRows = m.suggestions
@@ -528,5 +466,8 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     ${crossSessionHtml}
   </div>
   <p class="note" style="margin-top:8px">Costs from runs.jsonl hooks. MCP file-access patterns from <code>~/.claude/learning/mcp-usage.jsonl</code>. Hints written to <code>~/.claude/learning/mcp-agent-hints.md</code>. Estimates only.</p>
+  <div style="margin-top:10px">
+    <button id="btn-clear-mcp-logs" class="action-btn">Clear MCP Logs</button>
+  </div>
 </div>`;
 }

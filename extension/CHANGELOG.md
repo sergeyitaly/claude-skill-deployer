@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.65** | MCP health monitoring, Force Mode & proxy auto-migration |
 | **1.0.64** | Hybrid per-project MCP telemetry storage |
 | **1.0.61 – 1.0.63** | MCP filesystem server, efficiency metrics & KPI alerts |
 | **1.0.38 – 1.0.60** | Project tiering, cost optimization & tier cleanup |
@@ -27,6 +28,36 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.65] — 2026-06-16
+
+**Summary:** MCP health and KPI are now visible in the status bar; a new Force Mode locks Claude to MCP-only file operations; the old lazy-proxy is silently retired on activation.
+
+**Theme:** MCP health monitoring, Force Mode & proxy auto-migration
+
+### Added
+
+- **MCP Health status bar item** (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — shows live server readiness and which agents are configured. Clicking opens the MCP health report.
+- **Agent KPI status bar item** (`$(pulse) KPI: A · N calls`) — shows the efficiency grade and call count for the last 24 h using the workspace-scoped MCP log; `ready` when no calls recorded yet. Clicking opens the same health report.
+- **`mcpHealth.ts`** — `checkMcpHealth()` validates the server binary, per-agent config entries (Claude, Cursor, Kiro; Copilot always included via `package.json`), and recent activity; returns `"ready"`, `"config-issue"`, or `"no-activity"` with error strings and the list of configured agents.
+- **`mcpForce.ts`** — MCP Force Mode: makes Claude use *only* MCP filesystem tools for file operations.
+  - `enableMcpForcePermissions(target)` — adds `Read`, `Write`, `Edit`, `Glob`, `Grep` to the `permissions.deny` list in `.claude/settings.json`.
+  - `injectMcpForceClaude(target)` — writes an `## MCP REQUIRED` block to `CLAUDE.md` listing the allowed MCP tools.
+  - `revertMcpForcePermissions(target)` / `removeMcpForceClaudeBlock(target)` — undo both changes.
+  - `isMcpForceActive(target)` — returns true when both the deny list and the CLAUDE.md block are in place.
+- **MCP-force hooks** in `hookOps.ts` — `installMcpForceHook()` registers a `mcp-force` `UserPromptSubmit` hook and `installMcpGateHook()` registers a `mcp-gate` `SessionStart` hook in `.claude/settings.json`; `removeMcpForceHooks()` cleans both up.
+- **Auto-start MCP server** — on extension activation (after a 5 s delay), if `needsFilesystemMcpSetup()` detects that the server binary is missing or Claude has no config entry, the filesystem MCP server is deployed and configured automatically; otherwise, the allowed-dirs list is refreshed for the current workspace.
+- **`needsFilesystemMcpSetup()`** export in `mcpOfficial.ts` — returns `true` when the server script is missing or the Claude config has no `filesystem` entry (Copilot is excluded from this check as it registers via `contributes.mcpServers`).
+- **`claudeSkills.clearMcpLogs` command** — prompts for confirmation then clears the global `~/.claude/learning/mcp-usage.jsonl`, the workspace-scoped MCP log, and `mcp-agent-hints.md`.
+
+### Changed
+
+- **MCP proxy retired** — `activateMcpOptimizer` (proxy install + consent flow) removed; replaced by `autoMigrateProxyIfActive()` which silently removes the proxy entry from `~/.claude.json` if it detects our legacy lazy-proxy is still active. No prompt, no data loss.
+- **Status bar cleanup** — usage, trust badge, budget mode, context focus, and practical focus items are hidden in favour of the two new MCP items, reducing status bar clutter.
+- **`upsertMcpServerEntry`** — `upsertClaudeServer` and `upsertCursorKiroServer` merged into a single function; behaviour identical.
+- Log message on enable: *"MCP proxy for Claude Code when applicable"* → *"direct use by all enabled agents"*.
 
 ---
 

@@ -42,18 +42,6 @@ function isOurProxy(entry: McpServerEntry): boolean {
   );
 }
 
-function copyProxyScript(extensionPath: string): void {
-  const src = path.join(extensionPath, "resources", "mcp-lazy-proxy.js");
-  if (!fs.existsSync(src)) throw new Error(`Proxy script not found at ${src}`);
-  fs.mkdirSync(CLAUDE_HOME, { recursive: true });
-  fs.copyFileSync(src, PROXY_SCRIPT_STABLE);
-}
-
-function writeSidecarConfig(servers: Record<string, McpServerEntry>): void {
-  fs.mkdirSync(path.dirname(PROXY_CONFIG_PATH), { recursive: true });
-  fs.writeFileSync(PROXY_CONFIG_PATH, JSON.stringify({ servers }, null, 2) + "\n", "utf-8");
-}
-
 function readSidecarConfig(): Record<string, McpServerEntry> {
   try {
     const raw = JSON.parse(fs.readFileSync(PROXY_CONFIG_PATH, "utf-8")) as {
@@ -65,82 +53,36 @@ function readSidecarConfig(): Record<string, McpServerEntry> {
   }
 }
 
-export async function activateMcpOptimizer(
+/**
+ * Silently migrates away from the proxy if it is currently active.
+ * Called on extension activation — no UI, no consent prompt.
+ */
+export function autoMigrateProxyIfActive(
   context: vscode.ExtensionContext,
-  extensionPath: string,
   log: (msg: string) => void
-): Promise<void> {
+): void {
   const config = readClaudeConfig();
   if (!config) return;
 
   const servers = config.mcpServers ?? {};
-  const keys = Object.keys(servers);
+  const proxyActive = Object.keys(servers).some(
+    (k) => k === PROXY_SERVER_KEY && isOurProxy(servers[k])
+  );
+  if (!proxyActive) return;
 
-  const proxyActive = keys.some((k) => k === PROXY_SERVER_KEY && isOurProxy(servers[k]));
-  const realKeys = keys.filter((k) => !(k === PROXY_SERVER_KEY && isOurProxy(servers[k])));
-
-  if (proxyActive) {
-    // Refresh the proxy script on every activation (picks up extension updates)
-    try {
-      copyProxyScript(extensionPath);
-    } catch (e) {
-      log(
-        `MCP optimizer: could not refresh proxy script — ${e instanceof Error ? e.message : String(e)}`
-      );
-    }
-    // If the user added new servers alongside our proxy entry, absorb them into the sidecar
-    if (realKeys.length > 0) {
-      const sidecar = readSidecarConfig();
-      for (const k of realKeys) sidecar[k] = servers[k];
-      writeSidecarConfig(sidecar);
-      config.mcpServers = { [PROXY_SERVER_KEY]: servers[PROXY_SERVER_KEY] };
-      writeClaudeConfig(config);
-      log(`MCP optimizer: absorbed ${realKeys.length} new server(s) into proxy config.`);
-    }
-    return;
+  const original = readSidecarConfig();
+  if (Object.keys(original).length > 0) {
+    config.mcpServers = original;
+  } else {
+    delete config.mcpServers;
   }
+  writeClaudeConfig(config);
 
-  if (realKeys.length === 0) return;
+  try { fs.unlinkSync(PROXY_CONFIG_PATH); } catch { /* non-fatal */ }
+  try { fs.unlinkSync(PROXY_SCRIPT_STABLE); } catch { /* non-fatal */ }
 
-  const consent = context.globalState.get<string>(STATE_CONSENT);
-  if (consent === "declined") return;
-
-  if (consent !== "accepted") {
-    const count = realKeys.length;
-    const choice = await vscode.window.showInformationMessage(
-      `Claude Skills: ${count} MCP server${count > 1 ? "s" : ""} detected. ` +
-        `Enable automatic context optimization? (Compresses tool schemas to reduce token usage per session.)`,
-      "Enable",
-      "Not now"
-    );
-    if (choice !== "Enable") {
-      await context.globalState.update(STATE_CONSENT, "declined");
-      return;
-    }
-    await context.globalState.update(STATE_CONSENT, "accepted");
-  }
-
-  try {
-    copyProxyScript(extensionPath);
-    writeSidecarConfig(servers);
-    config.mcpServers = {
-      [PROXY_SERVER_KEY]: {
-        command: "node",
-        args: [PROXY_SCRIPT_STABLE, "--config", PROXY_CONFIG_PATH],
-      },
-    };
-    writeClaudeConfig(config);
-    log(
-      `MCP optimizer activated — ${realKeys.length} server(s) wrapped. ` +
-        `Tool schemas compressed for new sessions.`
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    log(`MCP optimizer: failed to activate — ${msg}`);
-    void vscode.window.showWarningMessage(
-      `Claude Skills: MCP optimizer could not apply (${msg})`
-    );
-  }
+  void context.globalState.update(STATE_CONSENT, undefined);
+  log("MCP optimizer: auto-migrated — proxy removed, direct MCP servers restored.");
 }
 
 export function revertMcpOptimizer(

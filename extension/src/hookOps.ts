@@ -936,6 +936,88 @@ export function installOfficialSkillsSessionHook(extensionPath: string, target: 
   return had ? "already-configured" : "updated";
 }
 
+// ── MCP-force hooks ──────────────────────────────────────────────────────────
+
+const HOOK_MCP_FORCE = "mcp-force";
+const HOOK_MCP_GATE = "mcp-gate";
+
+export function isMcpForceHookConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasHook(settings, HOOK_MCP_FORCE);
+  } catch {
+    return false;
+  }
+}
+
+export function isMcpGateHookConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasSessionStartHook(settings, HOOK_MCP_GATE);
+  } catch {
+    return false;
+  }
+}
+
+export function installMcpForceHook(target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasHook(settings, HOOK_MCP_FORCE);
+  const added = ensureHookRegistered(settings, "", HOOK_MCP_FORCE, claudeHookCmd(HOOK_MCP_FORCE));
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
+}
+
+export function installMcpGateHook(target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasSessionStartHook(settings, HOOK_MCP_GATE);
+  const added = ensureSessionStartHookRegistered(
+    settings,
+    OFFICIAL_SKILLS_SESSION_MATCHER,
+    "",
+    HOOK_MCP_GATE,
+    claudeHookCmd(HOOK_MCP_GATE)
+  );
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return had ? "already-configured" : "updated";
+}
+
+export function removeMcpForceHooks(target: string): boolean {
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  let changed = false;
+
+  if (settings.hooks?.UserPromptSubmit) {
+    const before = settings.hooks.UserPromptSubmit.length;
+    settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
+      (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_MCP_FORCE}`))
+    );
+    changed = settings.hooks.UserPromptSubmit.length !== before || changed;
+  }
+
+  if (settings.hooks?.SessionStart) {
+    const before = settings.hooks.SessionStart.length;
+    settings.hooks.SessionStart = settings.hooks.SessionStart.filter(
+      (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_MCP_GATE}`))
+    );
+    changed = settings.hooks.SessionStart.length !== before || changed;
+  }
+
+  if (changed) {
+    writeJsonFile(settingsFile, settings);
+  }
+  return changed;
+}
+
 export function areProfileInitHooksConfigured(target: string, libraryDir?: string): boolean {
   const lib = libraryDir ?? "";
   const workspaceAgents = lib ? workspaceHookTargetAgents(lib) : (["cursor", "kiro", "copilot"] as AgentId[]);

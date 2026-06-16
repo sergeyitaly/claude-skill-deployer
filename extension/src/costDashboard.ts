@@ -250,8 +250,8 @@ function dashboardActionsFooterHtml(canApplyOptimizations: boolean): string {
 
 function dashboardInjectionListenerScript(): string {
   return `
+    const vscode = acquireVsCodeApi();
     function rebindDashboardActionListeners() {
-      const vscode = acquireVsCodeApi();
       document.getElementById("btn-apply-opts")?.addEventListener("click", () => {
         vscode.postMessage({ command: "applyOptimizations" });
       });
@@ -270,6 +270,9 @@ function dashboardInjectionListenerScript(): string {
             type: el.getAttribute("data-type"),
           });
         });
+      });
+      document.getElementById("btn-clear-mcp-logs")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "clearMcpLogs" });
       });
     }
     window.addEventListener("message", (event) => {

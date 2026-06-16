@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.64",
+  "version": "1.0.65",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -252,6 +252,24 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.showMcpHealth",
+        "title": "Show MCP Server Health",
+        "icon": "$(sync)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.enableMcpForce",
+        "title": "Enable MCP-Force Mode (Block Native File Tools)",
+        "icon": "$(lock)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.disableMcpForce",
+        "title": "Disable MCP-Force Mode (Restore Native File Tools)",
+        "icon": "$(unlock)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.showProjectProfile",
         "title": "Show Project Tier (Type, Features, Savings)",
         "icon": "$(info)",
@@ -345,6 +363,12 @@
         "command": "claudeSkills.applyOptimizations",
         "title": "Apply Cost Optimizations",
         "icon": "$(wand)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.clearMcpLogs",
+        "title": "Clear Local MCP Server Logs",
+        "icon": "$(trash)",
         "category": "Claude Skills"
       },
       {

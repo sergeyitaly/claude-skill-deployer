@@ -3,6 +3,7 @@
  * Called by hookServer.ts; no Node.js scripts are copied to agent directories.
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { appendSkillRun, RunAgent } from "./runRecording";
 import { readContextFocusConfig, effectiveContextFocusLevel, ContextFocusLevel } from "./contextFocusConfig";
@@ -922,6 +923,139 @@ function handleBranchSync(req: HookRequest): HookResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Handler: mcp-force (UserPromptSubmit — structured redirect message)
+// ---------------------------------------------------------------------------
+
+const MCP_FORCE_REDIRECT: Record<string, string> = {
+  Read:  "mcp__filesystem__read_file",
+  Write: "mcp__filesystem__write_file",
+  Edit:  "mcp__filesystem__write_file",
+  Glob:  "mcp__filesystem__list_directory / search_files",
+  Grep:  "mcp__filesystem__search_files",
+};
+
+function handleMcpForce(req: HookRequest): HookResponse {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const toolName = String(body.tool_name ?? body.toolName ?? "");
+  const redirect = MCP_FORCE_REDIRECT[toolName];
+
+  const lines: string[] = [
+    "🚫 Native file tools are disabled (MCP-force mode).",
+    "✅ Use MCP filesystem tools instead:",
+    "",
+  ];
+
+  if (redirect && toolName) {
+    const input = body.tool_input ?? body.toolInput ?? {};
+    const examplePath =
+      typeof input === "object" && input !== null
+        ? (input as Record<string, unknown>).path ?? (input as Record<string, unknown>).file_path ?? "..."
+        : "...";
+    lines.push(`  ${toolName}("${String(examplePath)}")`);
+    lines.push(`  → \`${redirect}({ "path": "${String(examplePath)}" })\``);
+  } else {
+    lines.push("  Read(f)  → mcp__filesystem__read_file({ \"path\": f })");
+    lines.push("  Write(f) → mcp__filesystem__write_file({ \"path\": f, \"content\": c })");
+    lines.push("  Glob(p)  → mcp__filesystem__list_directory({ \"path\": dir })");
+    lines.push("  Grep(p)  → mcp__filesystem__search_files({ \"path\": \".\", \"pattern\": p })");
+  }
+
+  return promptOutput(lines.join("\n"), req.agent);
+}
+
+// ---------------------------------------------------------------------------
+// Handler: mcp-gate (SessionStart — health check with last activity timestamp)
+// ---------------------------------------------------------------------------
+
+const MCP_SERVER_SCRIPT = path.join(os.homedir(), ".claude", "mcp-servers", "filesystem", "index.js");
+const MCP_USAGE_LOG = path.join(os.homedir(), ".claude", "learning", "mcp-usage.jsonl");
+const MCP_HINTS_PATH = path.join(os.homedir(), ".claude", "learning", "mcp-agent-hints.md");
+
+function readMcpHints(): string {
+  try {
+    if (fs.existsSync(MCP_HINTS_PATH)) {
+      const content = fs.readFileSync(MCP_HINTS_PATH, "utf-8").trim();
+      return content.length > 0 ? content : "";
+    }
+  } catch { /* non-fatal */ }
+  return "";
+}
+
+function lastMcpActivityTimestamp(): string | undefined {
+  if (!fs.existsSync(MCP_USAGE_LOG)) return undefined;
+  try {
+    const lines = fs.readFileSync(MCP_USAGE_LOG, "utf-8").split("\n").filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const entry = JSON.parse(lines[i]) as { ts?: string };
+      if (entry.ts) return entry.ts;
+    }
+  } catch {
+    // non-fatal
+  }
+  return undefined;
+}
+
+function formatActivityAge(ts: string): string {
+  const ms = Date.now() - new Date(ts).getTime();
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes}min ago`;
+  const hours = Math.round(ms / 3_600_000);
+  return `${hours}h ago`;
+}
+
+function mcpGateMessage(statusLines: string[]): string {
+  const hints = readMcpHints();
+  return hints
+    ? statusLines.join("\n") + "\n\n" + hints
+    : statusLines.join("\n");
+}
+
+function handleMcpGate(req: HookRequest): HookResponse {
+  const serverExists = fs.existsSync(MCP_SERVER_SCRIPT);
+  if (!serverExists) {
+    return sessionStartOutput(
+      mcpGateMessage([
+        "⛔ MCP-Force Gate: MCP server script not found.",
+        "   All native file tools (Read, Write, Edit, Glob, Grep) are blocked.",
+        "   Run \"Claude Skills: Enable MCP Server\" in VS Code to restore file access.",
+      ]),
+      req.agent
+    );
+  }
+
+  const lastTs = lastMcpActivityTimestamp();
+  if (!lastTs) {
+    return sessionStartOutput(
+      mcpGateMessage([
+        "✓ MCP-Force Gate: MCP server installed, no activity logged yet.",
+        "  Use mcp__filesystem__* tools — native file tools are blocked.",
+      ]),
+      req.agent
+    );
+  }
+
+  const age = formatActivityAge(lastTs);
+  const msInactive = Date.now() - new Date(lastTs).getTime();
+  const inactiveTooLong = msInactive > 10 * 60_000; // 10 min
+
+  if (inactiveTooLong) {
+    return sessionStartOutput(
+      mcpGateMessage([
+        `⚠ MCP-Force Gate: MCP server installed but inactive for ${age}.`,
+        "  Verify the MCP server is connected before starting file work.",
+        "  Use mcp__filesystem__* tools — native file tools are blocked.",
+      ]),
+      req.agent
+    );
+  }
+
+  return sessionStartOutput(
+    mcpGateMessage([`✓ MCP-Force Gate: MCP ready (last activity ${age}). Use mcp__filesystem__* for all file ops.`]),
+    req.agent
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -936,6 +1070,8 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "official-skills": return handleOfficialSkills(req);
     case "profile-init": return handleProfileInit(req);
     case "branch-sync": return Promise.resolve(handleBranchSync(req));
+    case "mcp-force": return Promise.resolve(handleMcpForce(req));
+    case "mcp-gate": return Promise.resolve(handleMcpGate(req));
     default: return {};
   }
 }
