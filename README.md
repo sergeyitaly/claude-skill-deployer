@@ -69,16 +69,196 @@ Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-
 
 ### MCP Servers
 
-The extension includes official MCP (Model Context Protocol) servers:
+The extension includes a bundled MCP (Model Context Protocol) filesystem server that gives AI agents structured file access and records every operation as telemetry.
 
-- **Filesystem MCP Server** — Bundled file I/O tool that Claude can use to read, write, and manage files.
-  - Command Palette → **Enable Local Filesystem MCP Server** to activate.
-  - The extension automatically configures the server and displays connection status in the Claude Skills panel.
-  - Status indicator shows **Connected** (green) or **Disconnected** (gray).
-  - Disable with **Disable Local Filesystem MCP Server** command.
+- **Auto-started on activation** — deployed and wired to Claude/Cursor/Kiro automatically; no manual setup for a fresh install.
+- **MCP Health** status bar (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — click for the full health report.
+- **Agent KPI** status bar (`$(pulse) KPI: A · 42 calls`) — live efficiency grade from the last 24 h of file-access telemetry.
+- **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` and injects an `## MCP REQUIRED` block into `CLAUDE.md`, routing all file I/O through the MCP server. Revert with **Disable MCP Force Mode**.
+- **Clear MCP Logs** — Command Palette → **Claude Skills: Clear MCP Server Logs**.
+- Security: `allowed-dirs.json` restricts access to `~/.claude/` and open workspace folders only.
+
+See [MCP Filesystem Server — Scenarios & Benefits](#mcp-filesystem-server--scenarios--benefits) for the full data-flow and KPI guide.
 
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
+
+## MCP Filesystem Server — Scenarios & Benefits
+
+### What it is
+
+The bundled `extension/resources/mcp-servers/filesystem/index.js` is a lightweight JSON-RPC server (Node.js, no dependencies) that runs as a subprocess and exposes five tools to any connected AI agent:
+
+| Tool | What it does |
+|---|---|
+| `mcp__filesystem__read_file` | Read a file's full content |
+| `mcp__filesystem__write_file` | Write a file (auto-skips if content is unchanged) |
+| `mcp__filesystem__list_directory` | List directory entries (name + type) |
+| `mcp__filesystem__search_files` | Find files by name pattern, up to depth 10 |
+| `mcp__filesystem__delete_file` | Delete a file |
+
+Every call is recorded as a JSONL line in `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped). The extension reads these logs to compute efficiency KPIs and optimization hints.
+
+---
+
+### Scenario 1 — Normal usage (no enforcement)
+
+An AI agent (Claude, Cursor, or Kiro) can choose between its built-in native tools (`Read`, `Edit`, `Glob`, etc.) and the MCP filesystem tools. Both work; only MCP calls are logged and scored.
+
+**What you get:**
+
+- The **Agent KPI** status bar shows an efficiency grade (A–F) based on how the agent used file tools in the last 24 h.
+- The **Cost Dashboard → Efficiency metrics** panel breaks down token waste by file and session.
+- A hints file (`~/.claude/learning/mcp-agent-hints.md`) is auto-written after each analysis pass with rules the agent can read at session start to avoid repeating past wasteful patterns.
+
+**When to use this scenario:** auditing an existing agent setup without changing its behavior.
+
+---
+
+### Scenario 2 — MCP Force Mode (enforcement)
+
+Command Palette → **Enable MCP Force Mode** applies two changes:
+
+1. Writes `["Read", "Write", "Edit", "Glob", "Grep", "Bash"]` to `.claude/settings.json → permissions.deny` — Claude refuses to call those native tools.
+2. Injects an `## MCP REQUIRED` block into `CLAUDE.md` with explicit instructions to use only MCP tools.
+
+**Safety interlock:** Force Mode only activates when `checkMcpHealth()` confirms the server is configured and reachable. If the MCP server is broken, the deny list is **not** written — the agent cannot be left with no working file tools.
+
+**What you get:**
+
+- 100% of file I/O flows through the MCP server, so every read, write, list, and search appears in the telemetry log.
+- KPI grades are meaningful rather than partial (native tool calls leave no trace).
+- The **Efficiency metrics** panel shows exact token counts per file, per session, and per tool type.
+
+**When to use this scenario:** strict agent observability, cost audits, or testing agents in isolation.
+
+---
+
+### Scenario 3 — Test prompt (agent investigation)
+
+The MCP test prompt in `tests/mcp_test_propmt.md` is an example of giving an AI agent a structured investigation task where it must use only MCP filesystem tools. This validates:
+
+- That the MCP server is correctly configured and accessible.
+- That the agent's file-access behavior is fully observable (every step logged).
+- That the resulting KPI report accurately reflects the agent's actual patterns.
+
+Run it by pasting the prompt into a Claude/Cursor/Kiro session after enabling MCP Force Mode.
+
+---
+
+### Data flow: MCP call → status bar KPI
+
+```
+Agent calls mcp__filesystem__read_file("src/extension.ts")
+  │
+  ▼
+index.js dispatchTool()
+  Records: { ts, tool, path, durationMs, bytes, sessionId }
+  Auto-skips write_file if SHA-1 content matches on-disk
+  │
+  ▼
+appendMcpUsageLog()
+  Writes JSONL line to:
+    ~/.claude/learning/mcp-usage.jsonl        (global — cross-session intelligence)
+    <workspace>/.claude/mcp-usage.jsonl       (workspace — per-project KPI)
+  │
+  ▼
+Extension refresh cycle (every ~2 s)
+  summarizeMcpUsage()
+    readMcpUsageLog()            — mtime-cached, no re-parse if file unchanged
+    detectWaste()                — files read 3+ times
+    detectAgentLoops()           — same file read 4+ times in 5-min window
+    detectExcessiveScans()       — same directory listed 3+ times
+    detectReadAfterWrite()       — read within 60 s of write to same path
+    detectLargeFiles()           — files > 100 KB
+    detectNoOpWrites()           — write_file skipped because content unchanged
+    computeScore()               → score (0–100), grade (A–F)
+  │
+  ▼
+Status bar: "$(pulse) KPI: B · 38 calls"
+Cost Dashboard → Efficiency metrics panel
+~/.claude/learning/mcp-agent-hints.md   ← written for the agent to read next session
+```
+
+---
+
+### How efficiency is scored
+
+```
+wasteful_ops =
+    (read_file calls - 1) per hot file    ← redundant repeated reads
+  + read_after_write count                ← re-reading content just written
+  + (loop reads - 1) per looping path     ← agent reasoning loops
+  + no-op write count                     ← identical content written again
+  + ceil(excess_scan_entries / 50)        ← repeated directory scans
+
+score = round(((total_ops - wasteful_ops) / total_ops) * 100)
+```
+
+| Grade | Score | Meaning |
+|---|---|---|
+| **A** | ≥ 90% | Efficient — minimal redundancy |
+| **B** | 75–89% | Good — minor repeated reads |
+| **C** | 60–74% | Moderate waste — check repeated reads and scans |
+| **D** | 45–59% | High waste — agent likely looping or re-reading large files |
+| **F** | < 45% | Severe waste — enforce MCP Force and review hints file |
+
+Grades appear after **5 or more** MCP calls (below that threshold the score shows `notEnoughData`).
+
+---
+
+### What the efficiency panel shows
+
+The **Cost Dashboard → Efficiency metrics** section (Command Palette → **Show Cost Intelligence Dashboard**) contains:
+
+- **Token quality bar** — stacked useful / wasted / untracked token totals for the last 14 d
+- **Cost per file** — which files consumed the most context tokens (MCP reads)
+- **Waste detected** — per-pattern breakdowns: repeated reads, agent loops, read-after-write, large files, excessive directory scans, no-op writes
+- **Suggestions** — actionable hints with estimated token savings
+- **Persistently over-read files (30 d)** — files read in > 50% of sessions across multiple agent conversations; these are candidates for permanent entries in `mcp-agent-hints.md`
+
+---
+
+### Cross-session intelligence
+
+`summarizeCrossSessionPatterns()` groups every `read_file` event by `sessionId` across the last 30 days and surfaces files that appear in more than 50% of sessions. These are genuine global hot spots — files the agent consistently re-reads from scratch.
+
+The hints file (`mcp-agent-hints.md`) includes these as permanent cache rules:
+
+```markdown
+## Files to cache in memory (read repeatedly — do not re-read)
+- `src/extension.ts` — read 6×, ~12,400 tokens wasted
+→ Rule: if a file is already in your context, do NOT call read_file again.
+```
+
+Agents that read this file at session start avoid repeating the patterns from prior sessions.
+
+---
+
+### Log files
+
+| File | Written by | Purpose |
+|---|---|---|
+| `~/.claude/learning/mcp-usage.jsonl` | MCP server (`index.js`) | Global log — all agents, all sessions |
+| `<workspace>/.claude/mcp-usage.jsonl` | MCP server (`index.js`) | Workspace-scoped log for per-project KPIs |
+| `~/.claude/learning/mcp-agent-hints.md` | Extension (`mcpUsageLog.ts`) | Auto-generated optimization rules for agents |
+
+Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) or the **Clear MCP Logs** button inside the Cost Dashboard.
+
+---
+
+### Quick benefit checklist
+
+| Goal | What to do |
+|---|---|
+| See if MCP is working | Check `$(plug) MCP Connected` in the status bar; click for agent list |
+| Get a KPI grade | Run any agent task that reads files; grade appears in `$(pulse) KPI` bar after 5+ calls |
+| Force all file I/O through MCP | Command Palette → **Enable MCP Force Mode** |
+| Understand what the agent re-read | Cost Dashboard → **Efficiency metrics → Waste detected** |
+| Give the agent memory of past waste | Check `~/.claude/learning/mcp-agent-hints.md` — add it to agent context at session start |
+| Reset and start clean | Command Palette → **Claude Skills: Clear MCP Server Logs** |
+
+---
 
 ## Docs & diagrams
 
@@ -475,7 +655,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.18** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Current extension version: **1.0.65** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Performance impact
 

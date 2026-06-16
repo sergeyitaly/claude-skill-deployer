@@ -22,6 +22,10 @@ export interface McpUsageEntry {
   contentHash?: string;
   /** True when a write_file was skipped because content was identical. */
   skipped?: boolean;
+  /** Number of entries returned by list_directory or search_files. */
+  entryCount?: number;
+  /** True when search_files hit the recursion depth limit (depth > 10). */
+  depthReached?: boolean;
   error?: string;
   /** Rotated on each MCP initialize handshake — identifies one agent conversation. */
   sessionId?: string;
@@ -74,12 +78,22 @@ export interface NoOpWriteInfo {
   description: string;
 }
 
+export interface ExcessiveScanWarning {
+  path: string;
+  scans: number;
+  /** Avg entries per scan × excess scans — proportional penalty for large directories. */
+  estimatedWastedEntries: number;
+  description: string;
+}
+
 export interface EfficiencyScore {
   /** 0–100. */
   score: number;
   totalOps: number;
   wastefulOps: number;
   grade: "A" | "B" | "C" | "D" | "F";
+  /** True when totalOps < MIN_OPS_FOR_SCORE — score is not meaningful yet. */
+  notEnoughData?: boolean;
 }
 
 export interface McpOptimizationSuggestion {
@@ -104,6 +118,8 @@ export interface McpUsageSummary {
   largeFiles: LargeFileWarning[];
   /** write_file calls auto-skipped because content was unchanged. */
   noOpWrites: NoOpWriteInfo[];
+  /** Directories listed 3+ times in the window. */
+  excessiveScans: ExcessiveScanWarning[];
   /** Actionable optimization suggestions. */
   suggestions: McpOptimizationSuggestion[];
   efficiencyScore: EfficiencyScore;
@@ -141,12 +157,18 @@ function resolvePath(p: string): string {
 // Log I/O
 // ---------------------------------------------------------------------------
 
+interface LogCache { mtime: number; entries: McpUsageEntry[] }
+const logCache = new Map<string, LogCache>();
+
 export function readMcpUsageLog(logPath = MCP_USAGE_LOG_PATH): McpUsageEntry[] {
   if (!fs.existsSync(logPath)) {
     return [];
   }
   try {
-    return fs
+    const mtime = fs.statSync(logPath).mtimeMs;
+    const cached = logCache.get(logPath);
+    if (cached && cached.mtime === mtime) return cached.entries;
+    const entries = fs
       .readFileSync(logPath, "utf-8")
       .split("\n")
       .filter(Boolean)
@@ -157,6 +179,8 @@ export function readMcpUsageLog(logPath = MCP_USAGE_LOG_PATH): McpUsageEntry[] {
           return [];
         }
       });
+    logCache.set(logPath, { mtime, entries });
+    return entries;
   } catch {
     return [];
   }
@@ -194,7 +218,8 @@ function detectWaste(
     });
   }
   const sortedWarnings = [...warnings].sort((a, b) => b.wastedTokens - a.wastedTokens);
-  return { warnings: sortedWarnings.slice(0, 5), totalWastedTokens };
+  // No top-N cap here — caller filters loop paths first, then caps, so no slots are wasted.
+  return { warnings: sortedWarnings, totalWastedTokens };
 }
 
 function detectReadAfterWrite(
@@ -302,6 +327,34 @@ function detectNoOpWrites(entries: McpUsageEntry[]): NoOpWriteInfo[] {
     .slice(0, 5);
 }
 
+function detectExcessiveScans(entries: McpUsageEntry[]): ExcessiveScanWarning[] {
+  const byPath: Record<string, { scans: number; totalEntries: number }> = {};
+  for (const e of entries) {
+    if ((e.tool === "list_directory" || e.tool === "search_files") && !e.error && e.path) {
+      const rec = (byPath[e.path] ??= { scans: 0, totalEntries: 0 });
+      rec.scans += 1;
+      rec.totalEntries += e.entryCount ?? 0;
+    }
+  }
+  return Object.entries(byPath)
+    .filter(([, rec]) => rec.scans >= 3)
+    .map(([p, rec]) => {
+      const avgEntries = rec.scans > 0 ? Math.round(rec.totalEntries / rec.scans) : 0;
+      const estimatedWastedEntries = avgEntries * Math.max(0, rec.scans - 1);
+      const entrySuffix = avgEntries > 0 ? `, ~${estimatedWastedEntries} wasted entries` : "";
+      return {
+        path: p,
+        scans: rec.scans,
+        estimatedWastedEntries,
+        description: `Scanned ${rec.scans}×${entrySuffix} — cache listing instead of re-scanning`,
+      };
+    })
+    .sort((a, b) => b.estimatedWastedEntries - a.estimatedWastedEntries || b.scans - a.scans)
+    .slice(0, 5);
+}
+
+const MIN_OPS_FOR_SCORE = 5;
+
 function scoreToGrade(score: number): EfficiencyScore["grade"] {
   if (score >= 90) return "A";
   if (score >= 75) return "B";
@@ -315,16 +368,21 @@ function computeScore(
   waste: McpWasteWarning[],
   readAfterWrite: ReadAfterWriteWarning[],
   loops: AgentLoopWarning[],
-  noOpWrites: NoOpWriteInfo[]
+  noOpWrites: NoOpWriteInfo[],
+  excessiveScans: ExcessiveScanWarning[]
 ): EfficiencyScore {
   if (totalOps === 0) {
     return { score: 100, totalOps: 0, wastefulOps: 0, grade: "A" };
+  }
+  if (totalOps < MIN_OPS_FOR_SCORE) {
+    return { score: 100, totalOps, wastefulOps: 0, grade: "A", notEnoughData: true };
   }
   const wastefulOps =
     waste.reduce((s, w) => s + Math.max(0, w.reads - 1), 0) +
     readAfterWrite.length +
     loops.reduce((s, l) => s + Math.max(0, l.reads - 1), 0) +
-    noOpWrites.reduce((s, n) => s + n.skippedCount, 0);
+    noOpWrites.reduce((s, n) => s + n.skippedCount, 0) +
+    excessiveScans.reduce((s, sc) => s + Math.max(1, Math.ceil(sc.estimatedWastedEntries / 50)), 0);
   const score = Math.max(0, Math.round(((totalOps - wastefulOps) / totalOps) * 100));
   return { score, totalOps, wastefulOps, grade: scoreToGrade(score) };
 }
@@ -358,6 +416,10 @@ function accumulateEntries(goodEntries: McpUsageEntry[]): AccumulatedRaw {
         file.totalBytesRead += e.bytes;
         file.readCalls += 1;
         totalEstimatedTokens += bytesToTokens(e.bytes);
+      }
+      if ((e.tool === "list_directory" || e.tool === "search_files") && typeof e.entryCount === "number") {
+        // ~4 tokens per entry (name + type) — proportional, not precise
+        totalEstimatedTokens += e.entryCount * 4;
       }
     }
     totalMs += e.durationMs;
@@ -399,8 +461,11 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
   const largeFiles = detectLargeFiles(resolvedEntries);
   // Exclude files already surfaced as agent loops — the loop warning is more specific.
   const loopPaths = new Set(agentLoops.map((l) => l.path));
-  const wasteWarnings = detectWaste(resolvedEntries).warnings.filter((w) => !loopPaths.has(w.path));
-  const noOpWrites = detectNoOpWrites(entries); // includes skipped entries
+  const wasteWarnings = detectWaste(resolvedEntries).warnings
+    .filter((w) => !loopPaths.has(w.path))
+    .slice(0, 5);
+  const noOpWrites = detectNoOpWrites(resolvedEntries);
+  const excessiveScans = detectExcessiveScans(resolvedEntries);
 
   const totalWastedTokens =
     wasteWarnings.reduce((s, w) => s + w.wastedTokens, 0) +
@@ -437,8 +502,16 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
       description: `${saved} no-op write(s) auto-skipped — MCP server now compares content hash before writing`,
     });
   }
+  if (excessiveScans.length > 0) {
+    const totalWastedEntries = excessiveScans.reduce((s, sc) => s + sc.estimatedWastedEntries, 0);
+    const entrySuffix = totalWastedEntries > 0 ? ` (${totalWastedEntries.toLocaleString()} wasted entries total)` : "";
+    suggestions.push({
+      kind: "deduplicate_scans",
+      description: `Cache directory listings instead of re-scanning — ${excessiveScans.length} path(s) scanned 3× or more${entrySuffix}`,
+    });
+  }
 
-  const efficiencyScore = computeScore(goodEntries.length, wasteWarnings, readAfterWrite, agentLoops, noOpWrites);
+  const efficiencyScore = computeScore(goodEntries.length, wasteWarnings, readAfterWrite, agentLoops, noOpWrites, excessiveScans);
 
   // Latest session ID for per-session alert deduplication.
   const latestSessionId = [...entries].reverse().find((e) => e.sessionId)?.sessionId;
@@ -454,6 +527,7 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
     agentLoops,
     largeFiles,
     noOpWrites,
+    excessiveScans,
     suggestions,
     efficiencyScore,
     totalWastedTokens,
@@ -619,4 +693,48 @@ export function summarizeCrossSessionPatterns(daysBack = 30): CrossSessionSummar
 
   persistentHotFiles.sort((a, b) => b.prevalence - a.prevalence || b.readsPerSession - a.readsPerSession);
   return { totalSessions, persistentHotFiles };
+}
+
+// ---------------------------------------------------------------------------
+// Log management
+// ---------------------------------------------------------------------------
+
+export interface ClearMcpLogsResult {
+  clearedGlobal: boolean;
+  clearedWorkspace: boolean;
+  clearedHints: boolean;
+}
+
+/**
+ * Truncates MCP usage logs and the hints file in place (preserves the files so
+ * the MCP server can keep appending without an ENOENT on the next write).
+ * Pass `workspaceLogPath` to also clear the workspace-scoped log.
+ */
+export function clearMcpLogs(workspaceLogPath?: string): ClearMcpLogsResult {
+  const result: ClearMcpLogsResult = { clearedGlobal: false, clearedWorkspace: false, clearedHints: false };
+
+  try {
+    if (fs.existsSync(MCP_USAGE_LOG_PATH)) {
+      fs.writeFileSync(MCP_USAGE_LOG_PATH, "", "utf-8");
+      result.clearedGlobal = true;
+    }
+  } catch { /* non-fatal */ }
+
+  if (workspaceLogPath) {
+    try {
+      if (fs.existsSync(workspaceLogPath)) {
+        fs.writeFileSync(workspaceLogPath, "", "utf-8");
+        result.clearedWorkspace = true;
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  try {
+    if (fs.existsSync(MCP_HINTS_PATH)) {
+      fs.writeFileSync(MCP_HINTS_PATH, "", "utf-8");
+      result.clearedHints = true;
+    }
+  } catch { /* non-fatal */ }
+
+  return result;
 }

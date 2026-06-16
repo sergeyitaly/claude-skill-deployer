@@ -127,7 +127,10 @@ import {
   getWorkspaceHookStatus,
   installAttributionHooks,
   installCostControlHooks,
+  installMcpForceHook,
+  installMcpGateHook,
   installOfficialSkillsSessionHook,
+  removeMcpForceHooks,
 } from "./hookOps";
 import { startHookServer, stopHookServer } from "./hookServer";
 import { syncCliConfigToWorkspace } from "./cliConfig";
@@ -178,6 +181,7 @@ import { AttributionCollector } from "./attributionCollector";
 import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
 import { computeEfficiencyMetrics, formatEfficiencyReport, TelemetryScope } from "./efficiencyMetrics";
+import { clearMcpLogs, workspaceMcpLogPath, summarizeMcpUsage, MCP_USAGE_LOG_PATH } from "./mcpUsageLog";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
 import { formatCostDashboardHtml, formatCostDashboardText, formatTeamEconomicsPanelsHtml, getOrBuildDashboardMainBody } from "./costDashboard";
 import { tryReadValidDashboardSnapshot } from "./dashboardSnapshotCache";
@@ -223,8 +227,16 @@ import { readPipelineCycle } from "./pipelineCycle";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
-import { activateMcpOptimizer, revertMcpOptimizer } from "./mcpAutoOptimizer";
-import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus } from "./mcpOfficial";
+import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
+import { checkMcpHealth } from "./mcpHealth";
+import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup } from "./mcpOfficial";
+import {
+  enableMcpForcePermissions,
+  injectMcpForceClaude,
+  isMcpForceActive,
+  removeMcpForceClaudeBlock,
+  revertMcpForcePermissions,
+} from "./mcpForce";
 import { checkAndShowKpiAlert } from "./kpiAlert";
 import {
   configureWeeklyReportEmail,
@@ -287,6 +299,8 @@ let contextFocusStatusBarItem: vscode.StatusBarItem;
 let practicalFocusStatusBarItem: vscode.StatusBarItem;
 let projectTierStatusBarItem: vscode.StatusBarItem;
 let workspaceFolderStatusBarItem: vscode.StatusBarItem;
+let mcpHealthStatusBarItem: vscode.StatusBarItem;
+let mcpKpiStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 let costDashboardPanel: vscode.WebviewPanel | undefined;
 let costDashboardMessageSub: vscode.Disposable | undefined;
@@ -458,6 +472,60 @@ function syncBranchProfileContext(target: string | undefined): void {
   );
 }
 
+function refreshMcpStatusBars() {
+  const now = Date.now();
+  if (now - lastMcpBarRefreshMs < MCP_BAR_REFRESH_INTERVAL_MS) return;
+  lastMcpBarRefreshMs = now;
+  const health = checkMcpHealth();
+  const agentCount = health.configuredAgents.length;
+  const agentLabel = agentCount > 0 ? ` · ${agentCount} agents` : "";
+  if (health.status === "ready") {
+    mcpHealthStatusBarItem.text = `$(plug) MCP Connected`;
+    mcpHealthStatusBarItem.tooltip =
+      `MCP filesystem server active.\nAgents: ${health.configuredAgents.join(", ")}\nLast activity: ${health.lastActivityTime ?? "unknown"}\nCalls (24h): ${health.mcpCallsLast24h}\n\nClick for details.`;
+    mcpHealthStatusBarItem.backgroundColor = undefined;
+  } else if (health.status === "no-activity") {
+    mcpHealthStatusBarItem.text = `$(plug) MCP${agentLabel}`;
+    mcpHealthStatusBarItem.tooltip =
+      `MCP filesystem server configured for: ${health.configuredAgents.join(", ") || "none"}.\n\nActivity is logged when an agent calls a filesystem tool (read_file, list_directory, etc.).\nChatting with Claude does not trigger filesystem MCP calls directly.\n\nClick for details.`;
+    mcpHealthStatusBarItem.backgroundColor = undefined;
+  } else {
+    mcpHealthStatusBarItem.text = `$(warning) MCP: setup needed`;
+    mcpHealthStatusBarItem.tooltip =
+      `MCP server is not ready.\n${health.errors.join("\n")}\n\nClick to diagnose.`;
+    mcpHealthStatusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  }
+  mcpHealthStatusBarItem.command = "claudeSkills.showMcpHealth";
+  mcpHealthStatusBarItem.show();
+
+  const target = getWorkspaceTarget();
+  const logPath = target ? workspaceMcpLogPath(target) : undefined;
+  const summary = summarizeMcpUsage(1, logPath);
+  const { score, grade, notEnoughData } = summary.efficiencyScore;
+  const calls = summary.totalCalls;
+  if (calls === 0) {
+    mcpKpiStatusBarItem.text = `$(pulse) Agent KPI: ready`;
+    mcpKpiStatusBarItem.tooltip = `No filesystem MCP tool calls in the last 24h. KPIs appear after a Claude CLI, Cursor, or Kiro session makes file operations.\n\nClick for the MCP health report.`;
+  } else if (notEnoughData) {
+    mcpKpiStatusBarItem.text = `$(pulse) Agent KPI: ${calls} call(s)`;
+    mcpKpiStatusBarItem.tooltip =
+      `AI Agent KPI (last 24h)\n` +
+      `Not enough data — need ${5} or more ops to score (${calls} so far).\n\n` +
+      `KPI grade appears once enough filesystem tool calls are recorded.\n\nClick for the MCP health report.`;
+  } else {
+    const wastedLabel = summary.totalWastedTokens > 0 ? ` · ${(summary.totalWastedTokens / 1000).toFixed(1)}k wasted` : "";
+    mcpKpiStatusBarItem.text = `$(pulse) KPI: ${grade} · ${calls} calls`;
+    mcpKpiStatusBarItem.tooltip =
+      `AI Agent KPI (last 24h)\n` +
+      `Efficiency: ${score}% (grade ${grade})\n` +
+      `MCP calls: ${calls}${wastedLabel}\n` +
+      (summary.suggestions.length > 0 ? `\nTop hint: ${summary.suggestions[0].description}` : "") +
+      `\n\nClick for full MCP health report.`;
+  }
+  mcpKpiStatusBarItem.command = "claudeSkills.showMcpHealth";
+  mcpKpiStatusBarItem.show();
+}
+
 function refreshProjectTierStatusBar(target?: string) {
   if (!target) {
     projectTierStatusBarItem.hide();
@@ -555,6 +623,9 @@ function refreshTrustStatusBar(libraryDir: string, target?: string) {
   trustStatusBarItem.command = "claudeSkills.showUsageStats";
   trustStatusBarItem.show();
 }
+
+let lastMcpBarRefreshMs = 0;
+const MCP_BAR_REFRESH_INTERVAL_MS = 2000;
 
 let lastOutdatedAlertCheckMs = 0;
 const OUTDATED_ALERT_INTERVAL_MS = 10 * 60 * 1000;
@@ -740,8 +811,14 @@ export function activate(context: vscode.ExtensionContext) {
   projectTierStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97.25);
   context.subscriptions.push(projectTierStatusBarItem);
 
-  workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
-  context.subscriptions.push(workspaceFolderStatusBarItem);
+workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
+   context.subscriptions.push(workspaceFolderStatusBarItem);
+
+   mcpHealthStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 93);
+   context.subscriptions.push(mcpHealthStatusBarItem);
+
+   mcpKpiStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 92);
+   context.subscriptions.push(mcpKpiStatusBarItem);
 
   registerSyncStatusBar(context);
   registerUserActivityListeners(context);
@@ -915,14 +992,16 @@ export function activate(context: vscode.ExtensionContext) {
       provider.refresh();
     }
     refreshStatusBar(libraryDir);
-    refreshUsageStatusBar(libraryDir);
     refreshCreditStatusBar(libraryDir, target);
-    refreshTrustStatusBar(libraryDir, target);
-    refreshBudgetModeStatusBar(libraryDir);
-    refreshContextFocusStatusBar();
-    refreshPracticalFocusStatusBar();
     refreshProjectTierStatusBar(target);
     refreshWorkspaceFolderStatusBar();
+    refreshMcpStatusBars();
+    // Removed from status bar: usage, trust badge, budget mode, context focus, practical focus
+    usageStatusBarItem.hide();
+    trustStatusBarItem.hide();
+    budgetModeStatusBarItem.hide();
+    contextFocusStatusBarItem.hide();
+    practicalFocusStatusBarItem.hide();
     if (target && opts.workspaceState && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
       const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
       if (synced.length > 0) {
@@ -1177,7 +1256,7 @@ export function activate(context: vscode.ExtensionContext) {
     const recovery = new ErrorRecovery();
     await recovery.repairCommonIssues(initialTarget);
     await promptGetStarted(context);
-    void activateMcpOptimizer(context, context.extensionPath, log);
+    autoMigrateProxyIfActive(context, log);
   })();
 
   void startHookServer();
@@ -1204,17 +1283,24 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   if (initialTarget && !integrationTestMode()) {
-    // Auto-enable the filesystem MCP server on first activation if no agent has it yet.
+    // Auto-start local MCP server on extension activation.
     setTimeout(() => {
       try {
-        if (!getWorkspaceTarget()) return; // workspace closed before timer fired
-        const status = getFilesystemMcpServerStatus();
-        if (!status.enabled) {
-          const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
-          void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log);
+        if (!getWorkspaceTarget()) return;
+        const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+        if (needsFilesystemMcpSetup()) {
+          void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log).then(() => {
+            log(`MCP server: auto-started and configured for ${workspaceDirs.length} workspace folder(s).`);
+            refreshMcpStatusBars();
+          });
+        } else {
+          // Binary deployed and claude configured — refresh allowed dirs for this workspace.
+          refreshFilesystemAllowedDirs(workspaceDirs, log);
+          log(`MCP server: already configured — agents can connect.`);
+          refreshMcpStatusBars();
         }
-      } catch {
-        // non-fatal — user can enable manually via command
+      } catch (err) {
+        log(`MCP server auto-start failed: ${(err as Error).message}`);
       }
     }, 5000);
 
@@ -1875,6 +1961,27 @@ export function activate(context: vscode.ExtensionContext) {
       revertMcpOptimizer(context, log);
     }),
 
+    vscode.commands.registerCommand("claudeSkills.clearMcpLogs", async () => {
+      const answer = await vscode.window.showWarningMessage(
+        "Clear all local MCP server logs? This removes mcp-usage.jsonl and mcp-agent-hints.md and cannot be undone.",
+        { modal: true },
+        "Clear"
+      );
+      if (answer !== "Clear") return;
+      const ws = getWorkspaceTarget();
+      const wsLog = ws ? workspaceMcpLogPath(ws) : undefined;
+      const result = clearMcpLogs(wsLog);
+      const cleared: string[] = [];
+      if (result.clearedGlobal) cleared.push("global log");
+      if (result.clearedWorkspace) cleared.push("workspace log");
+      if (result.clearedHints) cleared.push("hints");
+      void notifyUserSuccess(
+        cleared.length > 0
+          ? `Claude Skills: cleared MCP ${cleared.join(", ")}.`
+          : "Claude Skills: no MCP log files found to clear."
+      );
+    }),
+
     vscode.commands.registerCommand("claudeSkills.enableOfficialFilesystemServer", async () => {
       maybeRevealOutputPanel();
       const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
@@ -2451,6 +2558,8 @@ export function activate(context: vscode.ExtensionContext) {
               await vscode.commands.executeCommand("claudeSkills.exportCostReport");
             } else if (msg.command === "openBudget") {
               await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
+            } else if (msg.command === "clearMcpLogs") {
+              await vscode.commands.executeCommand("claudeSkills.clearMcpLogs");
             }
           }
         );
@@ -2911,6 +3020,90 @@ export function activate(context: vscode.ExtensionContext) {
       } catch (err) {
         vscode.window.showWarningMessage(`Claude Skills: ${(err as Error).message}`);
       }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.showMcpHealth", () => {
+      const health = checkMcpHealth();
+      const target = getWorkspaceTarget();
+      const logPath = target ? workspaceMcpLogPath(target) : undefined;
+      const summary = summarizeMcpUsage(1, logPath);
+      const { score, grade, totalOps, wastefulOps, notEnoughData } = summary.efficiencyScore;
+
+      const connIcon = health.status === "ready" ? "✓" : health.status === "no-activity" ? "~" : "✗";
+      const lines: string[] = [
+        `MCP Server: ${health.status === "ready" ? "Connected" : health.status === "no-activity" ? "Idle (no activity 24h)" : "Setup needed"}  ${connIcon}`,
+        ``,
+        `Config:       ${health.configValid ? "✓ valid" : "✗ invalid"}`,
+        `Server script:${health.serverExists ? "✓ found" : "✗ missing"}`,
+        `Calls (24h):  ${health.mcpCallsLast24h}`,
+      ];
+      if (health.lastActivityTime) {
+        lines.push(`Last activity: ${health.lastActivityTime}`);
+      }
+      if (health.errors.length > 0) {
+        lines.push("", "Issues:", ...health.errors.map((e) => `  - ${e}`));
+      }
+      if (summary.totalCalls > 0) {
+        lines.push(``, `── Agent KPI (last 24h) ──`);
+        if (notEnoughData) {
+          lines.push(`Not enough data (${totalOps} ops — need 5+ to score)`);
+        } else {
+          lines.push(
+            `Efficiency:   ${score}% (grade ${grade})`,
+            `Total ops:    ${totalOps}  Wasteful: ${wastefulOps}`,
+            `Wasted tokens:~${summary.totalWastedTokens.toLocaleString()}`,
+          );
+          if (summary.suggestions.length > 0) {
+            lines.push(``, `Top suggestion:`, `  ${summary.suggestions[0].description}`);
+          }
+        }
+      }
+      vscode.window.showInformationMessage(lines.join("\n"), { modal: true }, "Show Output").then((choice) => {
+        if (choice === "Show Output") {
+          revealOutputPanel();
+        }
+      });
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.enableMcpForce", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const permResult = enableMcpForcePermissions(target);
+      if (!permResult.ok) {
+        void vscode.window.showErrorMessage(
+          `Claude Skills MCP-Force: ${permResult.reason}`
+        );
+        return;
+      }
+      injectMcpForceClaude(target);
+      installMcpForceHook(target);
+      installMcpGateHook(target);
+      log("MCP-force mode enabled: permissions.deny set, CLAUDE.md updated, hooks installed.");
+      void vscode.window.showInformationMessage(
+        "Claude Skills: MCP-force mode enabled. Native file tools blocked; agents must use mcp__filesystem__* tools."
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableMcpForce", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      if (!isMcpForceActive(target)) {
+        void vscode.window.showInformationMessage("Claude Skills: MCP-force mode is not active.");
+        return;
+      }
+      revertMcpForcePermissions(target);
+      removeMcpForceClaudeBlock(target);
+      removeMcpForceHooks(target);
+      log("MCP-force mode disabled: permissions restored, CLAUDE.md block removed, hooks removed.");
+      void vscode.window.showInformationMessage(
+        "Claude Skills: MCP-force mode disabled. Native file tools restored."
+      );
     })
   );
 
@@ -3059,6 +3252,34 @@ export function activate(context: vscode.ExtensionContext) {
       }
     });
     context.subscriptions.push(learningWatcher);
+  }
+
+  // MCP KPI live update — watch both the workspace log (via VS Code watcher) and
+  // the global log (via fs.watch on the directory) so the status bar reflects
+  // agent activity within ~2s of a tool call being logged.
+  const debouncedMcpKpiRefresh = debounce(() => {
+    refreshMcpStatusBars();
+  }, 2000);
+
+  const mcpWorkspaceLogWatcher = vscode.workspace.createFileSystemWatcher("**/.claude/mcp-usage.jsonl");
+  mcpWorkspaceLogWatcher.onDidChange(debouncedMcpKpiRefresh);
+  mcpWorkspaceLogWatcher.onDidCreate(debouncedMcpKpiRefresh);
+  context.subscriptions.push(mcpWorkspaceLogWatcher);
+
+  // Global log lives outside the workspace — watch its parent directory.
+  try {
+    const globalLogDir = path.dirname(MCP_USAGE_LOG_PATH);
+    const globalLogName = path.basename(MCP_USAGE_LOG_PATH);
+    if (fs.existsSync(globalLogDir)) {
+      const globalMcpWatcher = fs.watch(globalLogDir, { persistent: false }, (_event, filename) => {
+        if (filename === globalLogName) {
+          debouncedMcpKpiRefresh();
+        }
+      });
+      context.subscriptions.push({ dispose: () => globalMcpWatcher.close() });
+    }
+  } catch {
+    // Non-fatal — workspace watcher covers the common case.
   }
 
   const gitExt = vscode.extensions.getExtension("vscode.git");
