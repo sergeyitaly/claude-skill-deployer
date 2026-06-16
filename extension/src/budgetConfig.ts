@@ -27,13 +27,25 @@ export interface BudgetConfig {
   lowTierSkills: string[];
 }
 
+export interface BudgetDayNotifications {
+  warn?: boolean;
+  critical?: boolean;
+  economyWarn?: boolean;
+  unlimitedNotify?: boolean;
+  fallback80?: boolean;
+  fallback90?: boolean;
+  fallback95?: boolean;
+}
+
 export interface BudgetState {
   /** ISO date (YYYY-MM-DD) -> last notification level emitted */
-  notifications?: Record<string, { warn?: boolean; critical?: boolean; economyWarn?: boolean; unlimitedNotify?: boolean }>;
+  notifications?: Record<string, BudgetDayNotifications>;
   /** ISO date when high-tier skills were auto-disabled by budget enforcement */
   lastAutoDisableDate?: string;
   /** Skills disabled on lastAutoDisableDate (for idempotency) */
   lastAutoDisabledSkills?: string[];
+  /** ISO date when economy mode was last applied (avoids spamming the message) */
+  lastEconomyApplyDate?: string;
 }
 
 const LEARNING_DIR = path.join(os.homedir(), ".claude", "learning");

@@ -380,20 +380,28 @@ function listSkillMdSkillsInDir(dir: string): string[] {
   if (!fs.existsSync(dir)) {
     return [];
   }
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, "SKILL.md")))
-    .map((e) => e.name);
+  try {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, "SKILL.md")))
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
 }
 
 function listCopilotInstructionsInDir(dir: string): string[] {
   if (!fs.existsSync(dir)) {
     return [];
   }
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith(".instructions.md"))
-    .map((e) => e.name.replace(/\.instructions\.md$/, ""));
+  try {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(".instructions.md"))
+      .map((e) => e.name.replace(/\.instructions\.md$/, ""));
+  } catch {
+    return [];
+  }
 }
 
 function listAgentWorkspaceSkills(target: string, agent: AgentDefinition): string[] {
@@ -553,7 +561,9 @@ function pruneExtensionHooksForAgent(target: string, agentId: AgentId): PrunedAg
   if (agentId === "kiro") {
     const hooksDir = path.join(target, ".kiro", "hooks");
     if (fs.existsSync(hooksDir)) {
-      for (const name of fs.readdirSync(hooksDir)) {
+      let hookNames: string[];
+      try { hookNames = fs.readdirSync(hooksDir); } catch { hookNames = []; }
+      for (const name of hookNames) {
         if (!EXTENSION_KIRO_HOOK_PATTERN.test(name)) {
           continue;
         }
@@ -574,7 +584,9 @@ function pruneExtensionHooksForAgent(target: string, agentId: AgentId): PrunedAg
   if (agentId === "copilot") {
     const hooksDir = path.join(target, ".github", "hooks");
     if (fs.existsSync(hooksDir)) {
-      for (const name of fs.readdirSync(hooksDir)) {
+      let hookNames: string[];
+      try { hookNames = fs.readdirSync(hooksDir); } catch { hookNames = []; }
+      for (const name of hookNames) {
         if (!EXTENSION_COPILOT_HOOK_PATTERN.test(name)) {
           continue;
         }

@@ -10,8 +10,9 @@ import {
 import { installLibraryToGlobal } from "./skillOps";
 import { syncCliConfigToWorkspace } from "./cliConfig";
 import { ensureLearningDir } from "./usageStats";
+import { hookBaseUrl } from "./hookServer";
 
-const BRANCH_SYNC_HOOK = "branch-sync.js";
+const LEGACY_BRANCH_SYNC_HOOK = "branch-sync.js";
 const GIT_HOOK_MARKER = "claude-skills branch-sync";
 
 export interface PrepareClaudeCliResult {
@@ -32,34 +33,42 @@ function gitHooksDir(target: string): string | undefined {
   return fs.statSync(gitDir).isDirectory() ? path.join(gitDir, "hooks") : undefined;
 }
 
-/** Install post-checkout hook that runs branch-sync.js (headless branch profile apply). */
+function stripBranchSyncBlock(content: string): string {
+  const lines = content.split("\n");
+  const result: string[] = [];
+  let skipNext = false;
+  for (const line of lines) {
+    if (line.startsWith(`# ${GIT_HOOK_MARKER}`)) { skipNext = true; continue; }
+    if (skipNext) {
+      skipNext = false;
+      if (line.includes(LEGACY_BRANCH_SYNC_HOOK) || line.includes("/hook/branch-sync")) continue;
+    }
+    result.push(line);
+  }
+  return result.join("\n").trimEnd();
+}
+
+/** Install post-checkout hook that POSTs to the extension HTTP server for branch-sync. */
 export function installGitBranchSyncHook(target: string): boolean {
   const hooksDir = gitHooksDir(target);
-  if (!hooksDir) {
-    return false;
-  }
+  if (!hooksDir) return false;
   fs.mkdirSync(hooksDir, { recursive: true });
   const hookPath = path.join(hooksDir, "post-checkout");
-  const body = [
-    "#!/bin/sh",
-    `# ${GIT_HOOK_MARKER}`,
-    'ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0',
-    `[ -f "$ROOT/.claude/hooks/${BRANCH_SYNC_HOOK}" ] || exit 0`,
-    `node "$ROOT/.claude/hooks/${BRANCH_SYNC_HOOK}" "$ROOT" 2>/dev/null || true`,
-    "",
-  ].join("\n");
+  const url = `${hookBaseUrl()}/hook/branch-sync?agent=claude&cwd=${encodeURIComponent(target)}`;
+  const hookBlock = `# ${GIT_HOOK_MARKER}\ncurl -sf -X POST -H "Content-Type: application/json" --data '{}' "${url}" || true\n`;
 
-  if (fs.existsSync(hookPath)) {
-    const existing = fs.readFileSync(hookPath, "utf-8");
-    if (existing.includes(GIT_HOOK_MARKER)) {
-      return false;
-    }
-    const merged = `${existing.trimEnd()}\n\n${body}`;
-    fs.writeFileSync(hookPath, merged, { mode: 0o755 });
+  if (!fs.existsSync(hookPath)) {
+    fs.writeFileSync(hookPath, `#!/bin/sh\n${hookBlock}`, { mode: 0o755 });
     return true;
   }
 
-  fs.writeFileSync(hookPath, body, { mode: 0o755 });
+  const existing = fs.readFileSync(hookPath, "utf-8");
+  if (existing.includes(url)) return false; // already up-to-date
+
+  const cleaned = existing.includes(GIT_HOOK_MARKER)
+    ? stripBranchSyncBlock(existing)
+    : existing.trimEnd();
+  fs.writeFileSync(hookPath, `${cleaned}\n\n${hookBlock}`, { mode: 0o755 });
   return true;
 }
 

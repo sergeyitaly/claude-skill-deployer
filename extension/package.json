@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.61",
+  "version": "1.0.63",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -15,7 +15,7 @@
   "homepage": "https://github.com/sergeyitaly/claude-skill-deployer#readme",
   "icon": "resources/icon.png",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.99.0"
   },
   "categories": [
     "Other"
@@ -187,13 +187,13 @@
       },
       {
         "command": "claudeSkills.enableOfficialFilesystemServer",
-        "title": "Enable Official Filesystem MCP Server",
+        "title": "Enable Local Filesystem MCP Server",
         "icon": "$(file-directory)",
         "category": "Claude Skills"
       },
       {
         "command": "claudeSkills.disableOfficialFilesystemServer",
-        "title": "Disable Official Filesystem MCP Server",
+        "title": "Disable Local Filesystem MCP Server",
         "icon": "$(file-directory)",
         "category": "Claude Skills"
       },
@@ -468,6 +468,17 @@
         "category": "Claude Skills"
       }
     ],
+    "mcpServers": {
+      "claude-skills-filesystem": {
+        "label": "Claude Skills Filesystem",
+        "command": "node",
+        "args": [
+          "${extensionPath}/resources/mcp-servers/filesystem/index.js",
+          "--config",
+          "${userHome}/.claude/mcp-servers/filesystem/allowed-dirs.json"
+        ]
+      }
+    },
     "configuration": [
       {
         "id": "claudeSkillsManager",
@@ -1364,6 +1375,17 @@
             "type": "boolean",
             "default": false,
             "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only — no network upload unless you add your own exporter."
+          },
+          "claudeSkills.telemetry.scope": {
+            "type": "string",
+            "enum": ["workspace", "global", "hybrid"],
+            "default": "hybrid",
+            "enumDescriptions": [
+              "MCP telemetry and KPIs read exclusively from <workspace>/.claude/mcp-usage.jsonl — strict per-project isolation, no cross-project data.",
+              "Read from ~/.claude/learning/mcp-usage.jsonl only (pre-1.0.64 behavior) — all projects share one global log.",
+              "Use workspace log when it has data (per-project KPIs), fall back to global log otherwise. Cross-session hints always read from global. Recommended."
+            ],
+            "description": "Where MCP file-access telemetry is read from for the efficiency KPI panel. The MCP server always writes to both logs in hybrid and workspace modes."
           }
         }
       },

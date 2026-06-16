@@ -129,6 +129,7 @@ import {
   installCostControlHooks,
   installOfficialSkillsSessionHook,
 } from "./hookOps";
+import { startHookServer, stopHookServer } from "./hookServer";
 import { syncCliConfigToWorkspace } from "./cliConfig";
 import { setActiveProjectProfileContext } from "./activeProjectProfile";
 import {
@@ -176,6 +177,7 @@ import {
 import { AttributionCollector } from "./attributionCollector";
 import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
+import { computeEfficiencyMetrics, formatEfficiencyReport, TelemetryScope } from "./efficiencyMetrics";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
 import { formatCostDashboardHtml, formatCostDashboardText, formatTeamEconomicsPanelsHtml, getOrBuildDashboardMainBody } from "./costDashboard";
 import { tryReadValidDashboardSnapshot } from "./dashboardSnapshotCache";
@@ -222,7 +224,8 @@ import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
 import { activateMcpOptimizer, revertMcpOptimizer } from "./mcpAutoOptimizer";
-import { enableOfficialFilesystemServer, disableOfficialFilesystemServer } from "./mcpOfficial";
+import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus } from "./mcpOfficial";
+import { checkAndShowKpiAlert } from "./kpiAlert";
 import {
   configureWeeklyReportEmail,
   deliverWeeklyReport,
@@ -948,6 +951,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
     lastWorkspaceStateAt = Date.now();
 
+    checkAndShowKpiAlert(
+      () => void vscode.commands.executeCommand("claudeSkills.showCostDashboard")
+    );
+
     if (profileInitEnabled()) {
       try {
         refreshSkillsCatalog(target, libraryDir);
@@ -1173,6 +1180,8 @@ export function activate(context: vscode.ExtensionContext) {
     void activateMcpOptimizer(context, context.extensionPath, log);
   })();
 
+  void startHookServer();
+
   refreshLight();
 
   startExtensionAutoUpdate(context, log);
@@ -1195,6 +1204,20 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   if (initialTarget && !integrationTestMode()) {
+    // Auto-enable the filesystem MCP server on first activation if no agent has it yet.
+    setTimeout(() => {
+      try {
+        if (!getWorkspaceTarget()) return; // workspace closed before timer fired
+        const status = getFilesystemMcpServerStatus();
+        if (!status.enabled) {
+          const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+          void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log);
+        }
+      } catch {
+        // non-fatal — user can enable manually via command
+      }
+    }, 5000);
+
     if (isFeatureEnabled("attributionCollector")) {
       const collector = AttributionCollector.getInstance(initialTarget, libraryDir);
       collector.start();
@@ -1608,6 +1631,10 @@ export function activate(context: vscode.ExtensionContext) {
         log("\n## Session cost breakdown (latest)\n");
         log(sessionBreakdown);
       }
+      const effScope = vscode.workspace
+        .getConfiguration("claudeSkills.telemetry")
+        .get<TelemetryScope>("scope", "hybrid");
+      log(formatEfficiencyReport(computeEfficiencyMetrics(target, 14, effScope)));
       const topSkill = stats.filter((s) => s.runs > 0).sort((a, b) => b.runs - a.runs)[0];
       if (topSkill) {
         const agent = getOptimalAgent(topSkill.name, attribution);
@@ -1850,16 +1877,28 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand("claudeSkills.enableOfficialFilesystemServer", async () => {
       maybeRevealOutputPanel();
-      await enableOfficialFilesystemServer(context.extensionPath, log, () => {
+      const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+      const result = await enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log, () => {
+        provider.refreshMcpServerStatus();
+      });
+      if (result.enabled.length > 0) {
+        log(`Enabled filesystem MCP server for: ${result.enabled.join(", ")}.`);
+      }
+      for (const error of result.errors) {
+        log(`Filesystem MCP server error for ${error.agentId}: ${error.message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableOfficialFilesystemServer", async () => {
+      maybeRevealOutputPanel();
+      await disableOfficialFilesystemServer(log, () => {
         provider.refreshMcpServerStatus();
       });
     }),
 
-    vscode.commands.registerCommand("claudeSkills.disableOfficialFilesystemServer", () => {
-      maybeRevealOutputPanel();
-      disableOfficialFilesystemServer(log, () => {
-        provider.refreshMcpServerStatus();
-      });
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+      refreshFilesystemAllowedDirs(workspaceDirs, log);
     }),
 
     vscode.commands.registerCommand("claudeSkills.installOfficialSkillsSessionHook", async () => {
@@ -3118,4 +3157,5 @@ function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number): (.
 
 export function deactivate() {
   AttributionCollector.stopAll();
+  void stopHookServer();
 }

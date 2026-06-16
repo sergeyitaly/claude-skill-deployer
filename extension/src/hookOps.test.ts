@@ -24,6 +24,10 @@ vi.mock("vscode", () => ({
   },
 }));
 
+vi.mock("./hookServer", () => ({
+  hookBaseUrl: () => "http://127.0.0.1:4895",
+}));
+
 const EXTENSION_PATH = path.join(__dirname, "..");
 const workspaces: string[] = [];
 
@@ -55,7 +59,7 @@ describe("installAttributionHooks", () => {
         (m) =>
           m.matcher.includes("Skill") &&
           m.matcher.includes("Read") &&
-          m.hooks.some((h) => h.command.includes("skill-invoke-watch.js"))
+          m.hooks.some((h) => h.command.includes("/hook/skill-invoke"))
       )
     ).toBe(true);
 
@@ -63,7 +67,7 @@ describe("installAttributionHooks", () => {
       claudeSettings.hooks?.PreToolUse?.some(
         (m) =>
           m.matcher.includes("Skill") &&
-          m.hooks.some((h) => h.command.includes("skill-invoke-watch.js"))
+          m.hooks.some((h) => h.command.includes("/hook/skill-invoke"))
       )
     ).toBe(true);
 
@@ -71,10 +75,15 @@ describe("installAttributionHooks", () => {
       hooks?: { postToolUse?: { command?: string; matcher?: string }[] };
     };
     expect(cursorHooks.hooks?.postToolUse?.some((h) => h.matcher?.includes("Read"))).toBe(true);
+    expect(
+      cursorHooks.hooks?.postToolUse?.some((h) => h.command?.includes("/hook/skill-invoke"))
+    ).toBe(true);
 
     expect(fs.existsSync(path.join(target, ".kiro", "hooks", "claude-skills-skill-invoke.kiro.hook"))).toBe(true);
     expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-skill-invoke.json"))).toBe(true);
-    expect(fs.existsSync(path.join(target, ".cursor", "hooks", "skill-invoke-watch.js"))).toBe(true);
+    // No JS files are copied any more
+    expect(fs.existsSync(path.join(target, ".claude", "hooks", "skill-invoke-watch.js"))).toBe(false);
+    expect(fs.existsSync(path.join(target, ".cursor", "hooks", "skill-invoke-watch.js"))).toBe(false);
   });
 });
 
@@ -94,41 +103,44 @@ describe("installCostControlHooks", () => {
     const commands = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) =>
       m.hooks.map((h) => h.command)
     );
-    const claudeHooks = [
-      "session-size-watch.js",
-      "budget-watch.js",
-      "context-focus-watch.js",
-      "practical-focus-watch.js",
-      "task-drift-watch.js",
+    const hookNames = [
+      "/hook/session-size",
+      "/hook/budget",
+      "/hook/context-focus",
+      "/hook/practical-focus",
+      "/hook/task-drift",
     ];
-    for (const hook of claudeHooks) {
-      expect(commands.some((c) => c.includes(hook))).toBe(true);
+    for (const hookName of hookNames) {
+      expect(commands.some((c) => c.includes(hookName))).toBe(true);
     }
 
     const cursorHooks = JSON.parse(fs.readFileSync(path.join(target, ".cursor", "hooks.json"), "utf-8")) as {
       hooks?: { beforeSubmitPrompt?: { command?: string }[] };
     };
     const cursorEntries = cursorHooks.hooks?.beforeSubmitPrompt ?? [];
-    for (const hook of claudeHooks) {
-      expect(cursorEntries.some((h) => h.command?.includes(hook) && h.command?.includes(" cursor"))).toBe(
+    for (const hookName of hookNames) {
+      expect(cursorEntries.some((h) => h.command?.includes(hookName) && h.command?.includes("agent=cursor"))).toBe(
         true
       );
     }
-    expect(fs.existsSync(path.join(target, ".cursor", "hooks", "hookPlatform.js"))).toBe(true);
+    // No JS files are copied any more
+    expect(fs.existsSync(path.join(target, ".claude", "hooks", "hookPlatform.js"))).toBe(false);
+    expect(fs.existsSync(path.join(target, ".cursor", "hooks", "hookPlatform.js"))).toBe(false);
 
     const kiroSpecs = [
-      ["claude-skills-session-size.kiro.hook", "promptSubmit", "session-size-watch.js kiro"],
-      ["claude-skills-budget.kiro.hook", "promptSubmit", "budget-watch.js kiro"],
-      ["claude-skills-context-focus.kiro.hook", "promptSubmit", "context-focus-watch.js kiro"],
-      ["claude-skills-practical-focus.kiro.hook", "promptSubmit", "practical-focus-watch.js kiro"],
-      ["claude-skills-task-drift.kiro.hook", "promptSubmit", "task-drift-watch.js kiro"],
+      ["claude-skills-session-size.kiro.hook", "promptSubmit", "/hook/session-size", "agent=kiro"],
+      ["claude-skills-budget.kiro.hook", "promptSubmit", "/hook/budget", "agent=kiro"],
+      ["claude-skills-context-focus.kiro.hook", "promptSubmit", "/hook/context-focus", "agent=kiro"],
+      ["claude-skills-practical-focus.kiro.hook", "promptSubmit", "/hook/practical-focus", "agent=kiro"],
+      ["claude-skills-task-drift.kiro.hook", "promptSubmit", "/hook/task-drift", "agent=kiro"],
     ] as const;
-    for (const [file, whenType, cmdPart] of kiroSpecs) {
+    for (const [file, whenType, cmdPart, agentPart] of kiroSpecs) {
       const kiroHook = JSON.parse(
         fs.readFileSync(path.join(target, ".kiro", "hooks", file), "utf-8")
       ) as { when?: { type?: string }; then?: { command?: string } };
       expect(kiroHook.when?.type).toBe(whenType);
       expect(kiroHook.then?.command).toContain(cmdPart);
+      expect(kiroHook.then?.command).toContain(agentPart);
     }
 
     const copilotFiles = [
@@ -164,14 +176,14 @@ describe("installProfileInitSessionHook", () => {
     ) as { hooks?: { SessionStart?: { hooks: { command: string }[] }[] } };
     expect(
       (claudeSettings.hooks?.SessionStart ?? []).some((m) =>
-        m.hooks.some((h) => h.command.includes("profile-init-watch.js"))
+        m.hooks.some((h) => h.command.includes("/hook/profile-init"))
       )
     ).toBe(true);
 
     const cursorHooks = JSON.parse(fs.readFileSync(path.join(target, ".cursor", "hooks.json"), "utf-8")) as {
       hooks?: { sessionStart?: { command?: string }[] };
     };
-    expect(cursorHooks.hooks?.sessionStart?.some((h) => h.command?.includes("profile-init-watch.js"))).toBe(true);
+    expect(cursorHooks.hooks?.sessionStart?.some((h) => h.command?.includes("/hook/profile-init"))).toBe(true);
 
     const kiroHook = JSON.parse(
       fs.readFileSync(
@@ -180,8 +192,10 @@ describe("installProfileInitSessionHook", () => {
       )
     ) as { when?: { type?: string }; then?: { command?: string } };
     expect(kiroHook.when?.type).toBe("sessionStart");
-    expect(kiroHook.then?.command).toContain("profile-init-watch.js kiro");
-    expect(fs.existsSync(path.join(target, ".claude", "hooks", "profile-init-watch.js"))).toBe(true);
+    expect(kiroHook.then?.command).toContain("/hook/profile-init");
+    expect(kiroHook.then?.command).toContain("agent=kiro");
+    // No JS files are copied any more
+    expect(fs.existsSync(path.join(target, ".claude", "hooks", "profile-init-watch.js"))).toBe(false);
 
     const copilotHook = JSON.parse(
       fs.readFileSync(
@@ -190,7 +204,7 @@ describe("installProfileInitSessionHook", () => {
       )
     ) as { hooks?: { SessionStart?: { bash?: string }[]; sessionStart?: { bash?: string }[] } };
     const sessionStart = copilotHook.hooks?.SessionStart ?? copilotHook.hooks?.sessionStart ?? [];
-    expect(sessionStart.some((h) => h.bash?.includes("profile-init-watch.js copilot"))).toBe(true);
+    expect(sessionStart.some((h) => h.bash?.includes("/hook/profile-init"))).toBe(true);
   });
 });
 

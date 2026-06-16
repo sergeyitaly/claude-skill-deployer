@@ -295,7 +295,6 @@ export function maybeApplyHostAgentSkillSet(
   const sameSkills =
     current.size === savedSet.size && [...current].every((s) => savedSet.has(s));
   if (sameSkills) {
-    log(formatHostSkillSetActiveMessage(agent, branch, saved.skills.length));
     return false;
   }
 

@@ -2,8 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { installGitBranchSyncHook, isGitBranchSyncHookInstalled } from "./prepareClaudeCli";
+
+vi.mock("./hookServer", () => ({
+  hookBaseUrl: () => "http://127.0.0.1:4895",
+}));
 
 function makeGitWorkspace(): string {
   const target = fs.mkdtempSync(path.join(os.tmpdir(), "prepare-cli-"));
@@ -35,7 +39,8 @@ describe("prepareClaudeCli git hook", () => {
     expect(isGitBranchSyncHookInstalled(target)).toBe(true);
     const hook = fs.readFileSync(path.join(target, ".git", "hooks", "post-checkout"), "utf-8");
     expect(hook).toContain("claude-skills branch-sync");
-    expect(hook).toContain("branch-sync.js");
+    expect(hook).toContain("/hook/branch-sync");
+    expect(hook).toContain("curl");
   });
 
   it("is idempotent when hook already contains marker", () => {

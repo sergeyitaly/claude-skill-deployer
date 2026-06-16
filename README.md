@@ -72,10 +72,10 @@ Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-
 The extension includes official MCP (Model Context Protocol) servers:
 
 - **Filesystem MCP Server** — Bundled file I/O tool that Claude can use to read, write, and manage files.
-  - Command Palette → **Enable Official Filesystem MCP Server** to activate.
+  - Command Palette → **Enable Local Filesystem MCP Server** to activate.
   - The extension automatically configures the server and displays connection status in the Claude Skills panel.
   - Status indicator shows **Connected** (green) or **Disconnected** (gray).
-  - Disable with **Disable Official Filesystem MCP Server** command.
+  - Disable with **Disable Local Filesystem MCP Server** command.
 
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.

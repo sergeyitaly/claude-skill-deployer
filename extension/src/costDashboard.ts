@@ -1,3 +1,4 @@
+import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
 import {
   buildCostAttribution,
@@ -30,6 +31,7 @@ import {
   summarizeSkillCostsFromRuns,
   topSkillsFromRuns,
 } from "./skillCostFromRuns";
+import { computeEfficiencyMetrics, formatEfficiencyPanelHtml, TelemetryScope } from "./efficiencyMetrics";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import {
   getOrComputeTeamEconomicsBundle,
@@ -364,6 +366,10 @@ export function buildDashboardMainBodyHtml(
   );
   const equalSplitWarn = equalSplitCluster ? formatEqualSplitWarning(equalSplitCluster, true) : null;
   const archived = isFeatureEnabled("skillArchival") ? listArchivedSkills(target) : [];
+  const telemetryScope = vscode.workspace
+    .getConfiguration("claudeSkills.telemetry")
+    .get<TelemetryScope>("scope", "hybrid");
+  const efficiencyMetrics = computeEfficiencyMetrics(target, 14, telemetryScope);
 
   const agentRows = agentUsage
     .map((row) => {
@@ -559,6 +565,8 @@ export function buildDashboardMainBodyHtml(
         : "<p class=\"note\">Hidden until attribution setup completes.</p>"
     }
   </div>
+
+  ${formatEfficiencyPanelHtml(efficiencyMetrics)}
 
   ${
     showPerSkill

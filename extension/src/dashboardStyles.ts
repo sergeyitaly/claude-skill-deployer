@@ -161,6 +161,10 @@ export const DASHBOARD_BASE_STYLES = `
   th { color: var(--vscode-descriptionForeground); font-weight: 600; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.04em; }
   td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .muted { color: var(--vscode-descriptionForeground); }
+  .efficiency-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+  .sub-panel { border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, transparent); border-radius: 5px; padding: 6px 8px; background: var(--vscode-editor-background); }
+  .sub-panel h3 { font-size: 0.72em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--vscode-descriptionForeground); margin: 0 0 5px; }
+  .warn-row .skill-head { color: var(--vscode-editorWarning-foreground); }
   ${HOOK_STATUS_STYLES}
 `;
 

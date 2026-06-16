@@ -14,6 +14,7 @@ import { isFeatureEnabled } from "./featureFlags";
 import { compareSkillsForSort, formatRoiDescription, skillRoiMetrics, SkillSortMode } from "./skillRoi";
 import { computeUsageStats } from "./usageStats";
 import * as vscode from "vscode";
+import { FilesystemMcpAgentId, getFilesystemMcpServerStatus } from "./mcpOfficial";
 
 export class BranchProfilesRootItem extends vscode.TreeItem {
   constructor(label: string, count: number) {
@@ -69,31 +70,15 @@ export class BranchProfileBranchItem extends vscode.TreeItem {
   }
 }
 
-// Helper function to check if filesystem MCP server is enabled
-function isFilesystemMcpServerEnabled(): boolean {
-  try {
-    const configPath = path.join(os.homedir(), ".claude.json");
-    if (!fs.existsSync(configPath)) {
-      return false;
-    }
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
-      mcpServers?: Record<string, unknown>;
-    };
-    return !!config.mcpServers?.filesystem;
-  } catch {
-    return false;
-  }
-}
-
-// Tree item for MCP server status
 export class McpServerStatusItem extends vscode.TreeItem {
-  constructor(enabled: boolean) {
+  constructor(enabled: boolean, activeAgents: string[] = []) {
     super("Filesystem MCP Server", vscode.TreeItemCollapsibleState.None);
     this.contextValue = "mcp-server-status";
     this.description = enabled ? "Connected" : "Disconnected";
     this.iconPath = new vscode.ThemeIcon(enabled ? "circle-filled" : "circle-outline");
+    const agentText = activeAgents.length > 0 ? ` Active in: ${activeAgents.join(", ")}.` : "";
     this.tooltip = enabled
-      ? "Filesystem MCP server is active in ~/.claude.json"
+      ? `Filesystem MCP server is active in configured agent MCP settings.${agentText}`
       : "Filesystem MCP server is not configured. Enable it via the command palette.";
   }
 }
@@ -520,7 +505,17 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     });
     
     // Add MCP server status at the top of the tree
-    const mcpStatusItem = new McpServerStatusItem(isFilesystemMcpServerEnabled());
+    const agentDisplayNames: Record<FilesystemMcpAgentId, string> = {
+      claude: "Claude Code",
+      cursor: "Cursor",
+      kiro: "Kiro",
+      copilot: "GitHub Copilot",
+    };
+    const mcpStatus = getFilesystemMcpServerStatus();
+    const mcpStatusItem = new McpServerStatusItem(
+      mcpStatus.enabled,
+      mcpStatus.activeAgents.map((agentId) => agentDisplayNames[agentId])
+    );
     
     return [mcpStatusItem, ...teamNodes, ...branchNodes, ...skillNodes];
   }

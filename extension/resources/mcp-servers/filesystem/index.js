@@ -1,14 +1,69 @@
 #!/usr/bin/env node
 /**
  * Minimal Filesystem MCP Server
- * Bundled with Claude Skills extension for convenient local file operations
- * Supports: read, write, list, delete files in user-specified directories
+ * Bundled with Claude Skills extension for convenient local file operations.
+ * Supports: read, write, list, delete — scoped to configured allowed directories.
+ *
+ * Usage: node index.js --config /path/to/allowed-dirs.json
+ * Config format: { "allowedDirs": ["/abs/path/one", "/abs/path/two"] }
+ *
+ * Without --config, defaults to ~/.claude only.
  */
 "use strict";
 
-const fs = require("fs");
-const path = require("path");
-const readline = require("readline");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const readline = require("node:readline");
+
+function sha1hex(content) {
+  return crypto.createHash("sha1").update(content).digest("hex").slice(0, 8);
+}
+
+// ---------------------------------------------------------------------------
+// Allowed-directory enforcement
+// ---------------------------------------------------------------------------
+
+const configArgIdx = process.argv.indexOf("--config");
+const configPath = configArgIdx !== -1 ? process.argv[configArgIdx + 1] : null;
+
+function getAllowedDirs() {
+  if (configPath) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (Array.isArray(cfg.allowedDirs) && cfg.allowedDirs.length > 0) {
+        return cfg.allowedDirs.map((d) => path.resolve(d));
+      }
+    } catch {
+      // fall through to default
+    }
+  }
+  return [path.resolve(os.homedir(), ".claude")];
+}
+
+/**
+ * Resolve requestedPath and verify it is inside one of the allowed dirs.
+ * Throws with a clear message if not; returns the resolved absolute path if OK.
+ */
+function assertAllowed(requestedPath) {
+  const resolved = path.resolve(requestedPath);
+  const allowed = getAllowedDirs();
+  const denied = allowed.every(
+    (dir) => resolved !== dir && !resolved.startsWith(dir + path.sep)
+  );
+  if (denied) {
+    throw new Error(
+      `Access denied: "${resolved}" is outside allowed directories. ` +
+        `Allowed: ${allowed.join(", ")}`
+    );
+  }
+  return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC helpers
+// ---------------------------------------------------------------------------
 
 function send(msg) {
   process.stdout.write(JSON.stringify(msg) + "\n");
@@ -22,19 +77,119 @@ function respondError(id, code, message) {
   send({ jsonrpc: "2.0", id, error: { code, message } });
 }
 
-// Helper: safely resolve paths to prevent directory traversal
-function resolvePath(basePath, requestPath) {
-  const resolved = path.resolve(basePath, requestPath);
-  if (!resolved.startsWith(path.resolve(basePath))) {
-    throw new Error("Path traversal attempt blocked");
+// ---------------------------------------------------------------------------
+// MCP usage log — appends one JSONL entry per tool call to
+// ~/.claude/learning/mcp-usage.jsonl so the extension can surface
+// file-access frequency and latency in the efficiency metrics panel.
+// ---------------------------------------------------------------------------
+
+const MCP_USAGE_LOG = path.join(os.homedir(), ".claude", "learning", "mcp-usage.jsonl");
+// Rotates on each initialize handshake so every agent session gets a distinct ID.
+// This works because each new agent conversation re-sends initialize even if the
+// server process is kept alive across sessions.
+let SESSION_ID = "";
+
+/** Returns the workspace-scoped log path from allowed-dirs.json config, or null. */
+function getWorkspaceLogPath() {
+  if (!configPath) return null;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const p = cfg.workspaceLogPath;
+    return typeof p === "string" && p ? p : null;
+  } catch {
+    return null;
   }
-  return resolved;
 }
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  crlfDelay: Infinity,
-});
+function appendMcpUsageLog(entry) {
+  if (process.env.MCP_DISABLE_USAGE_LOG) return;
+  const line = JSON.stringify(entry) + "\n";
+  // Always write to global log for cross-session intelligence.
+  try {
+    fs.appendFileSync(MCP_USAGE_LOG, line, "utf-8");
+  } catch {
+    // non-fatal — never crash the server over logging
+  }
+  // Also write to workspace-scoped log for per-project KPI attribution (hybrid mode).
+  const wsLog = getWorkspaceLogPath();
+  if (wsLog && wsLog !== MCP_USAGE_LOG) {
+    try {
+      fs.mkdirSync(path.dirname(wsLog), { recursive: true });
+      fs.appendFileSync(wsLog, line, "utf-8");
+    } catch {
+      // non-fatal
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tool dispatch (extracted to keep line-reader handler under complexity limit)
+// ---------------------------------------------------------------------------
+
+function dispatchTool(id, toolName, args) {
+  const start = Date.now();
+  /** Extra fields merged into the log entry (e.g. bytes for read/write). */
+  const logExtra = {};
+  try {
+    let result;
+    switch (toolName) {
+      case "read_file": {
+        const resolved = assertAllowed(args.path);
+        const content = fs.readFileSync(resolved, "utf-8");
+        logExtra.bytes = Buffer.byteLength(content, "utf-8");
+        result = { content };
+        break;
+      }
+      case "write_file": {
+        const resolved = assertAllowed(args.path);
+        const newContent = args.content ?? "";
+        logExtra.bytes = Buffer.byteLength(newContent, "utf-8");
+        logExtra.contentHash = sha1hex(newContent);
+        // Auto-skip if content is identical to what's already on disk (no-op write)
+        if (fs.existsSync(resolved) && fs.readFileSync(resolved, "utf-8") === newContent) {
+          logExtra.skipped = true;
+          result = { success: true, path: resolved, skipped: true };
+        } else {
+          fs.mkdirSync(path.dirname(resolved), { recursive: true });
+          fs.writeFileSync(resolved, newContent, "utf-8");
+          result = { success: true, path: resolved, skipped: false };
+        }
+        break;
+      }
+      case "list_directory": {
+        const resolved = assertAllowed(args.path);
+        const entries = fs.readdirSync(resolved, { withFileTypes: true });
+        result = {
+          entries: entries.map((e) => ({
+            name: e.name,
+            type: e.isDirectory() ? "directory" : "file",
+          })),
+        };
+        break;
+      }
+      case "delete_file": {
+        const resolved = assertAllowed(args.path);
+        fs.unlinkSync(resolved);
+        result = { success: true, path: resolved };
+        break;
+      }
+      default:
+        respondError(id, -32601, `Tool not found: ${toolName}`);
+        return;
+    }
+    appendMcpUsageLog({ ts: new Date().toISOString(), tool: toolName, path: args.path ?? "", durationMs: Date.now() - start, ...logExtra, ...(SESSION_ID && { sessionId: SESSION_ID }) });
+    respond(id, result);
+  } catch (e) {
+    appendMcpUsageLog({ ts: new Date().toISOString(), tool: toolName, path: args.path ?? "", durationMs: Date.now() - start, error: e.message, ...(SESSION_ID && { sessionId: SESSION_ID }) });
+    respondError(id, -32000, e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stdio line reader
+// ---------------------------------------------------------------------------
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 rl.on("line", async (line) => {
   if (!line.trim()) return;
@@ -51,10 +206,15 @@ rl.on("line", async (line) => {
   try {
     switch (method) {
       case "initialize":
+        SESSION_ID = crypto.randomUUID().slice(0, 12);
         respond(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "claude-skills-filesystem", version: "1.0" },
+          serverInfo: {
+            name: "claude-skills-filesystem",
+            version: "1.1",
+            allowedDirs: getAllowedDirs(),
+          },
         });
         break;
 
@@ -66,60 +226,49 @@ rl.on("line", async (line) => {
           tools: [
             {
               name: "read_file",
-              description: "Read contents of a file",
+              description:
+                "Read contents of a file. Only paths inside the configured allowed directories are accessible.",
               inputSchema: {
                 type: "object",
                 properties: {
-                  path: {
-                    type: "string",
-                    description: "File path to read",
-                  },
+                  path: { type: "string", description: "Absolute file path to read" },
                 },
                 required: ["path"],
               },
             },
             {
               name: "write_file",
-              description: "Write or overwrite a file",
+              description:
+                "Write or overwrite a file. Only paths inside the configured allowed directories are writable.",
               inputSchema: {
                 type: "object",
                 properties: {
-                  path: {
-                    type: "string",
-                    description: "File path to write",
-                  },
-                  content: {
-                    type: "string",
-                    description: "File content",
-                  },
+                  path: { type: "string", description: "Absolute file path to write" },
+                  content: { type: "string", description: "File content" },
                 },
                 required: ["path", "content"],
               },
             },
             {
               name: "list_directory",
-              description: "List files and directories",
+              description:
+                "List files and directories. Only paths inside the configured allowed directories are listable.",
               inputSchema: {
                 type: "object",
                 properties: {
-                  path: {
-                    type: "string",
-                    description: "Directory path to list",
-                  },
+                  path: { type: "string", description: "Absolute directory path to list" },
                 },
                 required: ["path"],
               },
             },
             {
               name: "delete_file",
-              description: "Delete a file",
+              description:
+                "Delete a file. Only paths inside the configured allowed directories are deletable.",
               inputSchema: {
                 type: "object",
                 properties: {
-                  path: {
-                    type: "string",
-                    description: "File path to delete",
-                  },
+                  path: { type: "string", description: "Absolute file path to delete" },
                 },
                 required: ["path"],
               },
@@ -128,56 +277,9 @@ rl.on("line", async (line) => {
         });
         break;
 
-      case "tools/call": {
-        const toolName = params?.name;
-        const args = params?.arguments || {};
-
-        try {
-          let result;
-
-          switch (toolName) {
-            case "read_file": {
-              const content = fs.readFileSync(args.path, "utf-8");
-              result = { content };
-              break;
-            }
-
-            case "write_file": {
-              const dir = path.dirname(args.path);
-              fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(args.path, args.content, "utf-8");
-              result = { success: true, path: args.path };
-              break;
-            }
-
-            case "list_directory": {
-              const entries = fs.readdirSync(args.path, { withFileTypes: true });
-              result = {
-                entries: entries.map((e) => ({
-                  name: e.name,
-                  type: e.isDirectory() ? "directory" : "file",
-                })),
-              };
-              break;
-            }
-
-            case "delete_file": {
-              fs.unlinkSync(args.path);
-              result = { success: true, path: args.path };
-              break;
-            }
-
-            default:
-              respondError(id, -32601, `Tool not found: ${toolName}`);
-              break;
-          }
-
-          if (result) respond(id, result);
-        } catch (e) {
-          respondError(id, -32000, e.message);
-        }
+      case "tools/call":
+        dispatchTool(id, params?.name, params?.arguments || {});
         break;
-      }
 
       case "ping":
         if (id != null) respond(id, {});

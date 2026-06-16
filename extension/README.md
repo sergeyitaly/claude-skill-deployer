@@ -613,7 +613,7 @@ Profile-init local files — see [Profile init](#profile-init-role--branch-agent
 | `Claude Skills: Reset Mis-attributed Cost Data` | Removes legacy collector transcript rows from `runs.jsonl`, clears `transcriptSkills` in `cost-attribution.json`, resets collector state, refreshes indexes. Reopen Usage Report after reset. |
 | `Claude Skills: Install Skill Library to All Enabled AI Agents` | Copies the bundled library to global dirs for Claude, Cursor, Kiro, and Copilot (per `claudeSkills.agents.enabled`). |
 | `Claude Skills: Show Enabled AI Agent Targets` | Lists which agents are enabled and their deploy paths (`skills_library/agents.json`). |
-| `Claude Skills: Show Cost Intelligence Dashboard` | WebView: agent spend (14d), trust/confidence banner, **System state**, Value & ROI, per-skill costs with ROI band + confidence, cost by repo/owner, cross-agent savings, financial optimization hints (`→ save ~$X/month`). Hides per-skill detail when attribution is broken. |
+| `Claude Skills: Show Cost Intelligence Dashboard` | WebView: agent spend (14d), trust/confidence banner, **System state**, Value & ROI, per-skill costs with ROI band + confidence, cost by repo/owner, cross-agent savings, financial optimization hints (`→ save ~$X/month`). **Efficiency metrics panel**: cost per task/skill/agent/file, efficiency score (A–F), waste warnings (repeated reads, agent loops, read-after-write, large files, no-op writes). Hides per-skill detail when attribution is broken. |
 | `Claude Skills: Sync Workspace Skills to All Agents` | Force mirror effective workspace skills to Cursor, Kiro, Copilot. |
 | `Claude Skills: Show Cost Optimization Suggestions` | Actionable disable / agent-switch / archival hints with estimated monthly savings. |
 | `Claude Skills: Apply Cost Optimizations` | Interactive apply (or auto when `claudeSkills.optimizer.autoApply` is on). |
@@ -739,6 +739,135 @@ py scripts/agent_billing_report.py              # Anthropic/Cursor/Copilot admin
 Record runs with `metadata.invoked: true` via the `self-learning` skill for supplementary KPI data. Keep `claudeSkills.optimizer.autoApply` off until attribution looks correct. Optional: `.claude/learning/pricing-overrides.json` for model rates and ROI hourly wage.
 
 Inspect `.claude/learning/system-state.json` when debugging profile init, hooks, or attribution health.
+
+## Filesystem MCP Server
+
+The extension bundles a minimal **Filesystem MCP server** that gives Claude agents direct read/write access to `~/.claude/` and your open workspace folders — without copy-pasting file contents into chat.
+
+### Enable / Disable
+
+Open the **Claude Skills** panel in the activity bar. A **Filesystem MCP** status row shows the current state. Toggle it with:
+
+- **Command Palette → Claude Skills: Enable Filesystem MCP Server**
+- **Command Palette → Claude Skills: Disable Filesystem MCP Server**
+
+After toggling, reload the VS Code window (**Developer: Reload Window**) for the change to take effect.
+
+### What it unlocks in practice
+
+| Before | After |
+|--------|-------|
+| "Update this skill's trigger" → paste file, get edit, save manually | Claude reads and writes `~/.claude/skills/<name>/skill.md` directly |
+| "My hooks aren't firing" → paste `.claude/settings.json` | Claude inspects and repairs the hook config in place |
+| `self-learning` / `skill-usage-insights` depend on proxy being active | Those skills read `.claude/learning/*.jsonl` reliably via a dedicated server |
+| `~/.claude.json` MCP config issues need manual inspection | Claude can read and fix the config from chat |
+
+### Security scope
+
+The server enforces an **allowed-directories allowlist** — it cannot read or write outside:
+
+- `~/.claude/` (always included)
+- Every workspace folder open at enable time
+
+When you open an additional workspace folder, the extension updates the allowlist automatically; the running server picks up the change on the next tool call without restart.
+
+**Path traversal and sibling-directory access are blocked at the server level.** The error message names the blocked path and the current allowlist, so Claude can explain what happened.
+
+### Server details
+
+| Property | Value |
+|----------|-------|
+| Transport | JSON-RPC 2.0 over stdio |
+| Tools | `read_file`, `write_file`, `list_directory`, `delete_file` |
+| Location | `~/.claude/mcp-servers/filesystem/index.js` (copied on enable) |
+| Config | `~/.claude/mcp-servers/filesystem/allowed-dirs.json` |
+| Latency | < 2 ms per call (local stdio, no network) |
+
+The server is bundled in the extension and copied to `~/.claude/mcp-servers/filesystem/` on enable, so it works without npm or any external install.
+
+### MCP usage log and waste detection
+
+Every tool call is appended to `~/.claude/learning/mcp-usage.jsonl`. Each entry carries a `sessionId` generated when the agent connects — a 12-character UUID that rotates on each new conversation:
+
+```json
+{"ts":"2026-06-16T12:00:00Z","tool":"read_file","path":"/src/main.tf","durationMs":23,"bytes":4200,"sessionId":"a1b2c3d4e5f6"}
+{"ts":"2026-06-16T12:00:05Z","tool":"write_file","path":"/src/out.tf","durationMs":41,"bytes":1800,"contentHash":"a3f1b2c4","skipped":false,"sessionId":"a1b2c3d4e5f6"}
+```
+
+The extension's **Cost Intelligence Dashboard** reads this log to surface:
+
+| Detection | Trigger | Output |
+|-----------|---------|--------|
+| **Repeated reads** | Same file read ≥ 3× | Wasted token estimate (file size × redundant reads ÷ 4) |
+| **Agent loops** | Same file read ≥ 4× in 5 min | Loop warning + wasted tokens |
+| **Read-after-write** | `write_file` then `read_file` same path within 60 s | Reminder to reuse written content |
+| **Large files** | Any `read_file` > 100 KB | Suggestion to use partial reads |
+| **No-op writes** | New content = existing content | Write silently skipped; logged as `skipped: true` |
+
+An **efficiency score** (0–100, A–F) is calculated as `(total ops − wasteful ops) / total ops` and shown as the headline metric, with a tooltip showing the formula.
+
+### Token quality KPI bar
+
+The efficiency panel includes a stacked bar that makes waste visible at a glance:
+
+```
+Useful ██████████████░░░░ Wasted
+       14.2k tokens       3.8k tokens (21%)  ~$0.011 avoidable
+```
+
+A *Potential saving* pill appears when suggestions carry estimated token counts.
+When recent session data is available, waste is also shown as a percentage of total API tokens across those sessions.
+
+### Cross-session hot-file analysis
+
+The dashboard groups 30 days of log entries by `sessionId` and reports files that appear in >50% of sessions:
+
+```
+Persistently over-read files · 30d · 12 sessions
+  .claude/settings.json    83% of sessions · avg 6.2× per session
+  src/main.tf              67% of sessions · avg 4.1× per session
+```
+
+These are global hot spots — adding them to `mcp-agent-hints.md` prevents redundant reads across all future sessions, not just the current one.
+
+### Real-time efficiency alerts
+
+The extension evaluates MCP efficiency on each workspace-state refresh and shows a notification when thresholds are crossed:
+
+| Condition | Severity | Notification type |
+|-----------|----------|-------------------|
+| Efficiency < 40% **or** agent loop + > 5 k wasted tokens | Critical | `showWarningMessage` |
+| Efficiency 40–60% | Warning | `showInformationMessage` |
+| < 1 000 MCP tokens total | — | Silent (too small to be meaningful) |
+
+Each distinct issue type (`loop`, `high-waste`, `low-efficiency`) fires **at most once per agent session** (keyed by `sessionId`) so different problems each surface without spam, and the same problem does not repeat mid-session.
+
+Alert action buttons:
+
+- **View Details** — opens the Cost Intelligence dashboard.
+- **Auto-optimize** — writes `mcp-agent-hints.md` immediately with current patterns documented; shows a confirmation with the issue count.
+- **Dismiss** — suppresses for this session.
+
+### Auto-remediation hints file
+
+After each analysis the extension writes `~/.claude/learning/mcp-agent-hints.md` — a plain-text file containing agent-readable rules derived from observed patterns:
+
+```markdown
+## Files to cache in memory (read repeatedly — do not re-read)
+- `/src/main.tf` — read 8×, ~2400 tokens wasted
+
+## Detected reasoning loops
+- `/src/config.yaml` — read 6× in 5min
+→ Rule: analyze once, store the result. Do not re-read to verify.
+
+## General rules (always apply)
+- Do not call list_directory on the same path more than once per session
+- After write_file, reuse the content you already have
+```
+
+Add a reference to this file in your `CLAUDE.md` or as a skill instruction to give all agents cross-session optimization guidance automatically.
+
+---
 
 ## What this tool does NOT do
 
