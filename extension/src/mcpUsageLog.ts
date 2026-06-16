@@ -561,6 +561,21 @@ export interface CrossSessionSummary {
  * Entries without a sessionId are grouped under a synthetic session
  * keyed by date (YYYY-MM-DD) so legacy logs still contribute signal.
  */
+function aggregateFileStats(
+  sessions: Map<string, Map<string, number>>
+): Map<string, { sessionCount: number; totalReads: number }> {
+  const fileStats = new Map<string, { sessionCount: number; totalReads: number }>();
+  for (const sessionFiles of sessions.values()) {
+    for (const [filePath, reads] of sessionFiles.entries()) {
+      const stat = fileStats.get(filePath) ?? { sessionCount: 0, totalReads: 0 };
+      stat.sessionCount += 1;
+      stat.totalReads += reads;
+      fileStats.set(filePath, stat);
+    }
+  }
+  return fileStats;
+}
+
 export function summarizeCrossSessionPatterns(daysBack = 30): CrossSessionSummary {
   const cutoff = Date.now() - daysBack * 86_400_000;
   const entries = readMcpUsageLog().filter(
@@ -583,19 +598,14 @@ export function summarizeCrossSessionPatterns(daysBack = 30): CrossSessionSummar
     return { totalSessions: 0, persistentHotFiles: [] };
   }
 
-  // aggregate across sessions
-  const fileStats = new Map<string, { sessionCount: number; totalReads: number }>();
-  for (const sessionFiles of sessions.values()) {
-    for (const [filePath, reads] of sessionFiles.entries()) {
-      const stat = fileStats.get(filePath) ?? { sessionCount: 0, totalReads: 0 };
-      stat.sessionCount += 1;
-      stat.totalReads += reads;
-      fileStats.set(filePath, stat);
-    }
-  }
+  const fileStats = aggregateFileStats(sessions);
+
+  const EXCLUDED_PATH_PATTERNS = [/[/\\][Tt]emp[/\\]/, /[/\\]tmp[/\\]/, /mcp-bench-/];
 
   const persistentHotFiles: CrossSessionHotFile[] = [];
   for (const [filePath, stat] of fileStats.entries()) {
+    if (stat.sessionCount < 3) continue;
+    if (EXCLUDED_PATH_PATTERNS.some((re) => re.test(filePath))) continue;
     const prevalence = stat.sessionCount / totalSessions;
     if (prevalence < 0.5) continue;
     persistentHotFiles.push({
