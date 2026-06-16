@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { detectRelevantSkills, Manifest } from "./skillOps";
+import { detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOps";
 import { invalidateLearningCache } from "./learningStateIndex";
 import { capActiveSkills, readTaskFocusLimits, taskSkillSetApprovalEnabled } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
@@ -117,6 +117,7 @@ export function writeTaskSkillProposals(target: string, data: TaskSkillProposals
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
   invalidateLearningCache(target);
+  ensureGitExcludeEntry(target, PROPOSALS_FILE_RELATIVE);
 }
 
 /** Tokens too generic to score (e.g. \"skills\" matching every *skill* name). */

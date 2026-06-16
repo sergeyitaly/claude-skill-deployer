@@ -17,6 +17,8 @@ interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
+  /** Portion of cacheCreationTokens written with a 1-hour TTL (priced higher than 5-minute). */
+  cacheCreation1hTokens: number;
   cacheReadTokens: number;
 }
 
@@ -39,13 +41,14 @@ function getOrCreateModelBucket(map: Map<string, ModelBucket>, key: string): Mod
 }
 
 function emptyUsage(): TokenUsage {
-  return { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
+  return { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, cacheReadTokens: 0 };
 }
 
 function addUsage(target: TokenUsage, delta: TokenUsage): void {
   target.inputTokens += delta.inputTokens;
   target.outputTokens += delta.outputTokens;
   target.cacheCreationTokens += delta.cacheCreationTokens;
+  target.cacheCreation1hTokens += delta.cacheCreation1hTokens;
   target.cacheReadTokens += delta.cacheReadTokens;
 }
 
@@ -111,17 +114,24 @@ function getOrCreate(map: Map<string, ModelBucket>, key: string): ModelBucket {
   return getOrCreateModelBucket(map, key);
 }
 
-function rawUsageToDelta(raw: {
+interface RawUsageLike {
   input_tokens?: number;
   output_tokens?: number;
   cache_creation_input_tokens?: number;
+  /** Flat 1h-cache portion (runs.jsonl `metadata.usage`). */
+  cache_creation_input_tokens_1h?: number;
+  /** Nested breakdown as logged in raw Claude session transcripts. */
+  cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number };
   cache_read_input_tokens?: number;
   total_tokens?: number;
-}): TokenUsage | null {
+}
+
+function rawUsageToDelta(raw: RawUsageLike): TokenUsage | null {
   const delta = {
     inputTokens: raw.input_tokens ?? 0,
     outputTokens: raw.output_tokens ?? 0,
     cacheCreationTokens: raw.cache_creation_input_tokens ?? 0,
+    cacheCreation1hTokens: raw.cache_creation_input_tokens_1h ?? raw.cache_creation?.ephemeral_1h_input_tokens ?? 0,
     cacheReadTokens: raw.cache_read_input_tokens ?? 0,
   };
   if (totalTokens(delta) > 0) {
@@ -133,6 +143,7 @@ function rawUsageToDelta(raw: {
       inputTokens: input,
       outputTokens: raw.total_tokens - input,
       cacheCreationTokens: 0,
+      cacheCreation1hTokens: 0,
       cacheReadTokens: 0,
     };
   }
@@ -160,8 +171,8 @@ function parseUsageLine(line: string): ParsedUsageLine | null {
   const message = parsed.message;
   const msg = message && typeof message === "object" ? (message as Record<string, unknown>) : undefined;
   const usageRaw =
-    (msg?.usage as Record<string, number> | undefined) ??
-    (parsed.usage as Record<string, number> | undefined);
+    (msg?.usage as RawUsageLike | undefined) ??
+    (parsed.usage as RawUsageLike | undefined);
   const model =
     (typeof msg?.model === "string" && msg.model) ||
     (typeof parsed.model === "string" && parsed.model) ||
@@ -194,6 +205,7 @@ function estimateCost(model: string, usage: TokenUsage): number {
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheCreationTokens: usage.cacheCreationTokens,
+      cacheCreation1hTokens: usage.cacheCreation1hTokens,
       cacheReadTokens: usage.cacheReadTokens,
     },
     model
@@ -303,6 +315,7 @@ function recordCursorFile(
       inputTokens: Math.round(parsed.tokens * 0.6),
       outputTokens: parsed.tokens - Math.round(parsed.tokens * 0.6),
       cacheCreationTokens: 0,
+      cacheCreation1hTokens: 0,
       cacheReadTokens: 0,
     };
     const bucket = getOrCreate(buckets, bucketKey(date, CURSOR_TRANSCRIPT_MODEL));
@@ -377,6 +390,7 @@ function summarizeByModel(buckets: Buckets): ModelUsage[] {
       inputTokens: bucket.inputTokens,
       outputTokens: bucket.outputTokens,
       cacheCreationTokens: bucket.cacheCreationTokens,
+      cacheCreation1hTokens: bucket.cacheCreation1hTokens,
       cacheReadTokens: bucket.cacheReadTokens,
       cost: estimateCost(model, bucket),
       costBasis: bucket.costBasis,
@@ -467,14 +481,7 @@ export function aggregateHookModelUsageByAgent(
     const model = modelIdForHookRun(run);
     const key = `${run.agent}\0${model}`;
     const bucket = getOrCreateModelBucket(buckets, key);
-    const usageRaw = run.metadata?.usage as
-      | {
-          input_tokens?: number;
-          output_tokens?: number;
-          cache_creation_input_tokens?: number;
-          cache_read_input_tokens?: number;
-        }
-      | undefined;
+    const usageRaw = run.metadata?.usage as RawUsageLike | undefined;
 
     if (isUsageBreakdownRun(run) && usageRaw) {
       const delta = rawUsageToDelta(usageRaw);
@@ -491,6 +498,7 @@ export function aggregateHookModelUsageByAgent(
           inputTokens: input,
           outputTokens: tokens - input,
           cacheCreationTokens: 0,
+          cacheCreation1hTokens: 0,
           cacheReadTokens: 0,
         });
       }
@@ -510,6 +518,7 @@ export function aggregateHookModelUsageByAgent(
       inputTokens: bucket.inputTokens,
       outputTokens: bucket.outputTokens,
       cacheCreationTokens: bucket.cacheCreationTokens,
+      cacheCreation1hTokens: bucket.cacheCreation1hTokens,
       cacheReadTokens: bucket.cacheReadTokens,
       cost: bucket.cost,
       costBasis: bucket.costBasis,

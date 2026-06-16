@@ -8,7 +8,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const { computeTodayUsageAcrossProjects, formatTokenCount, formatUsd } = require("./usageParse");
+const { computeTodayUsageAcrossProjectsCached, formatTokenCount, formatUsd } = require("./usageParse");
 const { readStdin, parsePlatform, resolveCwd, writePromptOutput } = require("./hookPlatform");
 
 const LEARNING_DIR = path.join(os.homedir(), ".claude", "learning");
@@ -191,7 +191,7 @@ function main() {
   }
 
   const config = { ...DEFAULT_CONFIG, ...readJsonSafe(BUDGET_CONFIG_PATH, {}) };
-  const { totalTokens, totalCostUsd, date: today } = computeTodayUsageAcrossProjects();
+  const { totalTokens, totalCostUsd, date: today } = computeTodayUsageAcrossProjectsCached();
   const state = readJsonSafe(BUDGET_STATE_PATH, {});
   const notices = todayNotifications(state, today);
   const messages = [];
@@ -237,12 +237,10 @@ function main() {
     }
 
     if (pct >= 100) {
-      if (!notices.critical) {
-        notices.critical = true;
-        messages.push(
-          `[Claude Skills] Daily budget exceeded: ~${formatUsd(totalCostUsd)} of ${formatUsd(config.dailyBudgetUsd)} (${formatTokenCount(totalTokens)} tokens today).`
-        );
-      }
+      notices.critical = true;
+      messages.push(
+        `[Claude Skills] Daily budget exceeded: ~${formatUsd(totalCostUsd)} of ${formatUsd(config.dailyBudgetUsd)} (${formatTokenCount(totalTokens)} tokens today). Raise the budget tier in Claude Skills Manager to continue without this warning.`
+      );
 
       if (config.autoDisableHighTierOnBudgetHit && config.highTierSkills.length > 0) {
         const alreadyDone =

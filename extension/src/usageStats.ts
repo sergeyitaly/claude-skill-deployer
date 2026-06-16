@@ -542,6 +542,8 @@ function taskProposalLines(proposals: TaskSkillProposal[]): string[] {
     lines.push(`- **${p.name}** (${p.confidence}% · ${installed}) — ${p.reason}`);
   }
   lines.push("");
+  lines.push("_Local-only: proposals are not committed or shared with teammates._");
+  lines.push("");
   return lines;
 }
 
@@ -951,7 +953,7 @@ function htmlTaskProposalsSection(
       approvalNote = `<div class="note">Active set: <b>${escapeHtml(picked.label)}</b> (${picked.skills.length} skills).</div>`;
     }
   }
-  return `<div class="panel"><h2>Proposed for current task</h2>${summary}${approvalNote}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes.</div></div>`;
+  return `<div class="panel"><h2>Proposed for current task</h2>${summary}${approvalNote}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes. Local-only: not committed or shared with teammates.</div></div>`;
 }
 
 function htmlMisusedSection(stats: SkillUsageStat[]): string {

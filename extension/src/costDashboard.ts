@@ -393,8 +393,9 @@ export function buildDashboardMainBodyHtml(
       const conf = skillConfidence.get(row.skill);
       const skillRow = skillCostByName.get(row.skill);
       const apiPriced = Boolean(useRunsForTopSkills && skillRow && skillRow.usageBreakdownRuns > 0);
+      const reconciledPriced = Boolean(useRunsForTopSkills && skillRow && !apiPriced && skillRow.reconciledRuns > 0);
       const trust = buildSkillTrustLine(conf, roi.roiBand);
-      const trustLabel = apiPriced ? "API-priced (hooks)" : trust.summary;
+      const trustLabel = apiPriced ? "API-priced (hooks)" : reconciledPriced ? "Actual (Cursor billing)" : trust.summary;
       const agentBreakdown =
         useRunsForTopSkills && skillRow
           ? formatSkillCostAgentBreakdown(skillRow)
@@ -402,9 +403,11 @@ export function buildDashboardMainBodyHtml(
       const pricingNote =
         useRunsForTopSkills && skillRow && skillRow.usageBreakdownRuns > 0
           ? "API-priced"
-          : useRunsForTopSkills
-            ? "hook-measured"
-            : undefined;
+          : reconciledPriced
+            ? "Actual (Cursor billing)"
+            : useRunsForTopSkills
+              ? "hook-measured"
+              : undefined;
       const hint = [
         formatRoiDashboardLine(roi, formatCompactUsd(row.cost)),
         trust.summary,
@@ -415,7 +418,7 @@ export function buildDashboardMainBodyHtml(
       ]
         .filter(Boolean)
         .join(" | ");
-      const confClass = apiPriced ? "high" : conf?.level ?? "estimated";
+      const confClass = apiPriced || reconciledPriced ? "high" : conf?.level ?? "estimated";
       return `<div class="skill-row">
         <div class="skill-head"><span class="rank">${i + 1}.</span> <b>${escapeHtml(row.skill)}</b>
           <span class="roi-${roi.roiBand.toLowerCase()}">${escapeHtml(roi.roiBand)}</span>

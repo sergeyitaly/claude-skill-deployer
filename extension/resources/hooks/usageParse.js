@@ -207,10 +207,193 @@ function computeTodayUsageAcrossProjects() {
   return { totalTokens: totalTokenCount, totalCostUsd, date: today };
 }
 
+// ---- Incremental scan cache (avoids re-reading full transcripts on every hook invocation) ----
+
+const USAGE_CACHE_PATH = path.join(os.homedir(), ".claude", "learning", "usage-today-cache.json");
+
+function readCacheFile(file) {
+  try { return JSON.parse(fs.readFileSync(file, "utf-8")); } catch { return null; }
+}
+
+function writeCacheFile(file, data) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(data) + "\n", "utf-8");
+  } catch {}
+}
+
+/** Parse usage lines from `content`, accumulating into a plain-object `byModel` map. */
+function parseUsageLines(content, today, byModel) {
+  const result = Object.assign({}, byModel);
+  for (const line of content.split("\n")) {
+    if (!line.includes('"usage"')) continue;
+    let parsed;
+    try { parsed = JSON.parse(line); } catch { continue; }
+    const usage = parsed.message?.usage;
+    const model = parsed.message?.model;
+    if (!usage || !model) continue;
+    if (today) {
+      const ts = parsed.timestamp;
+      if (!ts || ts.slice(0, 10) !== today) continue;
+    }
+    const delta = {
+      inputTokens: usage.input_tokens || 0,
+      outputTokens: usage.output_tokens || 0,
+      cacheCreationTokens: usage.cache_creation_input_tokens || 0,
+      cacheReadTokens: usage.cache_read_input_tokens || 0,
+    };
+    if (totalTokens(delta) === 0) continue;
+    const bucket = result[model] || emptyUsage();
+    addUsage(bucket, delta);
+    result[model] = bucket;
+  }
+  return result;
+}
+
+/** Read `file` starting at byte `offset` (pass 0 for a full read). */
+function readFileFrom(file, offset) {
+  if (offset === 0) {
+    try { return fs.readFileSync(file, "utf-8"); } catch { return ""; }
+  }
+  try {
+    const stat = fs.statSync(file);
+    const newBytes = stat.size - offset;
+    if (newBytes <= 0) return "";
+    const fd = fs.openSync(file, "r");
+    const buf = Buffer.allocUnsafe(newBytes);
+    fs.readSync(fd, buf, 0, newBytes, offset);
+    fs.closeSync(fd);
+    return buf.toString("utf-8");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Incrementally-cached version of computeTodayUsageAcrossProjects.
+ * Reads only bytes appended since the previous call; unchanged files
+ * are served from a small JSON cache at ~/.claude/learning/usage-today-cache.json.
+ */
+function computeTodayUsageAcrossProjectsCached() {
+  const today = new Date().toISOString().slice(0, 10);
+  const projectsDir = path.join(os.homedir(), ".claude", "projects");
+
+  let cache = readCacheFile(USAGE_CACHE_PATH) || {};
+  if (cache.date !== today) cache = { date: today, files: {} };
+  const fileCache = cache.files || {};
+  const updatedFiles = {};
+  let dirty = false;
+
+  for (const file of listTranscriptFiles(projectsDir)) {
+    let currentSize;
+    try { currentSize = fs.statSync(file).size; } catch { continue; }
+
+    const cached = fileCache[file];
+    if (cached && cached.size === currentSize) {
+      updatedFiles[file] = cached;
+      continue;
+    }
+
+    const offset = (cached && currentSize > cached.size) ? cached.size : 0;
+    const content = readFileFrom(file, offset);
+    const existingByModel = offset > 0 ? (cached.byModel || {}) : {};
+    const byModel = parseUsageLines(content, today, existingByModel);
+    updatedFiles[file] = { size: currentSize, byModel };
+    dirty = true;
+  }
+
+  if (dirty) writeCacheFile(USAGE_CACHE_PATH, { date: today, files: updatedFiles });
+
+  let totalTokenCount = 0;
+  let totalCostUsd = 0;
+  for (const fc of Object.values(updatedFiles)) {
+    for (const [model, usage] of Object.entries(fc.byModel || {})) {
+      totalTokenCount += totalTokens(usage);
+      totalCostUsd += estimateCostUsd(model, usage);
+    }
+  }
+
+  return { totalTokens: totalTokenCount, totalCostUsd, date: today };
+}
+
+/**
+ * Cached version of sumTranscriptUsage — only re-parses bytes appended since the last call.
+ * @param {string} cacheFile - per-workspace JSON file for persisting size/token state
+ */
+function sumTranscriptUsageCached(transcriptPath, cacheFile) {
+  let currentSize;
+  try { currentSize = fs.statSync(transcriptPath).size; } catch {
+    return { totalTokens: 0, totalCostUsd: 0, byModel: new Map() };
+  }
+
+  const allCache = readCacheFile(cacheFile) || {};
+  const cached = allCache[transcriptPath] || null;
+
+  if (cached && cached.size === currentSize) {
+    return {
+      totalTokens: cached.tokens,
+      totalCostUsd: cached.costUsd,
+      byModel: new Map(Object.entries(cached.byModel || {})),
+    };
+  }
+
+  const offset = (cached && currentSize > cached.size) ? cached.size : 0;
+  const content = readFileFrom(transcriptPath, offset);
+  const existingByModel = offset > 0 ? (cached.byModel || {}) : {};
+  const byModel = parseUsageLines(content, null, existingByModel);
+
+  let totalTokenCount = 0;
+  let totalCostUsd = 0;
+  for (const [model, usage] of Object.entries(byModel)) {
+    totalTokenCount += totalTokens(usage);
+    totalCostUsd += estimateCostUsd(model, usage);
+  }
+
+  allCache[transcriptPath] = { size: currentSize, byModel, tokens: totalTokenCount, costUsd: totalCostUsd };
+  writeCacheFile(cacheFile, allCache);
+
+  return { totalTokens: totalTokenCount, totalCostUsd, byModel: new Map(Object.entries(byModel)) };
+}
+
+/** Sum tokens/cost already recorded in this workspace's runs.jsonl for one session (Kiro/Copilot fallback — no transcript). */
+function sumSessionRunsUsage(cwd, sessionId) {
+  const runsFile = path.join(cwd, ".claude", "learning", "runs.jsonl");
+  let content;
+  try {
+    content = fs.readFileSync(runsFile, "utf-8");
+  } catch {
+    return { totalTokens: 0, totalCostUsd: 0 };
+  }
+
+  let totalTokenCount = 0;
+  let totalCostUsd = 0;
+  for (const line of content.split("\n")) {
+    if (!line.includes(sessionId)) {
+      continue;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (parsed.session_id !== sessionId) {
+      continue;
+    }
+    totalTokenCount += parsed.tokens || 0;
+    totalCostUsd += parsed.cost || 0;
+  }
+
+  return { totalTokens: totalTokenCount, totalCostUsd };
+}
+
 module.exports = {
   sumTranscriptUsage,
+  sumTranscriptUsageCached,
+  sumSessionRunsUsage,
   formatTokenCount,
   formatUsd,
   totalTokens,
   computeTodayUsageAcrossProjects,
+  computeTodayUsageAcrossProjectsCached,
 };

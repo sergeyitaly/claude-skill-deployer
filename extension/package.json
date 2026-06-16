@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.60",
+  "version": "1.0.61",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -171,6 +171,30 @@
         "command": "claudeSkills.installCostControlHooks",
         "title": "Enable Cost Control Hooks (Budget + Session + Focus)",
         "icon": "$(shield)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.importCursorUsageCsv",
+        "title": "Reconcile Cursor Costs from Dashboard CSV Export",
+        "icon": "$(graph)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.disableMcpOptimizer",
+        "title": "Disable MCP Context Optimizer",
+        "icon": "$(symbol-misc)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.enableOfficialFilesystemServer",
+        "title": "Enable Official Filesystem MCP Server",
+        "icon": "$(file-directory)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.disableOfficialFilesystemServer",
+        "title": "Disable Official Filesystem MCP Server",
+        "icon": "$(file-directory)",
         "category": "Claude Skills"
       },
       {
@@ -495,6 +519,16 @@
         "title": "Budget",
         "order": 1,
         "properties": {
+          "claudeSkills.budget.cursorUsageImportEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Silently scan the Downloads folder for Cursor usage-export CSVs (Settings -> Usage -> Export on cursor.com) and reconcile Cursor run costs in runs.jsonl against the actual totals. No popups; results are logged to the Claude Skills output channel."
+          },
+          "claudeSkills.budget.cursorUsageImportFolder": {
+            "type": "string",
+            "default": "",
+            "description": "Folder to scan for Cursor usage-export CSVs. Leave empty to use the OS Downloads folder."
+          },
           "claudeSkills.budget.autoDisableHighTier": {
             "type": "boolean",
             "default": true,
@@ -1674,6 +1708,26 @@
         },
         {
           "command": "claudeSkills.installCostControlHooks",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.importCursorUsageCsv",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.disableMcpOptimizer",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.enableOfficialFilesystemServer",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.disableOfficialFilesystemServer",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
         },

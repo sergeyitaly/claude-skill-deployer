@@ -10,19 +10,22 @@ export const ESTIMATE_DISCLAIMER_SHORT = "Estimates only — not an API bill";
 export interface ModelPricing {
   input: number;
   output: number;
+  /** 5-minute TTL cache write (1.25x input). */
   cacheWrite: number;
+  /** 1-hour TTL cache write (2x input). Falls back to 2x `input` when absent (e.g. older overrides). */
+  cacheWrite1h?: number;
   cacheRead: number;
 }
 
 const PRICING_TIERS: { match: string; pricing: ModelPricing }[] = [
-  { match: "fable", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
-  { match: "mythos", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
-  { match: "opus", pricing: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } },
-  { match: "haiku", pricing: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 } },
-  { match: "sonnet", pricing: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 } },
+  { match: "fable", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheWrite1h: 20, cacheRead: 1 } },
+  { match: "mythos", pricing: { input: 10, output: 50, cacheWrite: 12.5, cacheWrite1h: 20, cacheRead: 1 } },
+  { match: "opus", pricing: { input: 5, output: 25, cacheWrite: 6.25, cacheWrite1h: 10, cacheRead: 0.5 } },
+  { match: "haiku", pricing: { input: 1, output: 5, cacheWrite: 1.25, cacheWrite1h: 2, cacheRead: 0.1 } },
+  { match: "sonnet", pricing: { input: 3, output: 15, cacheWrite: 3.75, cacheWrite1h: 6, cacheRead: 0.3 } },
 ];
 
-const DEFAULT_PRICING: ModelPricing = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+const DEFAULT_PRICING: ModelPricing = { input: 3, output: 15, cacheWrite: 3.75, cacheWrite1h: 6, cacheRead: 0.3 };
 
 /** Active workspace for pricing-overrides.json lookup (set by extension on refresh). */
 let activePricingTarget: string | undefined;
@@ -59,15 +62,22 @@ export function estimateUsageCostUsd(
     inputTokens?: number;
     outputTokens?: number;
     cacheCreationTokens?: number;
+    /** Portion of `cacheCreationTokens` written with a 1-hour TTL (priced at `cacheWrite1h`). */
+    cacheCreation1hTokens?: number;
     cacheReadTokens?: number;
   },
   model?: string
 ): number {
   const pricing = pricingForModel(model);
+  const cacheCreationTokens = usage.cacheCreationTokens ?? 0;
+  const cache1h = Math.min(usage.cacheCreation1hTokens ?? 0, cacheCreationTokens);
+  const cache5m = cacheCreationTokens - cache1h;
+  const cacheWrite1h = pricing.cacheWrite1h ?? pricing.input * 2;
   return (
     ((usage.inputTokens ?? 0) / 1_000_000) * pricing.input +
     ((usage.outputTokens ?? 0) / 1_000_000) * pricing.output +
-    ((usage.cacheCreationTokens ?? 0) / 1_000_000) * pricing.cacheWrite +
+    (cache5m / 1_000_000) * pricing.cacheWrite +
+    (cache1h / 1_000_000) * cacheWrite1h +
     ((usage.cacheReadTokens ?? 0) / 1_000_000) * pricing.cacheRead
   );
 }
@@ -79,6 +89,10 @@ export function estimateUsageCostFromRaw(
         input_tokens?: number;
         output_tokens?: number;
         cache_creation_input_tokens?: number;
+        /** Flat 1h-cache portion (as carried in runs.jsonl `metadata.usage`). */
+        cache_creation_input_tokens_1h?: number;
+        /** Nested breakdown as logged in raw Claude session transcripts. */
+        cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number };
         cache_read_input_tokens?: number;
       }
     | undefined,
@@ -92,6 +106,7 @@ export function estimateUsageCostFromRaw(
       inputTokens: usage.input_tokens ?? 0,
       outputTokens: usage.output_tokens ?? 0,
       cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+      cacheCreation1hTokens: usage.cache_creation_input_tokens_1h ?? usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
       cacheReadTokens: usage.cache_read_input_tokens ?? 0,
     },
     model

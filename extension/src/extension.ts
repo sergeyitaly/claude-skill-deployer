@@ -80,6 +80,7 @@ import { getOptimalAgent, formatRoutingSuggestion } from "./costRouter";
 import { budgetProgressBar, remainingDailyBudgetUsd, writeTodayCostSnapshot } from "./todayCostSnapshot";
 import { computeCreditUsage, spendPrefixForCreditSummary } from "./usageCost";
 import { formatCompactUsd, sumInstallCostEstimate, tierForSkill } from "./skillCost";
+import { autoReconcileCursorCostsFromDownloads, reconcileCursorCosts } from "./cursorUsageImport";
 import { formatTokenCount } from "./usageStats";
 import { BudgetMode, budgetUsagePercent, configFromVsCodeSettings, syncBudgetConfigToDisk } from "./budgetConfig";
 import {
@@ -220,6 +221,8 @@ import { readPipelineCycle } from "./pipelineCycle";
 import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
+import { activateMcpOptimizer, revertMcpOptimizer } from "./mcpAutoOptimizer";
+import { enableOfficialFilesystemServer, disableOfficialFilesystemServer } from "./mcpOfficial";
 import {
   configureWeeklyReportEmail,
   deliverWeeklyReport,
@@ -792,7 +795,31 @@ export function activate(context: vscode.ExtensionContext) {
   let lastWorkspaceStateAt = 0;
   let lastProjectProfileLogged: string | undefined;
   let lastProjectProfileNotified: string | undefined;
+  let lastCostDisciplineLogged: string | undefined;
   const mirrorCleanupCheckedTargets = new Set<string>();
+  const cursorUsageImportCheckedTargets = new Set<string>();
+
+  function checkCursorUsageImportFromDownloads(target: string): void {
+    if (!vscode.workspace.getConfiguration("claudeSkills.budget").get<boolean>("cursorUsageImportEnabled", true)) {
+      return;
+    }
+    const watchFolder = vscode.workspace.getConfiguration("claudeSkills.budget").get<string>("cursorUsageImportFolder", "");
+    try {
+      const entries = autoReconcileCursorCostsFromDownloads(target, watchFolder || undefined);
+      for (const { file, result } of entries) {
+        if (result.rowsUpdated > 0) {
+          log(
+            `Cursor usage CSV "${path.basename(file)}" reconciled ${result.rowsUpdated} run(s) on ${result.matchedDates.join(", ")}: ${formatCompactUsd(result.estimatedTotalUsd)} -> ${formatCompactUsd(result.reconciledTotalUsd)}.`
+          );
+        } else {
+          log(`Cursor usage CSV "${path.basename(file)}" had no matching runs in runs.jsonl (dates: ${result.unmatchedCsvDates.join(", ") || "none"}).`);
+        }
+      }
+    } catch (err) {
+      recordError();
+      log(`Cursor usage CSV auto-import failed: ${(err as Error).message}`);
+    }
+  }
 
   function cleanupExcessAgentMirrorsForTier(target: string): void {
     const { pruned } = applyHostOnlyTierMirrorCleanup(target, libraryDir, log);
@@ -818,6 +845,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (!mirrorCleanupCheckedTargets.has(target!) && hostOnlyMirrorModeForTarget(target!)) {
         mirrorCleanupCheckedTargets.add(target!);
         cleanupExcessAgentMirrorsForTier(target!);
+      }
+      if (opts.workspaceState && !cursorUsageImportCheckedTargets.has(target!)) {
+        cursorUsageImportCheckedTargets.add(target!);
+        checkCursorUsageImportFromDownloads(target!);
       }
       if (opts.workspaceState) {
         const profileLogKey = `${target}|${projectProfile.profileType}`;
@@ -966,20 +997,24 @@ export function activate(context: vscode.ExtensionContext) {
           );
         }
         const discipline = runCostDisciplinePass(libraryDir, target);
-        if (discipline.hostBootstrapMessage) {
-          log(discipline.hostBootstrapMessage);
-        }
-        if (discipline.budgetDisabled.length > 0) {
-          log(`Budget tier gating: disabled ${discipline.budgetDisabled.join(", ")} (${discipline.reason ?? "budget"}).`);
-        }
-        if (discipline.prunedIrrelevant.length > 0) {
-          log(`Relevant-only prune: removed ${discipline.prunedIrrelevant.join(", ")}.`);
-        }
-        if (discipline.mirroredArtifacts.length > 0) {
-          log(`Mirrored cost-discipline artifacts: ${discipline.mirroredArtifacts.join(", ")}.`);
-        }
-        if (discipline.agentPathsUpdated > 0) {
-          log(`Propagated focused skill set to ${discipline.agentPathsUpdated} Cursor/Kiro/Copilot path(s).`);
+        const disciplineKey = `${target}|${JSON.stringify(discipline)}`;
+        if (disciplineKey !== lastCostDisciplineLogged) {
+          lastCostDisciplineLogged = disciplineKey;
+          if (discipline.hostBootstrapMessage) {
+            log(discipline.hostBootstrapMessage);
+          }
+          if (discipline.budgetDisabled.length > 0) {
+            log(`Budget tier gating: disabled ${discipline.budgetDisabled.join(", ")} (${discipline.reason ?? "budget"}).`);
+          }
+          if (discipline.prunedIrrelevant.length > 0) {
+            log(`Relevant-only prune: removed ${discipline.prunedIrrelevant.join(", ")}.`);
+          }
+          if (discipline.mirroredArtifacts.length > 0) {
+            log(`Mirrored cost-discipline artifacts: ${discipline.mirroredArtifacts.join(", ")}.`);
+          }
+          if (discipline.agentPathsUpdated > 0) {
+            log(`Propagated focused skill set to ${discipline.agentPathsUpdated} Cursor/Kiro/Copilot path(s).`);
+          }
         }
         scheduleHighUsageSkillProposalCheck(target);
       })();
@@ -1135,6 +1170,7 @@ export function activate(context: vscode.ExtensionContext) {
     const recovery = new ErrorRecovery();
     await recovery.repairCommonIssues(initialTarget);
     await promptGetStarted(context);
+    void activateMcpOptimizer(context, context.extensionPath, log);
   })();
 
   refreshLight();
@@ -1758,6 +1794,72 @@ export function activate(context: vscode.ExtensionContext) {
         recordError();
         vscode.window.showWarningMessage(`Claude Skills: could not enable cost control hooks - ${(err as Error).message}`);
       }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.importCursorUsageCsv", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const picked = await vscode.window.showOpenDialog({
+        title: "Import Cursor usage CSV (Settings -> Usage -> Export) to reconcile costs",
+        canSelectMany: false,
+        filters: { "CSV files": ["csv"] },
+        openLabel: "Reconcile costs",
+      });
+      const file = picked?.[0];
+      if (!file) {
+        return;
+      }
+      try {
+        const csvContent = fs.readFileSync(file.fsPath, "utf-8");
+        const result = reconcileCursorCosts(target, csvContent);
+        maybeRevealOutputPanel();
+        log(`\n=== Cursor usage CSV reconciliation (${path.basename(file.fsPath)}) ===`);
+        log(
+          `CSV: ${result.csvRows} row(s) totaling ${formatCompactUsd(result.csvTotalUsd)} across ${result.matchedDates.length + result.unmatchedCsvDates.length} day(s).`
+        );
+        if (result.rowsUpdated > 0) {
+          log(
+            `Reconciled ${result.rowsUpdated} cursor run(s) on ${result.matchedDates.join(", ")}: estimate ${formatCompactUsd(result.estimatedTotalUsd)} -> actual ${formatCompactUsd(result.reconciledTotalUsd)}.`
+          );
+        }
+        if (result.unmatchedCsvDates.length > 0) {
+          log(`No matching cursor runs in runs.jsonl for: ${result.unmatchedCsvDates.join(", ")}.`);
+        }
+        if (result.rowsUpdated === 0) {
+          void notifyUserWarn(
+            "Claude Skills: no matching Cursor runs found in runs.jsonl for the dates in this CSV — costs were not changed."
+          );
+        } else {
+          void notifyUserSuccess(
+            `Claude Skills: reconciled ${result.rowsUpdated} Cursor run(s) against actual billing (${formatCompactUsd(result.estimatedTotalUsd)} -> ${formatCompactUsd(result.reconciledTotalUsd)}).`
+          );
+        }
+      } catch (err) {
+        recordError();
+        vscode.window.showWarningMessage(`Claude Skills: could not reconcile Cursor usage CSV - ${(err as Error).message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableMcpOptimizer", () => {
+      maybeRevealOutputPanel();
+      revertMcpOptimizer(context, log);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.enableOfficialFilesystemServer", async () => {
+      maybeRevealOutputPanel();
+      await enableOfficialFilesystemServer(context.extensionPath, log, () => {
+        provider.refreshMcpServerStatus();
+      });
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableOfficialFilesystemServer", () => {
+      maybeRevealOutputPanel();
+      disableOfficialFilesystemServer(log, () => {
+        provider.refreshMcpServerStatus();
+      });
     }),
 
     vscode.commands.registerCommand("claudeSkills.installOfficialSkillsSessionHook", async () => {

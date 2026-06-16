@@ -1,20 +1,23 @@
 #!/usr/bin/env node
-// Nudges toward /compact or /clear when the session transcript grows large.
-// Claude/Cursor: needs transcript_path + session_id (no-op on Kiro/Copilot without transcripts).
+// Nudges toward /compact or /clear when the session grows large.
+// Claude/Cursor: byte-size of transcript_path. Kiro/Copilot (and any agent without
+// transcript_path): falls back to this session's usage totals in runs.jsonl.
 
 const fs = require("fs");
 const path = require("path");
-const { sumTranscriptUsage, formatTokenCount, formatUsd } = require("./usageParse");
+const { sumTranscriptUsageCached, sumSessionRunsUsage, formatTokenCount, formatUsd } = require("./usageParse");
 const { readStdin, parsePlatform, resolveCwd, resolveSessionId, writePromptOutput } = require("./hookPlatform");
 
 const WARN_BYTES = 4 * 1024 * 1024;
 const CRITICAL_BYTES = 10 * 1024 * 1024;
+const WARN_TOKENS = 100_000;
+const CRITICAL_TOKENS = 200_000;
 const PROJECTED_TOKEN_CEILING = 200_000;
 const BLENDED_USD_PER_TOKEN = 0.000009;
 
 const LEVEL_RANK = { ok: 0, warn: 1, critical: 2 };
 
-function levelFor(bytes) {
+function levelForBytes(bytes) {
   if (bytes >= CRITICAL_BYTES) {
     return "critical";
   }
@@ -24,19 +27,39 @@ function levelFor(bytes) {
   return "ok";
 }
 
-function tokenAndCost(transcriptPath) {
-  const usage = sumTranscriptUsage(transcriptPath);
-  if (usage.totalTokens > 0) {
-    return { tokens: usage.totalTokens, cost: usage.totalCostUsd };
+function levelForTokens(tokens) {
+  if (tokens >= CRITICAL_TOKENS) {
+    return "critical";
   }
+  if (tokens >= WARN_TOKENS) {
+    return "warn";
+  }
+  return "ok";
+}
+
+/** Token/cost/level from the session transcript, or null if no transcript is available. */
+function usageFromTranscript(transcriptPath, cacheFile) {
   let size;
   try {
     size = fs.statSync(transcriptPath).size;
   } catch {
-    return { tokens: 0, cost: 0 };
+    return null;
+  }
+  const usage = sumTranscriptUsageCached(transcriptPath, cacheFile);
+  if (usage.totalTokens > 0) {
+    return { tokens: usage.totalTokens, cost: usage.totalCostUsd, level: levelForBytes(size) };
   }
   const tokens = Math.round(size / 4);
-  return { tokens, cost: tokens * BLENDED_USD_PER_TOKEN };
+  return { tokens, cost: tokens * BLENDED_USD_PER_TOKEN, level: levelForBytes(size) };
+}
+
+/** Token/cost/level from this session's runs.jsonl totals (Kiro/Copilot — no transcript). */
+function usageFromRuns(cwd, sessionId) {
+  const { totalTokens, totalCostUsd } = sumSessionRunsUsage(cwd, sessionId);
+  if (totalTokens === 0) {
+    return null;
+  }
+  return { tokens: totalTokens, cost: totalCostUsd, level: levelForTokens(totalTokens) };
 }
 
 function savingsHint(tokens, cost) {
@@ -48,19 +71,21 @@ function savingsHint(tokens, cost) {
   return ` /compact now may save ~${formatUsd(saveUsd)} vs letting the session grow; /clear resets completely.`;
 }
 
-function costSuffix(transcriptPath) {
-  const { tokens, cost } = tokenAndCost(transcriptPath);
-  if (tokens === 0) {
+function costSuffix(usage) {
+  if (!usage || usage.tokens === 0) {
     return "";
   }
-  return ` Session at ${formatTokenCount(tokens)} tokens (~${formatUsd(cost)} est.).${savingsHint(tokens, cost)}`;
+  return ` Session at ${formatTokenCount(usage.tokens)} tokens (~${formatUsd(usage.cost)} est.).${savingsHint(usage.tokens, usage.cost)}`;
 }
 
+const MCP_OPTIMIZER_TIP =
+  " For permanent context reduction across sessions: lazy-mcp (90%+ token cut via on-demand tool loading)," +
+  " mcp-compressor from Atlassian Labs (70–97% schema compression for large MCP servers like GitHub/Jira)," +
+  " or jmunch-mcp (efficient proxy for data-heavy MCP servers). Run \"Claude Skills: Setup MCP Context Optimizer\" in the VS Code command palette.";
+
 const MESSAGES = {
-  warn: (transcriptPath) =>
-    `[Claude Skills] This session's transcript is getting large.${costSuffix(transcriptPath)}`,
-  critical: (transcriptPath) =>
-    `[Claude Skills] This session's transcript is very large.${costSuffix(transcriptPath)}`,
+  warn: (usage) => `[Claude Skills] This session's transcript is getting large.${costSuffix(usage)}`,
+  critical: (usage) => `[Claude Skills] This session's transcript is very large.${costSuffix(usage)}${MCP_OPTIMIZER_TIP}`,
 };
 
 function readJsonSafe(file) {
@@ -83,18 +108,17 @@ function main() {
   const transcriptPath = input.transcript_path;
   const sessionId = resolveSessionId(input);
   const cwd = resolveCwd(input, platform);
-  if (!transcriptPath || !sessionId || !cwd) {
+  if (!sessionId || !cwd) {
     return;
   }
 
-  let size;
-  try {
-    size = fs.statSync(transcriptPath).size;
-  } catch {
+  const sizeWatchCacheFile = path.join(cwd, ".claude", "learning", "session-watch-size.json");
+  const usage = (transcriptPath && usageFromTranscript(transcriptPath, sizeWatchCacheFile)) || usageFromRuns(cwd, sessionId);
+  if (!usage) {
     return;
   }
 
-  const level = levelFor(size);
+  const level = usage.level;
   const stateFile = path.join(cwd, ".claude", "learning", "session-watch.json");
   const state = readJsonSafe(stateFile);
   const previous = state[sessionId] || "ok";
@@ -109,7 +133,7 @@ function main() {
 
   const escalated = LEVEL_RANK[level] > LEVEL_RANK[previous];
   if (escalated && (level === "warn" || level === "critical")) {
-    writePromptOutput(MESSAGES[level](transcriptPath), platform, "systemMessage");
+    writePromptOutput(MESSAGES[level](usage), platform, "systemMessage");
   }
 }
 

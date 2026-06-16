@@ -1,6 +1,6 @@
 ---
 name: "skill-feedback-adaptation"
-description: "Register user disagreement and negative reactions on agent answers or skill behavior into .claude/learning/skill-feedback.jsonl; on new tasks analyze the prompt and repo to write task-skill-proposals.json from the existing skill library. Use when the user says no, not, wrong, stop, or otherwise disagrees with agent output; when starting a new task or feature; or when asked about skill inefficiency, feedback adaptation, or which skills fit this task."
+description: "AUTO-START on new agent session/window (injected by profile-init-watch for Claude, Cursor, Kiro, Copilot) and on new tasks — analyze the prompt and repo, write task-skill-proposals.json, then read top proposed skills before other work. Also register user disagreement into skill-feedback.jsonl when the user says no, not, wrong, stop, or disagrees with agent output."
 applyTo:
   - **/.claude/learning/skill-feedback.jsonl
   - **/.claude/learning/task-skill-proposals.json
@@ -15,12 +15,37 @@ Track when users push back on agent answers or skill-driven behavior, surface
 inefficiency in the Usage Report dashboard, and propose skills when a new task
 starts.
 
+## AUTO-START (new session / new task)
+
+**Run immediately — before any other task work — when any of these is true:**
+
+- Session hook injects `[Claude Skills] NEW SESSION` (Claude Code SessionStart,
+  Cursor `sessionStart`, Kiro `agentSpawn`, Copilot SessionStart via
+  `profile-init-watch.js`).
+- User opens a **new chat** or describes a **new task** (feature, bug, review,
+  assessment) in their first message.
+- User asks which skills fit the current task.
+
+**Do this first:**
+
+1. Read this skill (you are here).
+2. Check `.claude/learning/task-skill-proposals.json` — if `generatedAt` is **<24h old** and
+   `claudeSkills.features.deterministicTaskProposals` is on (default), the extension already
+   refreshed proposals and auto-applied skills. **Skip section 3** unless the user starts a
+   clearly new task.
+3. Otherwise run **section 3** — overwrite proposals for the user's actual task.
+4. **Do not** read top `SKILL.md` files when auto-apply already enabled them — only read a
+   skill when the task needs guidance you lack.
+
+Do not skip step 2 when proposals already exist on disk.
+
 ## Storage layout
 
 ```
 .claude/learning/
   skill-feedback.jsonl       append-only negative/correction feedback (gitignore)
   task-skill-proposals.json  latest task → skill proposal set (gitignore)
+  task-active-skills.json    active + ignored skill lists for task focus (gitignore)
 ```
 
 Both files are machine-local (same as `runs.jsonl`). Do not commit them.
@@ -93,9 +118,9 @@ Manual apply: **Claude Skills: Apply Suggested Skills for Current Task**.
 
 ## 3. Propose skills for a new task
 
-**When to run:** User starts a clearly **new task** (new feature, bug area,
-refactor scope) — especially the first message describing what they want to
-build or fix. Also when they ask "which skills should I use for this?".
+**When to run:** AUTO-START (above), user starts a clearly **new task** (new
+feature, bug area, refactor scope) — especially the first message describing
+what they want to build or fix — or asks "which skills should I use for this?".
 
 **Steps:**
 
@@ -125,8 +150,11 @@ build or fix. Also when they ask "which skills should I use for this?".
 }
 ```
 
-6. Present the top 3–5 proposals in chat with install hint (extension tree or
-   `generate_skills.py install <name>`).
+6. Present the top 3–5 proposals in chat. When `autoApplyTaskProposals` is on (default), say
+   skills are installed locally — do **not** suggest manual install commands unless auto-apply
+   is disabled or a skill shows `"installed": false`. When `taskSkillFocus` is on (default),
+   non-proposed installed skills are on the task ignore list (`skillOverrides: off`) — do not
+   load their SKILL.md files.
 
 Regenerate this file when the task scope changes materially — overwrite the
 previous proposals.

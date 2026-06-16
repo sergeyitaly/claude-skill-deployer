@@ -128,6 +128,7 @@ export function normalizeRunRecord(raw: Record<string, unknown>): EnrichedRunRec
         input_tokens?: number;
         output_tokens?: number;
         cache_creation_input_tokens?: number;
+        cache_creation_input_tokens_1h?: number;
         cache_read_input_tokens?: number;
       }
     | undefined;

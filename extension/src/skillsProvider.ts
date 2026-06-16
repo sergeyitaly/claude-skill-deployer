@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   branchProfilesFeatureActive,
@@ -68,12 +69,42 @@ export class BranchProfileBranchItem extends vscode.TreeItem {
   }
 }
 
+// Helper function to check if filesystem MCP server is enabled
+function isFilesystemMcpServerEnabled(): boolean {
+  try {
+    const configPath = path.join(os.homedir(), ".claude.json");
+    if (!fs.existsSync(configPath)) {
+      return false;
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
+      mcpServers?: Record<string, unknown>;
+    };
+    return !!config.mcpServers?.filesystem;
+  } catch {
+    return false;
+  }
+}
+
+// Tree item for MCP server status
+export class McpServerStatusItem extends vscode.TreeItem {
+  constructor(enabled: boolean) {
+    super("Filesystem MCP Server", vscode.TreeItemCollapsibleState.None);
+    this.contextValue = "mcp-server-status";
+    this.description = enabled ? "Connected" : "Disconnected";
+    this.iconPath = new vscode.ThemeIcon(enabled ? "circle-filled" : "circle-outline");
+    this.tooltip = enabled
+      ? "Filesystem MCP server is active in ~/.claude.json"
+      : "Filesystem MCP server is not configured. Enable it via the command palette.";
+  }
+}
+
 export type SkillsTreeNode =
   | SkillItem
   | BranchProfilesRootItem
   | BranchProfileBranchItem
   | TeamProfilesRootItem
-  | TeamProfileBranchItem;
+  | TeamProfileBranchItem
+  | McpServerStatusItem;
 
 export interface SkillUiOverlay {
   syncing?: boolean;
@@ -349,6 +380,11 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     });
   }
 
+  /** Refresh MCP server status in the tree */
+  refreshMcpServerStatus(): void {
+    this._onDidChangeTreeData.fire();
+  }
+
   private applyShadow(status: SkillStatus): { status: SkillStatus; ui?: SkillUiOverlay } {
     const enabledOverlay = this.optimisticEnabled.get(status.name);
     let next = status;
@@ -482,6 +518,10 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
       }
       return this.getOrUpdateSkillItem(s, roiLine);
     });
-    return [...teamNodes, ...branchNodes, ...skillNodes];
+    
+    // Add MCP server status at the top of the tree
+    const mcpStatusItem = new McpServerStatusItem(isFilesystemMcpServerEnabled());
+    
+    return [mcpStatusItem, ...teamNodes, ...branchNodes, ...skillNodes];
   }
 }

@@ -67,6 +67,16 @@ Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-
    By default, detected skills are copied to **all enabled agent paths** in the workspace (`.claude/skills/`, `.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`).
 5. Optional: **Enable Cost Control Hooks**, open **Cost Intelligence Dashboard**, configure **Budget** and **Feature Toggles**.
 
+### MCP Servers
+
+The extension includes official MCP (Model Context Protocol) servers:
+
+- **Filesystem MCP Server** — Bundled file I/O tool that Claude can use to read, write, and manage files.
+  - Command Palette → **Enable Official Filesystem MCP Server** to activate.
+  - The extension automatically configures the server and displays connection status in the Claude Skills panel.
+  - Status indicator shows **Connected** (green) or **Disconnected** (gray).
+  - Disable with **Disable Official Filesystem MCP Server** command.
+
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
 
@@ -217,7 +227,7 @@ Estimates where no usage data exists — hook/API-priced where hooks logged usag
 
 When users disagree with agent output (`no`, `wrong`, `stop`, etc.), the **`skill-feedback-adaptation`** skill records reactions in `.claude/learning/skill-feedback.jsonl`. The Usage Report shows **inefficiency %** per skill (deeper red = more negative feedback) with update suggestions.
 
-On a **new task**, the same skill analyzes the prompt and repo and writes `.claude/learning/task-skill-proposals.json` — a ranked set of skills from the library that should help.
+On a **new task**, the same skill analyzes the prompt and repo and writes `.claude/learning/task-skill-proposals.json` — a ranked set of skills from the library that should help. This file is **local-only** (auto-added to `.git/info/exclude`) — proposals never get committed or pushed to teammates.
 
 When a **branch or task** exceeds a configurable share of monthly credits (default **50%**), the extension prompts to **Apply suggested skills** (`claudeSkills.skillFeedback.*` settings).
 
@@ -238,7 +248,7 @@ Install **`skill-feedback-adaptation`**, **`self-learning`**, and **`skill-usage
 |---|---|
 | `.claude/learning/runs.jsonl` | Hook invocations + self-learning run log (not transcript cost estimates) |
 | `.claude/learning/skill-feedback.jsonl` | User negative/correction feedback per skill (machine-local) |
-| `.claude/learning/task-skill-proposals.json` | Latest task-scoped skill proposal set (machine-local) |
+| `.claude/learning/task-skill-proposals.json` | Latest task-scoped skill proposal set (machine-local, auto-excluded via `.git/info/exclude`) |
 | `.claude/learning/skill-proposal-alert-state.json` | Dedup state for high-usage skill proposal notifications |
 | `.claude/learning/cost-attribution.json` | Transcript-based per-skill estimates (`transcriptSkills`) and unattributed totals |
 | `.claude/learning/skill-stats.json` | Aggregated per-skill stats index (hook/self-learning runs) |

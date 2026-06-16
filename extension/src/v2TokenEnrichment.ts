@@ -19,7 +19,18 @@ function expandHome(p: string): string {
   return p;
 }
 
-function sumUsage(u: Record<string, number> | undefined): number {
+/** Usage block as logged on a transcript line (snake_case, as emitted by the API). */
+interface RawUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  /** Nested 1h/5m cache-write breakdown (sums to `cache_creation_input_tokens`). */
+  cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number };
+  total_tokens?: number;
+}
+
+function sumUsage(u: RawUsage | undefined): number {
   if (!u) {
     return 0;
   }
@@ -36,23 +47,23 @@ function sumUsage(u: Record<string, number> | undefined): number {
 
 /** Usage on a single transcript line (no deep recursion — avoids double-count). */
 function lineUsageRecord(node: unknown): {
-  usage: Record<string, number>;
+  usage: RawUsage;
   model?: string;
 } | null {
   if (!node || typeof node !== "object") {
     return null;
   }
   const rec = node as Record<string, unknown>;
-  let usage: Record<string, number> | undefined;
+  let usage: RawUsage | undefined;
   let model: string | undefined;
   if (rec.usage && typeof rec.usage === "object") {
-    usage = rec.usage as Record<string, number>;
+    usage = rec.usage as RawUsage;
   }
   const message = rec.message;
   if (message && typeof message === "object") {
     const msg = message as Record<string, unknown>;
     if (msg.usage && typeof msg.usage === "object") {
-      usage = msg.usage as Record<string, number>;
+      usage = msg.usage as RawUsage;
     }
     if (typeof msg.model === "string") {
       model = msg.model;
@@ -76,6 +87,8 @@ export interface ToolUseEnrichment {
     input_tokens: number;
     output_tokens: number;
     cache_creation_input_tokens: number;
+    /** Portion of `cache_creation_input_tokens` written with a 1-hour TTL (billed at 2x input). */
+    cache_creation_input_tokens_1h: number;
     cache_read_input_tokens: number;
   };
   model?: string;
@@ -83,14 +96,16 @@ export interface ToolUseEnrichment {
 }
 
 function splitUsage(
-  usage: Record<string, number>,
+  usage: RawUsage,
   parts: number
 ): ToolUseEnrichment["usage"] {
   const divisor = Math.max(1, parts);
+  const cache1h = usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
   return {
     input_tokens: Math.round((usage.input_tokens ?? 0) / divisor),
     output_tokens: Math.round((usage.output_tokens ?? 0) / divisor),
     cache_creation_input_tokens: Math.round((usage.cache_creation_input_tokens ?? 0) / divisor),
+    cache_creation_input_tokens_1h: Math.round(cache1h / divisor),
     cache_read_input_tokens: Math.round((usage.cache_read_input_tokens ?? 0) / divisor),
   };
 }

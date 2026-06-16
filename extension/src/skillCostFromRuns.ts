@@ -9,7 +9,7 @@ import {
 import { formatCompactUsd } from "./skillCost";
 import { readEnrichedRuns } from "./usageStats";
 
-export type SkillCostMethod = "usage_breakdown" | "model_blended" | "stored";
+export type SkillCostMethod = "usage_breakdown" | "reconciled" | "model_blended" | "stored";
 
 export interface SkillCostFromRunsRow {
   skill: string;
@@ -18,6 +18,8 @@ export interface SkillCostFromRunsRow {
   tokens: number;
   cost: number;
   usageBreakdownRuns: number;
+  /** Runs whose cost was reconciled against an actual-billing CSV import (e.g. Cursor dashboard export). */
+  reconciledRuns: number;
   byAgent: Partial<Record<EnrichedRunRecord["agent"], { runs: number; cost: number; tokens: number }>>;
 }
 
@@ -47,6 +49,9 @@ function shouldIncludeRunForSkillCost(record: EnrichedRunRecord): boolean {
 
 function costMethodForRun(record: EnrichedRunRecord): SkillCostMethod {
   const meta = record.metadata ?? {};
+  if (meta.cost_method === "reconciled") {
+    return "reconciled";
+  }
   if (isUsageBreakdownRun(record)) {
     return "usage_breakdown";
   }
@@ -94,7 +99,7 @@ export function summarizeSkillCostsFromRuns(target: string, daysBack = 14): Skil
     }
 
     const skill = record.skill;
-    const bucket =
+    const bucket: SkillCostFromRunsRow =
       bySkill.get(skill) ??
       ({
         skill,
@@ -103,6 +108,7 @@ export function summarizeSkillCostsFromRuns(target: string, daysBack = 14): Skil
         tokens: 0,
         cost: 0,
         usageBreakdownRuns: 0,
+        reconciledRuns: 0,
         byAgent: {},
       } satisfies SkillCostFromRunsRow);
 
@@ -113,8 +119,11 @@ export function summarizeSkillCostsFromRuns(target: string, daysBack = 14): Skil
     const tokens = tokensForRun(record);
     bucket.tokens += tokens;
     bucket.cost += record.cost ?? 0;
-    if (costMethodForRun(record) === "usage_breakdown") {
+    const costMethod = costMethodForRun(record);
+    if (costMethod === "usage_breakdown") {
       bucket.usageBreakdownRuns += 1;
+    } else if (costMethod === "reconciled") {
+      bucket.reconciledRuns += 1;
     }
 
     const agent = record.agent;
