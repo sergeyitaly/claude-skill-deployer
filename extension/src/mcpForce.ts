@@ -34,6 +34,10 @@ export type McpForceEnableResult =
   | { ok: true; permissionsWritten: boolean }
   | { ok: false; reason: string };
 
+export type McpForceInjectResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
 function readSettings(file: string): ClaudeSettings {
   return readJsonFile<ClaudeSettings>(file) ?? {};
 }
@@ -88,7 +92,15 @@ export function revertMcpForcePermissions(target: string): void {
   writeJsonAtomic(settingsFile, settings);
 }
 
-export function injectMcpForceClaude(target: string): void {
+export function injectMcpForceClaude(target: string): McpForceInjectResult {
+  const health = checkMcpHealth();
+  if (health.status === "config-issue") {
+    return {
+      ok: false,
+      reason: `MCP server is not ready (${health.errors[0] ?? "config-issue"}). Fix MCP setup before injecting force instructions.`,
+    };
+  }
+
   const claudeMd = path.join(target, "CLAUDE.md");
   let content = fs.existsSync(claudeMd) ? fs.readFileSync(claudeMd, "utf-8") : "";
 
@@ -106,6 +118,7 @@ export function injectMcpForceClaude(target: string): void {
 
   fs.mkdirSync(path.dirname(claudeMd), { recursive: true });
   fs.writeFileSync(claudeMd, content, "utf-8");
+  return { ok: true };
 }
 
 export function removeMcpForceClaudeBlock(target: string): void {

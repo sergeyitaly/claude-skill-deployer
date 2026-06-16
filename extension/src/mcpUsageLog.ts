@@ -159,6 +159,15 @@ function resolvePath(p: string): string {
 
 interface LogCache { mtime: number; entries: McpUsageEntry[] }
 const logCache = new Map<string, LogCache>();
+const LOG_CACHE_MAX_PATHS = 20;
+
+function setLogCache(key: string, value: LogCache): void {
+  // Map iterates in insertion order — delete the oldest entry when at capacity.
+  if (logCache.size >= LOG_CACHE_MAX_PATHS && !logCache.has(key)) {
+    logCache.delete(logCache.keys().next().value as string);
+  }
+  logCache.set(key, value);
+}
 
 export function readMcpUsageLog(logPath = MCP_USAGE_LOG_PATH): McpUsageEntry[] {
   if (!fs.existsSync(logPath)) {
@@ -179,7 +188,7 @@ export function readMcpUsageLog(logPath = MCP_USAGE_LOG_PATH): McpUsageEntry[] {
           return [];
         }
       });
-    logCache.set(logPath, { mtime, entries });
+    setLogCache(logPath, { mtime, entries });
     return entries;
   } catch {
     return [];
@@ -263,24 +272,27 @@ function detectAgentLoops(entries: McpUsageEntry[]): AgentLoopWarning[] {
 
   for (const [filePath, pathReads] of Object.entries(byPath)) {
     const sorted = [...pathReads].sort((a, b) => a.ts.localeCompare(b.ts));
-    for (const read of sorted) {
-      const windowStart = new Date(read.ts).getTime();
-      const inWindow = sorted.filter((r) => {
-        const t = new Date(r.ts).getTime();
-        return t >= windowStart && t <= windowStart + windowMs;
+    // Pre-parse timestamps once: O(n) instead of repeated Date construction per iteration.
+    const times = sorted.map((r) => new Date(r.ts).getTime());
+    // Sliding window: O(n) scan replaces the previous O(n²) filter-per-anchor approach.
+    let bestCount = 0;
+    let left = 0;
+    for (let right = 0; right < times.length; right++) {
+      while (times[right] - times[left] > windowMs) left++;
+      const count = right - left + 1;
+      if (count > bestCount) bestCount = count;
+    }
+
+    if (bestCount >= LOOP_THRESHOLD) {
+      const avgBytes = sorted.reduce((s, r) => s + (r.bytes ?? 0), 0) / sorted.length;
+      const wastedTokens = bytesToTokens(avgBytes * (bestCount - 1));
+      warnings.push({
+        path: filePath,
+        reads: bestCount,
+        windowMinutes: LOOP_WINDOW_MINUTES,
+        estimatedWastedTokens: wastedTokens,
+        description: `Read ${bestCount}× in ${LOOP_WINDOW_MINUTES}min — possible agent reasoning loop`,
       });
-      if (inWindow.length >= LOOP_THRESHOLD) {
-        const avgBytes = sorted.reduce((s, r) => s + (r.bytes ?? 0), 0) / sorted.length;
-        const wastedTokens = bytesToTokens(avgBytes * (inWindow.length - 1));
-        warnings.push({
-          path: filePath,
-          reads: inWindow.length,
-          windowMinutes: LOOP_WINDOW_MINUTES,
-          estimatedWastedTokens: wastedTokens,
-          description: `Read ${inWindow.length}× in ${LOOP_WINDOW_MINUTES}min — possible agent reasoning loop`,
-        });
-        break;
-      }
     }
   }
   const sortedWarnings = [...warnings].sort((a, b) => b.estimatedWastedTokens - a.estimatedWastedTokens);

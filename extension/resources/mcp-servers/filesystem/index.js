@@ -145,13 +145,25 @@ function dispatchTool(id, toolName, args) {
         const newContent = args.content ?? "";
         logExtra.bytes = Buffer.byteLength(newContent, "utf-8");
         logExtra.contentHash = sha1hex(newContent);
-        // Auto-skip if content is identical to what's already on disk (no-op write)
-        if (fs.existsSync(resolved) && fs.readFileSync(resolved, "utf-8") === newContent) {
+        // Single try/catch read collapses the existsSync+readFileSync two-step into one
+        // syscall, eliminating the TOCTOU gap between existence check and content read.
+        let currentContent;
+        try { currentContent = fs.readFileSync(resolved, "utf-8"); } catch { /* file doesn't exist yet */ }
+        if (currentContent === newContent) {
           logExtra.skipped = true;
           result = { success: true, path: resolved, skipped: true };
         } else {
           fs.mkdirSync(path.dirname(resolved), { recursive: true });
-          fs.writeFileSync(resolved, newContent, "utf-8");
+          // Atomic write via temp-file + rename: readers never see partial content,
+          // and concurrent writers produce a clean last-writer-wins outcome.
+          const tmpPath = `${resolved}.${process.pid}.tmp`;
+          try {
+            fs.writeFileSync(tmpPath, newContent, "utf-8");
+            fs.renameSync(tmpPath, resolved);
+          } catch (e) {
+            try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+            throw e;
+          }
           result = { success: true, path: resolved, skipped: false };
         }
         break;
@@ -193,6 +205,40 @@ function dispatchTool(id, toolName, args) {
         logExtra.entryCount = results.length;
         if (depthReached) logExtra.depthReached = true;
         result = { results, depthReached };
+        break;
+      }
+      case "search_in_file": {
+        const resolved = assertAllowed(args.path);
+        const patternStr = typeof args.pattern === "string" ? args.pattern : "";
+        const contextLines = typeof args.context_lines === "number" ? Math.min(Math.max(0, args.context_lines), 10) : 2;
+        const maxMatches = typeof args.max_matches === "number" ? Math.min(args.max_matches, 100) : 50;
+        let regex;
+        try {
+          regex = new RegExp(patternStr);
+        } catch {
+          throw new Error(`Invalid regex pattern: ${patternStr}`);
+        }
+        const content = fs.readFileSync(resolved, "utf-8");
+        logExtra.bytes = Buffer.byteLength(content, "utf-8");
+        const lines = content.split("\n");
+        const matches = [];
+        for (let i = 0; i < lines.length && matches.length < maxMatches; i++) {
+          if (regex.test(lines[i])) {
+            const start = Math.max(0, i - contextLines);
+            const end = Math.min(lines.length - 1, i + contextLines);
+            matches.push({
+              lineNumber: i + 1,
+              line: lines[i],
+              context: lines.slice(start, end + 1).map((l, idx) => ({
+                lineNumber: start + idx + 1,
+                text: l,
+                isMatch: start + idx === i,
+              })),
+            });
+          }
+        }
+        logExtra.entryCount = matches.length;
+        result = { matches, totalLines: lines.length };
         break;
       }
       case "delete_file": {
@@ -311,6 +357,21 @@ rl.on("line", async (line) => {
                   path: { type: "string", description: "Absolute directory path to search in" },
                   pattern: { type: "string", description: "Filename substring to match (case-sensitive)" },
                   max_results: { type: "number", description: "Maximum results (default 100, max 200)" },
+                },
+                required: ["path", "pattern"],
+              },
+            },
+            {
+              name: "search_in_file",
+              description:
+                "Search for lines matching a regex pattern within a file. Returns matching lines with surrounding context. Use instead of read_file for large files when you only need specific sections.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  path: { type: "string", description: "Absolute file path to search" },
+                  pattern: { type: "string", description: "Regex pattern matched against each line" },
+                  context_lines: { type: "number", description: "Lines of context around each match (default 2, max 10)" },
+                  max_matches: { type: "number", description: "Maximum matches to return (default 50, max 100)" },
                 },
                 required: ["path", "pattern"],
               },

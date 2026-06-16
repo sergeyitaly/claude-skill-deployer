@@ -3078,7 +3078,13 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         );
         return;
       }
-      injectMcpForceClaude(target);
+      const injectResult = injectMcpForceClaude(target);
+      if (!injectResult.ok) {
+        void vscode.window.showErrorMessage(
+          `Claude Skills MCP-Force: ${injectResult.reason}`
+        );
+        return;
+      }
       installMcpForceHook(target);
       installMcpGateHook(target);
       log("MCP-force mode enabled: permissions.deny set, CLAUDE.md updated, hooks installed.");
