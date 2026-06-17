@@ -1,5 +1,11 @@
 {
   "skills": {
+    "mcp-server-creation": {
+      "description": "Build, wire, and debug a stdio MCP server bundled inside a VS Code extension (claude-skills-deployer pattern)",
+      "detect_globs": ["**/mcp-servers/**/*.js", "**/mcpCli.ts", "**/mcpOfficial.ts", "**/resources/mcp-servers/**"],
+      "cost_estimate": "medium",
+      "version": "1.0.0"
+    },
     "terraform-plan-review": {
       "description": "Terraform plan/apply review and drift triage",
       "detect_globs": ["**/*.tf", "**/*.tfvars"],

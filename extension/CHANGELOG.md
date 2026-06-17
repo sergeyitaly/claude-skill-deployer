@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.68** | CLI MCP server auto-start, status bar, and health dialog |
 | **1.0.65** | MCP health monitoring, Force Mode & proxy auto-migration |
 | **1.0.64** | Hybrid per-project MCP telemetry storage |
 | **1.0.61 – 1.0.63** | MCP filesystem server, efficiency metrics & KPI alerts |
@@ -28,6 +29,35 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.68] — 2026-06-17
+
+**Summary:** CLI MCP server now auto-starts alongside the filesystem server on extension activation, has its own status bar item, and appears in the MCP Health dialog. Two server-level bugs fixed.
+
+**Theme:** CLI MCP server auto-start, status bar, and health dialog
+
+### Added
+
+- **CLI MCP server auto-start** — on extension activation (5 s delay, same block as the filesystem server), `needsCliMcpSetup()` detects whether `~/.claude/mcp-servers/cli/index.js` is deployed and registered; if not, `enableOfficialCliServer()` runs automatically and deploys it for all configured agents (Claude, Cursor, Kiro). If already configured, logs a confirmation and refreshes the status bar.
+- **`mcpCliStatusBarItem`** — new status bar item (priority 91.5, immediately right of the KPI item) showing:
+  - `$(terminal-cmd) CLI MCP · claude, cursor, kiro` (no background) when the server is registered for any agent
+  - `$(warning) CLI MCP: setup needed` (warning background) when the server is missing or unregistered
+  - Click navigates to the enable/disable command depending on current state.
+- **`refreshCliMcpStatusBar()`** — module-level function called from `refreshAllImpl`, after the enable/disable commands, and after auto-start completes.
+- **CLI MCP section in `showMcpHealth` dialog** — the `claudeSkills.showMcpHealth` modal now has a `── CLI MCP Server ──` block after the filesystem section: shows `Connected ✓` with agent list and supported CLIs, or `Setup needed ✗` with the enable command name.
+- **`needsCliMcpSetup` and `getCliMcpServerStatus`** — now imported in `extension.ts` (were exported from `mcpCli.ts` but unused).
+- **`mcp-server-creation` skill** — new entry in `skills_library/` documenting the full pattern for building, wiring, and debugging a stdio MCP server bundled inside this VS Code extension: server skeleton, two critical bugs pre-fixed, allow-list security, TypeScript deploy helper, auto-start wiring, status bar pattern, health dialog integration, PowerShell test harness, and deployment checklist.
+
+### Fixed
+
+- **CLI MCP server: premature exit kills async tool calls** — `process.stdin.on("end", () => process.exit(0))` fired before `spawn`-based tool calls (`run_command`) had time to complete, so only synchronous tools responded. Replaced with a `_pendingOps` / `_stdinEnded` gate: `process.exit(0)` is deferred until all in-flight `tools/call` handlers have resolved.
+- **CLI MCP server: `tools/call` responses returned "no output"** — the server sent raw result objects (`{stdout, stderr, exitCode}`) instead of the MCP-required `content:[{type:"text",text:"..."}]` envelope. All `run_command` and `list_available_clis` responses now wrap in `{content:[{type:"text",text:"..."}], isError:bool}`. Error responses from `dispatchTool` catch blocks also use the content format with `isError:true`.
+
+### Changed
+
+- `claudeSkills.enableCliMcpServer` and `claudeSkills.disableCliMcpServer` commands now call `refreshCliMcpStatusBar()` in both the `onStatusChanged` callback and after the `await` — status bar updates immediately on manual enable/disable.
 
 ---
 

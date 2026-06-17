@@ -328,6 +328,9 @@ See root [README.md](../README.md#headless-applysync-claude-cli--no-vs-code-requ
   - **Today's estimated Claude spend** (tokens + USD, with % of daily budget
     when configured); click for the full usage report.
   - **Budget mode** (Economy / Normal / Unlimited); click to cycle modes.
+  - **`$(plug) MCP Connected`** / **`$(plug) MCP · N agents`** / **`$(warning) MCP: setup needed`** — filesystem MCP server health; click for the combined MCP health dialog.
+  - **`$(pulse) KPI: A · N calls`** / **`$(pulse) Agent KPI: ready`** — MCP filesystem efficiency grade and 24 h call count; click for the health dialog.
+  - **`$(terminal-cmd) CLI MCP · claude, cursor, kiro`** / **`$(warning) CLI MCP: setup needed`** — CLI MCP server status; click to enable or disable. Auto-starts on activation alongside the filesystem server.
 - **Claude Credits Usage report** — the usage report also includes a
   **Credits · 14d** section: workspace-scoped tokens and estimated cost by day
   and model from session transcripts (Claude + Cursor when enabled). Additional panels:
@@ -740,18 +743,57 @@ Record runs with `metadata.invoked: true` via the `self-learning` skill for supp
 
 Inspect `.claude/learning/system-state.json` when debugging profile init, hooks, or attribution health.
 
-## Filesystem MCP Server
+## MCP Servers
 
-The extension bundles a minimal **Filesystem MCP server** that gives Claude agents direct read/write access to `~/.claude/` and your open workspace folders — without copy-pasting file contents into chat.
+The extension bundles two MCP servers, both **auto-started on activation** (5 s after extension activate). No manual setup required on a fresh install.
 
-### Enable / Disable
+### Filesystem MCP server
 
-Open the **Claude Skills** panel in the activity bar. A **Filesystem MCP** status row shows the current state. Toggle it with:
+Gives Claude agents direct read/write access to `~/.claude/` and your open workspace folders — without copy-pasting file contents into chat.
+
+**Enable / Disable manually:**
 
 - **Command Palette → Claude Skills: Enable Filesystem MCP Server**
 - **Command Palette → Claude Skills: Disable Filesystem MCP Server**
 
 After toggling, reload the VS Code window (**Developer: Reload Window**) for the change to take effect.
+
+### CLI MCP server
+
+Lets agents run allow-listed infrastructure CLIs without leaving the conversation. Supported CLIs: `az`, `aws`, `git`, `kubectl`, `helm`, `terraform`, `gcloud`, `docker`, `gh`, `dotnet`, `node`, `npm`.
+
+Every call captures `stdout`, `stderr`, `exitCode`, and `timedOut` and returns them as readable text. Calls are also logged to `~/.claude/learning/mcp-usage.jsonl` for unified session telemetry.
+
+**Enable / Disable:**
+
+- **Command Palette → Claude Skills: Enable CLI MCP Server**
+- **Command Palette → Claude Skills: Disable CLI MCP Server**
+
+Reload the VS Code window after toggling so the new registration takes effect in the agent.
+
+**Security:** only CLIs on the allow-list can be invoked. The list is stored in `~/.claude/mcp-servers/cli/cli-config.json` and defaults to the 12 CLIs above. On Windows, `.cmd`/`.exe` wrappers are stripped for allow-list matching so `git.exe` matches `git`.
+
+### MCP Health dialog
+
+Click any MCP status bar item (`$(plug) MCP …` or `$(pulse) KPI …` or `$(terminal-cmd) CLI MCP …`) to open the combined health modal:
+
+```
+── Filesystem MCP Server ──
+Status:       Connected  ✓
+Config:       ✓ valid
+Server script:✓ found
+Calls (24h):  38
+Agents:       copilot, claude, cursor
+
+── CLI MCP Server ──
+Status:       Connected  ✓
+Agents:       claude, cursor, kiro
+CLIs:         az, aws, git, kubectl, helm, terraform, gcloud, docker, gh, dotnet, node, npm
+
+── Agent KPI (last 24h) ──
+Efficiency:   84% (grade B)
+Total ops:    38  Wasteful: 6
+```
 
 ### What it unlocks in practice
 
@@ -775,15 +817,30 @@ When you open an additional workspace folder, the extension updates the allowlis
 
 ### Server details
 
+#### Filesystem server
+
 | Property | Value |
 |----------|-------|
 | Transport | JSON-RPC 2.0 over stdio |
-| Tools | `read_file`, `write_file`, `list_directory`, `delete_file` |
+| Tools | `read_file`, `write_file`, `list_directory`, `search_files`, `delete_file` |
 | Location | `~/.claude/mcp-servers/filesystem/index.js` (copied on enable) |
 | Config | `~/.claude/mcp-servers/filesystem/allowed-dirs.json` |
 | Latency | < 2 ms per call (local stdio, no network) |
 
-The server is bundled in the extension and copied to `~/.claude/mcp-servers/filesystem/` on enable, so it works without npm or any external install.
+#### CLI server
+
+| Property | Value |
+|----------|-------|
+| Transport | JSON-RPC 2.0 over stdio |
+| Tools | `list_available_clis`, `run_command` |
+| Location | `~/.claude/mcp-servers/cli/index.js` (copied on enable) |
+| Config | `~/.claude/mcp-servers/cli/cli-config.json` (allow-list, timeout, workspace log path) |
+| Default timeout | 5 min per call (configurable up to 30 min) |
+| Output cap | 512 KB per stream (stdout / stderr independently) |
+
+Both servers are bundled in the extension under `extension/resources/mcp-servers/` and copied to `~/.claude/mcp-servers/` on enable — no npm install or external dependency required.
+
+**Building or debugging a bundled MCP server?** See the `mcp-server-creation` skill in `skills_library/` for the full pattern, including the two bugs that always appear (premature exit on stdin EOF, missing content envelope) and a PowerShell test harness.
 
 ### MCP usage log and waste detection
 

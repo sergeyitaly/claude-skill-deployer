@@ -261,14 +261,28 @@ async function dispatchTool(id, toolName, args) {
           ...(timedOut && { timedOut: true }),
         });
 
-        result = { stdout, stderr, exitCode, timedOut };
+        const parts = [];
+        if (stdout) parts.push(`stdout:\n${stdout.trimEnd()}`);
+        if (stderr) parts.push(`stderr:\n${stderr.trimEnd()}`);
+        parts.push(`exitCode: ${exitCode}`);
+        if (timedOut) parts.push(`timedOut: true`);
+        result = {
+          content: [{ type: "text", text: parts.join("\n") }],
+          isError: exitCode !== 0,
+        };
         break;
       }
 
       case "list_available_clis": {
         const clis = getAllowedClis().map((cli) => ({ cli, available: probeCli(cli) }));
         Object.assign(logEntry, { available: clis.filter((c) => c.available).length });
-        result = { clis };
+        const found   = clis.filter((c) =>  c.available).map((c) => `  ✓ ${c.cli}`);
+        const missing = clis.filter((c) => !c.available).map((c) => `  ✗ ${c.cli}`);
+        const text = [
+          `Found (${found.length}):`,   ...found,
+          `Missing (${missing.length}):`, ...missing,
+        ].join("\n");
+        result = { content: [{ type: "text", text }] };
         break;
       }
 
@@ -284,13 +298,24 @@ async function dispatchTool(id, toolName, args) {
     logEntry.durationMs = Date.now() - start;
     logEntry.error = e.message;
     appendUsageLog(logEntry);
-    respondError(id, -32000, e.message);
+    respond(id, {
+      content: [{ type: "text", text: e.message }],
+      isError: true,
+    });
   }
 }
 
 // ---------------------------------------------------------------------------
 // Stdio line reader
 // ---------------------------------------------------------------------------
+
+// Track in-flight async tool calls so we don't exit before they respond.
+let _pendingOps = 0;
+let _stdinEnded = false;
+
+function _tryExit() {
+  if (_stdinEnded && _pendingOps === 0) process.exit(0);
+}
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -379,7 +404,13 @@ rl.on("line", async (line) => {
         break;
 
       case "tools/call":
-        await dispatchTool(id, params?.name, params?.arguments || {});
+        _pendingOps++;
+        try {
+          await dispatchTool(id, params?.name, params?.arguments || {});
+        } finally {
+          _pendingOps--;
+          _tryExit();
+        }
         break;
 
       case "ping":
@@ -394,4 +425,4 @@ rl.on("line", async (line) => {
   }
 });
 
-process.stdin.on("end", () => process.exit(0));
+process.stdin.on("end", () => { _stdinEnded = true; _tryExit(); });

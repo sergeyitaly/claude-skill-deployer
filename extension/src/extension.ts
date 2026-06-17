@@ -230,7 +230,7 @@ import { runV1Migration } from "./migration";
 import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
 import { checkMcpHealth } from "./mcpHealth";
 import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup } from "./mcpOfficial";
-import { enableOfficialCliServer, disableOfficialCliServer } from "./mcpCli";
+import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup } from "./mcpCli";
 import {
   enableMcpForcePermissions,
   injectMcpForceClaude,
@@ -302,6 +302,7 @@ let projectTierStatusBarItem: vscode.StatusBarItem;
 let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let mcpHealthStatusBarItem: vscode.StatusBarItem;
 let mcpKpiStatusBarItem: vscode.StatusBarItem;
+let mcpCliStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 let costDashboardPanel: vscode.WebviewPanel | undefined;
 let costDashboardMessageSub: vscode.Disposable | undefined;
@@ -625,6 +626,29 @@ function refreshTrustStatusBar(libraryDir: string, target?: string) {
   trustStatusBarItem.show();
 }
 
+function refreshCliMcpStatusBar() {
+  const status = getCliMcpServerStatus();
+  if (status.enabled) {
+    const agentLabel = status.activeAgents.length > 0 ? ` · ${status.activeAgents.join(", ")}` : "";
+    mcpCliStatusBarItem.text = `$(terminal-cmd) CLI MCP${agentLabel}`;
+    mcpCliStatusBarItem.tooltip =
+      `CLI MCP server active for: ${status.activeAgents.join(", ")}.\n` +
+      `Supported CLIs: az, aws, git, kubectl, helm, terraform, gcloud, docker, gh, dotnet, node, npm.\n\n` +
+      `Click to disable.`;
+    mcpCliStatusBarItem.command = "claudeSkills.disableCliMcpServer";
+    mcpCliStatusBarItem.backgroundColor = undefined;
+  } else {
+    mcpCliStatusBarItem.text = `$(warning) CLI MCP: setup needed`;
+    mcpCliStatusBarItem.tooltip =
+      `CLI MCP server is not configured.\n` +
+      `Enables agents to run: az, aws, git, kubectl, helm, terraform, gcloud, docker, gh, dotnet, node, npm.\n\n` +
+      `Click to enable.`;
+    mcpCliStatusBarItem.command = "claudeSkills.enableCliMcpServer";
+    mcpCliStatusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  }
+  mcpCliStatusBarItem.show();
+}
+
 let lastMcpBarRefreshMs = 0;
 const MCP_BAR_REFRESH_INTERVAL_MS = 2000;
 
@@ -821,6 +845,9 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
    mcpKpiStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 92);
    context.subscriptions.push(mcpKpiStatusBarItem);
 
+   mcpCliStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 91.5);
+   context.subscriptions.push(mcpCliStatusBarItem);
+
   registerSyncStatusBar(context);
   registerUserActivityListeners(context);
 
@@ -997,6 +1024,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     refreshProjectTierStatusBar(target);
     refreshWorkspaceFolderStatusBar();
     refreshMcpStatusBars();
+    refreshCliMcpStatusBar();
     // Removed from status bar: usage, trust badge, budget mode, context focus, practical focus
     usageStatusBarItem.hide();
     trustStatusBarItem.hide();
@@ -1284,11 +1312,13 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
   }
 
   if (initialTarget && !integrationTestMode()) {
-    // Auto-start local MCP server on extension activation.
+    // Auto-start local MCP servers on extension activation.
     setTimeout(() => {
       try {
         if (!getWorkspaceTarget()) return;
         const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+
+        // Filesystem MCP server
         if (needsFilesystemMcpSetup()) {
           void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`MCP server: auto-started and configured for ${workspaceDirs.length} workspace folder(s).`);
@@ -1299,6 +1329,17 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
           refreshFilesystemAllowedDirs(workspaceDirs, log);
           log(`MCP server: already configured — agents can connect.`);
           refreshMcpStatusBars();
+        }
+
+        // CLI MCP server
+        if (needsCliMcpSetup()) {
+          void enableOfficialCliServer(context.extensionPath, workspaceDirs, log).then(() => {
+            log(`CLI MCP server: auto-started and configured.`);
+            refreshCliMcpStatusBar();
+          });
+        } else {
+          log(`CLI MCP server: already configured — agents can connect.`);
+          refreshCliMcpStatusBar();
         }
       } catch (err) {
         log(`MCP server auto-start failed: ${(err as Error).message}`);
@@ -2009,6 +2050,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
       const result = await enableOfficialCliServer(context.extensionPath, workspaceDirs, log, () => {
         provider.refreshMcpServerStatus();
+        refreshCliMcpStatusBar();
       });
       if (result.enabled.length > 0) {
         log(`Enabled CLI MCP server for: ${result.enabled.join(", ")}.`);
@@ -2016,13 +2058,16 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       for (const error of result.errors) {
         log(`CLI MCP server error for ${error.agentId}: ${error.message}`);
       }
+      refreshCliMcpStatusBar();
     }),
 
     vscode.commands.registerCommand("claudeSkills.disableCliMcpServer", async () => {
       maybeRevealOutputPanel();
       await disableOfficialCliServer(log, () => {
         provider.refreshMcpServerStatus();
+        refreshCliMcpStatusBar();
       });
+      refreshCliMcpStatusBar();
     }),
 
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -3046,6 +3091,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
 
     vscode.commands.registerCommand("claudeSkills.showMcpHealth", () => {
       const health = checkMcpHealth();
+      const cliStatus = getCliMcpServerStatus();
       const target = getWorkspaceTarget();
       const logPath = target ? workspaceMcpLogPath(target) : undefined;
       const summary = summarizeMcpUsage(1, logPath);
@@ -3053,8 +3099,8 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
 
       const connIcon = health.status === "ready" ? "✓" : health.status === "no-activity" ? "~" : "✗";
       const lines: string[] = [
-        `MCP Server: ${health.status === "ready" ? "Connected" : health.status === "no-activity" ? "Idle (no activity 24h)" : "Setup needed"}  ${connIcon}`,
-        ``,
+        `── Filesystem MCP Server ──`,
+        `Status:       ${health.status === "ready" ? "Connected" : health.status === "no-activity" ? "Idle (no activity 24h)" : "Setup needed"}  ${connIcon}`,
         `Config:       ${health.configValid ? "✓ valid" : "✗ invalid"}`,
         `Server script:${health.serverExists ? "✓ found" : "✗ missing"}`,
         `Calls (24h):  ${health.mcpCallsLast24h}`,
@@ -3062,9 +3108,27 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       if (health.lastActivityTime) {
         lines.push(`Last activity: ${health.lastActivityTime}`);
       }
+      if (health.configuredAgents.length > 0) {
+        lines.push(`Agents:       ${health.configuredAgents.join(", ")}`);
+      }
       if (health.errors.length > 0) {
         lines.push("", "Issues:", ...health.errors.map((e) => `  - ${e}`));
       }
+
+      lines.push(``, `── CLI MCP Server ──`);
+      if (cliStatus.enabled) {
+        lines.push(
+          `Status:       Connected  ✓`,
+          `Agents:       ${cliStatus.activeAgents.join(", ")}`,
+          `CLIs:         az, aws, git, kubectl, helm, terraform, gcloud, docker, gh, dotnet, node, npm`,
+        );
+      } else {
+        lines.push(
+          `Status:       Setup needed  ✗`,
+          `Action:       Run "Enable CLI MCP Server" from the command palette`,
+        );
+      }
+
       if (summary.totalCalls > 0) {
         lines.push(``, `── Agent KPI (last 24h) ──`);
         if (notEnoughData) {
