@@ -138,7 +138,7 @@ function dispatchTool(id, toolName, args) {
         const resolved = assertAllowed(args.path);
         const content = fs.readFileSync(resolved, "utf-8");
         logExtra.bytes = Buffer.byteLength(content, "utf-8");
-        result = { content };
+        result = { content: [{ type: "text", text: content }] };
         break;
       }
       case "write_file": {
@@ -152,7 +152,7 @@ function dispatchTool(id, toolName, args) {
         try { currentContent = fs.readFileSync(resolved, "utf-8"); } catch { /* file doesn't exist yet */ }
         if (currentContent === newContent) {
           logExtra.skipped = true;
-          result = { success: true, path: resolved, skipped: true };
+          result = { content: [{ type: "text", text: `Skipped: content unchanged (${resolved})` }] };
         } else {
           fs.mkdirSync(path.dirname(resolved), { recursive: true });
           // Atomic write via temp-file + rename: readers never see partial content,
@@ -165,7 +165,7 @@ function dispatchTool(id, toolName, args) {
             try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
             throw e;
           }
-          result = { success: true, path: resolved, skipped: false };
+          result = { content: [{ type: "text", text: `Written: ${resolved}` }] };
         }
         break;
       }
@@ -173,11 +173,11 @@ function dispatchTool(id, toolName, args) {
         const resolved = assertAllowed(args.path);
         const entries = fs.readdirSync(resolved, { withFileTypes: true });
         logExtra.entryCount = entries.length;
+        const entryLines = entries.map((e) =>
+          `${e.isDirectory() ? "[dir] " : "[file]"} ${e.name}`
+        );
         result = {
-          entries: entries.map((e) => ({
-            name: e.name,
-            type: e.isDirectory() ? "directory" : "file",
-          })),
+          content: [{ type: "text", text: entryLines.join("\n") || "(empty directory)" }],
         };
         break;
       }
@@ -205,7 +205,11 @@ function dispatchTool(id, toolName, args) {
         searchDir(resolved, 0);
         logExtra.entryCount = results.length;
         if (depthReached) logExtra.depthReached = true;
-        result = { results, depthReached };
+        const resultLines = results.map((r) =>
+          `${r.type === "directory" ? "[dir] " : "[file]"} ${r.path}`
+        );
+        if (depthReached) resultLines.push("(depth limit reached — results may be incomplete)");
+        result = { content: [{ type: "text", text: resultLines.join("\n") || "(no matches)" }] };
         break;
       }
       case "search_in_file": {
@@ -239,13 +243,20 @@ function dispatchTool(id, toolName, args) {
           }
         }
         logExtra.entryCount = matches.length;
-        result = { matches, totalLines: lines.length };
+        const matchLines = [`Found ${matches.length} match(es) in ${lines.length} lines:`];
+        for (const m of matches) {
+          for (const c of m.context) {
+            matchLines.push(`${c.isMatch ? ">" : " "} ${c.lineNumber}: ${c.text}`);
+          }
+          matchLines.push("");
+        }
+        result = { content: [{ type: "text", text: matchLines.join("\n").trimEnd() || "(no matches)" }] };
         break;
       }
       case "delete_file": {
         const resolved = assertAllowed(args.path);
         fs.unlinkSync(resolved);
-        result = { success: true, path: resolved };
+        result = { content: [{ type: "text", text: `Deleted: ${resolved}` }] };
         break;
       }
       default:

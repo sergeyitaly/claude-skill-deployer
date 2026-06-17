@@ -158,6 +158,8 @@ Both MCP servers auto-start on extension activation — no manual setup required
 
 Every call is recorded as a JSONL line in `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped). The extension reads these logs to compute efficiency KPIs and optimization hints.
 
+> **v1.0.70 fix — all tools now return MCP-compliant responses.** Previous builds returned non-standard shapes (`{ content: string }` for `read_file`; `{ entries: [...] }` for `list_directory`; `{ results: [...] }` for `search_files`) that caused Zod validation errors or silent empty output. All six tools now wrap results in the required `content: [{ type: "text", text: "..." }]` array. The fix is deployed automatically on the next extension activation (`syncFilesystemServerBinary` copies the updated binary). Because the MCP server is a **persistent stdio process**, open agent sessions must reconnect (reload the IDE window or start a new chat) to pick up the updated binary.
+
 ### CLI MCP server tools
 
 | Tool | What it does |
@@ -807,7 +809,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.68** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Current extension version: **1.0.70** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Performance impact
 
