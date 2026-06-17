@@ -1350,3 +1350,55 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
     claudeVscodeGap: assessClaudeVscodeAttributionGap(target),
   };
 }
+
+
+// ── File split advisor hook ───────────────────────────────────────────────────
+// PostToolUse on mcp__filesystem__read_file: injects a split suggestion when
+// a file exceeds 50 KB / 500 lines. Self-learning state lives in
+// .claude/learning/file-split-advisor.json.
+
+const HOOK_FILE_SPLIT_ADVISOR = "file-split-advisor";
+const FILE_SPLIT_ADVISOR_MATCHER = "mcp__filesystem__read_file";
+
+export function isFileSplitAdvisorConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasPostToolHook(settings, HOOK_FILE_SPLIT_ADVISOR);
+  } catch {
+    return false;
+  }
+}
+
+export function installFileSplitAdvisorHook(target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasPostToolHook(settings, HOOK_FILE_SPLIT_ADVISOR);
+  const added = ensurePostToolHookRegistered(
+    settings,
+    FILE_SPLIT_ADVISOR_MATCHER,
+    "",
+    HOOK_FILE_SPLIT_ADVISOR,
+    claudeHookCmd(HOOK_FILE_SPLIT_ADVISOR)
+  );
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
+}
+
+export function removeFileSplitAdvisorHook(target: string): boolean {
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  if (!settings.hooks?.PostToolUse) return false;
+  const before = settings.hooks.PostToolUse.length;
+  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+    (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_FILE_SPLIT_ADVISOR}`))
+  );
+  if (settings.hooks.PostToolUse.length !== before) {
+    writeJsonFile(settingsFile, settings);
+    return true;
+  }
+  return false;
+}

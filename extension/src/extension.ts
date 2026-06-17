@@ -137,6 +137,8 @@ import {
   isDirCacheGuardConfigured,
   installOfficialSkillsSessionHook,
   removeMcpForceHooks,
+  installFileSplitAdvisorHook,
+  isFileSplitAdvisorConfigured,
 } from "./hookOps";
 import { startHookServer, stopHookServer } from "./hookServer";
 import { syncCliConfigToWorkspace } from "./cliConfig";
@@ -1353,6 +1355,10 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
             }
             refreshMcpStatusBars();
             if (initialTarget) maybeAutoEnableMcpForce(initialTarget);
+            if (initialTarget && !isFileSplitAdvisorConfigured(initialTarget)) {
+              installFileSplitAdvisorHook(initialTarget);
+              log(`File split advisor hook installed.`);
+            }
           });
         } else {
           // Binary deployed and claude configured — refresh allowed dirs for this workspace.
@@ -1364,6 +1370,10 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
           log(`MCP server: already configured — agents can connect.`);
           refreshMcpStatusBars();
           if (initialTarget) maybeAutoEnableMcpForce(initialTarget);
+          if (initialTarget && !isFileSplitAdvisorConfigured(initialTarget)) {
+            installFileSplitAdvisorHook(initialTarget);
+            log(`File split advisor hook installed.`);
+          }
         }
 
         // CLI MCP server — always sync binary first so updates and missing files are repaired.
