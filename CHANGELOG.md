@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.66** | CLI MCP logging correctness |
 | **1.0.65** | MCP health monitoring, Force Mode & proxy auto-migration |
 | **1.0.64** | Hybrid per-project MCP telemetry storage |
 | **1.0.61 – 1.0.63** | MCP filesystem server, efficiency metrics & KPI alerts |
@@ -28,6 +29,20 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.66] — 2026-06-17
+
+**Summary:** Three CLI MCP logging bugs fixed — calls now attribute to the correct per-project log when switching projects or opening a new window.
+
+**Theme:** CLI MCP logging correctness
+
+### Fixed
+
+- **CLI MCP log path not refreshed on activation** — when a new project window opened, the CLI MCP server kept writing to the previous project's `<workspace>/.claude/mcp-usage.jsonl` because the `else` branch (already-configured path) skipped calling `refreshCliConfig`. Now mirrors the filesystem server's activation behaviour, which already called `refreshFilesystemAllowedDirs` in the same branch.
+- **CLI MCP calls collapsed into one `byTool` bucket** — `run_command` entries now log as `cli:<name>` (e.g. `cli:git`, `cli:az`) instead of the generic `tool: "run_command"`, so each CLI gets its own row in the efficiency panel's byTool aggregation.
+- **CLI MCP `workspaceLogPath` not synced on workspace folder change** — `onDidChangeWorkspaceFolders` already called `refreshFilesystemAllowedDirs` but did not call `refreshCliConfig`, so the CLI server's log path lagged behind within the same window when folders were added or removed.
 
 ---
 

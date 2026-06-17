@@ -1338,6 +1338,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
             refreshCliMcpStatusBar();
           });
         } else {
+          refreshCliConfig(workspaceDirs, log);
           log(`CLI MCP server: already configured — agents can connect.`);
           refreshCliMcpStatusBar();
         }
