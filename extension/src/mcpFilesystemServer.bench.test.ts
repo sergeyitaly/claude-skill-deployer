@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Benchmark: Filesystem MCP server (extension/resources/mcp-servers/filesystem/index.js)
  *
  * Spawns the server scoped to a temp directory via --config, drives it via
@@ -109,7 +109,7 @@ describe("Filesystem MCP server benchmark", () => {
   let tmpDir: string;
   let configFile: string;
   let sampleFile: string;
-  // A sibling directory outside the allowlist — used to verify blocking
+  // A sibling directory outside the allowlist â€” used to verify blocking
   let blockedDir: string;
 
   beforeAll(async () => {
@@ -154,8 +154,8 @@ describe("Filesystem MCP server benchmark", () => {
       name: "read_file",
       arguments: { path: path.join(blockedDir, "secret.txt") },
     });
-    expect(res.error).toBeDefined();
-    expect(res.error?.message).toMatch(/Access denied/);
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text).toMatch(/Access denied/);
   });
 
   it("blocks write outside allowed dirs", async () => {
@@ -163,8 +163,8 @@ describe("Filesystem MCP server benchmark", () => {
       name: "write_file",
       arguments: { path: path.join(blockedDir, "evil.txt"), content: "x" },
     });
-    expect(res.error).toBeDefined();
-    expect(res.error?.message).toMatch(/Access denied/);
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text).toMatch(/Access denied/);
     expect(fs.existsSync(path.join(blockedDir, "evil.txt"))).toBe(false);
   });
 
@@ -173,8 +173,8 @@ describe("Filesystem MCP server benchmark", () => {
       name: "list_directory",
       arguments: { path: blockedDir },
     });
-    expect(res.error).toBeDefined();
-    expect(res.error?.message).toMatch(/Access denied/);
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text).toMatch(/Access denied/);
   });
 
   it("blocks delete outside allowed dirs", async () => {
@@ -184,7 +184,7 @@ describe("Filesystem MCP server benchmark", () => {
       name: "delete_file",
       arguments: { path: decoy },
     });
-    expect(res.error).toBeDefined();
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
     expect(fs.existsSync(decoy)).toBe(true);
   });
 
@@ -194,12 +194,12 @@ describe("Filesystem MCP server benchmark", () => {
       const extraFile = path.join(extraDir, "live.txt");
       fs.writeFileSync(extraFile, "live reload content");
 
-      // Before update — access denied
+      // Before update â€” access denied
       const before = await client.call("tools/call", {
         name: "read_file",
         arguments: { path: extraFile },
       });
-      expect(before.error).toBeDefined();
+      expect((before.result as { isError?: boolean }).isError).toBe(true);
 
       // Update config file in place (simulates refreshFilesystemAllowedDirs)
       fs.writeFileSync(
@@ -208,13 +208,13 @@ describe("Filesystem MCP server benchmark", () => {
         "utf-8"
       );
 
-      // After update — same process, next call picks up new dirs
+      // After update â€” same process, next call picks up new dirs
       const after = await client.call("tools/call", {
         name: "read_file",
         arguments: { path: extraFile },
       });
       expect(after.error).toBeUndefined();
-      expect((after.result as { content: string }).content).toBe("live reload content");
+      expect(((after.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text).toBe("live reload content");
     } finally {
       // Restore config to tmpDir-only for remaining tests
       fs.writeFileSync(configFile, JSON.stringify({ allowedDirs: [tmpDir] }), "utf-8");
@@ -235,7 +235,7 @@ describe("Filesystem MCP server benchmark", () => {
       expect(res.error).toBeUndefined();
     }
     const s = stats(samples);
-    console.log(`tools/list  — min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
+    console.log(`tools/list  â€” min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
     // 200ms allows for system load when running alongside the full test suite;
     // tools/list has no disk I/O so genuine regressions still register clearly.
     expect(s.avg).toBeLessThan(200);
@@ -250,7 +250,7 @@ describe("Filesystem MCP server benchmark", () => {
       expect(res.error).toBeUndefined();
     }
     const s = stats(samples);
-    console.log(`read_file   — min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
+    console.log(`read_file   â€” min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
     expect(s.avg).toBeLessThan(50);
   });
 
@@ -267,7 +267,7 @@ describe("Filesystem MCP server benchmark", () => {
       expect(res.error).toBeUndefined();
     }
     const s = stats(samples);
-    console.log(`write_file  — min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
+    console.log(`write_file  â€” min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
     expect(s.avg).toBeLessThan(50);
   });
 
@@ -280,7 +280,7 @@ describe("Filesystem MCP server benchmark", () => {
       expect(res.error).toBeUndefined();
     }
     const s = stats(samples);
-    console.log(`list_dir    — min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
+    console.log(`list_dir    â€” min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
     expect(s.avg).toBeLessThan(50);
   });
 
@@ -295,7 +295,7 @@ describe("Filesystem MCP server benchmark", () => {
       expect(res.error).toBeUndefined();
     }
     const s = stats(samples);
-    console.log(`delete_file — min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
+    console.log(`delete_file â€” min:${s.min.toFixed(1)}ms  avg:${s.avg}ms  p95:${s.p95.toFixed(1)}ms  max:${s.max.toFixed(1)}ms`);
     expect(s.avg).toBeLessThan(50);
   });
 
@@ -307,8 +307,9 @@ describe("Filesystem MCP server benchmark", () => {
     const results = await Promise.all(calls);
     const elapsed = performance.now() - t0;
     const errors = results.filter((r) => r.error);
-    console.log(`concurrent  — 10 reads in ${elapsed.toFixed(1)}ms (${(elapsed / 10).toFixed(1)}ms/req)`);
+    console.log(`concurrent  â€” 10 reads in ${elapsed.toFixed(1)}ms (${(elapsed / 10).toFixed(1)}ms/req)`);
     expect(errors).toHaveLength(0);
     expect(elapsed).toBeLessThan(500);
   });
 });
+

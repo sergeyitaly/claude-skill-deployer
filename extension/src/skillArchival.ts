@@ -22,6 +22,22 @@ export function archivalRules(): ArchivalRules {
   };
 }
 
+function bumpPatchVersion(skillDir: string): void {
+  const skillMdPath = path.join(skillDir, "SKILL.md");
+  if (!fs.existsSync(skillMdPath)) return;
+  try {
+    const content = fs.readFileSync(skillMdPath, "utf-8");
+    const updated = content.replace(
+      /^(version:\s*["']?)(\d+)\.(\d+)\.(\d+)(["']?)$/m,
+      (_, pre, major, minor, patch, post) =>
+        `${pre}${major}.${minor}.${parseInt(patch, 10) + 1}${post}`
+    );
+    if (updated !== content) {
+      fs.writeFileSync(skillMdPath, updated, "utf-8");
+    }
+  } catch { /* non-fatal */ }
+}
+
 function archivedRoot(target: string): string {
   return path.join(target, ".claude", "skills-archived");
 }
@@ -82,6 +98,7 @@ export function archiveSkill(target: string, skillName: string, libraryDir: stri
     fs.rmSync(dest, { recursive: true, force: true });
   }
   fs.renameSync(src, dest);
+  bumpPatchVersion(dest);
   removeSkill(path.join(target, ".claude", "skills"), skillName);
   const meta = {
     archivedAt: new Date().toISOString(),

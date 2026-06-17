@@ -693,6 +693,7 @@ def sync_workspace_agents(library_dir: Path, target: Path, agent_ids: list[str] 
     if not ids:
         return []
     agents_manifest = load_agents_manifest(library_dir)
+    manifest = read_json(library_dir / "manifest.json") or {}
     effective = set(list_effective_enabled_skills(target))
     claude_dir = target / ".claude" / "skills"
     results: list[dict] = []
@@ -951,6 +952,20 @@ def _install_kiro_profile_init_hook(target: Path, hooks_source: Path) -> list[st
     return ["kiro profile-init"]
 
 
+def _copilot_powershell_curl_command(curl_cmd: str) -> str:
+    matches = re.findall(r'"([^"]+)"', curl_cmd)
+    uri = (matches[-1] if matches else curl_cmd).replace("'", "''")
+    return (
+        f"$body = [Console]::In.ReadToEnd(); "
+        f"try {{ Invoke-WebRequest -UseBasicParsing -Uri '{uri}' "
+        "-Method POST -Headers @{ 'Content-Type' = 'application/json' } -Body $body | Out-Null }} catch {{ }}"
+    )
+
+
+def _copilot_powershell_command(command: str) -> str:
+    return command
+
+
 def _install_copilot_profile_init_hook(target: Path, hooks_source: Path) -> list[str]:
     gh_hooks = target / ".github" / "hooks"
     gh_hooks.mkdir(parents=True, exist_ok=True)
@@ -959,8 +974,8 @@ def _install_copilot_profile_init_hook(target: Path, hooks_source: Path) -> list
     payload = {
         "version": 1,
         "hooks": {
-            "SessionStart": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 20}],
-            "sessionStart": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 20}],
+            "SessionStart": [{"type": "command", "powershell": _copilot_powershell_command(cmd), "timeoutSec": 20}],
+            "sessionStart": [{"type": "command", "powershell": _copilot_powershell_command(cmd), "timeoutSec": 20}],
         },
     }
     write_json_atomic(hook_file, payload)
@@ -1047,8 +1062,20 @@ def _install_copilot_cost_control_hooks(target: Path, hooks_source: Path) -> lis
         payload = {
             "version": 1,
             "hooks": {
-                "UserPromptSubmit": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 8}],
-                "userPromptSubmitted": [{"type": "command", "bash": cmd, "powershell": cmd, "timeoutSec": 8}],
+                "UserPromptSubmit": [
+                    {
+                        "type": "command",
+                        "powershell": _copilot_powershell_curl_command(cmd),
+                        "timeoutSec": 8,
+                    }
+                ],
+                "userPromptSubmitted": [
+                    {
+                        "type": "command",
+                        "powershell": _copilot_powershell_curl_command(cmd),
+                        "timeoutSec": 8,
+                    }
+                ],
             },
         }
         write_json_atomic(hook_file, payload)

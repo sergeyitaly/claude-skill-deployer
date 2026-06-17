@@ -11,10 +11,15 @@ Example:
 """
 
 import fnmatch
+import re
 import sys
 import zipfile
 from pathlib import Path
-from scripts.quick_validate import validate_skill
+
+try:
+    from scripts.quick_validate import validate_skill
+except ModuleNotFoundError:
+    from quick_validate import validate_skill
 
 # Patterns to exclude when packaging skills.
 EXCLUDE_DIRS = {"__pycache__", "node_modules"}
@@ -22,6 +27,9 @@ EXCLUDE_GLOBS = {"*.pyc"}
 EXCLUDE_FILES = {".DS_Store"}
 # Directories excluded only at the skill root (not when nested deeper).
 ROOT_EXCLUDE_DIRS = {"evals"}
+
+SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$")
+VERSION_LINE_RE = re.compile(r"^(version\s*:\s*)(['\"]?)([^'\"\n]+)(\2)(\s*(?:#.*)?)$", re.MULTILINE)
 
 
 def should_exclude(rel_path: Path) -> bool:
@@ -39,6 +47,43 @@ def should_exclude(rel_path: Path) -> bool:
     return any(fnmatch.fnmatch(name, pat) for pat in EXCLUDE_GLOBS)
 
 
+def _increment_patch_version(version: str | None) -> str:
+    if not version:
+        return "1.0.1"
+    match = SEMVER_RE.match(version.strip())
+    if not match:
+        return version.strip()
+    major, minor, patch = match.groups()
+    return f"{int(major)}.{int(minor)}.{int(patch) + 1}"
+
+
+def _bump_skill_version(skill_md: Path) -> str:
+    raw = skill_md.read_text(encoding="utf-8")
+    match = re.match(r"^---\r?\n([\s\S]*?)\r?\n---\r?\n?", raw)
+    if not match:
+        raise ValueError("SKILL.md must contain YAML frontmatter")
+
+    frontmatter = match.group(1)
+    version_match = VERSION_LINE_RE.search(frontmatter)
+    current_version = version_match.group(3).strip() if version_match else None
+    new_version = _increment_patch_version(current_version)
+
+    if version_match:
+        replacement = f"{version_match.group(1)}{version_match.group(2)}{new_version}{version_match.group(4)}{version_match.group(5)}"
+        frontmatter = frontmatter.replace(version_match.group(0), replacement, 1)
+    else:
+        insert_at = 0
+        for idx, line in enumerate(frontmatter.splitlines(keepends=True)):
+            if line.startswith("description:") or line.startswith("name:"):
+                insert_at = idx + 1
+        lines = frontmatter.splitlines(keepends=True)
+        lines.insert(insert_at, f'version: "{new_version}"\n')
+        frontmatter = "".join(lines)
+
+    skill_md.write_text(raw[: match.start(1)] + frontmatter + raw[match.end(1) :], encoding="utf-8")
+    return new_version
+
+
 def package_skill(skill_path, output_dir=None):
     """
     Package a skill folder into a .skill file.
@@ -54,11 +99,11 @@ def package_skill(skill_path, output_dir=None):
 
     # Validate skill folder exists
     if not skill_path.exists():
-        print(f"❌ Error: Skill folder not found: {skill_path}")
+        print(f"Error: Skill folder not found: {skill_path}")
         return None
 
     if not skill_path.is_dir():
-        print(f"❌ Error: Path is not a directory: {skill_path}")
+        print(f"Error: Path is not a directory: {skill_path}")
         return None
 
     # Validate SKILL.md exists
@@ -69,12 +114,14 @@ def package_skill(skill_path, output_dir=None):
 
     # Run validation before packaging
     print("🔍 Validating skill...")
+    new_version = _bump_skill_version(skill_md)
     valid, message = validate_skill(skill_path)
     if not valid:
         print(f"❌ Validation failed: {message}")
         print("   Please fix the validation errors before packaging.")
         return None
-    print(f"✅ {message}\n")
+    print(f"✅ {message}")
+    print(f"📌 Version bumped to {new_version}\n")
 
     # Determine output location
     skill_name = skill_path.name

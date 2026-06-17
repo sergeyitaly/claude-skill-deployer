@@ -151,7 +151,13 @@ describe("installCostControlHooks", () => {
       "claude-skills-task-drift.json",
     ];
     for (const file of copilotFiles) {
-      expect(fs.existsSync(path.join(target, ".github", "hooks", file))).toBe(true);
+      const hookPath = path.join(target, ".github", "hooks", file);
+      expect(fs.existsSync(hookPath)).toBe(true);
+      const hook = JSON.parse(fs.readFileSync(hookPath, "utf-8")) as {
+        hooks?: { UserPromptSubmit?: Array<{ powershell?: string; bash?: string }> };
+      };
+      expect(hook.hooks?.UserPromptSubmit?.some((h) => h.powershell?.includes("/hook/"))).toBe(true);
+      expect(hook.hooks?.UserPromptSubmit?.every((h) => !("bash" in h))).toBe(true);
     }
   });
 });
@@ -202,9 +208,10 @@ describe("installProfileInitSessionHook", () => {
         path.join(target, ".github", "hooks", "claude-skills-skill-invoke-profile-init.json"),
         "utf-8"
       )
-    ) as { hooks?: { SessionStart?: { bash?: string }[]; sessionStart?: { bash?: string }[] } };
+    ) as { hooks?: { SessionStart?: { powershell?: string; bash?: string }[]; sessionStart?: { powershell?: string; bash?: string }[] } };
     const sessionStart = copilotHook.hooks?.SessionStart ?? copilotHook.hooks?.sessionStart ?? [];
-    expect(sessionStart.some((h) => h.bash?.includes("/hook/profile-init"))).toBe(true);
+    expect(sessionStart.some((h) => h.powershell?.includes("/hook/profile-init"))).toBe(true);
+    expect(sessionStart.every((h) => !("bash" in h))).toBe(true);
   });
 });
 

@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+﻿import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,7 +42,7 @@ function readSettings(dir: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf-8")) as Record<string, unknown>;
 }
 
-// ── isMcpForcePermissionsActive ───────────────────────────────────────────────
+// â”€â”€ isMcpForcePermissionsActive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("isMcpForcePermissionsActive", () => {
   it("returns false when settings.json does not exist", () => {
@@ -62,10 +62,10 @@ describe("isMcpForcePermissionsActive", () => {
     expect(isMcpForcePermissionsActive(ws)).toBe(false);
   });
 
-  it("returns true when all six force tools are in the deny list", () => {
+  it("returns true when all eight force tools are in the deny list", () => {
     const ws = makeWorkspace();
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"] },
     });
     expect(isMcpForcePermissionsActive(ws)).toBe(true);
   });
@@ -73,13 +73,13 @@ describe("isMcpForcePermissionsActive", () => {
   it("returns true even when deny list has extra entries", () => {
     const ws = makeWorkspace();
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "SomethingElse"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis", "SomethingElse"] },
     });
     expect(isMcpForcePermissionsActive(ws)).toBe(true);
   });
 });
 
-// ── isMcpForceClaudeMdInjected ────────────────────────────────────────────────
+// â”€â”€ isMcpForceClaudeMdInjected â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("isMcpForceClaudeMdInjected", () => {
   it("returns false when CLAUDE.md does not exist", () => {
@@ -104,20 +104,20 @@ describe("isMcpForceClaudeMdInjected", () => {
   });
 });
 
-// ── isMcpForceActive ─────────────────────────────────────────────────────────
+// â”€â”€ isMcpForceActive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("isMcpForceActive", () => {
   it("is true iff permissions deny list is fully set (delegates to isMcpForcePermissionsActive)", () => {
     const ws = makeWorkspace();
     expect(isMcpForceActive(ws)).toBe(false);
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"] },
     });
     expect(isMcpForceActive(ws)).toBe(true);
   });
 });
 
-// ── enableMcpForcePermissions ─────────────────────────────────────────────────
+// â”€â”€ enableMcpForcePermissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("enableMcpForcePermissions", () => {
   it("writes all six force tools to permissions.deny", () => {
@@ -164,7 +164,7 @@ describe("enableMcpForcePermissions", () => {
   });
 });
 
-// ── revertMcpForcePermissions ─────────────────────────────────────────────────
+// â”€â”€ revertMcpForcePermissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("revertMcpForcePermissions", () => {
   it("removes force tools from deny list while preserving other entries", () => {
@@ -198,7 +198,7 @@ describe("revertMcpForcePermissions", () => {
   });
 });
 
-// ── injectMcpForceClaude ──────────────────────────────────────────────────────
+// â”€â”€ injectMcpForceClaude â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("injectMcpForceClaude", () => {
   it("creates CLAUDE.md with force block when file does not exist", () => {
@@ -246,7 +246,7 @@ describe("injectMcpForceClaude", () => {
   });
 });
 
-// ── removeMcpForceClaudeBlock ─────────────────────────────────────────────────
+// â”€â”€ removeMcpForceClaudeBlock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("removeMcpForceClaudeBlock", () => {
   it("is a no-op when CLAUDE.md does not exist", () => {
@@ -281,3 +281,4 @@ describe("removeMcpForceClaudeBlock", () => {
     expect(content.trim()).toBe("");
   });
 });
+
