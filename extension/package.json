@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.67",
+  "version": "1.0.68",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -207,6 +207,18 @@
         "command": "claudeSkills.disableCliMcpServer",
         "title": "Disable CLI MCP Server",
         "icon": "$(terminal)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.enableCliLoopGuard",
+        "title": "Enable CLI Loop Guard (auto-correct CLI failures)",
+        "icon": "$(debug-restart)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.disableCliLoopGuard",
+        "title": "Disable CLI Loop Guard",
+        "icon": "$(debug-restart)",
         "category": "Claude Skills"
       },
       {

@@ -129,6 +129,9 @@ import {
   installCostControlHooks,
   installMcpForceHook,
   installMcpGateHook,
+  installCliLoopGuardHook,
+  removeCliLoopGuardHook,
+  isCliLoopGuardConfigured,
   installOfficialSkillsSessionHook,
   removeMcpForceHooks,
 } from "./hookOps";
@@ -1335,10 +1338,18 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         if (needsCliMcpSetup()) {
           void enableOfficialCliServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`CLI MCP server: auto-started and configured.`);
+            if (initialTarget && !isCliLoopGuardConfigured(initialTarget)) {
+              installCliLoopGuardHook(initialTarget);
+              log(`CLI loop-guard hook installed.`);
+            }
             refreshCliMcpStatusBar();
           });
         } else {
           refreshCliConfig(workspaceDirs, log);
+          if (initialTarget && !isCliLoopGuardConfigured(initialTarget)) {
+            installCliLoopGuardHook(initialTarget);
+            log(`CLI loop-guard hook installed.`);
+          }
           log(`CLI MCP server: already configured — agents can connect.`);
           refreshCliMcpStatusBar();
         }
@@ -2069,6 +2080,25 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         refreshCliMcpStatusBar();
       });
       refreshCliMcpStatusBar();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.enableCliLoopGuard", () => {
+      const target = getWorkspaceTarget();
+      if (!target) { void vscode.window.showWarningMessage("Claude Skills: No workspace folder open."); return; }
+      const status = installCliLoopGuardHook(target);
+      const msg = status === "already-configured"
+        ? "CLI loop-guard hook already active."
+        : "CLI loop-guard hook installed — Claude will receive corrective hints on CLI failures.";
+      log(`CLI loop-guard: ${status}`);
+      void vscode.window.showInformationMessage(`Claude Skills: ${msg}`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableCliLoopGuard", () => {
+      const target = getWorkspaceTarget();
+      if (!target) { void vscode.window.showWarningMessage("Claude Skills: No workspace folder open."); return; }
+      const removed = removeCliLoopGuardHook(target);
+      log(`CLI loop-guard: ${removed ? "removed" : "was not configured"}`);
+      void vscode.window.showInformationMessage(`Claude Skills: CLI loop-guard hook ${removed ? "removed" : "was not active"}.`);
     }),
 
     vscode.workspace.onDidChangeWorkspaceFolders(() => {

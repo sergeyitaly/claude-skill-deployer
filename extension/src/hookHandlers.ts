@@ -1129,6 +1129,108 @@ function handleMcpGate(req: HookRequest): HookResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Handler: cli-loop-guard (PostToolUse — mcp__claude-skills-cli__run_command)
+// Injects a corrective hint when a CLI call exits non-zero, preventing the
+// agent from blindly retrying without addressing the root cause.
+// ---------------------------------------------------------------------------
+
+interface CliGuardPattern {
+  /** CLI names this pattern applies to (empty = all CLIs). */
+  clis?: string[];
+  exitCode: number | ((code: number) => boolean);
+  stderrPattern?: RegExp;
+  hint: string;
+  skill?: string;
+}
+
+const CLI_GUARD_PATTERNS: CliGuardPattern[] = [
+  // SSH key type — Azure rejects ed25519 at plan time
+  {
+    clis: ["terraform"],
+    exitCode: 1,
+    stderrPattern: /ed25519.*not supported|ssh-ed25519.*not supported/i,
+    hint: "Azure rejected the ed25519 SSH key. Regenerate with RSA-4096:\n  ssh-keygen -t rsa -b 4096 -f <path> -N \"\"",
+  },
+  // Terraform: working dir not initialized
+  {
+    clis: ["terraform"],
+    exitCode: 255,
+    hint: "terraform exitCode=255 — working directory not initialized. Run: terraform init -input=false",
+  },
+  // Azure / any cloud — authorization failure
+  {
+    exitCode: (c) => c !== 0,
+    stderrPattern: /AuthorizationFailed|403 Forbidden|does not have authorization/i,
+    hint: "Authorization failed (403). The executing identity lacks the required role.\n→ Invoke skill: azure-rbac-diagnostics",
+    skill: "azure-rbac-diagnostics",
+  },
+  // kubectl / helm — connection refused or kubeconfig missing
+  {
+    clis: ["kubectl", "helm"],
+    exitCode: (c) => c !== 0,
+    stderrPattern: /connection refused|Unable to connect|kubeconfig/i,
+    hint: "Kubernetes connection failed. Check kubeconfig is set and the cluster API server is reachable:\n  kubectl config current-context",
+  },
+  // git — merge conflict or lock file
+  {
+    clis: ["git"],
+    exitCode: (c) => c !== 0,
+    stderrPattern: /CONFLICT|lock file|index\.lock/i,
+    hint: "git conflict or lock detected. Resolve conflicts manually or remove .git/index.lock if left by a crashed process.",
+  },
+  // gh CLI — auth required
+  {
+    clis: ["gh"],
+    exitCode: (c) => c !== 0,
+    stderrPattern: /not logged in|authentication required|gh auth login/i,
+    hint: "GitHub CLI not authenticated. Run: gh auth login",
+  },
+  // Timed-out command
+  {
+    exitCode: (c) => c !== 0,
+    stderrPattern: /timed out|timeout expired/i,
+    hint: "Command timed out. Increase the timeout parameter (max 1800000ms = 30min) or break the operation into smaller steps.",
+  },
+];
+
+function extractCliGuardFields(body: Record<string, unknown>): {
+  cli: string; exitCode: number | null; stderr: string;
+} {
+  const toolInput = (body.tool_input ?? body.toolArgs ?? body.toolInput ?? {}) as Record<string, unknown>;
+  const cli = String(toolInput.cli ?? "");
+  const response = String(body.tool_response ?? body.toolResult ?? body.tool_result ?? "");
+  const exitCodeMatch = response.match(/exitCode:\s*(-?\d+)/);
+  const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1], 10) : null;
+  const stderrMatch = response.match(/stderr:\n([\s\S]*?)(?=\nexitCode:|$)/);
+  const stderr = stderrMatch ? stderrMatch[1] : "";
+  return { cli, exitCode, stderr };
+}
+
+function handleCliLoopGuard(req: HookRequest): HookResponse {
+  const body = req.body as Record<string, unknown>;
+  const toolName = String(body.tool_name ?? body.toolName ?? "");
+  if (!toolName.includes("run_command")) return {};
+
+  const { cli, exitCode, stderr } = extractCliGuardFields(body);
+  if (exitCode === null || exitCode === 0) return {};
+
+  for (const pattern of CLI_GUARD_PATTERNS) {
+    if (pattern.clis && pattern.clis.length > 0 && !pattern.clis.includes(cli)) continue;
+    const codeMatch = typeof pattern.exitCode === "function"
+      ? pattern.exitCode(exitCode)
+      : pattern.exitCode === exitCode;
+    if (!codeMatch) continue;
+    if (pattern.stderrPattern && !pattern.stderrPattern.test(stderr)) continue;
+
+    const lines = [`⚠ CLI guard (\`${cli}\` exited ${exitCode}):`, pattern.hint];
+    if (pattern.skill) lines.push(`→ Invoke skill: ${pattern.skill}`);
+    return promptOutput(lines.join("\n"), req.agent);
+  }
+
+  return {};
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -1145,6 +1247,7 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "branch-sync": return Promise.resolve(handleBranchSync(req));
     case "mcp-force": return Promise.resolve(handleMcpForce(req));
     case "mcp-gate": return Promise.resolve(handleMcpGate(req));
+    case "cli-loop-guard": return Promise.resolve(handleCliLoopGuard(req));
     default: return {};
   }
 }

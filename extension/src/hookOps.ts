@@ -941,6 +941,54 @@ export function installOfficialSkillsSessionHook(extensionPath: string, target: 
 const HOOK_MCP_FORCE = "mcp-force";
 const HOOK_MCP_GATE = "mcp-gate";
 
+// ── CLI loop-guard hook ───────────────────────────────────────────────────────
+
+const HOOK_CLI_LOOP_GUARD = "cli-loop-guard";
+const CLI_LOOP_GUARD_MATCHER = "mcp__claude-skills-cli__run_command";
+
+export function isCliLoopGuardConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasPostToolHook(settings, HOOK_CLI_LOOP_GUARD);
+  } catch {
+    return false;
+  }
+}
+
+export function installCliLoopGuardHook(target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasPostToolHook(settings, HOOK_CLI_LOOP_GUARD);
+  const added = ensurePostToolHookRegistered(
+    settings,
+    CLI_LOOP_GUARD_MATCHER,
+    "",
+    HOOK_CLI_LOOP_GUARD,
+    claudeHookCmd(HOOK_CLI_LOOP_GUARD)
+  );
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
+}
+
+export function removeCliLoopGuardHook(target: string): boolean {
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  if (!settings.hooks?.PostToolUse) return false;
+  const before = settings.hooks.PostToolUse.length;
+  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+    (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_CLI_LOOP_GUARD}`))
+  );
+  if (settings.hooks.PostToolUse.length !== before) {
+    writeJsonFile(settingsFile, settings);
+    return true;
+  }
+  return false;
+}
+
 export function isMcpForceHookConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));
