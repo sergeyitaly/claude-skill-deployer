@@ -69,25 +69,39 @@ Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-
 
 ### MCP Servers
 
-The extension includes a bundled MCP (Model Context Protocol) filesystem server that gives AI agents structured file access and records every operation as telemetry.
+The extension bundles two MCP (Model Context Protocol) servers, both auto-started on activation — no manual setup for a fresh install.
 
-- **Auto-started on activation** — deployed and wired to Claude/Cursor/Kiro automatically; no manual setup for a fresh install.
-- **MCP Health** status bar (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — click for the full health report.
+#### Filesystem MCP server
+
+Gives AI agents structured read/write access to `~/.claude/` and open workspace folders; records every operation as telemetry for KPI scoring.
+
+- **Auto-started on activation** — deployed and registered for Claude/Cursor/Kiro automatically.
+- **MCP Health** status bar (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — click for the combined health report (filesystem + CLI sections).
 - **Agent KPI** status bar (`$(pulse) KPI: A · 42 calls`) — live efficiency grade from the last 24 h of file-access telemetry.
-- **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` and injects an `## MCP REQUIRED` block into `CLAUDE.md`, routing all file I/O through the MCP server. Revert with **Disable MCP Force Mode**.
+- **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` and routes all file I/O through the MCP server. Revert with **Disable MCP Force Mode**.
 - **Clear MCP Logs** — Command Palette → **Claude Skills: Clear MCP Server Logs**.
 - Security: `allowed-dirs.json` restricts access to `~/.claude/` and open workspace folders only.
 
-See [MCP Filesystem Server — Scenarios & Benefits](#mcp-filesystem-server--scenarios--benefits) for the full data-flow and KPI guide.
+#### CLI MCP server
+
+Lets agents run allow-listed infrastructure CLIs (`az`, `aws`, `git`, `kubectl`, `helm`, `terraform`, `gcloud`, `docker`, `gh`, `dotnet`, `node`, `npm`) directly — no shell scripting needed in the conversation.
+
+- **Auto-started on activation** — deployed to `~/.claude/mcp-servers/cli/index.js` and registered in `~/.claude.json`, `~/.cursor/mcp.json`, and `~/.kiro/settings/mcp.json` automatically.
+- **CLI MCP** status bar (`$(terminal-cmd) CLI MCP · claude, cursor, kiro` / `$(warning) CLI MCP: setup needed`) — click to enable or disable.
+- **MCP Health dialog** — clicking any MCP status bar item shows a combined modal with both servers: filesystem status + KPI, and a `── CLI MCP Server ──` block with agent list and supported CLIs.
+- Security: only CLIs on the configurable allow-list can be invoked; Windows `.cmd`/`.exe` wrappers handled transparently.
+- Commands: **Enable CLI MCP Server** / **Disable CLI MCP Server** (Command Palette).
+
+See [MCP Servers — Scenarios & Benefits](#mcp-servers--scenarios--benefits) for the full data-flow and KPI guide.
 
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
 
-## MCP Filesystem Server — Scenarios & Benefits
+## MCP Servers — Scenarios & Benefits
 
-### What it is
+Both MCP servers auto-start on extension activation — no manual setup required. The **filesystem server** gives agents structured, observable file I/O. The **CLI server** lets agents run infrastructure and developer CLIs directly without shell scripting.
 
-The bundled `extension/resources/mcp-servers/filesystem/index.js` is a lightweight JSON-RPC server (Node.js, no dependencies) that runs as a subprocess and exposes five tools to any connected AI agent:
+### Filesystem MCP server tools
 
 | Tool | What it does |
 |---|---|
@@ -99,11 +113,97 @@ The bundled `extension/resources/mcp-servers/filesystem/index.js` is a lightweig
 
 Every call is recorded as a JSONL line in `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped). The extension reads these logs to compute efficiency KPIs and optimization hints.
 
+### CLI MCP server tools
+
+| Tool | What it does |
+|---|---|
+| `mcp__claude-skills-cli__list_available_clis` | Probe which allow-listed CLIs are on PATH — returns a found/missing table |
+| `mcp__claude-skills-cli__run_command` | Execute any allow-listed CLI and return `stdout`, `stderr`, `exitCode`, and timeout status |
+
+Supported CLIs (configurable via `cli-config.json`): `az`, `aws`, `git`, `kubectl`, `helm`, `terraform`, `gcloud`, `docker`, `gh`, `dotnet`, `node`, `npm`.
+
 ---
 
-### Scenario 1 — Normal usage (no enforcement)
+### Scenario 1 — Infrastructure automation without shell scripting
 
-An AI agent (Claude, Cursor, or Kiro) can choose between its built-in native tools (`Read`, `Edit`, `Glob`, etc.) and the MCP filesystem tools. Both work; only MCP calls are logged and scored.
+An agent can drive your entire cloud workflow (`az`, `aws`, `terraform`, `kubectl`, `helm`, `gcloud`) by calling `mcp__claude-skills-cli__run_command` directly — no Bash step needed in the conversation.
+
+**Example flow:**
+
+```
+Agent calls mcp__claude-skills-cli__run_command(cli="terraform", args=["plan", "-out=tfplan"])
+  → stdout: plan output, exitCode: 0
+Agent calls mcp__claude-skills-cli__run_command(cli="terraform", args=["apply", "tfplan"])
+  → stdout: apply summary, exitCode: 0
+Agent calls mcp__claude-skills-cli__run_command(cli="kubectl", args=["rollout", "status", "deployment/api"])
+  → stdout: "deployment successfully rolled out", exitCode: 0
+```
+
+**What you get:**
+
+- The agent reads plan output, catches errors, and decides whether to apply — all in one conversation turn.
+- No copy-paste between terminal and chat; no shell injection risk (args are passed as a safe array, not a shell string).
+- Long-running operations (AKS creation, Azure Backup) can use extended timeouts up to 30 minutes.
+
+**When to use this scenario:** IaC apply workflows, cluster deployments, multi-step cloud operations the agent needs to observe and react to.
+
+---
+
+### Scenario 2 — Git and GitHub DevOps from conversation
+
+The `git` and `gh` CLIs let an agent handle the full git/PR lifecycle without leaving the chat — check repo state, inspect history, manage pull requests, and verify CI.
+
+**Example flow:**
+
+```
+Agent calls mcp__claude-skills-cli__list_available_clis
+  → confirms git ✓, gh ✓
+Agent calls mcp__claude-skills-cli__run_command(cli="git", args=["log", "--oneline", "-5"])
+  → last 5 commits for context
+Agent calls mcp__claude-skills-cli__run_command(cli="gh", args=["pr", "list", "--state", "open"])
+  → open PRs the agent can reference or close
+Agent calls mcp__claude-skills-cli__run_command(cli="gh", args=["auth", "status"])
+  → confirms auth and token scopes before attempting write operations
+```
+
+**What you get:**
+
+- Agents can read real repo and PR state before suggesting code changes — no stale context.
+- `gh` scopes are validated upfront; the agent knows what write operations are safe.
+- Works across Claude, Cursor, and Kiro without any per-IDE shell configuration.
+
+**When to use this scenario:** code review assistance, automated PR descriptions, branch health checks, pre-deploy verification.
+
+---
+
+### Scenario 3 — Node / npm / dotnet project management
+
+Agents can drive builds, tests, and dependency checks through the CLI MCP server — useful for confirming the environment before generating code.
+
+**Example flow:**
+
+```
+Agent calls mcp__claude-skills-cli__run_command(cli="node", args=["--version"])
+  → v24.14.1 — agent confirms runtime before generating Node-specific code
+Agent calls mcp__claude-skills-cli__run_command(cli="npm", args=["--version"])
+  → 11.11.0
+Agent calls mcp__claude-skills-cli__run_command(cli="npm", args=["run", "build"])
+  → build output and exit code — agent detects errors and proposes fixes inline
+```
+
+**What you get:**
+
+- Agents verify the runtime environment before recommending version-specific APIs.
+- Build/test output is captured as structured text — the agent can parse errors and iterate without you copying output manually.
+- Combine with the filesystem MCP server to read failing files and rewrite them in the same session.
+
+**When to use this scenario:** build-fix loops, dependency audits, scaffolding new projects with correct runtime assumptions.
+
+---
+
+### Scenario 4 — Full file I/O observability (no enforcement)
+
+An AI agent can choose between its built-in native tools (`Read`, `Edit`, `Glob`, etc.) and the MCP filesystem tools. Both work; only MCP calls are logged and scored.
 
 **What you get:**
 
@@ -115,7 +215,7 @@ An AI agent (Claude, Cursor, or Kiro) can choose between its built-in native too
 
 ---
 
-### Scenario 2 — MCP Force Mode (enforcement)
+### Scenario 5 — MCP Force Mode (strict enforcement)
 
 Command Palette → **Enable MCP Force Mode** applies two changes:
 
@@ -134,19 +234,22 @@ Command Palette → **Enable MCP Force Mode** applies two changes:
 
 ---
 
-### Scenario 3 — Test prompt (agent investigation)
+### Scenario 6 — Validation test (confirm MCP wiring end-to-end)
 
-The MCP test prompt in `tests/mcp_test_propmt.md` is an example of giving an AI agent a structured investigation task where it must use only MCP filesystem tools. This validates:
+Use the CLI MCP server to verify both servers are alive before starting a sensitive operation:
 
-- That the MCP server is correctly configured and accessible.
-- That the agent's file-access behavior is fully observable (every step logged).
-- That the resulting KPI report accurately reflects the agent's actual patterns.
+```
+1. mcp__claude-skills-cli__list_available_clis          → all required CLIs present
+2. mcp__claude-skills-cli__run_command(git --version)   → git responds, exitCode 0
+3. mcp__filesystem__list_directory("~/.claude/skills")  → skill library visible to filesystem server
+4. Check status bar: $(plug) MCP Connected + $(terminal-cmd) CLI MCP · claude, cursor, kiro
+```
 
-Run it by pasting the prompt into a Claude/Cursor/Kiro session after enabling MCP Force Mode.
+The MCP Health dialog (click any MCP status bar item) shows a combined modal: filesystem server status + KPI grade, and a `── CLI MCP Server ──` block with agent list and supported CLIs. The test prompt in `tests/mcp_cli_test_propmt.md` walks through all steps above automatically.
 
 ---
 
-### Data flow: MCP call → status bar KPI
+### Data flow: filesystem MCP call → status bar KPI
 
 ```
 Agent calls mcp__filesystem__read_file("src/extension.ts")
@@ -239,8 +342,8 @@ Agents that read this file at session start avoid repeating the patterns from pr
 
 | File | Written by | Purpose |
 |---|---|---|
-| `~/.claude/learning/mcp-usage.jsonl` | MCP server (`index.js`) | Global log — all agents, all sessions |
-| `<workspace>/.claude/mcp-usage.jsonl` | MCP server (`index.js`) | Workspace-scoped log for per-project KPIs |
+| `~/.claude/learning/mcp-usage.jsonl` | Filesystem MCP server (`index.js`) | Global log — all agents, all sessions |
+| `<workspace>/.claude/mcp-usage.jsonl` | Filesystem MCP server (`index.js`) | Workspace-scoped log for per-project KPIs |
 | `~/.claude/learning/mcp-agent-hints.md` | Extension (`mcpUsageLog.ts`) | Auto-generated optimization rules for agents |
 
 Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) or the **Clear MCP Logs** button inside the Cost Dashboard.
@@ -251,8 +354,12 @@ Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) 
 
 | Goal | What to do |
 |---|---|
-| See if MCP is working | Check `$(plug) MCP Connected` in the status bar; click for agent list |
-| Get a KPI grade | Run any agent task that reads files; grade appears in `$(pulse) KPI` bar after 5+ calls |
+| Check which CLIs the agent can call | `mcp__claude-skills-cli__list_available_clis` → found/missing table |
+| Run a CLI from conversation | `mcp__claude-skills-cli__run_command(cli, args)` → stdout, stderr, exitCode |
+| Drive IaC from chat | Use `terraform` / `az` / `aws` via CLI MCP — agent reads output and iterates |
+| Inspect git/PR state before coding | Use `git log`, `gh pr list` via CLI MCP — no terminal copy-paste |
+| See if both MCP servers are working | Check `$(plug) MCP Connected` + `$(terminal-cmd) CLI MCP` in the status bar; click for health dialog |
+| Get a file-I/O KPI grade | Run any agent task that reads files; grade appears in `$(pulse) KPI` bar after 5+ calls |
 | Force all file I/O through MCP | Command Palette → **Enable MCP Force Mode** |
 | Understand what the agent re-read | Cost Dashboard → **Efficiency metrics → Waste detected** |
 | Give the agent memory of past waste | Check `~/.claude/learning/mcp-agent-hints.md` — add it to agent context at session start |
@@ -655,7 +762,7 @@ npm run package
 npx vsce publish
 ```
 
-Current extension version: **1.0.65** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
+Current extension version: **1.0.68** (`serhiivoinolovych`). See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Performance impact
 
