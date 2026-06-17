@@ -67,6 +67,20 @@ function agentHookCmd(agent: string, hookName: string, target: string): string {
   return `curl -sf -X POST -H "Content-Type: application/json" --data @- "${base}/hook/${hookName}?agent=${agent}&cwd=${cwd}" || true`;
 }
 
+function powershellHookCommand(curlCommand: string): string {
+  const matches = curlCommand.match(/"([^"]+)"/g) ?? [];
+  const rawUri = matches.length > 0 ? matches[matches.length - 1].replace(/^"|"$/g, "") : curlCommand;
+  const uri = rawUri.replace(/'/g, "''");
+  return `$body = [Console]::In.ReadToEnd(); try { Invoke-WebRequest -UseBasicParsing -Uri '${uri}' -Method POST -Headers @{ 'Content-Type' = 'application/json' } -Body $body | Out-Null } catch { }`;
+}
+
+function copilotPowerShellCommand(curlCommand: string) {
+  return {
+    type: "command" as const,
+    powershell: powershellHookCommand(curlCommand),
+  };
+}
+
 export type HookInstallStatus = "installed" | "already-configured" | "updated";
 
 interface HookEntry {
@@ -373,9 +387,7 @@ function installKiroPromptHook(target: string, spec: CostControlPromptHookSpec):
 function copilotPromptHookPayload(spec: CostControlPromptHookSpec, target: string): CopilotHooksFile {
   const cmd = agentPromptHookCommand("copilot", spec.hookName, target);
   const command = {
-    type: "command" as const,
-    bash: cmd,
-    powershell: cmd,
+    ...copilotPowerShellCommand(cmd),
     timeoutSec: 8,
   };
   return {
@@ -390,7 +402,9 @@ function copilotPromptHookPayload(spec: CostControlPromptHookSpec, target: strin
 function isCopilotPromptHookConfigured(target: string, spec: CostControlPromptHookSpec): boolean {
   const hookPath = path.join(target, ".github", "hooks", spec.copilotHookFile);
   const existing = readJsonFile<CopilotHooksFile>(hookPath);
-  return Boolean(existing?.hooks?.UserPromptSubmit?.some((h) => (h.bash ?? "").includes(`/hook/${spec.hookName}`)));
+  return Boolean(
+    existing?.hooks?.UserPromptSubmit?.some((h) => (h.powershell ?? "").includes(`/hook/${spec.hookName}`))
+  );
 }
 
 function installCopilotPromptHook(target: string, spec: CostControlPromptHookSpec): boolean {
@@ -512,9 +526,7 @@ function installKiroProfileInitHook(target: string): boolean {
 function copilotProfileInitHookPayload(target: string): CopilotHooksFile {
   const cmd = agentHookCmd("copilot", HOOK_PROFILE_INIT, target);
   const command = {
-    type: "command" as const,
-    bash: cmd,
-    powershell: cmd,
+    ...copilotPowerShellCommand(cmd),
     timeoutSec: 20,
   };
   return {
@@ -531,9 +543,7 @@ function isCopilotProfileInitHookConfigured(target: string): boolean {
   if (!fs.existsSync(hookPath)) return false;
   const raw = readJsonFile<CopilotHooksFile>(hookPath);
   const entries = raw?.hooks?.SessionStart ?? raw?.hooks?.sessionStart ?? [];
-  return entries.some(
-    (entry) => (entry.bash ?? entry.powershell ?? entry.command ?? "").includes(`/hook/${HOOK_PROFILE_INIT}`)
-  );
+  return entries.some((entry) => (entry.powershell ?? "").includes(`/hook/${HOOK_PROFILE_INIT}`));
 }
 
 function installCopilotProfileInitHook(target: string): boolean {
@@ -704,7 +714,11 @@ function isKiroAttributionHookConfigured(target: string): boolean {
 }
 
 function isCopilotAttributionHookConfigured(target: string): boolean {
-  return fs.existsSync(path.join(target, ".github", "hooks", COPILOT_ATTRIBUTION_HOOK_FILE));
+  const hookPath = path.join(target, ".github", "hooks", COPILOT_ATTRIBUTION_HOOK_FILE);
+  const existing = readJsonFile<CopilotHooksFile>(hookPath);
+  return Boolean(
+    existing?.hooks?.postToolUse?.some((h) => (h.powershell ?? "").includes(`/hook/${HOOK_SKILL_INVOKE}`))
+  );
 }
 
 /** True when attribution hooks are installed for every enabled agent that supports them. */
@@ -819,10 +833,8 @@ function copilotAttributionHookPayload(target: string): CopilotHooksFile {
     hooks: {
       postToolUse: [
         {
-          type: "command",
+          ...copilotPowerShellCommand(cmd),
           matcher: ATTRIBUTION_HOOK_MATCHER,
-          bash: cmd,
-          powershell: cmd,
         },
       ],
     },
@@ -1005,6 +1017,54 @@ export function installDirCacheGuardHook(target: string): HookInstallStatus {
     return had ? "updated" : "installed";
   }
   return "already-configured";
+}
+
+// ── MCP error guard hook ──────────────────────────────────────────────────────
+
+const HOOK_MCP_ERROR_GUARD = "mcp-error-guard";
+const MCP_ERROR_GUARD_MATCHER = "mcp__filesystem__";
+
+export function isMcpErrorGuardConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasPostToolHook(settings, HOOK_MCP_ERROR_GUARD);
+  } catch {
+    return false;
+  }
+}
+
+export function installMcpErrorGuardHook(target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasPostToolHook(settings, HOOK_MCP_ERROR_GUARD);
+  const added = ensurePostToolHookRegistered(
+    settings,
+    MCP_ERROR_GUARD_MATCHER,
+    "",
+    HOOK_MCP_ERROR_GUARD,
+    claudeHookCmd(HOOK_MCP_ERROR_GUARD)
+  );
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
+}
+
+export function removeMcpErrorGuardHook(target: string): boolean {
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  if (!settings.hooks?.PostToolUse) return false;
+  const before = settings.hooks.PostToolUse.length;
+  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+    (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_MCP_ERROR_GUARD}`))
+  );
+  if (settings.hooks.PostToolUse.length !== before) {
+    writeJsonFile(settingsFile, settings);
+    return true;
+  }
+  return false;
 }
 
 export function removeDirCacheGuardHook(target: string): boolean {

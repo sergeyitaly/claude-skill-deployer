@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.70** | MCP filesystem error guard — self-correcting hooks extend to all MCP tool failures |
 | **1.0.69** | Adaptive agent loop — self-correcting hooks, session memory, dir-cache guard |
 | **1.0.68** | CLI MCP server auto-start, status bar, and health dialog |
 | **1.0.65** | MCP health monitoring, Force Mode & proxy auto-migration |
@@ -30,6 +31,38 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.70] — 2026-06-18
+
+**Summary:** Self-correcting hooks now extend from CLI failures to all MCP filesystem tool failures. Agents get immediate corrective hints on ENOENT, EACCES, access-denied, EISDIR, and other common errors — plus a learner that auto-promotes repeated project-specific failures into actionable patterns.
+
+**Theme:** MCP filesystem error guard — self-correcting hooks extend to all MCP tool failures
+
+### Added
+
+- **MCP filesystem error guard** (`mcp-error-guard` PostToolUse hook on `mcp__filesystem__`) — fires whenever a filesystem MCP tool call returns `isError: true` and injects a corrective hint before the agent retries. Eight static patterns:
+  - `outside allowed directories` → add path to `allowedDirs` config
+  - `ENOENT` / `no such file or directory` → use `search_files` first
+  - `EACCES` / `permission denied` → check file ownership
+  - `EISDIR` → use `list_directory` instead of `read_file`
+  - `ENOSPC` → free disk space
+  - `EROFS` → read-only filesystem
+  - `Invalid regex` (search_in_file) → escape special characters
+  - `Access denied` → path outside allowed directories
+  - Install/remove via `installMcpErrorGuardHook` / `removeMcpErrorGuardHook` in `hookOps.ts`.
+
+- **MCP filesystem error learner** — `analyzeMcpErrors()` in `cliGuardLearner.ts` reads `mcp-usage.jsonl`, groups filesystem tool failures by `(tool, errorKey)`, and promotes patterns seen ≥ 2 times to `~/.claude/learning/mcp-guard-patterns.json`. Known signatures get an actionable hint automatically; unknown ones get `needsReview: true` so you can fill in the hint once without any code change. Runs at session start alongside the existing CLI learner. Session context reports how many MCP patterns need review.
+
+- **Filesystem MCP server: structured error logging** — the catch block in `dispatchTool` now writes `errorSnippet: e.message.slice(0, 256)` to `mcp-usage.jsonl` (mirrors the CLI server's `stderrSnippet` field), giving the learner a stable substring to group on.
+
+- **Filesystem MCP server: tool-content error responses** — tool execution failures now use `respond(id, { content: [{type:"text", text: e.message}], isError: true })` instead of `respondError` (JSON-RPC protocol error). This is correct per the MCP spec (protocol errors vs. tool errors) and ensures PostToolUse hooks receive the error message.
+
+### Fixed
+
+- `parseInt` → `Number.parseInt` and `isNaN` → `Number.isNaN` in `analyzeCliFailures` (SonarJS S7773 warnings).
+- Backslash in `search_in_file` hint now uses `String.raw` template literal (SonarJS S7780 warning).
 
 ---
 

@@ -795,12 +795,26 @@ Efficiency:   84% (grade B)
 Total ops:    38  Wasteful: 6
 ```
 
+### Self-correcting hook guards
+
+Both MCP servers feed a two-layer guard system that prevents agents from blindly retrying failed operations:
+
+**`cli-loop-guard`** (PostToolUse on `run_command`) — fires after any non-zero CLI exit and injects a corrective hint. Eight static patterns cover the most common failures (terraform init missing, Azure 403, git conflicts, gh auth, timeouts). A learner (`analyzeCliFailures`) runs at each session start, groups repeated failures from `mcp-usage.jsonl`, and promotes them to `~/.claude/learning/cli-guard-patterns.json` after ≥ 2 occurrences.
+
+**`mcp-error-guard`** (PostToolUse on `mcp__filesystem__`) — fires after any failed filesystem tool call and injects a corrective hint. Eight static patterns cover ENOENT, EACCES, EISDIR, access-denied, ENOSPC, EROFS, Invalid regex, and allowed-directory violations. A parallel learner (`analyzeMcpErrors`) promotes repeated project-specific errors to `~/.claude/learning/mcp-guard-patterns.json`.
+
+**`dir-cache-guard`** (PreToolUse on `list_directory`) — blocks redundant directory scans within a session using an in-memory cache (4 h TTL). Cache hit returns `{ decision: "block" }` — the scan never executes.
+
+Enable / disable all guards via the Command Palette: **Claude Skills: Enable/Disable CLI Loop Guard**, **Enable/Disable MCP Error Guard**, **Enable/Disable Dir Cache Guard**.
+
 ### What it unlocks in practice
 
 | Before | After |
 |--------|-------|
 | "Update this skill's trigger" → paste file, get edit, save manually | Claude reads and writes `~/.claude/skills/<name>/skill.md` directly |
 | "My hooks aren't firing" → paste `.claude/settings.json` | Claude inspects and repairs the hook config in place |
+| Agent retries a failing CLI command 3× before giving up | `cli-loop-guard` injects the fix after the first failure |
+| `read_file` fails with ENOENT → agent re-tries the same path | `mcp-error-guard` redirects to `search_files` immediately |
 | `self-learning` / `skill-usage-insights` depend on proxy being active | Those skills read `.claude/learning/*.jsonl` reliably via a dedicated server |
 | `~/.claude.json` MCP config issues need manual inspection | Claude can read and fix the config from chat |
 

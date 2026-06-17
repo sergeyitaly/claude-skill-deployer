@@ -106,6 +106,7 @@ function appendMcpUsageLog(entry) {
   const line = JSON.stringify(entry) + "\n";
   // Always write to global log for cross-session intelligence.
   try {
+    fs.mkdirSync(path.dirname(MCP_USAGE_LOG), { recursive: true });
     fs.appendFileSync(MCP_USAGE_LOG, line, "utf-8");
   } catch {
     // non-fatal — never crash the server over logging
@@ -254,8 +255,10 @@ function dispatchTool(id, toolName, args) {
     appendMcpUsageLog({ ts: new Date().toISOString(), tool: toolName, path: args.path ?? "", durationMs: Date.now() - start, ...logExtra, ...(SESSION_ID && { sessionId: SESSION_ID }) });
     respond(id, result);
   } catch (e) {
-    appendMcpUsageLog({ ts: new Date().toISOString(), tool: toolName, path: args.path ?? "", durationMs: Date.now() - start, error: e.message, ...(SESSION_ID && { sessionId: SESSION_ID }) });
-    respondError(id, -32000, e.message);
+    appendMcpUsageLog({ ts: new Date().toISOString(), tool: toolName, path: args.path ?? "", durationMs: Date.now() - start, error: e.message, errorSnippet: e.message.slice(0, 256), ...(SESSION_ID && { sessionId: SESSION_ID }) });
+    // Return as tool-content error (not a JSON-RPC protocol error) so
+    // PostToolUse hooks receive the message and can inject corrective hints.
+    respond(id, { content: [{ type: "text", text: e.message }], isError: true });
   }
 }
 
