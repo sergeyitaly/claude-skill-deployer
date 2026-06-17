@@ -7,6 +7,8 @@ import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 export type FilesystemMcpAgentId = "claude" | "cursor" | "kiro" | "copilot";
 
 const CLAUDE_HOME = path.join(os.homedir(), ".claude");
+const CURSOR_HOME = path.join(os.homedir(), ".cursor");
+const KIRO_HOME = path.join(os.homedir(), ".kiro");
 const CLAUDE_CONFIG_PATH = path.join(os.homedir(), ".claude.json");
 const MCP_SERVERS_HOME = path.join(CLAUDE_HOME, "mcp-servers");
 const FILESYSTEM_SERVER_DIR = path.join(MCP_SERVERS_HOME, "filesystem");
@@ -87,7 +89,7 @@ function copyFilesystemServer(extensionPath: string): string {
 }
 
 function writeAllowedDirsConfig(workspaceDirs: string[]): string[] {
-  const allowedDirs = [CLAUDE_HOME, ...workspaceDirs].filter(Boolean).map((dir) => path.resolve(dir));
+  const allowedDirs = [CLAUDE_HOME, CURSOR_HOME, KIRO_HOME, ...workspaceDirs].filter(Boolean).map((dir) => path.resolve(dir));
   const config: { allowedDirs: string[]; workspaceLogPath?: string } = { allowedDirs };
   if (workspaceDirs.length > 0) {
     config.workspaceLogPath = path.join(path.resolve(workspaceDirs[0]), ".claude", "mcp-usage.jsonl");
