@@ -1235,6 +1235,16 @@ const CLI_GUARD_PATTERNS: CliGuardPattern[] = [
     stderrPattern: /not logged in|authentication required|gh auth login/i,
     hint: "GitHub CLI not authenticated. Run: gh auth login",
   },
+  // Git Bash MSYS path mangling — leading slash converted to C:/Program Files/Git/
+  {
+    exitCode: (c) => c !== 0,
+    stderrPattern: /C:\/Program Files\/Git\/subscriptions|segment at position 0 didn't match|parsing segment.*staticSubscriptions/i,
+    hint:
+      "Git Bash is mangling the leading slash in Azure resource IDs " +
+      "(e.g. /subscriptions/... → C:/Program Files/Git/subscriptions/...).\n" +
+      "Fix: pass env: { MSYS_NO_PATHCONV: \"1\" } in the run_command call, " +
+      "OR switch to PowerShell for this command.",
+  },
   // Timed-out command
   {
     exitCode: (c) => c !== 0,

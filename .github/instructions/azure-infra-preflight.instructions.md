@@ -1,17 +1,10 @@
 ---
-name: azure-infra-preflight
-description: Pre-flight checklist before any Azure Terraform deploy — verify az login, detect SSH key type (Azure only accepts RSA), check whether the target resource group already exists and list resources to generate import blocks, validate Terraform version, and write subscription context. Use before terraform plan/apply on a new or potentially pre-existing Azure environment, or when setting up Azure IaC files from scratch.
-user-invocable: true
-allowed-tools:
-  - mcp__claude-skills-cli__run_command
-  - mcp__claude-skills-cli__list_available_clis
-  - mcp__filesystem__read_file
-  - mcp__filesystem__write_file
-  - mcp__filesystem__list_directory
-  - mcp__filesystem__search_files
-  - Glob
-  - Grep
+name: "azure-infra-preflight"
+description: "Pre-flight checklist before any Azure Terraform deploy — verify az login, detect SSH key type (Azure only accepts RSA), check whether the target resource group already exists and list resources to generate import blocks, validate Terraform version, and write subscription context. Use before terraform plan/apply on a new or potentially pre-existing Azure environment, or when setting up Azure IaC files from scratch."
+applyTo: "**/*"
 ---
+
+# azure-infra-preflight
 
 # Azure Infra Preflight
 
@@ -97,22 +90,6 @@ mcp__claude-skills-cli__run_command {
   **Why:** skipping this step causes `terraform apply` to attempt creating
   resources that already exist, producing `ResourceAlreadyExists` errors and
   requiring manual `terraform import` calls for each resource.
-
-  ⚠ **Windows / Git Bash path mangling** — if using the legacy `terraform import`
-  CLI (not `import {}` blocks), Git Bash converts `/subscriptions/...` to
-  `C:/Program Files/Git/subscriptions/...`, breaking the import. Always pass
-  `env: { MSYS_NO_PATHCONV: "1" }` in the `run_command` call:
-  ```
-  mcp__claude-skills-cli__run_command {
-    cli: "terraform",
-    args: ["import", "azurerm_resource_group.rg",
-           "/subscriptions/<sub>/resourceGroups/<rg>"],
-    cwd: "<tf-root>",
-    env: { MSYS_NO_PATHCONV: "1" }
-  }
-  ```
-  **Prefer `import {}` blocks** over CLI import loops — they are written as HCL
-  to `imports.tf` and are not subject to shell path mangling.
 
 ## 5. Write a run-log entry
 

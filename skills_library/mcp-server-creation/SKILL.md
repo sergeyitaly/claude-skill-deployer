@@ -31,11 +31,7 @@ extension/
   src/
     mcp<Name>.ts          # deploy + register helpers (TypeScript)
     extension.ts          # auto-start + status bar wiring
-~/.claude/
-  mcp-servers/
-    <server-name>/
-      index.js            # deployed copy (copied by extension on activate)
-      <name>-config.json  # allow-list / timeout / workspace log path
+
 ```
 
 ---
@@ -326,12 +322,9 @@ function refreshCliMcpStatusBar() {
   }
   mcpCliStatusBarItem.show();
 }
-
 // Call after: enable command, disable command, auto-start, and in refreshAllImpl
 ```
-
 ---
-
 ## 8. Health dialog integration
 
 In `claudeSkills.showMcpHealth` command handler, add a section after the filesystem block:
@@ -355,7 +348,7 @@ if (cliStatus.enabled) {
 
 ---
 
-## 9. Testing without a running Claude session (PowerShell)
+## 9. Testing without a running session (PowerShell)
 
 The MCP server speaks JSON-RPC over stdio. Test it directly without Claude:
 
@@ -391,14 +384,3 @@ temp files.
 The server ignores messages before `initialize` and errors on unknown methods.
 
 ---
-
-## 10. Deployment checklist
-
-When the server source changes:
-
-- [ ] Fix bundled file: `extension/resources/mcp-servers/<name>/index.js`
-- [ ] Deploy to running location: copy to `~/.claude/mcp-servers/<name>/index.js`
-- [ ] Restart Claude Code session (MCP server process is per-session; no hot-reload)
-- [ ] Verify via PowerShell test (section 9) before restarting
-- [ ] Update `extension/src/mcp<Name>.ts` if deploy path or config schema changed
-- [ ] Re-run `npx tsc --noEmit` in `extension/` to catch TypeScript errors
