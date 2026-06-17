@@ -10,13 +10,18 @@ export function workspaceMcpLogPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".claude", "mcp-usage.jsonl");
 }
 
-/** One line written by the MCP filesystem server per tool call. */
+/** One line written by the MCP filesystem or CLI server per tool call. */
 export interface McpUsageEntry {
   ts: string;
+  /**
+   * Filesystem server: "read_file" | "write_file" | "list_directory" | "search_files" | "delete_file"
+   * CLI server: "cli:<name>" (e.g. "cli:az", "cli:terraform") | "list_available_clis"
+   */
   tool: string;
+  /** Filesystem entries always have a path; CLI entries omit it. */
   path: string;
   durationMs: number;
-  /** Byte size of content read or written. */
+  /** Byte size of content read or written (filesystem only). */
   bytes?: number;
   /** SHA-1 prefix of written content (write_file only, for no-op detection). */
   contentHash?: string;
@@ -29,6 +34,19 @@ export interface McpUsageEntry {
   error?: string;
   /** Rotated on each MCP initialize handshake — identifies one agent conversation. */
   sessionId?: string;
+  // ── CLI server fields (present when server === "cli") ──────────────────────
+  /** "cli" for CLI MCP server entries; absent for filesystem server entries. */
+  server?: "cli";
+  /** Normalised CLI name, e.g. "az", "terraform" (CLI server only). */
+  cli?: string;
+  /** Process exit code (CLI server only). */
+  exitCode?: number;
+  /** Byte length of stdout (CLI server only). */
+  stdoutBytes?: number;
+  /** Byte length of stderr (CLI server only). */
+  stderrBytes?: number;
+  /** True when the command was killed after timeout (CLI server only). */
+  timedOut?: boolean;
 }
 
 // ---------------------------------------------------------------------------

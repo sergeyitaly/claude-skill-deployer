@@ -266,7 +266,7 @@ describe("summarizeMcpUsage — grade thresholds", () => {
     expect(summary.totalCalls).toBe(0);
   });
 
-  it("byTool counts are correct", () => {
+  it("byTool counts are correct for filesystem calls", () => {
     const root = tempDir();
     const logPath = path.join(root, "mcp.jsonl");
     const entries: McpUsageEntry[] = [
@@ -278,6 +278,37 @@ describe("summarizeMcpUsage — grade thresholds", () => {
     const summary = summarizeMcpUsage(14, logPath);
     expect(summary.byTool["read_file"].calls).toBe(2);
     expect(summary.byTool["write_file"].calls).toBe(1);
+  });
+
+  it("CLI server entries appear as cli:<name> in byTool and do not affect waste detectors", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    // Mix of filesystem and CLI server entries.
+    const entries: McpUsageEntry[] = [
+      makeEntry({ path: path.join(root, "a.ts"), tool: "read_file", bytes: 100 }),
+      makeEntry({ path: path.join(root, "b.ts"), tool: "read_file", bytes: 100 }),
+      makeEntry({ path: path.join(root, "c.ts"), tool: "read_file", bytes: 100 }),
+      makeEntry({ path: path.join(root, "d.ts"), tool: "read_file", bytes: 100 }),
+      makeEntry({ path: path.join(root, "e.ts"), tool: "read_file", bytes: 100 }),
+      // CLI server entries — tool is "cli:az", no path field
+      { ts: new Date().toISOString(), tool: "cli:az", path: "", durationMs: 800, server: "cli", cli: "az", exitCode: 0 },
+      { ts: new Date().toISOString(), tool: "cli:az", path: "", durationMs: 1200, server: "cli", cli: "az", exitCode: 0 },
+      { ts: new Date().toISOString(), tool: "cli:terraform", path: "", durationMs: 5000, server: "cli", cli: "terraform", exitCode: 0 },
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+
+    // CLI entries get their own byTool buckets.
+    expect(summary.byTool["cli:az"].calls).toBe(2);
+    expect(summary.byTool["cli:terraform"].calls).toBe(1);
+    // Filesystem entries still tracked.
+    expect(summary.byTool["read_file"].calls).toBe(5);
+    // CLI entries do NOT appear as waste warnings (no path, not read_file).
+    expect(summary.wasteWarnings).toHaveLength(0);
+    // CLI entries do NOT appear as agent loops.
+    expect(summary.agentLoops).toHaveLength(0);
+    // totalCalls includes both filesystem and CLI entries.
+    expect(summary.totalCalls).toBe(8);
   });
 
   it("propagates the latest sessionId", () => {

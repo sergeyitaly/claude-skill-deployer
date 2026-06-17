@@ -253,6 +253,9 @@ async function dispatchTool(id, toolName, args) {
             : undefined,
         });
 
+        // Log tool as "cli:<name>" so each CLI gets its own bucket in byTool
+        // aggregation — otherwise all run_command calls collapse into one entry.
+        logEntry.tool = `cli:${cliNorm}`;
         Object.assign(logEntry, {
           cli: cliNorm,
           exitCode,
