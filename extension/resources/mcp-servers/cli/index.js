@@ -40,11 +40,28 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes
 const MAX_TIMEOUT_MS = 30 * 60 * 1000;     // 30 minutes
 const MAX_OUTPUT_BYTES = 512 * 1024;        // 512 KB per stream
 
+// Config is read once and cached; invalidated automatically when the file changes
+// so that runtime updates (e.g. the extension refreshing workspaceLogPath) are
+// picked up without restarting the server process.
+let _cfgCache = null;
+let _cfgWatcher = null;
+
 function readConfig() {
+  if (_cfgCache !== null) return _cfgCache;
   if (configPath) {
-    try { return JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* fall through */ }
+    try {
+      _cfgCache = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (!_cfgWatcher) {
+        try {
+          _cfgWatcher = fs.watch(configPath, () => { _cfgCache = null; });
+          _cfgWatcher.unref(); // don't keep the process alive just for the watcher
+        } catch { /* ignore watch errors — cache will still be used */ }
+      }
+      return _cfgCache;
+    } catch { /* fall through */ }
   }
-  return {};
+  _cfgCache = {};
+  return _cfgCache;
 }
 
 function getAllowedClis() {
@@ -87,7 +104,11 @@ let SESSION_ID = "";
 function appendUsageLog(entry) {
   if (process.env.MCP_DISABLE_USAGE_LOG) return;
   const line = JSON.stringify(entry) + "\n";
-  try { fs.appendFileSync(MCP_USAGE_LOG, line, "utf-8"); } catch { /* non-fatal */ }
+  // Create directory first — on Cursor-only machines ~/.claude/learning/ won't exist.
+  try {
+    fs.mkdirSync(path.dirname(MCP_USAGE_LOG), { recursive: true });
+    fs.appendFileSync(MCP_USAGE_LOG, line, "utf-8");
+  } catch { /* non-fatal */ }
   const wsLog = getWorkspaceLogPath();
   if (wsLog && wsLog !== MCP_USAGE_LOG) {
     try {
@@ -245,12 +266,27 @@ async function dispatchTool(id, toolName, args) {
           );
         }
 
+        // On Windows, Git Bash mangles Unix-style paths like /subscriptions/... into
+        // C:/Program Files/Git/subscriptions/... Auto-inject MSYS_NO_PATHCONV=1 for
+        // CLIs that use Azure/GitHub resource IDs so the agent never hits this error.
+        const MSYS_SENSITIVE_CLIS = new Set(["az", "gh", "gcloud", "aws"]);
+        const userEnv = (args.env && typeof args.env === "object" && !Array.isArray(args.env))
+          ? args.env
+          : {};
+        const autoEnv = (
+          process.platform === "win32" &&
+          MSYS_SENSITIVE_CLIS.has(cliNorm) &&
+          !userEnv.MSYS_NO_PATHCONV &&
+          cmdArgs.some((a) => /^\/[a-z]/i.test(String(a)))
+        ) ? { MSYS_NO_PATHCONV: "1" } : {};
+        const mergedEnv = (Object.keys(autoEnv).length > 0 || Object.keys(userEnv).length > 0)
+          ? { ...autoEnv, ...userEnv }
+          : undefined;
+
         const { stdout, stderr, exitCode, timedOut } = await runCommand(rawCli, cmdArgs, {
           timeout: typeof args.timeout === "number" ? args.timeout : undefined,
           cwd: typeof args.cwd === "string" ? args.cwd : undefined,
-          env: args.env && typeof args.env === "object" && !Array.isArray(args.env)
-            ? args.env
-            : undefined,
+          env: mergedEnv,
         });
 
         // Log tool as "cli:<name>" so each CLI gets its own bucket in byTool
@@ -264,6 +300,10 @@ async function dispatchTool(id, toolName, args) {
           stdoutBytes: Buffer.byteLength(stdout, "utf-8"),
           stderrBytes: Buffer.byteLength(stderr, "utf-8"),
           ...(timedOut && { timedOut: true }),
+          // Capture stderr snippet on failures so the pattern learner can group them.
+          ...(exitCode !== 0 && stderr.trim()
+            ? { stderrSnippet: stderr.trim().slice(0, 512) }
+            : {}),
         });
 
         const parts = [];
@@ -361,7 +401,7 @@ rl.on("line", async (line) => {
                 "Every call is logged for telemetry. Supported CLIs: az, aws, git, kubectl, helm, " +
                 "terraform, gcloud, docker, gh (configurable via cli-config.json). " +
                 "Args are passed as an array — no shell expansion occurs, so pass flags exactly as needed. " +
-                "Use the env parameter to inject MSYS_NO_PATHCONV=1 for Azure resource IDs on Windows. " +
+                "On Windows, MSYS_NO_PATHCONV=1 is injected automatically for az/gh/gcloud/aws when args contain Unix-style paths. " +
                 "Increase timeout for long-running operations: AKS creation ~10 min, Azure Backup ~45 min.",
               inputSchema: {
                 type: "object",
@@ -385,7 +425,7 @@ rl.on("line", async (line) => {
                   },
                   env: {
                     type: "object",
-                    description: "Extra environment variables merged into the process environment (e.g. { \"MSYS_NO_PATHCONV\": \"1\" } for Azure resource ID paths on Windows Git Bash).",
+                    description: "Extra environment variables merged into the process environment. MSYS_NO_PATHCONV=1 is set automatically on Windows for Azure/GitHub paths; use this for other overrides.",
                     additionalProperties: { type: "string" },
                   },
                 },

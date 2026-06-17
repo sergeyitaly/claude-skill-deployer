@@ -3,7 +3,12 @@ import * as path from "node:path";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { checkMcpHealth } from "./mcpHealth";
 
-const MCP_FORCE_DENY = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"];
+const MCP_FORCE_DENY = [
+  "Read", "Write", "Edit", "Glob", "Grep", "Bash",
+  // CLI MCP tools — block shell access too so force mode is fully hermetic.
+  "mcp__claude-skills-cli__run_command",
+  "mcp__claude-skills-cli__list_available_clis",
+];
 const FORCE_BLOCK_START = "<!-- claude-skills-mcp-force -->";
 const FORCE_BLOCK_END = "<!-- /claude-skills-mcp-force -->";
 
@@ -12,7 +17,7 @@ const FORCE_CLAUDE_MD_BLOCK = `${FORCE_BLOCK_START}
 
 Use ONLY MCP filesystem tools for file operations.
 
-❌ Do NOT use: \`Read\`, \`Write\`, \`Edit\`, \`Glob\`, \`Grep\`
+❌ Do NOT use: \`Read\`, \`Write\`, \`Edit\`, \`Glob\`, \`Grep\`, or CLI MCP (\`run_command\`, \`list_available_clis\`)
 
 ✅ Use:
 - \`mcp__filesystem__read_file\`

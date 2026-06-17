@@ -236,7 +236,7 @@ import { runV1Migration } from "./migration";
 import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
 import { checkMcpHealth } from "./mcpHealth";
 import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup } from "./mcpOfficial";
-import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig } from "./mcpCli";
+import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig, syncCliServerBinary } from "./mcpCli";
 import {
   enableMcpForcePermissions,
   injectMcpForceClaude,
@@ -630,6 +630,25 @@ function refreshTrustStatusBar(libraryDir: string, target?: string) {
   trustStatusBarItem.tooltip = `${badge.label} (${badge.scorePct}%)\n\n${badge.detail}\n\nTranscripts and split attribution are probabilistic — not an API invoice.\n\nClick for the usage report.`;
   trustStatusBarItem.command = "claudeSkills.showUsageStats";
   trustStatusBarItem.show();
+}
+
+function maybeAutoEnableMcpForce(target: string): void {
+  if (!vscode.workspace.getConfiguration("claudeSkills.mcpForce").get<boolean>("enableOnStartup", false)) {
+    return;
+  }
+  if (isMcpForceActive(target)) {
+    return;
+  }
+  const permResult = enableMcpForcePermissions(target);
+  if (!permResult.ok) {
+    log(`MCP Force Mode auto-enable skipped: ${permResult.reason}`);
+    return;
+  }
+  const injectResult = injectMcpForceClaude(target);
+  if (!injectResult.ok) {
+    log(`MCP Force Mode CLAUDE.md inject skipped: ${injectResult.reason}`);
+  }
+  log("MCP Force Mode: auto-enabled on startup.");
 }
 
 function refreshCliMcpStatusBar() {
@@ -1333,6 +1352,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
               log(`Dir cache guard hook installed.`);
             }
             refreshMcpStatusBars();
+            if (initialTarget) maybeAutoEnableMcpForce(initialTarget);
           });
         } else {
           // Binary deployed and claude configured — refresh allowed dirs for this workspace.
@@ -1343,9 +1363,11 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
           }
           log(`MCP server: already configured — agents can connect.`);
           refreshMcpStatusBars();
+          if (initialTarget) maybeAutoEnableMcpForce(initialTarget);
         }
 
-        // CLI MCP server
+        // CLI MCP server — always sync binary first so updates and missing files are repaired.
+        syncCliServerBinary(context.extensionPath, log);
         if (needsCliMcpSetup()) {
           void enableOfficialCliServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`CLI MCP server: auto-started and configured.`);
@@ -1354,6 +1376,8 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
               log(`CLI loop-guard hook installed.`);
             }
             refreshCliMcpStatusBar();
+          }).catch((err: unknown) => {
+            log(`CLI MCP server setup failed: ${err instanceof Error ? err.message : String(err)}`);
           });
         } else {
           refreshCliConfig(workspaceDirs, log);

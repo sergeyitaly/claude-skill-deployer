@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.69",
+  "version": "1.0.70",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -577,6 +577,11 @@
             "type": "boolean",
             "default": true,
             "description": "When skills_library/ exists, install a Claude Code SessionStart hook that checks anthropics/skills for updates and prompts skill-official-updater."
+          },
+          "claudeSkills.mcpForce.enableOnStartup": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically enable MCP Force Mode (permissions.deny + CLAUDE.md block) on extension startup. Requires the filesystem MCP server to be healthy — silently skipped if MCP is not yet configured. Disable via 'Claude Skills: Disable MCP Force Mode'."
           },
           "claudeSkills.preferLocalSkillOverrides": {
             "type": "boolean",

@@ -182,8 +182,11 @@ const logCache = new Map<string, LogCache>();
 const LOG_CACHE_MAX_PATHS = 20;
 
 function setLogCache(key: string, value: LogCache): void {
-  // Map iterates in insertion order — delete the oldest entry when at capacity.
-  if (logCache.size >= LOG_CACHE_MAX_PATHS && !logCache.has(key)) {
+  // LRU eviction: delete before re-inserting so the entry moves to the newest
+  // position. When at capacity and the key is new, evict the oldest (first) entry.
+  if (logCache.has(key)) {
+    logCache.delete(key);
+  } else if (logCache.size >= LOG_CACHE_MAX_PATHS) {
     logCache.delete(logCache.keys().next().value as string);
   }
   logCache.set(key, value);
@@ -196,7 +199,12 @@ export function readMcpUsageLog(logPath = MCP_USAGE_LOG_PATH): McpUsageEntry[] {
   try {
     const mtime = fs.statSync(logPath).mtimeMs;
     const cached = logCache.get(logPath);
-    if (cached && cached.mtime === mtime) return cached.entries;
+    if (cached && cached.mtime === mtime) {
+      // Promote to newest position on every cache hit (LRU access tracking).
+      logCache.delete(logPath);
+      logCache.set(logPath, cached);
+      return cached.entries;
+    }
     const entries = fs
       .readFileSync(logPath, "utf-8")
       .split("\n")
@@ -255,25 +263,29 @@ function detectReadAfterWrite(
   entries: McpUsageEntry[],
   windowSecs = READ_AFTER_WRITE_WINDOW_SECS
 ): ReadAfterWriteWarning[] {
-  const writes = entries.filter((e) => e.tool === "write_file" && !e.error && !e.skipped);
-  const reads = entries.filter((e) => e.tool === "read_file" && !e.error);
+  // Single O(n) pass: track the most recent write time per path, emit a warning
+  // on the first read that follows within the window. Replaces the previous O(n²)
+  // approach (filter-writes × find-across-reads for each write entry).
+  const lastWriteByPath = new Map<string, number>();
   const warnings: ReadAfterWriteWarning[] = [];
   const seen = new Set<string>();
 
-  for (const w of writes) {
-    const wTime = new Date(w.ts).getTime();
-    const match = reads.find((r) => {
-      const rTime = new Date(r.ts).getTime();
-      return r.path === w.path && rTime > wTime && rTime - wTime <= windowSecs * 1000;
-    });
-    if (match && !seen.has(w.path)) {
-      seen.add(w.path);
-      const secondsAfter = Math.round((new Date(match.ts).getTime() - wTime) / 1000);
-      warnings.push({
-        path: w.path,
-        secondsAfter,
-        description: `Read ${secondsAfter}s after write — reuse written content instead of re-reading`,
-      });
+  for (const e of entries) {
+    if (e.error) continue;
+    const ts = new Date(e.ts).getTime();
+    if (e.tool === "write_file" && !e.skipped) {
+      lastWriteByPath.set(e.path, ts);
+    } else if (e.tool === "read_file" && !seen.has(e.path)) {
+      const wTime = lastWriteByPath.get(e.path);
+      if (wTime !== undefined && ts > wTime && ts - wTime <= windowSecs * 1000) {
+        seen.add(e.path);
+        const secondsAfter = Math.round((ts - wTime) / 1000);
+        warnings.push({
+          path: e.path,
+          secondsAfter,
+          description: `Read ${secondsAfter}s after write — reuse written content instead of re-reading`,
+        });
+      }
     }
   }
   return warnings.slice(0, 5);
