@@ -80,6 +80,7 @@ Gives AI agents structured read/write access to `~/.claude/` and open workspace 
 - **Agent KPI** status bar (`$(pulse) KPI: A · 42 calls`) — live efficiency grade from the last 24 h of file-access telemetry.
 - **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` and routes all file I/O through the MCP server. Revert with **Disable MCP Force Mode**.
 - **Clear MCP Logs** — Command Palette → **Claude Skills: Clear MCP Server Logs**.
+- **Dir Cache Guard** — PreToolUse hook that blocks redundant `list_directory` calls within a session using an in-memory cache. Auto-installed with the server.
 - Security: `allowed-dirs.json` restricts access to `~/.claude/` and open workspace folders only.
 
 #### CLI MCP server
@@ -90,9 +91,53 @@ Lets agents run allow-listed infrastructure CLIs (`az`, `aws`, `git`, `kubectl`,
 - **CLI MCP** status bar (`$(terminal-cmd) CLI MCP · claude, cursor, kiro` / `$(warning) CLI MCP: setup needed`) — click to enable or disable.
 - **MCP Health dialog** — clicking any MCP status bar item shows a combined modal with both servers: filesystem status + KPI, and a `── CLI MCP Server ──` block with agent list and supported CLIs.
 - Security: only CLIs on the configurable allow-list can be invoked; Windows `.cmd`/`.exe` wrappers handled transparently.
+- **CLI Loop Guard** — PostToolUse hook that injects corrective hints on CLI failures (ed25519 key rejection, missing init, auth errors, timeouts). Auto-installed with the server.
 - Commands: **Enable CLI MCP Server** / **Disable CLI MCP Server** (Command Palette).
 
 See [MCP Servers — Scenarios & Benefits](#mcp-servers--scenarios--benefits) for the full data-flow and KPI guide.
+
+### Adaptive agent hooks
+
+Three hooks close the agent feedback loop so errors self-correct and tokens aren't wasted on re-scanning work already in context. All three auto-install when the relevant MCP server activates; each has an enable/disable command in the Command Palette.
+
+#### CLI Loop Guard (`PostToolUse`)
+
+Fires after every `mcp__claude-skills-cli__run_command` call that exits non-zero. Injects a corrective `systemMessage` on the agent's next turn — before the agent decides whether to retry — so the root cause is addressed rather than blindly repeated.
+
+| Pattern | Corrective hint |
+|---|---|
+| `terraform` exitCode=1 + ed25519 stderr | Azure only accepts RSA keys — regenerate with `ssh-keygen -t rsa -b 4096` |
+| `terraform` exitCode=255 | State dir not initialized — run `terraform init` first |
+| Any CLI + `AuthorizationFailed`/403 | Routes to `azure-rbac-diagnostics` skill |
+| `kubectl`/`helm` + connection refused | Check kubeconfig / cluster reachability |
+| `git` + CONFLICT/index.lock | Conflict or stale lock file — resolve before retrying |
+| `gh` + not logged in | `gh auth login` required |
+| Any CLI + timed out | Increase `timeout` parameter (max 30 min) |
+
+Commands: **Enable CLI Loop Guard** / **Disable CLI Loop Guard**
+
+#### Dir Cache Guard (`PreToolUse`)
+
+Maintains an in-memory session cache (`Map<sessionId, Set<path>>`, 4-hour TTL). Before each `mcp__filesystem__list_directory` call:
+- **Cache miss** — allow the call, record the path.
+- **Cache hit** — return `{ decision: "block" }` with a `CACHE HIT` reason. The scan **never executes** — zero tokens spent.
+
+Works alongside the `mcp-agent-hints.md` section that lists directories scanned 3+ times (written automatically by the efficiency scoring pipeline).
+
+Commands: **Enable Dir Cache Guard** / **Disable Dir Cache Guard**
+
+#### Session context injection (`SessionStart`)
+
+At the start of every session, the `profile-init` and `mcp-gate` hooks inject a `## Last session` block (if the last MCP session was within 24 hours):
+
+```
+Last session: 14min ago
+  Project dir: c:\Users\...\azure-extention-test\.claude\azure-nginx-demo
+  Files written: main.tf, terraform.tfvars, run-log.md
+  CLI calls: terraform×22, az×7
+```
+
+Agents resume with full context — no need to re-derive what was done or which project is active.
 
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.

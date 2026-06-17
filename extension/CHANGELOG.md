@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.69** | Adaptive agent loop — self-correcting hooks, session memory, dir-cache guard |
 | **1.0.68** | CLI MCP server auto-start, status bar, and health dialog |
 | **1.0.65** | MCP health monitoring, Force Mode & proxy auto-migration |
 | **1.0.64** | Hybrid per-project MCP telemetry storage |
@@ -29,6 +30,54 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.69] — 2026-06-17
+
+**Summary:** Agents now self-correct on CLI failures, are blocked from re-scanning directories they already listed, resume with full last-session context, and all infrastructure skills route CLI/filesystem calls through MCP telemetry.
+
+**Theme:** Adaptive agent loop — self-correcting hooks, session memory, dir-cache guard
+
+### Added
+
+- **CLI loop guard** (`cli-loop-guard` PostToolUse hook on `mcp__claude-skills-cli__run_command`) — injects a corrective `systemMessage` immediately after any CLI failure, before the agent decides what to do next. Seven cross-CLI patterns:
+  - `terraform` exitCode=1 + ed25519 stderr → RSA-4096 key instruction
+  - `terraform` exitCode=255 → `terraform init` missing
+  - Any CLI + `AuthorizationFailed`/403 → routes to `azure-rbac-diagnostics` skill
+  - `kubectl`/`helm` + connection refused → kubeconfig check
+  - `git` + CONFLICT/index.lock → conflict resolution
+  - `gh` + not logged in → `gh auth login`
+  - Any CLI + timed out → increase timeout parameter
+  - Auto-installed when CLI MCP server activates. Enable/disable via Command Palette.
+
+- **Dir cache guard** (`dir-cache-guard` PreToolUse hook on `mcp__filesystem__list_directory`) — blocks redundant directory scans within a session using an in-memory `Map<sessionId, Set<path>>` with 4-hour TTL. Cache miss → allow + record. Cache hit → `{ decision: "block", reason: "CACHE HIT: ..." }` — the scan never executes. Auto-installed when filesystem MCP server activates.
+
+- **Last-session context at session start** — `buildLastSessionSummary()` reads the last 60 `mcp-usage.jsonl` entries and injects a one-paragraph `## Last session` block (project dir, files written, CLI calls) into both `profile-init` (general SessionStart) and `mcp-gate` (MCP-Force SessionStart). Only fires for sessions < 24 h old.
+
+- **CLI outcome pattern hints** — `analyzeCliPatterns()` + `appendCliPatternHints()` in `mcpUsageLog.ts` mine the usage log for CLIs with ≥2 errors, emit a dated error-rate section into `mcp-agent-hints.md` alongside the existing filesystem hints, and are called automatically from the efficiency scoring pipeline.
+
+- **`cwd` in CLI MCP log entries** — every `run_command` entry now includes the working directory so per-project CLI attribution and pattern analysis work correctly.
+
+- **Two new skills** in `skills_library/`:
+  - `azure-infra-preflight` — pre-deploy checklist: verify login, detect SSH key type (Azure rejects ed25519), check RG existence and auto-generate `import {}` blocks, gate on TF ≥ 1.6, write run-log.
+  - `infra-cost-guard` — estimate ongoing charges from a Terraform plan or live resource list (Azure, AWS, GCP cost tables), emit teardown command before apply, write a teardown reminder after apply.
+
+- **MCP tool declarations for 6 skills** — `ci-preflight`, `ci-pipeline-debug`, `terraform-plan-review`, `azure-resource-ops`, `gitlab-pipeline-ops`, `azure-rbac-diagnostics` now declare `mcp__claude-skills-cli__*` and `mcp__filesystem__*` in their frontmatter `allowed-tools`, so all CLI and file operations in these skills are captured in KPI telemetry.
+
+- **`excessiveScans` in `writeMcpHints`** — directories listed 3+ times now appear in `mcp-agent-hints.md` with wasted-entry counts and a reference to the dir-cache-guard hook.
+
+### Fixed
+
+- **`writeMcpHints` cognitive complexity** — refactored into 6 section helpers (`hintWasteWarnings`, `hintAgentLoops`, `hintLargeFiles`, `hintReadAfterWrite`, `hintExcessiveScans`, `hintEfficiency`), each returning `string[]`. Main function is now a flat spread — complexity from 20 → 3 (resolves SonarJS S3776).
+
+- **CLI MCP `workspaceLogPath` not refreshed on extension activation** — the `else` (already-configured) branch for the CLI MCP server skipped `refreshCliConfig`, leaving the log path pointing at the previous project after a window switch. Now calls `refreshCliConfig` in that branch, mirroring the filesystem server.
+
+- **4 new Command Palette commands missing from view menu** — `enableCliLoopGuard`, `disableCliLoopGuard`, `enableDirCacheGuard`, `disableDirCacheGuard` now appear under `group: "3_usage"` in `contributes.menus`.
+
+### Changed
+
+- `McpUsageEntry` interface gains an optional `cwd?: string` field (CLI server only).
 
 ---
 
