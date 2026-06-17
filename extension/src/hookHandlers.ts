@@ -1129,6 +1129,56 @@ function handleMcpGate(req: HookRequest): HookResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Handler: dir-cache-guard (PreToolUse — mcp__filesystem__list_directory)
+// Blocks redundant directory scans within a session using an in-memory cache.
+// Cache miss → allow + record. Cache hit → block with decision:"block".
+// ---------------------------------------------------------------------------
+
+/** sessionId → normalized directory paths already listed this session. */
+const _dirListingCache = new Map<string, Set<string>>();
+const DIR_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // evict per-session entry after 4 h
+
+function getDirListingCache(sessionId: string): Set<string> {
+  if (!_dirListingCache.has(sessionId)) {
+    _dirListingCache.set(sessionId, new Set());
+    setTimeout(() => _dirListingCache.delete(sessionId), DIR_CACHE_TTL_MS);
+  }
+  return _dirListingCache.get(sessionId)!;
+}
+
+function normalizeDirPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+}
+
+function handleDirCacheGuard(req: HookRequest): HookResponse {
+  const body = req.body as Record<string, unknown>;
+  const toolName = String(body.tool_name ?? body.toolName ?? "");
+  if (!toolName.includes("list_directory")) return {};
+
+  const toolInput = (body.tool_input ?? body.toolInput ?? {}) as Record<string, unknown>;
+  const dirPath = String(toolInput.path ?? "").trim();
+  if (!dirPath) return {};
+
+  const sessionId = resolveSessionId(body, req.cwd);
+  if (!sessionId) return {};
+
+  const cache = getDirListingCache(sessionId);
+  const key = normalizeDirPath(dirPath);
+
+  if (cache.has(key)) {
+    return {
+      decision: "block",
+      reason:
+        `CACHE HIT: list_directory("${dirPath}") already ran this session. ` +
+        `The directory contents are in your context — reuse them instead of re-scanning.`,
+    };
+  }
+
+  cache.add(key);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
 // Handler: cli-loop-guard (PostToolUse — mcp__claude-skills-cli__run_command)
 // Injects a corrective hint when a CLI call exits non-zero, preventing the
 // agent from blindly retrying without addressing the root cause.
@@ -1248,6 +1298,7 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "mcp-force": return Promise.resolve(handleMcpForce(req));
     case "mcp-gate": return Promise.resolve(handleMcpGate(req));
     case "cli-loop-guard": return Promise.resolve(handleCliLoopGuard(req));
+    case "dir-cache-guard": return Promise.resolve(handleDirCacheGuard(req));
     default: return {};
   }
 }

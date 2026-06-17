@@ -222,6 +222,18 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.enableDirCacheGuard",
+        "title": "Enable Dir Cache Guard (block redundant list_directory scans)",
+        "icon": "$(database)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.disableDirCacheGuard",
+        "title": "Disable Dir Cache Guard",
+        "icon": "$(database)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.installOfficialSkillsSessionHook",
         "title": "Enable Official Skills Session Check (SessionStart)",
         "icon": "$(cloud-download)",

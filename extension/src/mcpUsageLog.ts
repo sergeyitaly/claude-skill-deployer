@@ -571,64 +571,85 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
 // Auto-remediation: write a hints file agents can read at session start
 // ---------------------------------------------------------------------------
 
-export function writeMcpHints(summary: McpUsageSummary): void {
-  const lines: string[] = [
-    "# MCP Optimization Hints (auto-generated — do not edit)",
-    `# Last updated: ${new Date().toISOString()}`,
-    "#",
-    "# Read this at the start of your session. Follow these rules to avoid",
-    "# token waste and redundant file operations.",
+function hintWasteWarnings(items: McpWasteWarning[]): string[] {
+  if (items.length === 0) return [];
+  return [
+    "## Files to cache in memory (read repeatedly — do not re-read)",
+    ...items.map((w) => `- \`${w.path}\` — read ${w.reads}×, ~${w.wastedTokens.toLocaleString()} tokens wasted`),
+    "", "→ Rule: if a file is already in your context, do NOT call read_file again.", "",
+  ];
+}
+
+function hintAgentLoops(items: AgentLoopWarning[]): string[] {
+  if (items.length === 0) return [];
+  return [
+    "## Detected reasoning loops (same file read many times in short window)",
+    ...items.map((l) => `- \`${l.path}\` — read ${l.reads}× in ${l.windowMinutes}min`),
+    "", "→ Rule: analyze once, store the result in your reasoning. Do not re-read to 'verify'.", "",
+  ];
+}
+
+function hintLargeFiles(items: LargeFileWarning[]): string[] {
+  if (items.length === 0) return [];
+  return [
+    "## Large files (>100KB) — avoid full reads",
+    ...items.map((f) => `- \`${f.path}\` — ${Math.round(f.bytes / 1024)}KB — ${f.suggestion}`),
     "",
   ];
+}
 
-  if (summary.wasteWarnings.length > 0) {
-    lines.push("## Files to cache in memory (read repeatedly — do not re-read)");
-    for (const w of summary.wasteWarnings) {
-      lines.push(`- \`${w.path}\` — read ${w.reads}×, ~${w.wastedTokens.toLocaleString()} tokens wasted`);
-    }
-    lines.push("", "→ Rule: if a file is already in your context, do NOT call read_file again.", "");
-  }
+function hintReadAfterWrite(items: ReadAfterWriteWarning[]): string[] {
+  if (items.length === 0) return [];
+  return [
+    "## Read-after-write patterns (reuse content you just wrote)",
+    ...items.map((r) => `- \`${r.path}\` — read ${r.secondsAfter}s after write`),
+    "", "→ Rule: after write_file, keep the written content in memory — no need to read it back.", "",
+  ];
+}
 
-  if (summary.agentLoops.length > 0) {
-    lines.push("## Detected reasoning loops (same file read many times in short window)");
-    for (const l of summary.agentLoops) {
-      lines.push(`- \`${l.path}\` — read ${l.reads}× in ${l.windowMinutes}min`);
-    }
-    lines.push("", "→ Rule: analyze once, store the result in your reasoning. Do not re-read to 'verify'.", "");
-  }
+function hintExcessiveScans(items: ExcessiveScanWarning[]): string[] {
+  if (items.length === 0) return [];
+  return [
+    "## Directories that are repeatedly re-scanned (cache these in memory)",
+    ...items.map((s) => {
+      const waste = s.estimatedWastedEntries > 0 ? `, ~${s.estimatedWastedEntries} wasted entries` : "";
+      return `- \`${s.path}\` — listed ${s.scans}×${waste}`;
+    }),
+    "",
+    "→ Rule: after the first list_directory call, keep the result in context.",
+    "  The dir-cache-guard hook will block repeat scans automatically when active.",
+    "",
+  ];
+}
 
-  if (summary.largeFiles.length > 0) {
-    lines.push("## Large files (>100KB) — avoid full reads");
-    for (const f of summary.largeFiles) {
-      lines.push(`- \`${f.path}\` — ${Math.round(f.bytes / 1024)}KB — ${f.suggestion}`);
-    }
-    lines.push("");
-  }
+function hintEfficiency(score: EfficiencyScore): string[] {
+  if (score.score >= 80) return [];
+  return [
+    `## Session efficiency: ${score.score}% (grade ${score.grade})`,
+    `- Total ops: ${score.totalOps}  Wasteful: ${score.wastefulOps}`,
+    "",
+  ];
+}
 
-  if (summary.readAfterWrite.length > 0) {
-    lines.push("## Read-after-write patterns (reuse content you just wrote)");
-    for (const r of summary.readAfterWrite) {
-      lines.push(`- \`${r.path}\` — read ${r.secondsAfter}s after write`);
-    }
-    lines.push("", "→ Rule: after write_file, keep the written content in memory — no need to read it back.", "");
-  }
-
-  if (summary.efficiencyScore.score < 80) {
-    lines.push(
-      `## Session efficiency: ${summary.efficiencyScore.score}% (grade ${summary.efficiencyScore.grade})`,
-      `- Total ops: ${summary.efficiencyScore.totalOps}  Wasteful: ${summary.efficiencyScore.wastefulOps}`,
-      ""
-    );
-  }
-
-  lines.push(
+export function writeMcpHints(summary: McpUsageSummary): void {
+  const lines = [
+    "# MCP Optimization Hints (auto-generated — do not edit)",
+    `# Last updated: ${new Date().toISOString()}`,
+    "#", "# Read this at the start of your session. Follow these rules to avoid",
+    "# token waste and redundant file operations.", "",
+    ...hintWasteWarnings(summary.wasteWarnings),
+    ...hintAgentLoops(summary.agentLoops),
+    ...hintLargeFiles(summary.largeFiles),
+    ...hintReadAfterWrite(summary.readAfterWrite),
+    ...hintExcessiveScans(summary.excessiveScans),
+    ...hintEfficiency(summary.efficiencyScore),
     "## General rules (always apply)",
     "- Do not call list_directory on the same path more than once per session",
     "- Do not call read_file on a file already present in your context",
     "- After write_file, reuse the content you already have",
     "- For files > 100KB, request only the relevant section",
-    ""
-  );
+    "",
+  ];
 
   try {
     fs.mkdirSync(path.dirname(MCP_HINTS_PATH), { recursive: true });

@@ -974,6 +974,54 @@ export function installCliLoopGuardHook(target: string): HookInstallStatus {
   return "already-configured";
 }
 
+// ── Dir cache guard hook ──────────────────────────────────────────────────────
+
+const HOOK_DIR_CACHE_GUARD = "dir-cache-guard";
+const DIR_CACHE_GUARD_MATCHER = "mcp__filesystem__list_directory";
+
+export function isDirCacheGuardConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasPreToolHook(settings, HOOK_DIR_CACHE_GUARD);
+  } catch {
+    return false;
+  }
+}
+
+export function installDirCacheGuardHook(target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasPreToolHook(settings, HOOK_DIR_CACHE_GUARD);
+  const added = ensurePreToolHookRegistered(
+    settings,
+    DIR_CACHE_GUARD_MATCHER,
+    "",
+    HOOK_DIR_CACHE_GUARD,
+    claudeHookCmd(HOOK_DIR_CACHE_GUARD)
+  );
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
+}
+
+export function removeDirCacheGuardHook(target: string): boolean {
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  if (!settings.hooks?.PreToolUse) return false;
+  const before = settings.hooks.PreToolUse.length;
+  settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(
+    (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_DIR_CACHE_GUARD}`))
+  );
+  if (settings.hooks.PreToolUse.length !== before) {
+    writeJsonFile(settingsFile, settings);
+    return true;
+  }
+  return false;
+}
+
 export function removeCliLoopGuardHook(target: string): boolean {
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);

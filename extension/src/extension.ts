@@ -132,6 +132,9 @@ import {
   installCliLoopGuardHook,
   removeCliLoopGuardHook,
   isCliLoopGuardConfigured,
+  installDirCacheGuardHook,
+  removeDirCacheGuardHook,
+  isDirCacheGuardConfigured,
   installOfficialSkillsSessionHook,
   removeMcpForceHooks,
 } from "./hookOps";
@@ -1325,11 +1328,19 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         if (needsFilesystemMcpSetup()) {
           void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`MCP server: auto-started and configured for ${workspaceDirs.length} workspace folder(s).`);
+            if (initialTarget && !isDirCacheGuardConfigured(initialTarget)) {
+              installDirCacheGuardHook(initialTarget);
+              log(`Dir cache guard hook installed.`);
+            }
             refreshMcpStatusBars();
           });
         } else {
           // Binary deployed and claude configured — refresh allowed dirs for this workspace.
           refreshFilesystemAllowedDirs(workspaceDirs, log);
+          if (initialTarget && !isDirCacheGuardConfigured(initialTarget)) {
+            installDirCacheGuardHook(initialTarget);
+            log(`Dir cache guard hook installed.`);
+          }
           log(`MCP server: already configured — agents can connect.`);
           refreshMcpStatusBars();
         }
@@ -2099,6 +2110,25 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       const removed = removeCliLoopGuardHook(target);
       log(`CLI loop-guard: ${removed ? "removed" : "was not configured"}`);
       void vscode.window.showInformationMessage(`Claude Skills: CLI loop-guard hook ${removed ? "removed" : "was not active"}.`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.enableDirCacheGuard", () => {
+      const target = getWorkspaceTarget();
+      if (!target) { void vscode.window.showWarningMessage("Claude Skills: No workspace folder open."); return; }
+      const status = installDirCacheGuardHook(target);
+      const msg = status === "already-configured"
+        ? "Dir cache guard already active."
+        : "Dir cache guard installed — redundant list_directory calls will be blocked automatically.";
+      log(`Dir cache guard: ${status}`);
+      void vscode.window.showInformationMessage(`Claude Skills: ${msg}`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableDirCacheGuard", () => {
+      const target = getWorkspaceTarget();
+      if (!target) { void vscode.window.showWarningMessage("Claude Skills: No workspace folder open."); return; }
+      const removed = removeDirCacheGuardHook(target);
+      log(`Dir cache guard: ${removed ? "removed" : "was not configured"}`);
+      void vscode.window.showInformationMessage(`Claude Skills: Dir cache guard ${removed ? "removed" : "was not active"}.`);
     }),
 
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
