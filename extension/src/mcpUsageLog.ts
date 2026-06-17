@@ -47,6 +47,8 @@ export interface McpUsageEntry {
   stderrBytes?: number;
   /** True when the command was killed after timeout (CLI server only). */
   timedOut?: boolean;
+  /** Working directory the command ran in (CLI server only). */
+  cwd?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +636,95 @@ export function writeMcpHints(summary: McpUsageSummary): void {
   } catch {
     // non-fatal
   }
+}
+
+// ---------------------------------------------------------------------------
+// CLI outcome pattern analysis + hints (cross-CLI, not Azure-specific)
+// ---------------------------------------------------------------------------
+
+export interface CliErrorPattern {
+  cli: string;
+  errorCount: number;
+  totalCount: number;
+  /** Distinct working directories where errors were seen. */
+  cwds: string[];
+  lastSeen: string;
+}
+
+/**
+ * Analyses CLI MCP log entries and returns CLIs with a recurring error rate
+ * (≥2 errors in the window). Used to populate actionable hints for agents.
+ */
+export function analyzeCliPatterns(entries: McpUsageEntry[]): CliErrorPattern[] {
+  const byCliMap = new Map<string, { errors: McpUsageEntry[]; total: number }>();
+
+  for (const entry of entries) {
+    if (entry.server !== "cli" || !entry.cli) continue;
+    const bucket = byCliMap.get(entry.cli) ?? { errors: [], total: 0 };
+    bucket.total++;
+    if (typeof entry.exitCode === "number" && entry.exitCode !== 0) {
+      bucket.errors.push(entry);
+    }
+    byCliMap.set(entry.cli, bucket);
+  }
+
+  const patterns: CliErrorPattern[] = [];
+  for (const [cli, { errors, total }] of byCliMap.entries()) {
+    if (errors.length < 2) continue;
+    const cwds = [...new Set(
+      errors.map((e) => e.cwd).filter((c): c is string => Boolean(c))
+    )].slice(0, 3);
+    patterns.push({
+      cli,
+      errorCount: errors.length,
+      totalCount: total,
+      cwds,
+      lastSeen: errors[errors.length - 1]?.ts ?? "",
+    });
+  }
+
+  return patterns.sort((a, b) => b.errorCount - a.errorCount);
+}
+
+/**
+ * Appends a CLI error-pattern section to `mcp-agent-hints.md`, replacing any
+ * previous CLI section so the file stays current without growing unboundedly.
+ */
+export function appendCliPatternHints(patterns: CliErrorPattern[]): void {
+  if (patterns.length === 0) return;
+
+  const section: string[] = [
+    "",
+    "## CLI error patterns (learned from recent history)",
+  ];
+
+  for (const p of patterns) {
+    const rate = Math.round((p.errorCount / p.totalCount) * 100);
+    const lastDate = p.lastSeen.slice(0, 10);
+    section.push(
+      `- \`${p.cli}\`: ${p.errorCount}/${p.totalCount} calls failed (${rate}%) — last ${lastDate}`
+    );
+    if (p.cwds.length > 0) {
+      section.push(`  cwd: ${p.cwds.map((c) => `\`${c}\``).join(", ")}`);
+    }
+  }
+
+  section.push(
+    "",
+    "→ Rule: before invoking a high-error CLI, call list_available_clis to verify",
+    "  it is installed and confirm the working directory (cwd) is correct.",
+    ""
+  );
+
+  try {
+    fs.mkdirSync(path.dirname(MCP_HINTS_PATH), { recursive: true });
+    const existing = fs.existsSync(MCP_HINTS_PATH)
+      ? fs.readFileSync(MCP_HINTS_PATH, "utf-8")
+      : "";
+    // Replace a previous CLI section if present, otherwise append.
+    const stripped = existing.replace(/\n## CLI error patterns[\s\S]*?(?=\n## |\n*$)/, "");
+    fs.writeFileSync(MCP_HINTS_PATH, stripped.trimEnd() + "\n" + section.join("\n"), "utf-8");
+  } catch { /* non-fatal */ }
 }
 
 // ---------------------------------------------------------------------------

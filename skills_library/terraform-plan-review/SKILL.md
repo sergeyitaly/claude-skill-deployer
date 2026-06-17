@@ -3,10 +3,14 @@ name: terraform-plan-review
 description: Run terraform fmt/validate/plan and review the output — categorize changes, flag destroys, and triage failures into "real bug" vs "permissions gap" vs "state drift fixable via import block". Use when asked to check Terraform state, review/run a plan, or debug a validate/plan/apply failure.
 user-invocable: true
 allowed-tools:
-  - Bash
-  - Read
-  - Grep
+  - mcp__claude-skills-cli__run_command
+  - mcp__claude-skills-cli__list_available_clis
+  - mcp__filesystem__read_file
+  - mcp__filesystem__write_file
+  - mcp__filesystem__list_directory
+  - mcp__filesystem__search_files
   - Glob
+  - Grep
   - Edit
 ---
 

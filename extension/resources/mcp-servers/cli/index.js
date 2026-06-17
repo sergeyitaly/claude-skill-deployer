@@ -256,8 +256,10 @@ async function dispatchTool(id, toolName, args) {
         // Log tool as "cli:<name>" so each CLI gets its own bucket in byTool
         // aggregation — otherwise all run_command calls collapse into one entry.
         logEntry.tool = `cli:${cliNorm}`;
+        const resolvedCwd = typeof args.cwd === "string" && args.cwd ? args.cwd : process.cwd();
         Object.assign(logEntry, {
           cli: cliNorm,
+          cwd: resolvedCwd,
           exitCode,
           stdoutBytes: Buffer.byteLength(stdout, "utf-8"),
           stderrBytes: Buffer.byteLength(stderr, "utf-8"),

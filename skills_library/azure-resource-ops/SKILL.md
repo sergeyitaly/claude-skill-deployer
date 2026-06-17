@@ -3,10 +3,14 @@ name: azure-resource-ops
 description: Investigate and operate on a project's live Azure resources — build/maintain a resource quick-reference, run common diagnostic commands (health checks, resource state, identity/role checks via az rest, Key Vault secret names, Log Analytics/ADX queries), and record operational quirks so they don't need rediscovering. Use when asked about live resource state, to debug a deployed app, or before running az commands against a project's resources.
 user-invocable: true
 allowed-tools:
-  - Bash
-  - Read
-  - Grep
+  - mcp__claude-skills-cli__run_command
+  - mcp__claude-skills-cli__list_available_clis
+  - mcp__filesystem__read_file
+  - mcp__filesystem__write_file
+  - mcp__filesystem__list_directory
+  - mcp__filesystem__search_files
   - Glob
+  - Grep
 ---
 
 # Azure Resource Ops

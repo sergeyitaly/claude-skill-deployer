@@ -3,10 +3,14 @@ name: azure-rbac-diagnostics
 description: Diagnose Azure RBAC/role-assignment failures (403 AuthorizationFailed, missing identity permissions, Key Vault/ACR/ADX access errors). Distinguishes "Terraform code is correct but the executing identity lacks privilege" from real misconfiguration, and produces the exact az command an admin needs to run. Use when a deployment, terraform apply, or app fails with an authorization/permission error.
 user-invocable: true
 allowed-tools:
-  - Bash
-  - Read
-  - Grep
+  - mcp__claude-skills-cli__run_command
+  - mcp__claude-skills-cli__list_available_clis
+  - mcp__filesystem__read_file
+  - mcp__filesystem__write_file
+  - mcp__filesystem__list_directory
+  - mcp__filesystem__search_files
   - Glob
+  - Grep
 ---
 
 # Azure RBAC Diagnostics

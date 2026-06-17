@@ -3,10 +3,14 @@ name: gitlab-pipeline-ops
 description: Work with a GitLab CI/CD project structured like a typical multi-stage pipeline (root .gitlab-ci.yml with stages/workflow/include, per-area job files under .gitlab/ci/*.yml, shared templates and rules in common.yml, manual gates on main for plan/apply/deploy). Use when reading, editing, or debugging .gitlab-ci.yml / .gitlab/ci/*.yml, inspecting pipeline/job status with glab, or working with GitLab CI/CD variables.
 user-invocable: true
 allowed-tools:
-  - Bash
-  - Read
-  - Grep
+  - mcp__claude-skills-cli__run_command
+  - mcp__claude-skills-cli__list_available_clis
+  - mcp__filesystem__read_file
+  - mcp__filesystem__write_file
+  - mcp__filesystem__list_directory
+  - mcp__filesystem__search_files
   - Glob
+  - Grep
   - Edit
 ---
 

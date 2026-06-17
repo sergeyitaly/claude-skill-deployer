@@ -3,10 +3,14 @@ name: ci-pipeline-debug
 description: Debug a failing CI pipeline stage (lint/test/validate/build/plan/apply/verify or similar) by locating the exact job definition, reproducing its commands locally, and mapping the failure to a root-cause category. Use when a pipeline/job fails and the user wants to know why or wants it fixed.
 user-invocable: true
 allowed-tools:
-  - Bash
-  - Read
-  - Grep
+  - mcp__claude-skills-cli__run_command
+  - mcp__claude-skills-cli__list_available_clis
+  - mcp__filesystem__read_file
+  - mcp__filesystem__write_file
+  - mcp__filesystem__list_directory
+  - mcp__filesystem__search_files
   - Glob
+  - Grep
 ---
 
 # CI Pipeline Debugging

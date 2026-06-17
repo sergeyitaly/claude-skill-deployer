@@ -892,8 +892,13 @@ async function handleProfileInit(req: HookRequest): Promise<HookResponse> {
 
   const context = buildContext();
   const initPrompt = formatProfileInitContext(profileRequest);
-  const combined = [initPrompt, formatLowTrustPrompt(cwd), formatTaskDriftPromptText(cwd)]
-    .filter(Boolean).join("\n\n");
+  const lastSession = buildLastSessionSummary();
+  const combined = [
+    initPrompt,
+    formatLowTrustPrompt(cwd),
+    formatTaskDriftPromptText(cwd),
+    lastSession ? `## Last session\n${lastSession}` : "",
+  ].filter(Boolean).join("\n\n");
   return sessionStartOutput(combined || context, req.agent);
 }
 
@@ -981,6 +986,72 @@ function readMcpHints(): string {
   return "";
 }
 
+/**
+ * Reads the last 60 entries of mcp-usage.jsonl and builds a one-paragraph
+ * context block describing the most recent agent session — which project
+ * directory it ran in, what files it wrote, and which CLIs it called.
+ * Returns an empty string when no recent session (<24 h) is found.
+ */
+function buildLastSessionSummary(): string {
+  if (!fs.existsSync(MCP_USAGE_LOG)) return "";
+  try {
+    const lines = fs.readFileSync(MCP_USAGE_LOG, "utf-8").split("\n").filter(Boolean);
+    if (lines.length === 0) return "";
+
+    const recent = lines.slice(-60).reduce<Record<string, unknown>[]>((acc, l) => {
+      try { acc.push(JSON.parse(l) as Record<string, unknown>); } catch { /* skip */ }
+      return acc;
+    }, []);
+    if (recent.length === 0) return "";
+
+    const lastEntry = recent[recent.length - 1];
+    const lastTs = typeof lastEntry.ts === "string" ? lastEntry.ts : undefined;
+    if (!lastTs) return "";
+
+    const msAgo = Date.now() - new Date(lastTs).getTime();
+    if (msAgo > 24 * 60 * 60 * 1000) return ""; // only inject for sessions < 24 h old
+
+    const sessionId = typeof lastEntry.sessionId === "string" ? lastEntry.sessionId : undefined;
+    const sessionEntries = sessionId
+      ? recent.filter((e) => e.sessionId === sessionId)
+      : recent.slice(-20);
+
+    // Project directory from CLI cwd or common prefix of written file paths
+    const cwds = sessionEntries.map((e) => e.cwd).filter((c): c is string => typeof c === "string");
+    const projectCwd = cwds[0] ?? null;
+
+    const writtenFiles = [...new Set(
+      sessionEntries
+        .filter((e) => e.tool === "write_file")
+        .map((e) => e.path)
+        .filter((p): p is string => typeof p === "string")
+    )];
+
+    const cliCalls = sessionEntries.reduce<Record<string, number>>((acc, e) => {
+      if (e.server === "cli" && typeof e.cli === "string") {
+        acc[e.cli] = (acc[e.cli] ?? 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    const parts: string[] = [`Last session: ${formatActivityAge(lastTs)}`];
+    if (projectCwd) parts.push(`  Project dir: ${projectCwd}`);
+    if (writtenFiles.length > 0) {
+      const names = writtenFiles.slice(0, 5).map((f) => path.basename(f)).join(", ");
+      const extra = writtenFiles.length > 5 ? ` (+${writtenFiles.length - 5} more)` : "";
+      parts.push(`  Files written: ${names}${extra}`);
+    }
+    const cliEntries = Object.entries(cliCalls).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (cliEntries.length > 0) {
+      parts.push(`  CLI calls: ${cliEntries.map(([c, n]) => `${c}×${n}`).join(", ")}`);
+    }
+
+    return parts.join("\n");
+  } catch {
+    return "";
+  }
+}
+
 function lastMcpActivityTimestamp(): string | undefined {
   if (!fs.existsSync(MCP_USAGE_LOG)) return undefined;
   try {
@@ -1005,9 +1076,11 @@ function formatActivityAge(ts: string): string {
 
 function mcpGateMessage(statusLines: string[]): string {
   const hints = readMcpHints();
-  return hints
-    ? statusLines.join("\n") + "\n\n" + hints
-    : statusLines.join("\n");
+  const lastSession = buildLastSessionSummary();
+  const parts = [statusLines.join("\n")];
+  if (lastSession) parts.push("\n## Last session\n" + lastSession);
+  if (hints) parts.push("\n" + hints);
+  return parts.join("\n");
 }
 
 function handleMcpGate(req: HookRequest): HookResponse {

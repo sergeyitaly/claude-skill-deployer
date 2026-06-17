@@ -5,6 +5,9 @@ import {
   summarizeMcpUsage,
   summarizeCrossSessionPatterns,
   writeMcpHints,
+  appendCliPatternHints,
+  analyzeCliPatterns,
+  readMcpUsageLog,
   workspaceMcpLogPath,
   McpUsageSummary,
   CrossSessionSummary,
@@ -138,6 +141,9 @@ export function computeEfficiencyMetrics(
   // Write auto-remediation hints file whenever there is actionable data
   if (mcp.totalCalls > 0) {
     writeMcpHints(mcp);
+    // Append CLI error-pattern hints derived from the last 30 days of log entries
+    const allEntries = readMcpUsageLog(resolveMcpLogPath(target, telemetryScope) ?? undefined);
+    appendCliPatternHints(analyzeCliPatterns(allEntries));
   }
 
   return {

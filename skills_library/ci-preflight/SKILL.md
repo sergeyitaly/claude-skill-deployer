@@ -3,10 +3,14 @@ name: ci-preflight
 description: Reproduce a CI pipeline's pre-merge stages (lint, test, validate, build) locally before pushing, by mapping each CI job to its exact local-equivalent command and running them in order. Use when asked to "run CI checks locally", "preflight", "what would fail in the pipeline", or before committing/pushing a change.
 user-invocable: true
 allowed-tools:
-  - Bash
-  - Read
-  - Grep
+  - mcp__claude-skills-cli__run_command
+  - mcp__claude-skills-cli__list_available_clis
+  - mcp__filesystem__read_file
+  - mcp__filesystem__write_file
+  - mcp__filesystem__list_directory
+  - mcp__filesystem__search_files
   - Glob
+  - Grep
 ---
 
 # CI Preflight
