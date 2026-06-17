@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.66",
+  "version": "1.0.67",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -195,6 +195,18 @@
         "command": "claudeSkills.disableOfficialFilesystemServer",
         "title": "Disable Local Filesystem MCP Server",
         "icon": "$(file-directory)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.enableCliMcpServer",
+        "title": "Enable CLI MCP Server (az, aws, git, kubectl…)",
+        "icon": "$(terminal)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.disableCliMcpServer",
+        "title": "Disable CLI MCP Server",
+        "icon": "$(terminal)",
         "category": "Claude Skills"
       },
       {
@@ -1774,6 +1786,16 @@
         },
         {
           "command": "claudeSkills.disableOfficialFilesystemServer",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.enableCliMcpServer",
+          "when": "view == claudeSkillsView",
+          "group": "3_usage"
+        },
+        {
+          "command": "claudeSkills.disableCliMcpServer",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
         },

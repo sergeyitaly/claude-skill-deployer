@@ -230,6 +230,7 @@ import { runV1Migration } from "./migration";
 import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
 import { checkMcpHealth } from "./mcpHealth";
 import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup } from "./mcpOfficial";
+import { enableOfficialCliServer, disableOfficialCliServer } from "./mcpCli";
 import {
   enableMcpForcePermissions,
   injectMcpForceClaude,
@@ -1999,6 +2000,27 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     vscode.commands.registerCommand("claudeSkills.disableOfficialFilesystemServer", async () => {
       maybeRevealOutputPanel();
       await disableOfficialFilesystemServer(log, () => {
+        provider.refreshMcpServerStatus();
+      });
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.enableCliMcpServer", async () => {
+      maybeRevealOutputPanel();
+      const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+      const result = await enableOfficialCliServer(context.extensionPath, workspaceDirs, log, () => {
+        provider.refreshMcpServerStatus();
+      });
+      if (result.enabled.length > 0) {
+        log(`Enabled CLI MCP server for: ${result.enabled.join(", ")}.`);
+      }
+      for (const error of result.errors) {
+        log(`CLI MCP server error for ${error.agentId}: ${error.message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.disableCliMcpServer", async () => {
+      maybeRevealOutputPanel();
+      await disableOfficialCliServer(log, () => {
         provider.refreshMcpServerStatus();
       });
     }),
