@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -56,6 +57,10 @@ function enabledCliMcpAgentIds(): CliMcpAgentId[] {
   );
 }
 
+function fileHash(p: string): string {
+  return crypto.createHash("sha1").update(fs.readFileSync(p)).digest("hex");
+}
+
 function copyCliServer(extensionPath: string): string {
   const bundledDir = path.join(extensionPath, "resources", "mcp-servers", "cli");
   if (!fs.existsSync(bundledDir)) {
@@ -64,8 +69,41 @@ function copyCliServer(extensionPath: string): string {
   const sourceFile = path.join(bundledDir, "index.js");
   fs.mkdirSync(CLI_SERVER_DIR, { recursive: true });
   fs.copyFileSync(sourceFile, CLI_SERVER_PATH);
-  fs.chmodSync(CLI_SERVER_PATH, 0o755);
+  fs.chmodSync(CLI_SERVER_PATH, 0o755); // NOSONAR — executable needs rx for group/others on Unix
   return CLI_SERVER_PATH;
+}
+
+/**
+ * Ensures the deployed CLI server binary matches the bundled one.
+ * Called on every extension activation — fast no-op when hashes match,
+ * re-copies when the extension has been updated or the binary is missing.
+ * Returns true if the binary was (re-)deployed.
+ */
+export function syncCliServerBinary(
+  extensionPath: string,
+  log: (msg: string) => void
+): boolean {
+  const bundledFile = path.join(extensionPath, "resources", "mcp-servers", "cli", "index.js");
+  if (!fs.existsSync(bundledFile)) {
+    log("CLI MCP server: bundled binary not found — skipping sync.");
+    return false;
+  }
+  try {
+    const needsCopy =
+      !fs.existsSync(CLI_SERVER_PATH) ||
+      fileHash(bundledFile) !== fileHash(CLI_SERVER_PATH);
+
+    if (!needsCopy) return false;
+
+    fs.mkdirSync(CLI_SERVER_DIR, { recursive: true });
+    fs.copyFileSync(bundledFile, CLI_SERVER_PATH);
+    fs.chmodSync(CLI_SERVER_PATH, 0o755); // NOSONAR — executable needs rx for group/others on Unix
+    log("CLI MCP server: binary updated to latest version.");
+    return true;
+  } catch (e) {
+    log(`CLI MCP server: binary sync failed — ${e instanceof Error ? e.message : String(e)}`);
+    return false;
+  }
 }
 
 function writeCliConfig(workspaceDirs: string[], extraClis: string[] = []): void {
@@ -141,8 +179,10 @@ export function getCliMcpServerStatus(): {
 
 export function needsCliMcpSetup(): boolean {
   if (!fs.existsSync(CLI_SERVER_PATH)) return true;
-  const config = readJsonFile<AgentMcpConfig>(CLAUDE_CONFIG_PATH);
-  return !config?.mcpServers?.[CLI_SERVER_KEY];
+  // Check all agents, not just Claude — on a Cursor-only machine ~/.claude.json never
+  // exists and the old check would return true on every activation.
+  const { activeAgents } = getCliMcpServerStatus();
+  return activeAgents.length === 0;
 }
 
 export async function enableOfficialCliServer(
