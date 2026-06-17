@@ -120,6 +120,16 @@ function isCliMcpEnabled(agentId: CliMcpAgentId): boolean {
   return Boolean(config?.mcpServers?.[CLI_SERVER_KEY]);
 }
 
+export function refreshCliConfig(workspaceDirs: string[], log: (msg: string) => void): void {
+  try {
+    if (!fs.existsSync(CLI_CONFIG_PATH)) return;
+    writeCliConfig(workspaceDirs);
+    log(`CLI MCP server: workspace log path refreshed (${workspaceDirs.length} dir(s)).`);
+  } catch (e) {
+    log(`CLI MCP server: could not refresh config — ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 export function getCliMcpServerStatus(): {
   enabled: boolean;
   activeAgents: CliMcpAgentId[];

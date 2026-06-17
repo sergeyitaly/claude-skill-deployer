@@ -230,7 +230,7 @@ import { runV1Migration } from "./migration";
 import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
 import { checkMcpHealth } from "./mcpHealth";
 import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup } from "./mcpOfficial";
-import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup } from "./mcpCli";
+import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig } from "./mcpCli";
 import {
   enableMcpForcePermissions,
   injectMcpForceClaude,
@@ -2073,6 +2073,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
       refreshFilesystemAllowedDirs(workspaceDirs, log);
+      refreshCliConfig(workspaceDirs, log);
     }),
 
     vscode.commands.registerCommand("claudeSkills.installOfficialSkillsSessionHook", async () => {
