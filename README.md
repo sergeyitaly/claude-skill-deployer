@@ -78,7 +78,7 @@ Gives AI agents structured read/write access to `~/.claude/` and open workspace 
 - **Auto-started on activation** — deployed and registered for Claude/Cursor/Kiro automatically.
 - **MCP Health** status bar (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — click for the combined health report (filesystem + CLI sections).
 - **Agent KPI** status bar (`$(pulse) KPI: A · 42 calls`) — live efficiency grade from the last 24 h of file-access telemetry.
-- **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` and routes all file I/O through the MCP server. Revert with **Disable MCP Force Mode**.
+- **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` **and** the CLI MCP tools (`run_command`, `list_available_clis`), routing all file I/O through the filesystem MCP server. Enable at startup via `claudeSkills.mcpForce.enableOnStartup`. Revert with **Disable MCP Force Mode**.
 - **Clear MCP Logs** — Command Palette → **Claude Skills: Clear MCP Server Logs**.
 - **Dir Cache Guard** — PreToolUse hook that blocks redundant `list_directory` calls within a session using an in-memory cache. Auto-installed with the server.
 - Security: `allowed-dirs.json` restricts access to `~/.claude/` and open workspace folders only.
@@ -266,8 +266,10 @@ An AI agent can choose between its built-in native tools (`Read`, `Edit`, `Glob`
 
 Command Palette → **Enable MCP Force Mode** applies two changes:
 
-1. Writes `["Read", "Write", "Edit", "Glob", "Grep", "Bash"]` to `.claude/settings.json → permissions.deny` — Claude refuses to call those native tools.
-2. Injects an `## MCP REQUIRED` block into `CLAUDE.md` with explicit instructions to use only MCP tools.
+1. Writes `["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"]` to `.claude/settings.json → permissions.deny` — Claude refuses to call those native tools and CLI MCP tools.
+2. Injects an `## MCP REQUIRED` block into `CLAUDE.md` with explicit instructions to use only MCP filesystem tools.
+
+**Auto-enable on startup:** set `claudeSkills.mcpForce.enableOnStartup: true` in VS Code settings to activate Force Mode automatically every time the extension starts (e.g. for a project that always requires strict file-I/O observability). The safety interlock still applies — if MCP is not healthy the setting is silently skipped.
 
 **Safety interlock:** Force Mode only activates when `checkMcpHealth()` confirms the server is configured and reachable. If the MCP server is broken, the deny list is **not** written — the agent cannot be left with no working file tools.
 
@@ -408,6 +410,7 @@ Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) 
 | See if both MCP servers are working | Check `$(plug) MCP Connected` + `$(terminal-cmd) CLI MCP` in the status bar; click for health dialog |
 | Get a file-I/O KPI grade | Run any agent task that reads files; grade appears in `$(pulse) KPI` bar after 5+ calls |
 | Force all file I/O through MCP | Command Palette → **Enable MCP Force Mode** |
+| Auto-enable Force Mode on every startup | `claudeSkills.mcpForce.enableOnStartup: true` in VS Code settings |
 | Understand what the agent re-read | Cost Dashboard → **Efficiency metrics → Waste detected** |
 | Give the agent memory of past waste | Check `~/.claude/learning/mcp-agent-hints.md` — add it to agent context at session start |
 | Reset and start clean | Command Palette → **Claude Skills: Clear MCP Server Logs** |
