@@ -22,9 +22,16 @@ Use ONLY MCP filesystem tools for file operations.
 ✅ Use:
 - \`mcp__filesystem__read_file\`
 - \`mcp__filesystem__write_file\`
+- \`mcp__filesystem__edit_file\`
 - \`mcp__filesystem__list_directory\`
 - \`mcp__filesystem__search_files\`
 ${FORCE_BLOCK_END}`;
+
+// Lock files older than this are presumed to belong to a crashed process and are
+// removed before a new acquisition attempt. On Windows the OS does not automatically
+// release file locks when a process exits abnormally, so without this cleanup a stale
+// lock would permanently block future injections until the file is deleted manually.
+const LOCK_STALE_MS = 30_000;
 
 interface ClaudeSettings {
   permissions?: {
@@ -45,6 +52,17 @@ export type McpForceInjectResult =
 
 function readSettings(file: string): ClaudeSettings {
   return readJsonFile<ClaudeSettings>(file) ?? {};
+}
+
+/** Removes a lock file if it is older than LOCK_STALE_MS (best-effort, non-fatal). */
+function clearStaleLock(lockFile: string): void {
+  try {
+    if (Date.now() - fs.statSync(lockFile).mtimeMs > LOCK_STALE_MS) {
+      fs.unlinkSync(lockFile);
+    }
+  } catch {
+    // Lock doesn't exist or can't be stat'd — both are fine.
+  }
 }
 
 export function isMcpForcePermissionsActive(target: string): boolean {
@@ -118,6 +136,7 @@ export function injectMcpForceClaude(target: string): McpForceInjectResult {
   // Atomic update: write to a temp file then rename so concurrent writes from
   // two VS Code windows targeting the same workspace cannot corrupt CLAUDE.md.
   const lockFile = claudeMd + ".mcpforce.lock";
+  clearStaleLock(lockFile); // remove lock left by a previously crashed process
   let lockFd: number | undefined;
   try {
     lockFd = fs.openSync(lockFile, "wx"); // exclusive create — fails if another process holds it
@@ -159,6 +178,7 @@ export function removeMcpForceClaudeBlock(target: string): void {
   if (!fs.existsSync(claudeMd)) return;
 
   const lockFile = claudeMd + ".mcpforce.lock";
+  clearStaleLock(lockFile); // remove lock left by a previously crashed process
   let lockFd: number | undefined;
   try {
     lockFd = fs.openSync(lockFile, "wx");

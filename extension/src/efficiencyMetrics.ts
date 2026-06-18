@@ -415,8 +415,17 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
   }
 
   const m = metrics.mcp;
+  const cs = metrics.crossSession;
   const scoreBanner = hasMcp ? buildScoreBannerHtml(m, metrics.mcpFileTokens) : "";
   const totalApiTokens = metrics.recentSessions.reduce((s, r) => s + r.totalTokens, 0);
+
+  // Show the auto-fix button only when there are fixable issues worth persisting.
+  const hasFixableIssues = hasMcp && (
+    m.wasteWarnings.length > 0 ||
+    m.excessiveScans.length > 0 ||
+    m.largeFiles.length > 0 ||
+    cs.persistentHotFiles.length > 0
+  );
 
   const parts: string[] = [];
   if (hasMcp && m.totalEstimatedTokens > 0) {
@@ -448,7 +457,6 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
         ? `<div class="sub-panel" style="grid-column: 1 / -1"><h3>Suggestions</h3><ul>${suggRows}</ul></div>`
         : "";
 
-  const cs = metrics.crossSession;
   const crossSessionHtml =
     cs.persistentHotFiles.length > 0
       ? `<div class="sub-panel" style="grid-column: 1 / -1">
@@ -465,7 +473,7 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
               </div>`
             )
             .join("")}
-          <p class="note" style="margin-top:4px">These files are global hot spots — add them to mcp-agent-hints.md permanent cache rules.</p>
+          <p class="note" style="margin-top:4px">These files are global hot spots — click <b>Apply auto-fixes</b> to add permanent cache rules.</p>
         </div>`
       : "";
 
@@ -478,8 +486,9 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     ${crossSessionHtml}
   </div>
   <p class="note" style="margin-top:8px">Costs from runs.jsonl hooks. MCP file-access patterns from <code>~/.claude/learning/mcp-usage.jsonl</code>. Hints written to <code>~/.claude/learning/mcp-agent-hints.md</code>. Estimates only.</p>
-  <div style="margin-top:10px">
-    <button id="btn-clear-mcp-logs" class="action-btn">Clear MCP Logs</button>
+  <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+    ${hasFixableIssues ? `<button id="btn-apply-mcp-autofixes" class="action-btn" title="Write permanent cache rules to mcp-agent-hints.md for all detected hot files and directories — agents will respect them at next session start">Apply auto-fixes to hints</button>` : ""}
+    <button id="btn-clear-mcp-logs" class="action-btn secondary">Clear MCP Logs</button>
   </div>
 </div>`;
 }

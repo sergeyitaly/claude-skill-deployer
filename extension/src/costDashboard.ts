@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+﻿import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
 import {
   buildCostAttribution,
@@ -273,6 +273,9 @@ function dashboardInjectionListenerScript(): string {
       });
       document.getElementById("btn-clear-mcp-logs")?.addEventListener("click", () => {
         vscode.postMessage({ command: "clearMcpLogs" });
+      });
+      document.getElementById("btn-apply-mcp-autofixes")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "applyMcpAutoFixes" });
       });
     }
     window.addEventListener("message", (event) => {

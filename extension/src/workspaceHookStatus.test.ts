@@ -23,6 +23,12 @@ const allOn: WorkspaceHookStatus = {
     practicalFocus: true,
     configured: true,
   },
+  guards: {
+    dirCacheGuard: true,
+    cliLoopGuard: true,
+    fileSplitAdvisor: true,
+    degraded: false,
+  },
 };
 
 const partial: WorkspaceHookStatus = {
@@ -41,6 +47,12 @@ const partial: WorkspaceHookStatus = {
     contextFocus: false,
     practicalFocus: false,
     configured: false,
+  },
+  guards: {
+    dirCacheGuard: false,
+    cliLoopGuard: false,
+    fileSplitAdvisor: false,
+    degraded: false,
   },
 };
 

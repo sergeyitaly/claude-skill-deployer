@@ -1,4 +1,4 @@
-﻿import * as fs from "node:fs";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,7 +42,7 @@ function readSettings(dir: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf-8")) as Record<string, unknown>;
 }
 
-// â”€â”€ isMcpForcePermissionsActive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── isMcpForcePermissionsActive ───────────────────────────────────────────────────────────────────────────────────────
 
 describe("isMcpForcePermissionsActive", () => {
   it("returns false when settings.json does not exist", () => {
@@ -79,7 +79,7 @@ describe("isMcpForcePermissionsActive", () => {
   });
 });
 
-// â”€â”€ isMcpForceClaudeMdInjected â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── isMcpForceClaudeMdInjected ────────────────────────────────────────────────────────────────────────────────────────
 
 describe("isMcpForceClaudeMdInjected", () => {
   it("returns false when CLAUDE.md does not exist", () => {
@@ -104,7 +104,7 @@ describe("isMcpForceClaudeMdInjected", () => {
   });
 });
 
-// â”€â”€ isMcpForceActive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── isMcpForceActive ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 describe("isMcpForceActive", () => {
   it("is true iff permissions deny list is fully set (delegates to isMcpForcePermissionsActive)", () => {
@@ -117,7 +117,7 @@ describe("isMcpForceActive", () => {
   });
 });
 
-// â”€â”€ enableMcpForcePermissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── enableMcpForcePermissions ─────────────────────────────────────────────────────────────────────────────────────────
 
 describe("enableMcpForcePermissions", () => {
   it("writes all six force tools to permissions.deny", () => {
@@ -164,7 +164,7 @@ describe("enableMcpForcePermissions", () => {
   });
 });
 
-// â”€â”€ revertMcpForcePermissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── revertMcpForcePermissions ─────────────────────────────────────────────────────────────────────────────────────────
 
 describe("revertMcpForcePermissions", () => {
   it("removes force tools from deny list while preserving other entries", () => {
@@ -198,7 +198,7 @@ describe("revertMcpForcePermissions", () => {
   });
 });
 
-// â”€â”€ injectMcpForceClaude â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── injectMcpForceClaude ──────────────────────────────────────────────────────────────────────────────────────────────
 
 describe("injectMcpForceClaude", () => {
   it("creates CLAUDE.md with force block when file does not exist", () => {
@@ -244,9 +244,47 @@ describe("injectMcpForceClaude", () => {
     const result = injectMcpForceClaude(ws);
     expect(result.ok).toBe(false);
   });
+
+  it("returns ok:true without modifying CLAUDE.md when the lock file is already held", () => {
+    const ws = makeWorkspace();
+    const claudeMd = path.join(ws, "CLAUDE.md");
+    fs.writeFileSync(claudeMd, "# Existing content\n", "utf-8");
+
+    // Simulate a concurrent writer holding the lock (freshly created = not stale).
+    const lockFile = claudeMd + ".mcpforce.lock";
+    const lockFd = fs.openSync(lockFile, "w");
+    fs.closeSync(lockFd);
+
+    const result = injectMcpForceClaude(ws);
+
+    // Should succeed (ok:true) as a no-op — the lock holder will complete the write.
+    expect(result).toEqual({ ok: true });
+    expect(fs.readFileSync(claudeMd, "utf-8")).toBe("# Existing content\n");
+    expect(isMcpForceClaudeMdInjected(ws)).toBe(false);
+
+    fs.unlinkSync(lockFile);
+  });
+
+  it("two concurrent calls produce exactly one force block in the final file", async () => {
+    const ws = makeWorkspace();
+    fs.writeFileSync(path.join(ws, "CLAUDE.md"), "# My Project\n", "utf-8");
+
+    // Both calls run synchronously; one acquires the lock, the other is a no-op.
+    const [r1, r2] = await Promise.all([
+      Promise.resolve(injectMcpForceClaude(ws)),
+      Promise.resolve(injectMcpForceClaude(ws)),
+    ]);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    const content = fs.readFileSync(path.join(ws, "CLAUDE.md"), "utf-8");
+    const markerCount = (content.match(/<!-- claude-skills-mcp-force -->/g) ?? []).length;
+    expect(markerCount).toBe(1);
+    expect(content).toContain("# My Project");
+  });
 });
 
-// â”€â”€ removeMcpForceClaudeBlock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── removeMcpForceClaudeBlock ─────────────────────────────────────────────────────────────────────────────────────────
 
 describe("removeMcpForceClaudeBlock", () => {
   it("is a no-op when CLAUDE.md does not exist", () => {
@@ -281,4 +319,3 @@ describe("removeMcpForceClaudeBlock", () => {
     expect(content.trim()).toBe("");
   });
 });
-

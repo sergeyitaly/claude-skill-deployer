@@ -89,8 +89,12 @@ export function syncCliServerBinary(
     return false;
   }
   try {
+    const deployedExists = fs.existsSync(CLI_SERVER_PATH);
+    // Fast path: compare file sizes before computing SHA-1. For typical server files
+    // (tens of KB) this avoids two full readFileSync calls on every activation.
     const needsCopy =
-      !fs.existsSync(CLI_SERVER_PATH) ||
+      !deployedExists ||
+      fs.statSync(bundledFile).size !== fs.statSync(CLI_SERVER_PATH).size ||
       fileHash(bundledFile) !== fileHash(CLI_SERVER_PATH);
 
     if (!needsCopy) return false;

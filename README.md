@@ -1,8 +1,8 @@
-# claude-skills-deployer
+﻿# claude-skills-deployer
 
 Personal tool to detect which AI agent skills are relevant to a project
 (based on which files are present) and install matching instructions from a
-shared library — starting with [Claude Code](https://docs.claude.com/claude-code)
+shared library â€” starting with [Claude Code](https://docs.claude.com/claude-code)
 and extending to **Cursor**, **Kiro**, and **GitHub Copilot**.
 
 Skills live in `skills_library/` (source of truth). Deploy globally to your
@@ -20,48 +20,48 @@ continuously optimizes your setup based on real usage.
 
 **No.** The VS Code extension works in **VS Code or Cursor** without the [Claude Code](https://docs.claude.com/claude-code) app or CLI installed.
 
-Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout convention** — the extension **creates them** on install. They are not proof that Claude Code is on your machine. With `multiAgent` on (default), skills deploy to all enabled agent paths (`.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`). On **solo-dev** tier (`multiAgent` off), skills mirror only to the **running IDE** (Cursor, Kiro, or Copilot).
+Paths like `.claude/skills/` and `.claude/learning/` are a **shared layout convention** â€” the extension **creates them** on install. They are not proof that Claude Code is on your machine. With `multiAgent` on (default), skills deploy to all enabled agent paths (`.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`). On **solo-dev** tier (`multiAgent` off), skills mirror only to the **running IDE** (Cursor, Kiro, or Copilot).
 
-| You primarily use… | Works without Claude Code? | What you get |
+| You primarily useâ€¦ | Works without Claude Code? | What you get |
 |---|---|---|
 | **Cursor** | Yes | Skill tree, detection, branch profiles, `.cursor/skills/` sync, Cursor attribution hooks, Cursor transcript cost estimates |
 | **GitHub Copilot / Kiro** | Yes | Per-skill instruction files; attribution hooks when enabled |
 | **Claude Code** | Full set | Everything above plus Claude session transcripts, budget/session/focus hooks, SessionStart profile-init |
 
-**Needs Claude Code specifically** (otherwise skipped or empty — no crash):
+**Needs Claude Code specifically** (otherwise skipped or empty â€” no crash):
 
-- **Cost control hooks** (budget, session size, context/practical focus) — installed into `.claude/settings.json` for Claude Code to run
-- **Claude transcript spend** in the status bar and usage report — shows *“No recorded Claude Code token usage”* when `~/.claude/projects/` is absent
-- **SessionStart hooks** for profile-init and official Anthropic skill checks — Claude Code uses `.claude/settings.json`; Cursor/Kiro/Copilot use their agent hook formats (see [Profile init](#profile-init-role--branch-agent-driven))
+- **Cost control hooks** (budget, session size, context/practical focus) â€” installed into `.claude/settings.json` for Claude Code to run
+- **Claude transcript spend** in the status bar and usage report â€” shows *â€œNo recorded Claude Code token usageâ€* when `~/.claude/projects/` is absent
+- **SessionStart hooks** for profile-init and official Anthropic skill checks â€” Claude Code uses `.claude/settings.json`; Cursor/Kiro/Copilot use their agent hook formats (see [Profile init](#profile-init-role--branch-agent-driven))
 
 **Cursor-only tip:** set `claudeSkills.agents.enabled` to `["cursor"]` (Settings) if you do not want global/workspace installs under Claude paths. Workspace skills still use `.claude/skills/` as the git-tracked source of truth; the extension mirrors from there to your enabled agents.
 
 See [`extension/README.md`](extension/README.md) for the full extension guide.
 
-## Install — pick your editor’s registry
+## Install â€” pick your editorâ€™s registry
 
 Same extension, two galleries. Each link goes to the **extension listing** (install page):
 
 | Editor | Primary listing | Also on |
 |--------|-----------------|---------|
-| **VS Code** | [**Claude Skills Manager** — Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [Open VSX ↗](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
-| **Cursor** | [**Claude Skills Manager** — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |
-| **Kiro IDE** | [**Claude Skills Manager** — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace ↗](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) ([Kiro uses Open VSX by default](https://kiro.dev/docs/editor/extension-registry/)) |
+| **VS Code** | [**Claude Skills Manager** â€” Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) | [Open VSX â†—](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) |
+| **Cursor** | [**Claude Skills Manager** â€” Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace â†—](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) |
+| **Kiro IDE** | [**Claude Skills Manager** â€” Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) | [VS Marketplace â†—](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) ([Kiro uses Open VSX by default](https://kiro.dev/docs/editor/extension-registry/)) |
 
-Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-registries.md) · Publishing: [extension/PUBLISHING.md](extension/PUBLISHING.md)
+Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-registries.md) Â· Publishing: [extension/PUBLISHING.md](extension/PUBLISHING.md)
 
 ## Two ways to use this
 
 | Surface | Best for |
 |---|---|
-| **CLI** (`generate_skills.py`) | Scripts, CI, **Claude CLI**, headless apply/sync — no VS Code |
+| **CLI** (`generate_skills.py`) | Scripts, CI, **Claude CLI**, headless apply/sync â€” no VS Code |
 | **VS Code extension** ([`extension/`](extension/)) | Activity-bar UI, budget controls, cost intelligence, branch profiles, multi-agent sync |
 
 ## Quick start (extension)
 
 1. Install **Claude Skills Manager** from the [install table above](#install--pick-your-editors-registry) (or a `.vsix` from `extension/`).
 2. Open a workspace folder.
-3. **Claude Skills** activity bar → **Install Skill Library to ~/.claude/skills** (one-time).
+3. **Claude Skills** activity bar â†’ **Install Skill Library to ~/.claude/skills** (one-time).
    With `multiAgent` on (default), this also seeds `~/.cursor/skills/`, `~/.kiro/skills/`, and Copilot global instructions when those agents are enabled.
 4. **Install Relevant Skills for Workspace** (or **Preview** first).
    By default, detected skills are copied to **all enabled agent paths** in the workspace (`.claude/skills/`, `.cursor/skills/`, `.kiro/skills/`, `.github/instructions/`).
@@ -69,32 +69,36 @@ Distribution diagram: [diagram/00-extension-registries.md](diagram/00-extension-
 
 ### MCP Servers
 
-The extension bundles two MCP (Model Context Protocol) servers, both auto-started on activation — no manual setup for a fresh install.
+The extension bundles two MCP (Model Context Protocol) servers, both auto-started on activation â€” no manual setup for a fresh install.
 
 #### Filesystem MCP server
 
-Gives AI agents structured read/write access to `~/.claude/` and open workspace folders; records every operation as telemetry for KPI scoring.
+Gives AI agents structured read/write/edit access to `~/.claude/` and open workspace folders; records every operation as telemetry for KPI scoring.
 
-- **Auto-started on activation** — deployed and registered for Claude/Cursor/Kiro automatically.
+- **Auto-started on activation** — deployed and registered for Claude/Cursor/Kiro automatically. The server binary is auto-synced on every activation so extension updates propagate without a manual "Enable" step.
+- **`edit_file` tool (v1.2)** — targeted string-replace edits. `old_string` must match exactly once; errors on ambiguous or missing matches. Prefer over `write_file` for surgical changes.
+- **Session read/dir cache** — `read_file` skips re-reads of unchanged files (mtime guard); `list_directory` returns cached listings within the same session. Both caches invalidate on writes, edits, and deletes.
 - **MCP Health** status bar (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — click for the combined health report (filesystem + CLI sections).
 - **Agent KPI** status bar (`$(pulse) KPI: A · 42 calls`) — live efficiency grade from the last 24 h of file-access telemetry.
 - **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` **and** the CLI MCP tools (`run_command`, `list_available_clis`), routing all file I/O through the filesystem MCP server. Enable at startup via `claudeSkills.mcpForce.enableOnStartup`. Revert with **Disable MCP Force Mode**.
+- **Apply auto-fixes to hints** — button in the Efficiency panel (and Command Palette → **Claude Skills: Apply MCP Auto-Fixes**) that converts detected hot files, excessive scans, and large-file patterns into permanent cache rules in `mcp-agent-hints.md`. Rules survive session-hint refreshes.
 - **Clear MCP Logs** — Command Palette → **Claude Skills: Clear MCP Server Logs**.
 - **Dir Cache Guard** — PreToolUse hook that blocks redundant `list_directory` calls within a session using an in-memory cache. Auto-installed with the server.
+- **Log auto-pruning** — `mcp-usage.jsonl` is trimmed automatically when it exceeds 2 MB (keeps the last 30 days), using an atomic temp-file rename to avoid interrupting concurrent appends.
 - Security: `allowed-dirs.json` restricts access to `~/.claude/` and open workspace folders only.
 
 #### CLI MCP server
 
-Lets agents run allow-listed infrastructure CLIs (`az`, `aws`, `git`, `kubectl`, `helm`, `terraform`, `gcloud`, `docker`, `gh`, `dotnet`, `node`, `npm`) directly — no shell scripting needed in the conversation.
+Lets agents run allow-listed infrastructure CLIs (`az`, `aws`, `git`, `kubectl`, `helm`, `terraform`, `gcloud`, `docker`, `gh`, `dotnet`, `node`, `npm`) directly â€” no shell scripting needed in the conversation.
 
-- **Auto-started on activation** — deployed to `~/.claude/mcp-servers/cli/index.js` and registered in `~/.claude.json`, `~/.cursor/mcp.json`, and `~/.kiro/settings/mcp.json` automatically.
-- **CLI MCP** status bar (`$(terminal-cmd) CLI MCP · claude, cursor, kiro` / `$(warning) CLI MCP: setup needed`) — click to enable or disable.
-- **MCP Health dialog** — clicking any MCP status bar item shows a combined modal with both servers: filesystem status + KPI, and a `── CLI MCP Server ──` block with agent list and supported CLIs.
+- **Auto-started on activation** â€” deployed to `~/.claude/mcp-servers/cli/index.js` and registered in `~/.claude.json`, `~/.cursor/mcp.json`, and `~/.kiro/settings/mcp.json` automatically.
+- **CLI MCP** status bar (`$(terminal-cmd) CLI MCP Â· claude, cursor, kiro` / `$(warning) CLI MCP: setup needed`) â€” click to enable or disable.
+- **MCP Health dialog** â€” clicking any MCP status bar item shows a combined modal with both servers: filesystem status + KPI, and a `â”€â”€ CLI MCP Server â”€â”€` block with agent list and supported CLIs.
 - Security: only CLIs on the configurable allow-list can be invoked; Windows `.cmd`/`.exe` wrappers handled transparently.
-- **CLI Loop Guard** — PostToolUse hook that injects corrective hints on CLI failures (ed25519 key rejection, missing init, auth errors, timeouts). Auto-installed with the server.
+- **CLI Loop Guard** â€” PostToolUse hook that injects corrective hints on CLI failures (ed25519 key rejection, missing init, auth errors, timeouts). Auto-installed with the server.
 - Commands: **Enable CLI MCP Server** / **Disable CLI MCP Server** (Command Palette).
 
-See [MCP Servers — Scenarios & Benefits](#mcp-servers--scenarios--benefits) for the full data-flow and KPI guide.
+See [MCP Servers â€” Scenarios & Benefits](#mcp-servers--scenarios--benefits) for the full data-flow and KPI guide.
 
 ### Adaptive agent hooks
 
@@ -102,15 +106,15 @@ Three hooks close the agent feedback loop so errors self-correct and tokens aren
 
 #### CLI Loop Guard (`PostToolUse`)
 
-Fires after every `mcp__claude-skills-cli__run_command` call that exits non-zero. Injects a corrective `systemMessage` on the agent's next turn — before the agent decides whether to retry — so the root cause is addressed rather than blindly repeated.
+Fires after every `mcp__claude-skills-cli__run_command` call that exits non-zero. Injects a corrective `systemMessage` on the agent's next turn â€” before the agent decides whether to retry â€” so the root cause is addressed rather than blindly repeated.
 
 | Pattern | Corrective hint |
 |---|---|
-| `terraform` exitCode=1 + ed25519 stderr | Azure only accepts RSA keys — regenerate with `ssh-keygen -t rsa -b 4096` |
-| `terraform` exitCode=255 | State dir not initialized — run `terraform init` first |
+| `terraform` exitCode=1 + ed25519 stderr | Azure only accepts RSA keys â€” regenerate with `ssh-keygen -t rsa -b 4096` |
+| `terraform` exitCode=255 | State dir not initialized â€” run `terraform init` first |
 | Any CLI + `AuthorizationFailed`/403 | Routes to `azure-rbac-diagnostics` skill |
 | `kubectl`/`helm` + connection refused | Check kubeconfig / cluster reachability |
-| `git` + CONFLICT/index.lock | Conflict or stale lock file — resolve before retrying |
+| `git` + CONFLICT/index.lock | Conflict or stale lock file â€” resolve before retrying |
 | `gh` + not logged in | `gh auth login` required |
 | Any CLI + timed out | Increase `timeout` parameter (max 30 min) |
 
@@ -119,8 +123,8 @@ Commands: **Enable CLI Loop Guard** / **Disable CLI Loop Guard**
 #### Dir Cache Guard (`PreToolUse`)
 
 Maintains an in-memory session cache (`Map<sessionId, Set<path>>`, 4-hour TTL). Before each `mcp__filesystem__list_directory` call:
-- **Cache miss** — allow the call, record the path.
-- **Cache hit** — return `{ decision: "block" }` with a `CACHE HIT` reason. The scan **never executes** — zero tokens spent.
+- **Cache miss** â€” allow the call, record the path.
+- **Cache hit** â€” return `{ decision: "block" }` with a `CACHE HIT` reason. The scan **never executes** â€” zero tokens spent.
 
 Works alongside the `mcp-agent-hints.md` section that lists directories scanned 3+ times (written automatically by the efficiency scoring pipeline).
 
@@ -134,17 +138,17 @@ At the start of every session, the `profile-init` and `mcp-gate` hooks inject a 
 Last session: 14min ago
   Project dir: c:\Users\...\azure-extention-test\.claude\azure-nginx-demo
   Files written: main.tf, terraform.tfvars, run-log.md
-  CLI calls: terraform×22, az×7
+  CLI calls: terraformÃ—22, azÃ—7
 ```
 
-Agents resume with full context — no need to re-derive what was done or which project is active.
+Agents resume with full context â€” no need to re-derive what was done or which project is active.
 
-The extension never hides skills already in `<workspace>/.claude/skills/` —
+The extension never hides skills already in `<workspace>/.claude/skills/` â€”
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
 
-## MCP Servers — Scenarios & Benefits
+## MCP Servers â€” Scenarios & Benefits
 
-Both MCP servers auto-start on extension activation — no manual setup required. The **filesystem server** gives agents structured, observable file I/O. The **CLI server** lets agents run infrastructure and developer CLIs directly without shell scripting.
+Both MCP servers auto-start on extension activation â€” no manual setup required. The **filesystem server** gives agents structured, observable file I/O. The **CLI server** lets agents run infrastructure and developer CLIs directly without shell scripting.
 
 ### Filesystem MCP server tools
 
@@ -158,37 +162,37 @@ Both MCP servers auto-start on extension activation — no manual setup required
 
 Every call is recorded as a JSONL line in `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped). The extension reads these logs to compute efficiency KPIs and optimization hints.
 
-> **v1.0.70 fix — all tools now return MCP-compliant responses.** Previous builds returned non-standard shapes (`{ content: string }` for `read_file`; `{ entries: [...] }` for `list_directory`; `{ results: [...] }` for `search_files`) that caused Zod validation errors or silent empty output. All six tools now wrap results in the required `content: [{ type: "text", text: "..." }]` array. The fix is deployed automatically on the next extension activation (`syncFilesystemServerBinary` copies the updated binary). Because the MCP server is a **persistent stdio process**, open agent sessions must reconnect (reload the IDE window or start a new chat) to pick up the updated binary.
+> **v1.0.70 fix â€” all tools now return MCP-compliant responses.** Previous builds returned non-standard shapes (`{ content: string }` for `read_file`; `{ entries: [...] }` for `list_directory`; `{ results: [...] }` for `search_files`) that caused Zod validation errors or silent empty output. All six tools now wrap results in the required `content: [{ type: "text", text: "..." }]` array. The fix is deployed automatically on the next extension activation (`syncFilesystemServerBinary` copies the updated binary). Because the MCP server is a **persistent stdio process**, open agent sessions must reconnect (reload the IDE window or start a new chat) to pick up the updated binary.
 
 ### CLI MCP server tools
 
 | Tool | What it does |
 |---|---|
-| `mcp__claude-skills-cli__list_available_clis` | Probe which allow-listed CLIs are on PATH — returns a found/missing table |
+| `mcp__claude-skills-cli__list_available_clis` | Probe which allow-listed CLIs are on PATH â€” returns a found/missing table |
 | `mcp__claude-skills-cli__run_command` | Execute any allow-listed CLI and return `stdout`, `stderr`, `exitCode`, and timeout status |
 
 Supported CLIs (configurable via `cli-config.json`): `az`, `aws`, `git`, `kubectl`, `helm`, `terraform`, `gcloud`, `docker`, `gh`, `dotnet`, `node`, `npm`.
 
 ---
 
-### Scenario 1 — Infrastructure automation without shell scripting
+### Scenario 1 â€” Infrastructure automation without shell scripting
 
-An agent can drive your entire cloud workflow (`az`, `aws`, `terraform`, `kubectl`, `helm`, `gcloud`) by calling `mcp__claude-skills-cli__run_command` directly — no Bash step needed in the conversation.
+An agent can drive your entire cloud workflow (`az`, `aws`, `terraform`, `kubectl`, `helm`, `gcloud`) by calling `mcp__claude-skills-cli__run_command` directly â€” no Bash step needed in the conversation.
 
 **Example flow:**
 
 ```
 Agent calls mcp__claude-skills-cli__run_command(cli="terraform", args=["plan", "-out=tfplan"])
-  → stdout: plan output, exitCode: 0
+  â†’ stdout: plan output, exitCode: 0
 Agent calls mcp__claude-skills-cli__run_command(cli="terraform", args=["apply", "tfplan"])
-  → stdout: apply summary, exitCode: 0
+  â†’ stdout: apply summary, exitCode: 0
 Agent calls mcp__claude-skills-cli__run_command(cli="kubectl", args=["rollout", "status", "deployment/api"])
-  → stdout: "deployment successfully rolled out", exitCode: 0
+  â†’ stdout: "deployment successfully rolled out", exitCode: 0
 ```
 
 **What you get:**
 
-- The agent reads plan output, catches errors, and decides whether to apply — all in one conversation turn.
+- The agent reads plan output, catches errors, and decides whether to apply â€” all in one conversation turn.
 - No copy-paste between terminal and chat; no shell injection risk (args are passed as a safe array, not a shell string).
 - Long-running operations (AKS creation, Azure Backup) can use extended timeouts up to 30 minutes.
 
@@ -196,26 +200,26 @@ Agent calls mcp__claude-skills-cli__run_command(cli="kubectl", args=["rollout", 
 
 ---
 
-### Scenario 2 — Git and GitHub DevOps from conversation
+### Scenario 2 â€” Git and GitHub DevOps from conversation
 
-The `git` and `gh` CLIs let an agent handle the full git/PR lifecycle without leaving the chat — check repo state, inspect history, manage pull requests, and verify CI.
+The `git` and `gh` CLIs let an agent handle the full git/PR lifecycle without leaving the chat â€” check repo state, inspect history, manage pull requests, and verify CI.
 
 **Example flow:**
 
 ```
 Agent calls mcp__claude-skills-cli__list_available_clis
-  → confirms git ✓, gh ✓
+  â†’ confirms git âœ“, gh âœ“
 Agent calls mcp__claude-skills-cli__run_command(cli="git", args=["log", "--oneline", "-5"])
-  → last 5 commits for context
+  â†’ last 5 commits for context
 Agent calls mcp__claude-skills-cli__run_command(cli="gh", args=["pr", "list", "--state", "open"])
-  → open PRs the agent can reference or close
+  â†’ open PRs the agent can reference or close
 Agent calls mcp__claude-skills-cli__run_command(cli="gh", args=["auth", "status"])
-  → confirms auth and token scopes before attempting write operations
+  â†’ confirms auth and token scopes before attempting write operations
 ```
 
 **What you get:**
 
-- Agents can read real repo and PR state before suggesting code changes — no stale context.
+- Agents can read real repo and PR state before suggesting code changes â€” no stale context.
 - `gh` scopes are validated upfront; the agent knows what write operations are safe.
 - Works across Claude, Cursor, and Kiro without any per-IDE shell configuration.
 
@@ -223,55 +227,55 @@ Agent calls mcp__claude-skills-cli__run_command(cli="gh", args=["auth", "status"
 
 ---
 
-### Scenario 3 — Node / npm / dotnet project management
+### Scenario 3 â€” Node / npm / dotnet project management
 
-Agents can drive builds, tests, and dependency checks through the CLI MCP server — useful for confirming the environment before generating code.
+Agents can drive builds, tests, and dependency checks through the CLI MCP server â€” useful for confirming the environment before generating code.
 
 **Example flow:**
 
 ```
 Agent calls mcp__claude-skills-cli__run_command(cli="node", args=["--version"])
-  → v24.14.1 — agent confirms runtime before generating Node-specific code
+  â†’ v24.14.1 â€” agent confirms runtime before generating Node-specific code
 Agent calls mcp__claude-skills-cli__run_command(cli="npm", args=["--version"])
-  → 11.11.0
+  â†’ 11.11.0
 Agent calls mcp__claude-skills-cli__run_command(cli="npm", args=["run", "build"])
-  → build output and exit code — agent detects errors and proposes fixes inline
+  â†’ build output and exit code â€” agent detects errors and proposes fixes inline
 ```
 
 **What you get:**
 
 - Agents verify the runtime environment before recommending version-specific APIs.
-- Build/test output is captured as structured text — the agent can parse errors and iterate without you copying output manually.
+- Build/test output is captured as structured text â€” the agent can parse errors and iterate without you copying output manually.
 - Combine with the filesystem MCP server to read failing files and rewrite them in the same session.
 
 **When to use this scenario:** build-fix loops, dependency audits, scaffolding new projects with correct runtime assumptions.
 
 ---
 
-### Scenario 4 — Full file I/O observability (no enforcement)
+### Scenario 4 â€” Full file I/O observability (no enforcement)
 
 An AI agent can choose between its built-in native tools (`Read`, `Edit`, `Glob`, etc.) and the MCP filesystem tools. Both work; only MCP calls are logged and scored.
 
 **What you get:**
 
-- The **Agent KPI** status bar shows an efficiency grade (A–F) based on how the agent used file tools in the last 24 h.
-- The **Cost Dashboard → Efficiency metrics** panel breaks down token waste by file and session.
+- The **Agent KPI** status bar shows an efficiency grade (Aâ€“F) based on how the agent used file tools in the last 24 h.
+- The **Cost Dashboard â†’ Efficiency metrics** panel breaks down token waste by file and session.
 - A hints file (`~/.claude/learning/mcp-agent-hints.md`) is auto-written after each analysis pass with rules the agent can read at session start to avoid repeating past wasteful patterns.
 
 **When to use this scenario:** auditing an existing agent setup without changing its behavior.
 
 ---
 
-### Scenario 5 — MCP Force Mode (strict enforcement)
+### Scenario 5 â€” MCP Force Mode (strict enforcement)
 
-Command Palette → **Enable MCP Force Mode** applies two changes:
+Command Palette â†’ **Enable MCP Force Mode** applies two changes:
 
-1. Writes `["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"]` to `.claude/settings.json → permissions.deny` — Claude refuses to call those native tools and CLI MCP tools.
+1. Writes `["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"]` to `.claude/settings.json â†’ permissions.deny` â€” Claude refuses to call those native tools and CLI MCP tools.
 2. Injects an `## MCP REQUIRED` block into `CLAUDE.md` with explicit instructions to use only MCP filesystem tools.
 
-**Auto-enable on startup:** set `claudeSkills.mcpForce.enableOnStartup: true` in VS Code settings to activate Force Mode automatically every time the extension starts (e.g. for a project that always requires strict file-I/O observability). The safety interlock still applies — if MCP is not healthy the setting is silently skipped.
+**Auto-enable on startup:** set `claudeSkills.mcpForce.enableOnStartup: true` in VS Code settings to activate Force Mode automatically every time the extension starts (e.g. for a project that always requires strict file-I/O observability). The safety interlock still applies â€” if MCP is not healthy the setting is silently skipped.
 
-**Safety interlock:** Force Mode only activates when `checkMcpHealth()` confirms the server is configured and reachable. If the MCP server is broken, the deny list is **not** written — the agent cannot be left with no working file tools.
+**Safety interlock:** Force Mode only activates when `checkMcpHealth()` confirms the server is configured and reachable. If the MCP server is broken, the deny list is **not** written â€” the agent cannot be left with no working file tools.
 
 **What you get:**
 
@@ -283,53 +287,53 @@ Command Palette → **Enable MCP Force Mode** applies two changes:
 
 ---
 
-### Scenario 6 — Validation test (confirm MCP wiring end-to-end)
+### Scenario 6 â€” Validation test (confirm MCP wiring end-to-end)
 
 Use the CLI MCP server to verify both servers are alive before starting a sensitive operation:
 
 ```
-1. mcp__claude-skills-cli__list_available_clis          → all required CLIs present
-2. mcp__claude-skills-cli__run_command(git --version)   → git responds, exitCode 0
-3. mcp__filesystem__list_directory("~/.claude/skills")  → skill library visible to filesystem server
-4. Check status bar: $(plug) MCP Connected + $(terminal-cmd) CLI MCP · claude, cursor, kiro
+1. mcp__claude-skills-cli__list_available_clis          â†’ all required CLIs present
+2. mcp__claude-skills-cli__run_command(git --version)   â†’ git responds, exitCode 0
+3. mcp__filesystem__list_directory("~/.claude/skills")  â†’ skill library visible to filesystem server
+4. Check status bar: $(plug) MCP Connected + $(terminal-cmd) CLI MCP Â· claude, cursor, kiro
 ```
 
-The MCP Health dialog (click any MCP status bar item) shows a combined modal: filesystem server status + KPI grade, and a `── CLI MCP Server ──` block with agent list and supported CLIs. The test prompt in `tests/mcp_cli_test_propmt.md` walks through all steps above automatically.
+The MCP Health dialog (click any MCP status bar item) shows a combined modal: filesystem server status + KPI grade, and a `â”€â”€ CLI MCP Server â”€â”€` block with agent list and supported CLIs. The test prompt in `tests/mcp_cli_test_propmt.md` walks through all steps above automatically.
 
 ---
 
-### Data flow: filesystem MCP call → status bar KPI
+### Data flow: filesystem MCP call â†’ status bar KPI
 
 ```
 Agent calls mcp__filesystem__read_file("src/extension.ts")
-  │
-  ▼
+  â”‚
+  â–¼
 index.js dispatchTool()
   Records: { ts, tool, path, durationMs, bytes, sessionId }
   Auto-skips write_file if SHA-1 content matches on-disk
-  │
-  ▼
+  â”‚
+  â–¼
 appendMcpUsageLog()
   Writes JSONL line to:
-    ~/.claude/learning/mcp-usage.jsonl        (global — cross-session intelligence)
-    <workspace>/.claude/mcp-usage.jsonl       (workspace — per-project KPI)
-  │
-  ▼
+    ~/.claude/learning/mcp-usage.jsonl        (global â€” cross-session intelligence)
+    <workspace>/.claude/mcp-usage.jsonl       (workspace â€” per-project KPI)
+  â”‚
+  â–¼
 Extension refresh cycle (every ~2 s)
   summarizeMcpUsage()
-    readMcpUsageLog()            — mtime-cached, no re-parse if file unchanged
-    detectWaste()                — files read 3+ times
-    detectAgentLoops()           — same file read 4+ times in 5-min window
-    detectExcessiveScans()       — same directory listed 3+ times
-    detectReadAfterWrite()       — read within 60 s of write to same path
-    detectLargeFiles()           — files > 100 KB
-    detectNoOpWrites()           — write_file skipped because content unchanged
-    computeScore()               → score (0–100), grade (A–F)
-  │
-  ▼
-Status bar: "$(pulse) KPI: B · 38 calls"
-Cost Dashboard → Efficiency metrics panel
-~/.claude/learning/mcp-agent-hints.md   ← written for the agent to read next session
+    readMcpUsageLog()            â€” mtime-cached, no re-parse if file unchanged
+    detectWaste()                â€” files read 3+ times
+    detectAgentLoops()           â€” same file read 4+ times in 5-min window
+    detectExcessiveScans()       â€” same directory listed 3+ times
+    detectReadAfterWrite()       â€” read within 60 s of write to same path
+    detectLargeFiles()           â€” files > 100 KB
+    detectNoOpWrites()           â€” write_file skipped because content unchanged
+    computeScore()               â†’ score (0â€“100), grade (Aâ€“F)
+  â”‚
+  â–¼
+Status bar: "$(pulse) KPI: B Â· 38 calls"
+Cost Dashboard â†’ Efficiency metrics panel
+~/.claude/learning/mcp-agent-hints.md   â† written for the agent to read next session
 ```
 
 ---
@@ -338,22 +342,22 @@ Cost Dashboard → Efficiency metrics panel
 
 ```
 wasteful_ops =
-    (read_file calls - 1) per hot file    ← redundant repeated reads
-  + read_after_write count                ← re-reading content just written
-  + (loop reads - 1) per looping path     ← agent reasoning loops
-  + no-op write count                     ← identical content written again
-  + ceil(excess_scan_entries / 50)        ← repeated directory scans
+    (read_file calls - 1) per hot file    â† redundant repeated reads
+  + read_after_write count                â† re-reading content just written
+  + (loop reads - 1) per looping path     â† agent reasoning loops
+  + no-op write count                     â† identical content written again
+  + ceil(excess_scan_entries / 50)        â† repeated directory scans
 
 score = round(((total_ops - wasteful_ops) / total_ops) * 100)
 ```
 
 | Grade | Score | Meaning |
 |---|---|---|
-| **A** | ≥ 90% | Efficient — minimal redundancy |
-| **B** | 75–89% | Good — minor repeated reads |
-| **C** | 60–74% | Moderate waste — check repeated reads and scans |
-| **D** | 45–59% | High waste — agent likely looping or re-reading large files |
-| **F** | < 45% | Severe waste — enforce MCP Force and review hints file |
+| **A** | â‰¥ 90% | Efficient â€” minimal redundancy |
+| **B** | 75â€“89% | Good â€” minor repeated reads |
+| **C** | 60â€“74% | Moderate waste â€” check repeated reads and scans |
+| **D** | 45â€“59% | High waste â€” agent likely looping or re-reading large files |
+| **F** | < 45% | Severe waste â€” enforce MCP Force and review hints file |
 
 Grades appear after **5 or more** MCP calls (below that threshold the score shows `notEnoughData`).
 
@@ -361,26 +365,26 @@ Grades appear after **5 or more** MCP calls (below that threshold the score show
 
 ### What the efficiency panel shows
 
-The **Cost Dashboard → Efficiency metrics** section (Command Palette → **Show Cost Intelligence Dashboard**) contains:
+The **Cost Dashboard â†’ Efficiency metrics** section (Command Palette â†’ **Show Cost Intelligence Dashboard**) contains:
 
-- **Token quality bar** — stacked useful / wasted / untracked token totals for the last 14 d
-- **Cost per file** — which files consumed the most context tokens (MCP reads)
-- **Waste detected** — per-pattern breakdowns: repeated reads, agent loops, read-after-write, large files, excessive directory scans, no-op writes
-- **Suggestions** — actionable hints with estimated token savings
-- **Persistently over-read files (30 d)** — files read in > 50% of sessions across multiple agent conversations; these are candidates for permanent entries in `mcp-agent-hints.md`
+- **Token quality bar** â€” stacked useful / wasted / untracked token totals for the last 14 d
+- **Cost per file** â€” which files consumed the most context tokens (MCP reads)
+- **Waste detected** â€” per-pattern breakdowns: repeated reads, agent loops, read-after-write, large files, excessive directory scans, no-op writes
+- **Suggestions** â€” actionable hints with estimated token savings
+- **Persistently over-read files (30 d)** â€” files read in > 50% of sessions across multiple agent conversations; these are candidates for permanent entries in `mcp-agent-hints.md`
 
 ---
 
 ### Cross-session intelligence
 
-`summarizeCrossSessionPatterns()` groups every `read_file` event by `sessionId` across the last 30 days and surfaces files that appear in more than 50% of sessions. These are genuine global hot spots — files the agent consistently re-reads from scratch.
+`summarizeCrossSessionPatterns()` groups every `read_file` event by `sessionId` across the last 30 days and surfaces files that appear in more than 50% of sessions. These are genuine global hot spots â€” files the agent consistently re-reads from scratch.
 
 The hints file (`mcp-agent-hints.md`) includes these as permanent cache rules:
 
 ```markdown
-## Files to cache in memory (read repeatedly — do not re-read)
-- `src/extension.ts` — read 6×, ~12,400 tokens wasted
-→ Rule: if a file is already in your context, do NOT call read_file again.
+## Files to cache in memory (read repeatedly â€” do not re-read)
+- `src/extension.ts` â€” read 6Ã—, ~12,400 tokens wasted
+â†’ Rule: if a file is already in your context, do NOT call read_file again.
 ```
 
 Agents that read this file at session start avoid repeating the patterns from prior sessions.
@@ -391,7 +395,7 @@ Agents that read this file at session start avoid repeating the patterns from pr
 
 | File | Written by | Purpose |
 |---|---|---|
-| `~/.claude/learning/mcp-usage.jsonl` | Filesystem MCP server (`index.js`) | Global log — all agents, all sessions |
+| `~/.claude/learning/mcp-usage.jsonl` | Filesystem MCP server (`index.js`) | Global log â€” all agents, all sessions |
 | `<workspace>/.claude/mcp-usage.jsonl` | Filesystem MCP server (`index.js`) | Workspace-scoped log for per-project KPIs |
 | `~/.claude/learning/mcp-agent-hints.md` | Extension (`mcpUsageLog.ts`) | Auto-generated optimization rules for agents |
 
@@ -403,17 +407,17 @@ Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) 
 
 | Goal | What to do |
 |---|---|
-| Check which CLIs the agent can call | `mcp__claude-skills-cli__list_available_clis` → found/missing table |
-| Run a CLI from conversation | `mcp__claude-skills-cli__run_command(cli, args)` → stdout, stderr, exitCode |
-| Drive IaC from chat | Use `terraform` / `az` / `aws` via CLI MCP — agent reads output and iterates |
-| Inspect git/PR state before coding | Use `git log`, `gh pr list` via CLI MCP — no terminal copy-paste |
+| Check which CLIs the agent can call | `mcp__claude-skills-cli__list_available_clis` â†’ found/missing table |
+| Run a CLI from conversation | `mcp__claude-skills-cli__run_command(cli, args)` â†’ stdout, stderr, exitCode |
+| Drive IaC from chat | Use `terraform` / `az` / `aws` via CLI MCP â€” agent reads output and iterates |
+| Inspect git/PR state before coding | Use `git log`, `gh pr list` via CLI MCP â€” no terminal copy-paste |
 | See if both MCP servers are working | Check `$(plug) MCP Connected` + `$(terminal-cmd) CLI MCP` in the status bar; click for health dialog |
 | Get a file-I/O KPI grade | Run any agent task that reads files; grade appears in `$(pulse) KPI` bar after 5+ calls |
-| Force all file I/O through MCP | Command Palette → **Enable MCP Force Mode** |
+| Force all file I/O through MCP | Command Palette â†’ **Enable MCP Force Mode** |
 | Auto-enable Force Mode on every startup | `claudeSkills.mcpForce.enableOnStartup: true` in VS Code settings |
-| Understand what the agent re-read | Cost Dashboard → **Efficiency metrics → Waste detected** |
-| Give the agent memory of past waste | Check `~/.claude/learning/mcp-agent-hints.md` — add it to agent context at session start |
-| Reset and start clean | Command Palette → **Claude Skills: Clear MCP Server Logs** |
+| Understand what the agent re-read | Cost Dashboard â†’ **Efficiency metrics â†’ Waste detected** |
+| Give the agent memory of past waste | Check `~/.claude/learning/mcp-agent-hints.md` â€” add it to agent context at session start |
+| Reset and start clean | Command Palette â†’ **Claude Skills: Clear MCP Server Logs** |
 
 ---
 
@@ -421,7 +425,7 @@ Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) 
 
 | Topic | Doc |
 |-------|-----|
-| **Install listings** | [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) · [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) · [diagram/00-extension-registries.md](diagram/00-extension-registries.md) |
+| **Install listings** | [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=SerhiiVoinolovych.claude-skill-deployer&ssr=false#version-history) Â· [Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer) Â· [diagram/00-extension-registries.md](diagram/00-extension-registries.md) |
 | Extension user guide | [extension/README.md](extension/README.md) |
 | Publish releases | [extension/PUBLISHING.md](extension/PUBLISHING.md) |
 | Runtime architecture (Mermaid) | [diagram/README.md](diagram/README.md) |
@@ -439,11 +443,11 @@ py generate_skills.py cost-report --weekly
 py record_feedback.py <skill-name> --signal "no" --context "what went wrong"
 ```
 
-### Headless apply/sync (Claude CLI — no VS Code required)
+### Headless apply/sync (Claude CLI â€” no VS Code required)
 
 Use the IDE extension **once** to bootstrap, then work only in **`claude` CLI**:
 
-**In Cursor / Kiro / VS Code:** Command Palette → **Claude Skills: Prepare for Claude CLI (headless)**
+**In Cursor / Kiro / VS Code:** Command Palette â†’ **Claude Skills: Prepare for Claude CLI (headless)**
 
 Or from the repo CLI:
 
@@ -456,7 +460,7 @@ py generate_skills.py hooks install --target . --full
 
 # After profile-init or SessionStart hook writes request files:
 py generate_skills.py apply-session --target .   # session-skill-apply-request.json
-py generate_skills.py apply-profile --target .   # profile.local.json (agent pending → applied)
+py generate_skills.py apply-profile --target .   # profile.local.json (agent pending â†’ applied)
 py generate_skills.py sync-branch --target .     # saved branch profile on git switch
 py generate_skills.py sync-agents --target .     # mirror to .cursor/, .kiro/, .github/instructions/
 
@@ -472,7 +476,7 @@ py generate_skills.py sync --target .
 py generate_skills.py sync-branch --target "$(git rev-parse --show-toplevel)"
 ```
 
-**CLI feature toggles** — optional `.claude/learning/cli-config.json` (mirrors extension defaults when absent):
+**CLI feature toggles** â€” optional `.claude/learning/cli-config.json` (mirrors extension defaults when absent):
 
 ```json
 {
@@ -503,9 +507,9 @@ Text-only cost reports: `py generate_skills.py cost-report` (no webview dashboar
 
 Toggle major capabilities without uninstalling the extension:
 
-**Command Palette → Claude Skills: Manage Feature Toggles**
+**Command Palette â†’ Claude Skills: Manage Feature Toggles**
 
-Or Settings → `claudeSkills.features.*`:
+Or Settings â†’ `claudeSkills.features.*`:
 
 | Feature | Default | Purpose |
 |---|---|---|
@@ -528,43 +532,43 @@ Or Settings → `claudeSkills.features.*`:
 | `taskSkillFocus` | on | Cap active skills via `skillOverrides`; syncs to all enabled agents |
 | `skillSetResolver` | tier default | Weekly relevant install + idle prune (`solo-dev` / `budget-sensitive` when unset) |
 
-**Cost discipline settings** (Settings → `claudeSkills.taskFocus.*`, `branchBootstrap.*`, `costDiscipline.*`): cap at 12 active skills, branch bootstrap on new git branches, budget tier gating, and optional `propagateToAllAgents` when multi-agent sync is enabled.
+**Cost discipline settings** (Settings â†’ `claudeSkills.taskFocus.*`, `branchBootstrap.*`, `costDiscipline.*`): cap at 12 active skills, branch bootstrap on new git branches, budget tier gating, and optional `propagateToAllAgents` when multi-agent sync is enabled.
 
 ## Cost intelligence
 
-Estimates where no usage data exists — hook/API-priced where hooks logged usage. Per-skill data is **best-effort**; confidence labels say how much to trust each row.
+Estimates where no usage data exists â€” hook/API-priced where hooks logged usage. Per-skill data is **best-effort**; confidence labels say how much to trust each row.
 
 ### Dashboard & ROI
 
-- **Cost Intelligence Dashboard** — agent-level spend for **this workspace** (last 14 days); **General API** panel for base-model / non-skill session work (transcript residual minus hook invokes); **Models by agent** shows API-priced **Skill invokes** from hooks plus transcript estimates where ids are missing; **Top skills · measured** from hook invocations at published API rates; **Skill spend** overview stat separate from transcript estimates; per-skill costs with **ROI band** and **confidence**; **Value & ROI** summary; **System state** panel; cost by repo and skill owner; cross-agent savings; CSP-hardened webview
-- **ROI in skills tree** — each skill shows **`$X/session (API)`** when hooks logged usage, **`(logged)`** from token totals, or **`~$X/session (catalog)`** before first invoke; sort via `Cycle Skill Sort (ROI / Cost)`
-- **Status bar (today)** — **`API` / `Mixed` / `Est.`** prefix from transcript usage metadata (not a flat estimate label)
-- **Graded trust** — workspace confidence score (0–100%) and per-skill `high` / `estimated` / `low`; optimizer runs when confidence ≥ 45% (not only when fully `reliable`)
+- **Cost Intelligence Dashboard** â€” agent-level spend for **this workspace** (last 14 days); **General API** panel for base-model / non-skill session work (transcript residual minus hook invokes); **Models by agent** shows API-priced **Skill invokes** from hooks plus transcript estimates where ids are missing; **Top skills Â· measured** from hook invocations at published API rates; **Skill spend** overview stat separate from transcript estimates; per-skill costs with **ROI band** and **confidence**; **Value & ROI** summary; **System state** panel; cost by repo and skill owner; cross-agent savings; CSP-hardened webview
+- **ROI in skills tree** â€” each skill shows **`$X/session (API)`** when hooks logged usage, **`(logged)`** from token totals, or **`~$X/session (catalog)`** before first invoke; sort via `Cycle Skill Sort (ROI / Cost)`
+- **Status bar (today)** â€” **`API` / `Mixed` / `Est.`** prefix from transcript usage metadata (not a flat estimate label)
+- **Graded trust** â€” workspace confidence score (0â€“100%) and per-skill `high` / `estimated` / `low`; optimizer runs when confidence â‰¥ 45% (not only when fully `reliable`)
 
 ### Attribution & data
 
-- **Attribution collector** — parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
-- **Attribution v2 hooks** — PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** → `.claude/learning/runs.jsonl` (auto-installed on workspace open). **Claude VS Code:** also registers **PreToolUse** workaround when PostToolUse does not fire; dashboard warns when a gap is detected
-- **Cost-control hooks** — all five prompt hooks (`session-size`, `budget`, `context-focus`, `practical-focus`, `task-drift`) on Claude, Cursor, Kiro, and Copilot via `hookPlatform.js`; `task-skill-focus.js` caps via `cli-config.json`. Session-size needs `transcript_path` (Claude + Cursor only).
-- **Usage Report split** — **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
-- **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
-- **Stale data guard** — auto-purges equal-split `transcriptSkills`; **Top skills** uses hook-measured costs when v2 runs exist (even if transcript attribution is stale)
-- **Indexed stats** — `skill-stats.json` + `daily-stats.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
+- **Attribution collector** â€” parses session transcripts into `cost-attribution.json` (`transcriptSkills`, unattributed). Does **not** duplicate estimates into `runs.jsonl`.
+- **Attribution v2 hooks** â€” PostToolUse hooks for **Claude, Cursor, Kiro, Copilot** â†’ `.claude/learning/runs.jsonl` (auto-installed on workspace open). **Claude VS Code:** also registers **PreToolUse** workaround when PostToolUse does not fire; dashboard warns when a gap is detected
+- **Cost-control hooks** â€” all five prompt hooks (`session-size`, `budget`, `context-focus`, `practical-focus`, `task-drift`) on Claude, Cursor, Kiro, and Copilot via `hookPlatform.js`; `task-skill-focus.js` caps via `cli-config.json`. Session-size needs `transcript_path` (Claude + Cursor only).
+- **Usage Report split** â€” **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits Â· 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
+- **Fallback chain** â€” hooks â†’ session transcripts â†’ install-tier heuristics (documented in dashboard)
+- **Stale data guard** â€” auto-purges equal-split `transcriptSkills`; **Top skills** uses hook-measured costs when v2 runs exist (even if transcript attribution is stale)
+- **Indexed stats** â€” `skill-stats.json` + `daily-stats.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
 
 ### Controls & optimization
 
-- **Optimization suggestions** — disable expensive low-use skills, agent-switch hints with **estimated $/month** savings
-- **Apply optimizations** — interactive or `claudeSkills.optimizer.autoApply` (max **3 applies per 30 minutes** when auto)
-- **Pricing overrides** — optional `.claude/learning/pricing-overrides.json` for model $/M tokens and ROI hourly rate (audit-friendly vs built-in tiers)
-- **Predictive alerts** — workspace last-7-day spend vs weekly budget (`claudeSkills.features.predictiveAlerts`); sane WoW % when prior week has enough data
-- **Emergency cutoff**, **skill archival**, **PR cost estimate**, **commit cost hook** — unchanged from 1.0.x
-- **Community benchmarks** — opt-in via `~/.claude/learning/community-benchmarks.json`
+- **Optimization suggestions** â€” disable expensive low-use skills, agent-switch hints with **estimated $/month** savings
+- **Apply optimizations** â€” interactive or `claudeSkills.optimizer.autoApply` (max **3 applies per 30 minutes** when auto)
+- **Pricing overrides** â€” optional `.claude/learning/pricing-overrides.json` for model $/M tokens and ROI hourly rate (audit-friendly vs built-in tiers)
+- **Predictive alerts** â€” workspace last-7-day spend vs weekly budget (`claudeSkills.features.predictiveAlerts`); sane WoW % when prior week has enough data
+- **Emergency cutoff**, **skill archival**, **PR cost estimate**, **commit cost hook** â€” unchanged from 1.0.x
+- **Community benchmarks** â€” opt-in via `~/.claude/learning/community-benchmarks.json`
 
 ### Skill feedback & adaptation
 
 When users disagree with agent output (`no`, `wrong`, `stop`, etc.), the **`skill-feedback-adaptation`** skill records reactions in `.claude/learning/skill-feedback.jsonl`. The Usage Report shows **inefficiency %** per skill (deeper red = more negative feedback) with update suggestions.
 
-On a **new task**, the same skill analyzes the prompt and repo and writes `.claude/learning/task-skill-proposals.json` — a ranked set of skills from the library that should help. This file is **local-only** (auto-added to `.git/info/exclude`) — proposals never get committed or pushed to teammates.
+On a **new task**, the same skill analyzes the prompt and repo and writes `.claude/learning/task-skill-proposals.json` â€” a ranked set of skills from the library that should help. This file is **local-only** (auto-added to `.git/info/exclude`) â€” proposals never get committed or pushed to teammates.
 
 When a **branch or task** exceeds a configurable share of monthly credits (default **50%**), the extension prompts to **Apply suggested skills** (`claudeSkills.skillFeedback.*` settings).
 
@@ -594,11 +598,11 @@ Install **`skill-feedback-adaptation`**, **`self-learning`**, and **`skill-usage
 | `.claude/learning/write-locks.json` | Coordinated write versions for profile-init files |
 | `.claude/learning/pricing-overrides.json` | Optional manual model pricing + hourly rate |
 
-- **Reset Mis-attributed Cost Data** — removes legacy collector transcript rows from `runs.jsonl`, clears `transcriptSkills`, resets collector state; reopen Usage Report after reset
+- **Reset Mis-attributed Cost Data** â€” removes legacy collector transcript rows from `runs.jsonl`, clears `transcriptSkills`, resets collector state; reopen Usage Report after reset
 
 ### Cost pipeline
 
-Background sync runs **collect → index → analyze** on a schedule and after hooks append to `runs.jsonl`:
+Background sync runs **collect â†’ index â†’ analyze** on a schedule and after hooks append to `runs.jsonl`:
 
 | Stage | What it does |
 |---|---|
@@ -618,8 +622,8 @@ Stage timings and errors appear in the Cost Dashboard **System** panel. A circui
 
 ### Official Anthropic skills (repos with `skills_library/`)
 
-- **SessionStart hook** — on new Claude Code sessions, checks [anthropics/skills](https://github.com/anthropics/skills) and injects context for the `skill-official-updater` skill
-- **Check Official Anthropic Skill Updates** — manual check from Command Palette
+- **SessionStart hook** â€” on new Claude Code sessions, checks [anthropics/skills](https://github.com/anthropics/skills) and injects context for the `skill-official-updater` skill
+- **Check Official Anthropic Skill Updates** â€” manual check from Command Palette
 - Setting: `claudeSkills.officialSkillsCheckOnSession` (default on)
 
 ### Weekly AI usage report (extension)
@@ -643,7 +647,7 @@ Do **not** put PATs or SMTP passwords in committed settings files. The wizard st
 
 #### GitHub token (if `origin` is GitHub)
 
-**Token type:** [GitHub personal access token](https://github.com/settings/tokens) — **fine-grained** or **classic (legacy)**.
+**Token type:** [GitHub personal access token](https://github.com/settings/tokens) â€” **fine-grained** or **classic (legacy)**.
 
 **Minimum scopes (classic PAT):**
 
@@ -656,13 +660,13 @@ Do **not** put PATs or SMTP passwords in committed settings files. The wizard st
 
 **Fine-grained PAT (alternative):** create a token with **Account** permissions only:
 
-- **Email addresses** → Read
-- **Profile** → Read (or Metadata read, depending on GitHub UI)
+- **Email addresses** â†’ Read
+- **Profile** â†’ Read (or Metadata read, depending on GitHub UI)
 
 **How to insert it in the extension:**
 
 1. Open a workspace whose `git remote get-url origin` points to GitHub.
-2. Command Palette → **Claude Skills: Configure Weekly Report Email**.
+2. Command Palette â†’ **Claude Skills: Configure Weekly Report Email**.
 3. Choose **Paste GitHub personal access token** (or **Use existing GitHub CLI session** if you already ran `gh auth login` with `user:email`).
 4. Complete the SMTP step (Gmail app password, Microsoft 365, or company SMTP).
 5. Choose **Send test email now** to verify.
@@ -675,7 +679,7 @@ gh auth refresh -h github.com -s user,read:user
 
 #### GitLab token (if `origin` is GitLab)
 
-**Token type:** [GitLab personal access token](https://gitlab.com/-/user_settings/personal_access_tokens) (or your self-hosted GitLab **User Settings → Access Tokens**).
+**Token type:** [GitLab personal access token](https://gitlab.com/-/user_settings/personal_access_tokens) (or your self-hosted GitLab **User Settings â†’ Access Tokens**).
 
 **Minimum scopes:**
 
@@ -688,7 +692,7 @@ gh auth refresh -h github.com -s user,read:user
 **How to insert it in the extension:**
 
 1. Open a workspace whose `origin` is GitLab.
-2. Command Palette → **Claude Skills: Configure Weekly Report Email**.
+2. Command Palette â†’ **Claude Skills: Configure Weekly Report Email**.
 3. Choose **Paste GitLab personal access token** (or set `GITLAB_TOKEN` / `GLAB_TOKEN` in the environment and pick **Use existing GitLab CLI session**).
 4. Complete SMTP and send a test email.
 
@@ -724,7 +728,7 @@ $env:CLAUDE_SKILLS_REPORT_TO = "you@gmail.com"
 | `smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword` | No (mail delivery) | Optional if configured via wizard or env vars |
 | `enabled`, `dayOfWeek`, `hour`, `minute`, `emailSubject` | No | Schedule and subject only |
 
-There is **no** `weeklyReport.githubToken` setting — the PAT is entered once in the **Configure Weekly Report Email** command and saved to VS Code secrets.
+There is **no** `weeklyReport.githubToken` setting â€” the PAT is entered once in the **Configure Weekly Report Email** command and saved to VS Code secrets.
 
 CLI helpers (automation outside the IDE):
 
@@ -751,7 +755,7 @@ Adding, removing, or editing skills under `.claude/skills/` automatically propag
 
 ## Per-branch skill profiles & local-only skills
 
-`~/.claude/learning/branch-profiles.json` — personal layouts per git branch.
+`~/.claude/learning/branch-profiles.json` â€” personal layouts per git branch.
 Committed `.claude/skills/` remains team source of truth. Optional team layout in
 `.claude/skills-profile.json` applies **before** your personal profile on branch switch.
 
@@ -774,14 +778,14 @@ Setting: `claudeSkills.preferLocalSkillOverrides` (default `true`).
 
 When you land on a **new git branch** with no saved personal profile:
 
-1. Extension saves your **position** → `.claude/position.local.json` (gitignored).
+1. Extension saves your **position** â†’ `.claude/position.local.json` (gitignored).
 2. On init, writes `.claude/learning/skills-catalog.json` and `.claude/learning/profile-init-request.json` (includes `agentInstructions`).
-3. **SessionStart hook** + synced **`profile-init` skill** auto-run on the **next AI agent session** — no manual prompt copy.
-4. Agent writes `.claude/profile.local.json` → extension auto-installs (always includes **required platform skills**: `self-learning`, `skill-creator`, `skill-usage-insights`, `skill-feedback-adaptation`, etc.) and saves branch profile.
+3. **SessionStart hook** + synced **`profile-init` skill** auto-run on the **next AI agent session** â€” no manual prompt copy.
+4. Agent writes `.claude/profile.local.json` â†’ extension auto-installs (always includes **required platform skills**: `self-learning`, `skill-creator`, `skill-usage-insights`, `skill-feedback-adaptation`, etc.) and saves branch profile.
 
 **Local-only files:** `position.local.json`, `skills-catalog.json`, `profile-init-request.json`, `profile.local.json`.
 
-**Settings:** `claudeSkills.profileInit.*` — see [`extension/README.md`](extension/README.md).
+**Settings:** `claudeSkills.profileInit.*` â€” see [`extension/README.md`](extension/README.md).
 
 ### Multi-agent
 
@@ -816,9 +820,9 @@ Current extension version: **1.0.70** (`serhiivoinolovych`). See [CHANGELOG.md](
 
 ## Performance impact
 
-- **CPU**: under 1% idle; 2–5% during attribution collection (5-minute intervals)
+- **CPU**: under 1% idle; 2â€“5% during attribution collection (5-minute intervals)
 - **Memory**: ~50 MB baseline; +20 MB when the dashboard WebView is open
-- **Disk**: ~500 KB–2 MB per project under `<workspace>/.claude/learning/` (`runs.jsonl`, indexes, attribution store); `skill-stats.json` / `daily-stats.json` limit full-log rescans
+- **Disk**: ~500 KBâ€“2 MB per project under `<workspace>/.claude/learning/` (`runs.jsonl`, indexes, attribution store); `skill-stats.json` / `daily-stats.json` limit full-log rescans
 - **Startup**: under 200 ms added to VS Code activation
 
 Tuned for workspaces with fewer than 100 skills and fewer than 10K transcript lines. `runs.jsonl` is pruned to 90 days on attribution reset.
@@ -842,7 +846,7 @@ node scripts/validate-release.mjs
 
 ## v1.0.x onboarding & recovery
 
-First launch shows **Get Started** → onboarding tour. Migration backs up v0.7 learning data to `.claude/backup-v0.7/`.
+First launch shows **Get Started** â†’ onboarding tour. Migration backs up v0.7 learning data to `.claude/backup-v0.7/`.
 
 | Command | Purpose |
 |---|---|
@@ -854,8 +858,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## What this tool does NOT do
 
-- **SKILL.md lint is advisory** — sync-time checks on `.claude/skills` plus Cursor/Kiro SKILL.md mirrors and Copilot `.instructions.md` existence checks; set `claudeSkills.lint.blockSyncOnError` to hard-block multi-agent sync only (hooks and branch profiles still run).
-- **Cost figures are estimates** — not Anthropic/Cursor invoices; per-skill attribution is best-effort with **confidence labels**. Strongest with Attribution v2 hooks across Claude, Cursor, Kiro, and Copilot. Override model rates via `.claude/learning/pricing-overrides.json` for audit alignment.
+- **SKILL.md lint is advisory** â€” sync-time checks on `.claude/skills` plus Cursor/Kiro SKILL.md mirrors and Copilot `.instructions.md` existence checks; set `claudeSkills.lint.blockSyncOnError` to hard-block multi-agent sync only (hooks and branch profiles still run).
+- **Cost figures are estimates** â€” not Anthropic/Cursor invoices; per-skill attribution is best-effort with **confidence labels**. Strongest with Attribution v2 hooks across Claude, Cursor, Kiro, and Copilot. Override model rates via `.claude/learning/pricing-overrides.json` for audit alignment.
 - Community benchmark upload requires you to configure endpoints (no default public server).
 - PR comments require GitHub CLI and explicit feature enable.
 - Copilot clones are instruction files, not native Copilot skills.

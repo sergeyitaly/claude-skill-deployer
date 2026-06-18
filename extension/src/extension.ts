@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+﻿import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -189,7 +189,7 @@ import { AttributionCollector } from "./attributionCollector";
 import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
 import { computeEfficiencyMetrics, formatEfficiencyReport, TelemetryScope } from "./efficiencyMetrics";
-import { clearMcpLogs, workspaceMcpLogPath, summarizeMcpUsage, MCP_USAGE_LOG_PATH } from "./mcpUsageLog";
+import { clearMcpLogs, workspaceMcpLogPath, summarizeMcpUsage, summarizeCrossSessionPatterns, MCP_USAGE_LOG_PATH } from "./mcpUsageLog";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
 import { formatCostDashboardHtml, formatCostDashboardText, formatTeamEconomicsPanelsHtml, getOrBuildDashboardMainBody } from "./costDashboard";
 import { tryReadValidDashboardSnapshot } from "./dashboardSnapshotCache";
@@ -236,8 +236,9 @@ import { ErrorRecovery, repairIssues, scanForIssues } from "./errorRecovery";
 import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
 import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
+import { applyMcpAutoFixesForTarget } from "./mcpAutoFix";
 import { checkMcpHealth } from "./mcpHealth";
-import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup } from "./mcpOfficial";
+import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup, syncFilesystemServerBinary } from "./mcpOfficial";
 import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig, syncCliServerBinary } from "./mcpCli";
 import {
   enableMcpForcePermissions,
@@ -1345,7 +1346,8 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         if (!getWorkspaceTarget()) return;
         const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
 
-        // Filesystem MCP server
+        // Filesystem MCP server — always sync binary first so updates are auto-applied.
+        syncFilesystemServerBinary(context.extensionPath, log);
         if (needsFilesystemMcpSetup()) {
           void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`MCP server: auto-started and configured for ${workspaceDirs.length} workspace folder(s).`);
@@ -2081,6 +2083,19 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       );
     }),
 
+    vscode.commands.registerCommand("claudeSkills.applyMcpAutoFixes", async () => {
+      const target = getWorkspaceTarget();
+      if (!target) { void notifyUserWarn("Claude Skills: open a workspace folder first."); return; }
+      const result = applyMcpAutoFixesForTarget(target);
+      if (result.totalFixed === 0) {
+        void notifyUserWarn("Claude Skills: no actionable efficiency issues found — nothing to fix.");
+        return;
+      }
+      void notifyUserSuccess(
+        `Claude Skills: ${result.totalFixed} permanent hint rule(s) written to mcp-agent-hints.md — agents will respect them at next session start.`
+      );
+    }),
+
     vscode.commands.registerCommand("claudeSkills.enableOfficialFilesystemServer", async () => {
       maybeRevealOutputPanel();
       const workspaceDirs = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
@@ -2723,6 +2738,8 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
               await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
             } else if (msg.command === "clearMcpLogs") {
               await vscode.commands.executeCommand("claudeSkills.clearMcpLogs");
+            } else if (msg.command === "applyMcpAutoFixes") {
+              await vscode.commands.executeCommand("claudeSkills.applyMcpAutoFixes");
             }
           }
         );

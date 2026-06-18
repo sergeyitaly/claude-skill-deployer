@@ -2,7 +2,7 @@
 /**
  * Minimal Filesystem MCP Server
  * Bundled with Claude Skills extension for convenient local file operations.
- * Supports: read, write, list, delete — scoped to configured allowed directories.
+ * Supports: read, write, edit, list, search, delete — scoped to configured allowed directories.
  *
  * Usage: node index.js --config /path/to/allowed-dirs.json
  * Config format: { "allowedDirs": ["/abs/path/one", "/abs/path/two"] }
@@ -89,8 +89,33 @@ const MCP_USAGE_LOG = path.join(os.homedir(), ".claude", "learning", "mcp-usage.
 // server process is kept alive across sessions.
 let SESSION_ID = "";
 
-/** Returns the workspace-scoped log path from allowed-dirs.json config, or null. */
-function getWorkspaceLogPath() {
+// ---------------------------------------------------------------------------
+// Session-level caches — silently skip redundant reads and directory scans.
+//
+// sessionReadCache: Map<sessionId, Map<resolvedPath, {content, mtimeMs}>>
+//   Stores file content keyed by mtime; invalidated on write/edit.
+//
+// sessionDirCache: Map<sessionId, Map<resolvedPath, listingText>>
+//   Stores directory listings; invalidated when a file is written inside the dir.
+// ---------------------------------------------------------------------------
+const sessionReadCache = new Map();
+const sessionDirCache  = new Map();
+
+/**
+ * Prune caches for all sessions except the current one to bound memory use.
+ * Called on each `initialize` handshake (new agent conversation).
+ */
+function pruneSessionCaches(keepSessionId) {
+  for (const sid of [...sessionReadCache.keys()]) {
+    if (sid !== keepSessionId) {
+      sessionReadCache.delete(sid);
+      sessionDirCache.delete(sid);
+    }
+  }
+}
+
+/** Workspace-scoped log path resolved once at startup from allowed-dirs.json config, or null. */
+const WORKSPACE_LOG_PATH = (() => {
   if (!configPath) return null;
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
@@ -99,7 +124,7 @@ function getWorkspaceLogPath() {
   } catch {
     return null;
   }
-}
+})();
 
 function appendMcpUsageLog(entry) {
   if (process.env.MCP_DISABLE_USAGE_LOG) return;
@@ -112,7 +137,7 @@ function appendMcpUsageLog(entry) {
     // non-fatal — never crash the server over logging
   }
   // Also write to workspace-scoped log for per-project KPI attribution (hybrid mode).
-  const wsLog = getWorkspaceLogPath();
+  const wsLog = WORKSPACE_LOG_PATH;
   if (wsLog && wsLog !== MCP_USAGE_LOG) {
     try {
       fs.mkdirSync(path.dirname(wsLog), { recursive: true });
@@ -136,8 +161,20 @@ function dispatchTool(id, toolName, args) {
     switch (toolName) {
       case "read_file": {
         const resolved = assertAllowed(args.path);
+        // Session cache: skip re-read if file mtime is unchanged since last read.
+        const mtime = (() => { try { return fs.statSync(resolved).mtimeMs; } catch { return -1; } })();
+        const sReads = sessionReadCache.get(SESSION_ID) ?? new Map();
+        const cached = sReads.get(resolved);
+        if (cached && mtime !== -1 && cached.mtimeMs === mtime) {
+          logExtra.bytes = Buffer.byteLength(cached.content, "utf-8");
+          logExtra.skipped = true;
+          result = { content: [{ type: "text", text: cached.content }] };
+          break;
+        }
         const content = fs.readFileSync(resolved, "utf-8");
         logExtra.bytes = Buffer.byteLength(content, "utf-8");
+        sReads.set(resolved, { content, mtimeMs: mtime });
+        sessionReadCache.set(SESSION_ID, sReads);
         result = { content: [{ type: "text", text: content }] };
         break;
       }
@@ -165,20 +202,72 @@ function dispatchTool(id, toolName, args) {
             try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
             throw e;
           }
+          // Update read cache with new content; invalidate parent dir listing.
+          const sReads = sessionReadCache.get(SESSION_ID) ?? new Map();
+          const newMtime = (() => { try { return fs.statSync(resolved).mtimeMs; } catch { return -1; } })();
+          sReads.set(resolved, { content: newContent, mtimeMs: newMtime });
+          sessionReadCache.set(SESSION_ID, sReads);
+          const sDirs = sessionDirCache.get(SESSION_ID);
+          if (sDirs) sDirs.delete(path.dirname(resolved));
           result = { content: [{ type: "text", text: `Written: ${resolved}` }] };
         }
         break;
       }
+      case "edit_file": {
+        const resolved = assertAllowed(args.path);
+        const oldStr = typeof args.old_string === "string" ? args.old_string : "";
+        const newStr = typeof args.new_string === "string" ? args.new_string : "";
+        if (!oldStr) throw new Error("old_string must not be empty");
+        const content = fs.readFileSync(resolved, "utf-8");
+        logExtra.bytes = Buffer.byteLength(content, "utf-8");
+        if (!content.includes(oldStr)) {
+          throw new Error(`old_string not found in ${resolved}`);
+        }
+        const occurrences = content.split(oldStr).length - 1;
+        if (occurrences > 1) {
+          throw new Error(
+            `old_string matches ${occurrences} locations in ${resolved} — make it more specific to uniquely identify the target`
+          );
+        }
+        const newContent = content.replace(oldStr, newStr);
+        const tmpPath = `${resolved}.${process.pid}.tmp`;
+        try {
+          fs.writeFileSync(tmpPath, newContent, "utf-8");
+          fs.renameSync(tmpPath, resolved);
+        } catch (e) {
+          try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+          throw e;
+        }
+        // Update read cache with edited content; invalidate parent dir listing.
+        const newMtime = (() => { try { return fs.statSync(resolved).mtimeMs; } catch { return -1; } })();
+        const sReadsE = sessionReadCache.get(SESSION_ID) ?? new Map();
+        sReadsE.set(resolved, { content: newContent, mtimeMs: newMtime });
+        sessionReadCache.set(SESSION_ID, sReadsE);
+        const sDirsE = sessionDirCache.get(SESSION_ID);
+        if (sDirsE) sDirsE.delete(path.dirname(resolved));
+        result = { content: [{ type: "text", text: `Edited: ${resolved}` }] };
+        break;
+      }
       case "list_directory": {
         const resolved = assertAllowed(args.path);
+        // Session cache: return cached listing for this directory if available.
+        const sDirs = sessionDirCache.get(SESSION_ID) ?? new Map();
+        if (sDirs.has(resolved)) {
+          logExtra.skipped = true;
+          const cachedListing = sDirs.get(resolved);
+          logExtra.entryCount = cachedListing ? cachedListing.split("\n").length : 0;
+          result = { content: [{ type: "text", text: cachedListing }] };
+          break;
+        }
         const entries = fs.readdirSync(resolved, { withFileTypes: true });
         logExtra.entryCount = entries.length;
         const entryLines = entries.map((e) =>
           `${e.isDirectory() ? "[dir] " : "[file]"} ${e.name}`
         );
-        result = {
-          content: [{ type: "text", text: entryLines.join("\n") || "(empty directory)" }],
-        };
+        const listingText = entryLines.join("\n") || "(empty directory)";
+        sDirs.set(resolved, listingText);
+        sessionDirCache.set(SESSION_ID, sDirs);
+        result = { content: [{ type: "text", text: listingText }] };
         break;
       }
       case "search_files": {
@@ -256,6 +345,11 @@ function dispatchTool(id, toolName, args) {
       case "delete_file": {
         const resolved = assertAllowed(args.path);
         fs.unlinkSync(resolved);
+        // Invalidate caches for the deleted file and its parent dir.
+        const sReads = sessionReadCache.get(SESSION_ID);
+        if (sReads) sReads.delete(resolved);
+        const sDirs = sessionDirCache.get(SESSION_ID);
+        if (sDirs) sDirs.delete(path.dirname(resolved));
         result = { content: [{ type: "text", text: `Deleted: ${resolved}` }] };
         break;
       }
@@ -295,12 +389,14 @@ rl.on("line", async (line) => {
     switch (method) {
       case "initialize":
         SESSION_ID = crypto.randomUUID().slice(0, 12);
+        // Prune caches from previous sessions to keep memory bounded.
+        pruneSessionCaches(SESSION_ID);
         respond(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
           serverInfo: {
             name: "claude-skills-filesystem",
-            version: "1.1",
+            version: "1.2",
             allowedDirs: getAllowedDirs(),
           },
         });
@@ -335,6 +431,20 @@ rl.on("line", async (line) => {
                   content: { type: "string", description: "File content" },
                 },
                 required: ["path", "content"],
+              },
+            },
+            {
+              name: "edit_file",
+              description:
+                "Edit a file by replacing an exact string with a new string. old_string must match exactly once in the file — use enough context to make it unique. Prefer this over write_file for targeted edits.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  path: { type: "string", description: "Absolute file path to edit" },
+                  old_string: { type: "string", description: "Exact string to find (must appear exactly once)" },
+                  new_string: { type: "string", description: "Replacement string" },
+                },
+                required: ["path", "old_string", "new_string"],
               },
             },
             {

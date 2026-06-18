@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -72,6 +73,10 @@ function enabledMcpAgentIds(): FilesystemMcpAgentId[] {
     .getConfiguration("claudeSkills.agents")
     .get<string[]>("enabled", ["claude", "cursor", "kiro", "copilot"]);
   return configured.filter(isFilesystemMcpAgentId);
+}
+
+function fileHash(p: string): string {
+  return crypto.createHash("sha1").update(fs.readFileSync(p)).digest("hex");
 }
 
 function copyFilesystemServer(extensionPath: string): string {
@@ -241,6 +246,42 @@ export function getFilesystemMcpServerStatus(agentIds = enabledMcpAgentIds()): {
     activeAgents,
     configuredAgents: agentIds,
   };
+}
+
+/**
+ * Ensures the deployed filesystem server binary matches the bundled extension copy.
+ * Called on every activation — fast no-op when hashes match, re-copies on extension
+ * update so new tools (e.g. edit_file) become available without a manual "Enable" step.
+ * Returns true if the binary was (re-)deployed.
+ */
+export function syncFilesystemServerBinary(
+  extensionPath: string,
+  log: (msg: string) => void
+): boolean {
+  const bundledFile = path.join(extensionPath, "resources", "mcp-servers", "filesystem", "index.js");
+  if (!fs.existsSync(bundledFile)) {
+    log("Filesystem MCP server: bundled binary not found — skipping sync.");
+    return false;
+  }
+  try {
+    const deployedExists = fs.existsSync(FILESYSTEM_SERVER_PATH);
+    // Fast path: compare file sizes before computing SHA-1.
+    const needsCopy =
+      !deployedExists ||
+      fs.statSync(bundledFile).size !== fs.statSync(FILESYSTEM_SERVER_PATH).size ||
+      fileHash(bundledFile) !== fileHash(FILESYSTEM_SERVER_PATH);
+
+    if (!needsCopy) return false;
+
+    fs.mkdirSync(FILESYSTEM_SERVER_DIR, { recursive: true });
+    fs.copyFileSync(bundledFile, FILESYSTEM_SERVER_PATH);
+    fs.chmodSync(FILESYSTEM_SERVER_PATH, 0o755); // NOSONAR — executable needs rx for group/others on Unix
+    log("Filesystem MCP server: binary updated to latest version.");
+    return true;
+  } catch (e) {
+    log(`Filesystem MCP server: binary sync failed — ${e instanceof Error ? e.message : String(e)}`);
+    return false;
+  }
 }
 
 export async function enableOfficialFilesystemServer(
