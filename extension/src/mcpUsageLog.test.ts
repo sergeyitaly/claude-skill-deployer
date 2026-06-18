@@ -145,6 +145,47 @@ describe("summarizeMcpUsage — grade thresholds", () => {
     expect(summary.readAfterWrite[0].secondsAfter).toBe(30);
   });
 
+  it("reports multiple read-after-write occurrences for distinct write-read cycles on the same path", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    const filePath = path.join(root, "cycled.ts");
+    const base = Date.now() - 10 * 60_000;
+    // Two independent write→read cycles on the same file, each within 60s window.
+    const entries: McpUsageEntry[] = [
+      { ts: new Date(base).toISOString(),          tool: "write_file", path: filePath, durationMs: 5 },
+      { ts: new Date(base + 20_000).toISOString(), tool: "read_file",  path: filePath, durationMs: 10, bytes: 100 },
+      { ts: new Date(base + 60_000).toISOString(), tool: "write_file", path: filePath, durationMs: 5 },
+      { ts: new Date(base + 80_000).toISOString(), tool: "read_file",  path: filePath, durationMs: 10, bytes: 100 },
+      makeEntry({ path: path.join(root, "x.ts"), minsAgo: 1 }),
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+    // Both cycles should be reported (up to the 5-item cap).
+    expect(summary.readAfterWrite.length).toBe(2);
+    expect(summary.readAfterWrite[0].secondsAfter).toBe(20);
+    expect(summary.readAfterWrite[1].secondsAfter).toBe(20);
+  });
+
+  it("does not re-fire read-after-write for the same write when read twice (clears after first warning)", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    const filePath = path.join(root, "once.ts");
+    const base = Date.now() - 10 * 60_000;
+    // One write followed by two reads — only the first read should be warned.
+    const entries: McpUsageEntry[] = [
+      { ts: new Date(base).toISOString(),          tool: "write_file", path: filePath, durationMs: 5 },
+      { ts: new Date(base + 10_000).toISOString(), tool: "read_file",  path: filePath, durationMs: 10, bytes: 100 },
+      { ts: new Date(base + 20_000).toISOString(), tool: "read_file",  path: filePath, durationMs: 10, bytes: 100 },
+      makeEntry({ path: path.join(root, "a.ts"), minsAgo: 1 }),
+      makeEntry({ path: path.join(root, "b.ts"), minsAgo: 1 }),
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+    // Second read has no preceding write (was cleared) — only one warning.
+    expect(summary.readAfterWrite.length).toBe(1);
+    expect(summary.readAfterWrite[0].secondsAfter).toBe(10);
+  });
+
   it("does not flag read-after-write that happens after the window", () => {
     const root = tempDir();
     const logPath = path.join(root, "mcp.jsonl");

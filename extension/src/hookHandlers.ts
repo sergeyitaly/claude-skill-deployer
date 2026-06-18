@@ -1418,8 +1418,271 @@ function handleMcpErrorGuard(req: HookRequest): HookResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Router
+// Handler: file-split-advisor (PostToolUse — mcp__filesystem__read_file)
 // ---------------------------------------------------------------------------
+
+const SPLIT_WARN_BYTES = 50 * 1024;   // 50 KB — gentle nudge
+const SPLIT_CRIT_BYTES = 200 * 1024;  // 200 KB — strong push
+const SPLIT_WARN_LINES = 500;
+const SPLIT_CRIT_LINES = 1500;
+const SPLIT_MAX_HINTS_PER_SESSION = 2;
+const SPLIT_STATE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+interface SplitRecord {
+  timesLarge: number;
+  firstSeen: string;
+  lastSeen: string;
+  lastBytes: number;
+  lastLines: number;
+}
+
+interface SessionReadEntry {
+  count: number;
+  ts: string;
+}
+
+interface FileSplitStore {
+  files: Record<string, SplitRecord>;
+  sessionReads: Record<string, SessionReadEntry>;
+}
+
+function inferSplitPoints(content: string): {
+  types: string[]; utils: string[]; consts: string[]; rest: string[];
+} {
+  const lines = content.split("\n");
+  const exports_: string[] = [];
+  const patterns = [
+    /^export\s+(?:default\s+)?(?:async\s+)?(?:function|class)\s+(\w+)/,
+    /^export\s+(?:const|let|var)\s+(\w+)/,
+    /^export\s+(?:interface|type|enum)\s+(\w+)/,
+    /^(?:async\s+)?function\s+(\w+)/,
+    /^class\s+(\w+)/,
+    /^def\s+(\w+)/,
+    /^class\s+(\w+):$/,
+  ];
+  for (const line of lines) {
+    for (const re of patterns) {
+      const m = line.match(re);
+      if (m?.[1] && !exports_.includes(m[1])) {
+        exports_.push(m[1]);
+        if (exports_.length >= 8) break;
+      }
+    }
+    if (exports_.length >= 8) break;
+  }
+  const types  = exports_.filter(n => /type|interface|enum|model|schema|dto/i.test(n));
+  const utils  = exports_.filter(n => /util|helper|format|parse|convert|calc/i.test(n));
+  const consts = exports_.filter(n => /const|config|setting|option|default/i.test(n));
+  const rest   = exports_.filter(n => !types.includes(n) && !utils.includes(n) && !consts.includes(n));
+  return { types, utils, consts, rest };
+}
+
+function buildSplitHint(filePath: string, bytes: number, lineCount: number, sessionReads: number, content: string): string {
+  const ext  = path.extname(filePath);
+  const base = path.basename(filePath, ext);
+  const dir  = path.dirname(filePath);
+  const isHuge = bytes >= SPLIT_CRIT_BYTES || lineCount >= SPLIT_CRIT_LINES;
+  const sizeLabel = bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.round(bytes / 1024)} KB`;
+  const severity = isHuge ? "🔴 LARGE FILE" : "⚠️  LARGE FILE";
+
+  const { types, utils, consts, rest } = inferSplitPoints(content);
+  const suggestedModules: string[] = [];
+  if (types.length)  suggestedModules.push(`${base}.types${ext}     — ${types.slice(0, 3).join(", ")}`);
+  if (consts.length) suggestedModules.push(`${base}.constants${ext} — ${consts.slice(0, 3).join(", ")}`);
+  if (utils.length)  suggestedModules.push(`${base}.utils${ext}     — ${utils.slice(0, 3).join(", ")}`);
+  if (rest.length)   suggestedModules.push(`${base}.core${ext}      — ${rest.slice(0, 4).join(", ")}`);
+  if (!suggestedModules.length) {
+    suggestedModules.push(
+      `${base}.types${ext}     — interfaces, enums, type aliases`,
+      `${base}.utils${ext}     — pure helper functions`,
+      `${base}.constants${ext} — constants and configuration`,
+    );
+  }
+
+  const escalation = sessionReads >= 2
+    ? `\n♻️  Read ${sessionReads}× this session — every repeat read costs ~${Math.round(bytes / 4 / 1000)}k tokens. Split now to make future reads cheap.\n`
+    : "";
+
+  return [
+    `${severity}: \`${path.basename(filePath)}\` is ${sizeLabel} / ${lineCount} lines.`,
+    escalation,
+    `**Recommended split layout in \`${dir}/\`:**`,
+    ...suggestedModules.map(m => `  - \`${m}\``),
+    `  - \`${base}${ext}\`          — main entry point (imports + re-exports only)`,
+    ``,
+    `**Steps (use MCP filesystem tools):**`,
+    `1. Extract each group into its dedicated file with \`mcp__filesystem__write_file\``,
+    `2. Update \`${base}${ext}\` to \`export * from "./${base}.types${ext.replace(".", "")}";\` etc.`,
+    `3. Remove the extracted code from the original file`,
+    ``,
+    `Splitting reduces per-read token cost and prevents reasoning loops on large files.`,
+  ].join("\n");
+}
+
+function extractReadFileContent(toolResponse: unknown): string | null {
+  if (!toolResponse) return null;
+  if (typeof toolResponse === "string") {
+    try {
+      const p = JSON.parse(toolResponse) as Record<string, unknown>;
+      if (Array.isArray(p.content)) return (p.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
+      if (typeof p.text === "string") return p.text;
+      return toolResponse;
+    } catch { return toolResponse; }
+  }
+  if (typeof toolResponse === "object") {
+    const tr = toolResponse as Record<string, unknown>;
+    if (Array.isArray(tr.content)) return (tr.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
+    if (typeof tr.text === "string") return tr.text;
+  }
+  return null;
+}
+
+function handleFileSplitAdvisor(req: HookRequest): HookResponse {
+  const body = req.body as Record<string, unknown>;
+  const cwd = req.cwd;
+  if (!cwd) return {};
+
+  const toolName = String(body.tool_name ?? body.toolName ?? "").toLowerCase();
+  if (!toolName.includes("read_file")) return {};
+
+  const toolInput = (body.tool_input ?? body.toolInput ?? {}) as Record<string, unknown>;
+  const filePath = typeof toolInput.path === "string" ? toolInput.path : undefined;
+  if (!filePath) return {};
+
+  const content = extractReadFileContent(body.tool_response ?? body.toolResult ?? body.tool_result);
+  if (!content) return {};
+
+  const bytes = Buffer.byteLength(content, "utf-8");
+  const lineCount = content.split("\n").length;
+  if (bytes < SPLIT_WARN_BYTES && lineCount < SPLIT_WARN_LINES) return {};
+
+  const storeFile = path.join(cwd, ".claude", "learning", "file-split-advisor.json");
+  const storeRaw = (() => { try { return JSON.parse(fs.readFileSync(storeFile, "utf-8")) as FileSplitStore; } catch { return null; } })();
+  const store: FileSplitStore = {
+    files: storeRaw?.files ?? {},
+    sessionReads: storeRaw?.sessionReads ?? {},
+  };
+
+  const sid = resolveSessionId(body, cwd) || "unknown";
+  const sessionKey = `${sid}|${filePath}`;
+
+  // Count reads this session
+  const prevEntry = store.sessionReads[sessionKey];
+  const prevReads = prevEntry?.count ?? 0;
+  store.sessionReads[sessionKey] = { count: prevReads + 1, ts: new Date().toISOString() };
+
+  // Update learning record
+  const rec: SplitRecord = store.files[filePath] ?? { timesLarge: 0, firstSeen: new Date().toISOString(), lastSeen: "", lastBytes: 0, lastLines: 0 };
+  rec.timesLarge  = (rec.timesLarge ?? 0) + 1;
+  rec.lastSeen    = new Date().toISOString();
+  rec.lastBytes   = bytes;
+  rec.lastLines   = lineCount;
+  store.files[filePath] = rec;
+
+  // Prune old entries
+  const now = Date.now();
+  for (const [k, v] of Object.entries(store.files)) {
+    if (!v.lastSeen || now - new Date(v.lastSeen).getTime() > SPLIT_STATE_MAX_AGE_MS) {
+      delete store.files[k];
+    }
+  }
+  for (const [k, v] of Object.entries(store.sessionReads)) {
+    if (now - new Date(v.ts).getTime() > 24 * 60 * 60 * 1000) {
+      delete store.sessionReads[k];
+    }
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(storeFile), { recursive: true });
+    fs.writeFileSync(storeFile, JSON.stringify(store, null, 2) + "\n", "utf-8");
+  } catch { /* non-fatal */ }
+
+  const currentReads = prevReads + 1;
+  const hint = buildSplitHint(filePath, bytes, lineCount, currentReads, content);
+
+  // First read: advisory suggestion — inform the agent, let it continue.
+  if (prevReads === 0) {
+    return promptOutput(hint, req.agent);
+  }
+
+  // Second+ read: escalate to a mandatory blocking task.
+  // Return stopTask so Claude Code halts the current chain and forces the split
+  // before the agent can continue. For other agents use a hard systemPrompt.
+  const escalation = [
+    `🛑 MANDATORY SPLIT REQUIRED — do not continue with the current task until complete.`,
+    ``,
+    `\`${path.basename(filePath)}\` has been read ${currentReads}× this session at ${Math.round(bytes / 1024)}KB each time.`,
+    `Every re-read burns ~${Math.round(bytes / 4 / 1000)}k tokens. This is blocking efficient execution.`,
+    ``,
+    hint,
+    ``,
+    `Complete the split now using mcp__filesystem__write_file, then resume the original task.`,
+  ].join("\n");
+
+  if (req.agent === "claude") {
+    // stopTask causes Claude Code to surface the message and halt the tool chain.
+    return { stopTask: true, systemPrompt: escalation };
+  }
+
+  // Cursor / Kiro / Copilot: inject as additional_context with the strongest framing.
+  return {
+    additional_context: escalation,
+    additionalContext: escalation,
+    hookSpecificOutput: escalation,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Handler: file-split-read-guard (PreToolUse — mcp__filesystem__read_file)
+// Blocks re-reads of files already flagged as large in the split-advisor store.
+// On first read the file goes through normally (PostToolUse advisor fires after).
+// On subsequent reads the agent is redirected to search_in_file instead.
+// ---------------------------------------------------------------------------
+
+function handleFileSplitReadGuard(req: HookRequest): HookResponse {
+  const body = req.body as Record<string, unknown>;
+  const cwd = req.cwd;
+  if (!cwd) return {};
+
+  const toolName = String(body.tool_name ?? body.toolName ?? "").toLowerCase();
+  if (!toolName.includes("read_file")) return {};
+
+  const toolInput = (body.tool_input ?? body.toolInput ?? {}) as Record<string, unknown>;
+  const filePath = typeof toolInput.path === "string" ? toolInput.path : undefined;
+  if (!filePath) return {};
+
+  const storeFile = path.join(cwd, ".claude", "learning", "file-split-advisor.json");
+  const store = (() => { try { return JSON.parse(fs.readFileSync(storeFile, "utf-8")) as FileSplitStore; } catch { return null; } })();
+  if (!store) return {};
+
+  const sid = resolveSessionId(body, cwd) || "unknown";
+  const sessionKey = `${sid}|${filePath}`;
+  const prevReads = store.sessionReads[sessionKey]?.count ?? 0;
+
+  // Only block if already read at least once this session AND the file is known large.
+  if (prevReads === 0 || !store.files[filePath]) return {};
+
+  const rec = store.files[filePath];
+  const kb = Math.round((rec.lastBytes ?? 0) / 1024);
+
+  return {
+    decision: "block",
+    reason: [
+      `LARGE FILE GUARD: \`${path.basename(filePath)}\` (${kb}KB) has already been read ${prevReads}× this session.`,
+      `Full re-reads are blocked to prevent token waste (~${Math.round((rec.lastBytes ?? 0) / 4 / 1000)}k tokens each).`,
+      ``,
+      `Instead, use targeted reads:`,
+      `  • mcp__filesystem__search_in_file({ path: "${filePath}", pattern: "<what you need>" })`,
+      `  • mcp__filesystem__read_file with start_line/end_line if the server supports it`,
+      ``,
+      `If you must split this file first, do that now with mcp__filesystem__write_file, then read the smaller result.`,
+    ].join("\n"),
+  };
+}
+
+
 
 export async function handleHookRequest(req: HookRequest): Promise<HookResponse> {
   switch (req.hookName) {
@@ -1437,6 +1700,8 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "cli-loop-guard": return Promise.resolve(handleCliLoopGuard(req));
     case "dir-cache-guard": return Promise.resolve(handleDirCacheGuard(req));
     case "mcp-error-guard": return Promise.resolve(handleMcpErrorGuard(req));
+    case "file-split-advisor": return Promise.resolve(handleFileSplitAdvisor(req));
+    case "file-split-read-guard": return Promise.resolve(handleFileSplitReadGuard(req));
     default: return {};
   }
 }

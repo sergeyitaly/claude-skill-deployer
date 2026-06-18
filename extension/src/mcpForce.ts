@@ -65,7 +65,8 @@ export function isMcpForceActive(target: string): boolean {
 
 /**
  * Enables permissions.deny only when MCP health check passes.
- * Avoids agent deadlock: never deny native tools when MCP itself is broken.
+ * Avoids agent deadlock: never deny native tools when MCP itself is broken
+ * or has not yet been verified to respond (no-activity on a fresh install).
  */
 export function enableMcpForcePermissions(target: string): McpForceEnableResult {
   const health = checkMcpHealth();
@@ -73,6 +74,12 @@ export function enableMcpForcePermissions(target: string): McpForceEnableResult 
     return {
       ok: false,
       reason: `MCP server is not ready (${health.errors[0] ?? "config-issue"}). Fix MCP setup before enabling force mode.`,
+    };
+  }
+  if (health.status === "no-activity") {
+    return {
+      ok: false,
+      reason: "MCP server has not been used yet and cannot be verified as working. Use it at least once before enabling force mode.",
     };
   }
 
@@ -107,32 +114,69 @@ export function injectMcpForceClaude(target: string): McpForceInjectResult {
   }
 
   const claudeMd = path.join(target, "CLAUDE.md");
-  let content = fs.existsSync(claudeMd) ? fs.readFileSync(claudeMd, "utf-8") : "";
 
-  const startIdx = content.indexOf(FORCE_BLOCK_START);
-  const endIdx = content.indexOf(FORCE_BLOCK_END);
-
-  if (startIdx !== -1 && endIdx !== -1) {
-    content =
-      content.slice(0, startIdx) +
-      FORCE_CLAUDE_MD_BLOCK +
-      content.slice(endIdx + FORCE_BLOCK_END.length);
-  } else {
-    content = FORCE_CLAUDE_MD_BLOCK + (content ? "\n\n" + content : "");
+  // Atomic update: write to a temp file then rename so concurrent writes from
+  // two VS Code windows targeting the same workspace cannot corrupt CLAUDE.md.
+  const lockFile = claudeMd + ".mcpforce.lock";
+  let lockFd: number | undefined;
+  try {
+    lockFd = fs.openSync(lockFile, "wx"); // exclusive create — fails if another process holds it
+  } catch {
+    // Another window is updating concurrently; treat as a transient no-op.
+    return { ok: true };
   }
 
-  fs.mkdirSync(path.dirname(claudeMd), { recursive: true });
-  fs.writeFileSync(claudeMd, content, "utf-8");
-  return { ok: true };
+  try {
+    let content = fs.existsSync(claudeMd) ? fs.readFileSync(claudeMd, "utf-8") : "";
+
+    const startIdx = content.indexOf(FORCE_BLOCK_START);
+    const endIdx = content.indexOf(FORCE_BLOCK_END);
+
+    if (startIdx !== -1 && endIdx !== -1) {
+      content =
+        content.slice(0, startIdx) +
+        FORCE_CLAUDE_MD_BLOCK +
+        content.slice(endIdx + FORCE_BLOCK_END.length);
+    } else {
+      content = FORCE_CLAUDE_MD_BLOCK + (content ? "\n\n" + content : "");
+    }
+
+    fs.mkdirSync(path.dirname(claudeMd), { recursive: true });
+    // Write via temp-file rename for atomicity.
+    const tmp = claudeMd + `.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(tmp, content, "utf-8");
+    fs.renameSync(tmp, claudeMd);
+
+    return { ok: true };
+  } finally {
+    fs.closeSync(lockFd!);
+    try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+  }
 }
 
 export function removeMcpForceClaudeBlock(target: string): void {
   const claudeMd = path.join(target, "CLAUDE.md");
   if (!fs.existsSync(claudeMd)) return;
-  let content = fs.readFileSync(claudeMd, "utf-8");
-  const startIdx = content.indexOf(FORCE_BLOCK_START);
-  const endIdx = content.indexOf(FORCE_BLOCK_END);
-  if (startIdx === -1 || endIdx === -1) return;
-  content = (content.slice(0, startIdx) + content.slice(endIdx + FORCE_BLOCK_END.length)).trimStart();
-  fs.writeFileSync(claudeMd, content, "utf-8");
+
+  const lockFile = claudeMd + ".mcpforce.lock";
+  let lockFd: number | undefined;
+  try {
+    lockFd = fs.openSync(lockFile, "wx");
+  } catch {
+    return; // concurrent update — skip safely
+  }
+
+  try {
+    let content = fs.readFileSync(claudeMd, "utf-8");
+    const startIdx = content.indexOf(FORCE_BLOCK_START);
+    const endIdx = content.indexOf(FORCE_BLOCK_END);
+    if (startIdx === -1 || endIdx === -1) return;
+    content = (content.slice(0, startIdx) + content.slice(endIdx + FORCE_BLOCK_END.length)).trimStart();
+    const tmp = claudeMd + `.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(tmp, content, "utf-8");
+    fs.renameSync(tmp, claudeMd);
+  } finally {
+    fs.closeSync(lockFd!);
+    try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+  }
 }

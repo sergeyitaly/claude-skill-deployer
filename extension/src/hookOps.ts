@@ -4,6 +4,7 @@ import { AgentId, enabledAgents, loadAgentsManifest, workspaceMirrorAgentIds } f
 import { assessClaudeVscodeAttributionGap, ClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 import { ensureLearningDir } from "./usageStats";
 import { hookBaseUrl } from "./hookServer";
+import { writeJsonAtomic } from "./fileWriteCoordination";
 
 // Legacy filenames — used only to detect and remove old JS-based hook commands during migration
 const LEGACY_SESSION_HOOK = "session-size-watch.js";
@@ -159,8 +160,7 @@ function readJsonFile<T>(file: string): T | null {
 }
 
 function writeJsonFile(file: string, data: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  writeJsonAtomic(file, data);
 }
 
 // ── Detection helpers ────────────────────────────────────────────────────────
@@ -1360,6 +1360,11 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
 const HOOK_FILE_SPLIT_ADVISOR = "file-split-advisor";
 const FILE_SPLIT_ADVISOR_MATCHER = "mcp__filesystem__read_file";
 
+// PreToolUse companion: blocks re-reads of already-flagged large files.
+const HOOK_FILE_SPLIT_READ_GUARD = "file-split-read-guard";
+// Same matcher — fires before every read_file call.
+const FILE_SPLIT_READ_GUARD_MATCHER = "mcp__filesystem__read_file";
+
 export function isFileSplitAdvisorConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));
@@ -1374,16 +1379,25 @@ export function installFileSplitAdvisorHook(target: string): HookInstallStatus {
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);
   const had = hasPostToolHook(settings, HOOK_FILE_SPLIT_ADVISOR);
-  const added = ensurePostToolHookRegistered(
+  const addedPost = ensurePostToolHookRegistered(
     settings,
     FILE_SPLIT_ADVISOR_MATCHER,
     "",
     HOOK_FILE_SPLIT_ADVISOR,
     claudeHookCmd(HOOK_FILE_SPLIT_ADVISOR)
   );
-  if (added) {
+  // Also install the PreToolUse read-guard companion.
+  const hadGuard = hasPreToolHook(settings, HOOK_FILE_SPLIT_READ_GUARD);
+  const addedPre = ensurePreToolHookRegistered(
+    settings,
+    FILE_SPLIT_READ_GUARD_MATCHER,
+    "",
+    HOOK_FILE_SPLIT_READ_GUARD,
+    claudeHookCmd(HOOK_FILE_SPLIT_READ_GUARD)
+  );
+  if (addedPost || addedPre) {
     writeJsonFile(settingsFile, settings);
-    return had ? "updated" : "installed";
+    return (had || hadGuard) ? "updated" : "installed";
   }
   return "already-configured";
 }
@@ -1391,14 +1405,26 @@ export function installFileSplitAdvisorHook(target: string): HookInstallStatus {
 export function removeFileSplitAdvisorHook(target: string): boolean {
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);
-  if (!settings.hooks?.PostToolUse) return false;
-  const before = settings.hooks.PostToolUse.length;
-  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-    (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_FILE_SPLIT_ADVISOR}`))
-  );
-  if (settings.hooks.PostToolUse.length !== before) {
-    writeJsonFile(settingsFile, settings);
-    return true;
+  let changed = false;
+
+  if (settings.hooks?.PostToolUse) {
+    const before = settings.hooks.PostToolUse.length;
+    settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+      (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_FILE_SPLIT_ADVISOR}`))
+    );
+    changed = settings.hooks.PostToolUse.length !== before || changed;
   }
-  return false;
+
+  if (settings.hooks?.PreToolUse) {
+    const before = settings.hooks.PreToolUse.length;
+    settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(
+      (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_FILE_SPLIT_READ_GUARD}`))
+    );
+    changed = settings.hooks.PreToolUse.length !== before || changed;
+  }
+
+  if (changed) {
+    writeJsonFile(settingsFile, settings);
+  }
+  return changed;
 }

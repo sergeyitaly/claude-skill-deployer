@@ -173,13 +173,25 @@ function resolvePath(p: string): string {
   }
 }
 
+/**
+ * Memoized wrapper around resolvePath. Pass a per-call Map so syscalls are
+ * deduplicated within a single summarize pass without leaking across calls.
+ */
+function cachedResolvePath(p: string, cache: Map<string, string>): string {
+  const hit = cache.get(p);
+  if (hit !== undefined) return hit;
+  const resolved = resolvePath(p);
+  cache.set(p, resolved);
+  return resolved;
+}
+
 // ---------------------------------------------------------------------------
 // Log I/O
 // ---------------------------------------------------------------------------
 
 interface LogCache { mtime: number; entries: McpUsageEntry[] }
 const logCache = new Map<string, LogCache>();
-const LOG_CACHE_MAX_PATHS = 20;
+const LOG_CACHE_MAX_PATHS = 50;
 
 function setLogCache(key: string, value: LogCache): void {
   // LRU eviction: delete before re-inserting so the entry moves to the newest
@@ -264,27 +276,29 @@ function detectReadAfterWrite(
   windowSecs = READ_AFTER_WRITE_WINDOW_SECS
 ): ReadAfterWriteWarning[] {
   // Single O(n) pass: track the most recent write time per path, emit a warning
-  // on the first read that follows within the window. Replaces the previous O(n²)
-  // approach (filter-writes × find-across-reads for each write entry).
+  // for every read that follows within the window (not just the first per path).
+  // lastWriteByPath is reset when a new non-skipped write occurs so that a
+  // subsequent write → read cycle is reported independently.
   const lastWriteByPath = new Map<string, number>();
   const warnings: ReadAfterWriteWarning[] = [];
-  const seen = new Set<string>();
 
   for (const e of entries) {
     if (e.error) continue;
     const ts = new Date(e.ts).getTime();
     if (e.tool === "write_file" && !e.skipped) {
+      // Update (or re-arm) the write timestamp so follow-on reads are caught.
       lastWriteByPath.set(e.path, ts);
-    } else if (e.tool === "read_file" && !seen.has(e.path)) {
+    } else if (e.tool === "read_file") {
       const wTime = lastWriteByPath.get(e.path);
       if (wTime !== undefined && ts > wTime && ts - wTime <= windowSecs * 1000) {
-        seen.add(e.path);
         const secondsAfter = Math.round((ts - wTime) / 1000);
         warnings.push({
           path: e.path,
           secondsAfter,
           description: `Read ${secondsAfter}s after write — reuse written content instead of re-reading`,
         });
+        // Clear so we don't keep firing for the same write unless there is another write.
+        lastWriteByPath.delete(e.path);
       }
     }
   }
@@ -442,7 +456,7 @@ interface AccumulatedRaw {
   totalEstimatedTokens: number;
 }
 
-function accumulateEntries(goodEntries: McpUsageEntry[]): AccumulatedRaw {
+function accumulateEntries(goodEntries: McpUsageEntry[], resolveCache: Map<string, string>): AccumulatedRaw {
   const byToolRaw: AccumulatedRaw["byToolRaw"] = {};
   const byFileRaw: AccumulatedRaw["byFileRaw"] = {};
   let totalMs = 0;
@@ -451,7 +465,7 @@ function accumulateEntries(goodEntries: McpUsageEntry[]): AccumulatedRaw {
     const tool = (byToolRaw[e.tool] ??= { calls: 0, totalMs: 0 });
     tool.calls += 1;
     tool.totalMs += e.durationMs;
-    const normalized = e.path ? resolvePath(e.path) : "";
+    const normalized = e.path ? cachedResolvePath(e.path, resolveCache) : "";
     if (normalized) {
       const file = (byFileRaw[normalized] ??= { calls: 0, totalMs: 0, totalBytesRead: 0, readCalls: 0 });
       file.calls += 1;
@@ -476,7 +490,11 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
   const entries = readMcpUsageLog(logPath).filter((e) => new Date(e.ts).getTime() >= cutoff);
   const goodEntries = entries.filter((e) => !e.error);
 
-  const { byToolRaw, byFileRaw, totalMs, totalEstimatedTokens } = accumulateEntries(goodEntries);
+  // Single resolve cache for the entire summarize pass — avoids repeated
+  // fs.realpathSync syscalls for the same path across accumulate + detection steps.
+  const resolveCache = new Map<string, string>();
+
+  const { byToolRaw, byFileRaw, totalMs, totalEstimatedTokens } = accumulateEntries(goodEntries, resolveCache);
 
   const byTool: McpUsageSummary["byTool"] = {};
   for (const [tool, stats] of Object.entries(byToolRaw)) {
@@ -495,8 +513,9 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
     .slice(0, 8);
 
   // Resolve Windows 8.3 short names so all detection functions key off the same path form.
+  // Re-use the same cache populated during accumulateEntries — zero extra syscalls.
   const resolvedEntries = goodEntries.map((e) =>
-    e.path ? { ...e, path: resolvePath(e.path) } : e
+    e.path ? { ...e, path: cachedResolvePath(e.path, resolveCache) } : e
   );
 
   // Detections
