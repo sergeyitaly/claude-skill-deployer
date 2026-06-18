@@ -14,8 +14,11 @@ import {
   analyzeCliPatterns,
   readMcpUsageLog,
   workspaceMcpLogPath,
+  computeCliKpi,
   McpUsageSummary,
   CrossSessionSummary,
+  CliKpi,
+  GRADE_THRESHOLDS,
 } from "./mcpUsageLog";
 import { formatCompactUsd } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
@@ -71,6 +74,8 @@ export interface EfficiencyMetrics {
   mcp: McpUsageSummary;
   mcpFileTokens: number;
   crossSession: CrossSessionSummary;
+  /** CLI KPI: success rate, retries, duration percentiles across all CLI MCP calls. */
+  cliKpi: CliKpi;
 }
 
 export function computeEfficiencyMetrics(
@@ -151,12 +156,14 @@ export function computeEfficiencyMetrics(
 
   // Write auto-remediation hints at most once per 30 s — avoids redundant file I/O
   // when the dashboard is opened repeatedly or on every cost-pipeline tick.
+  const allEntries = readMcpUsageLog(resolveMcpLogPath(target, telemetryScope) ?? undefined);
+  const cliKpi = computeCliKpi(allEntries, daysBack);
+
   if (mcp.totalCalls > 0) {
     const now = Date.now();
     if (now - lastHintsWriteMs >= HINTS_WRITE_MIN_INTERVAL_MS) {
       lastHintsWriteMs = now;
       writeMcpHints(mcp);
-      const allEntries = readMcpUsageLog(resolveMcpLogPath(target, telemetryScope) ?? undefined);
       appendCliPatternHints(analyzeCliPatterns(allEntries));
     }
   }
@@ -168,6 +175,7 @@ export function computeEfficiencyMetrics(
     mcp,
     mcpFileTokens: mcp.totalEstimatedTokens,
     crossSession,
+    cliKpi,
   };
 }
 
@@ -241,6 +249,22 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
         lines.push(`    → ${s.description}${saving}`);
       }
     }
+  }
+
+  const cli = metrics.cliKpi;
+  if (cli.totalCalls > 0) {
+    const nd = cli.notEnoughData ? " (not enough data yet)" : "";
+    lines.push(`\n### CLI KPI: ${cli.overallSuccessRate}% success (${cli.grade})${nd}  —  ${cli.totalCalls} call(s)`);
+    if (cli.totalFailures > 0) lines.push(`  Failures: ${cli.totalFailures}  Retries: ${cli.totalRetries}  Timeouts: ${cli.totalTimedOut}`);
+    for (const c of cli.byCli) {
+      const flags: string[] = [];
+      if (c.failureCount > 0) flags.push(`${c.failureCount} fail`);
+      if (c.retryCount > 0) flags.push(`${c.retryCount} retry`);
+      if (c.timedOutCount > 0) flags.push(`${c.timedOutCount} timeout`);
+      const dur = c.totalCalls >= 3 ? `  P50 ${c.durationP50}ms / P95 ${c.durationP95}ms` : "";
+      lines.push(`  ${c.cli.padEnd(14)} ${String(c.successRate).padStart(3)}%  ${c.totalCalls} call(s)${flags.length ? "  (" + flags.join(", ") + ")" : ""}${dur}`);
+    }
+    if (cli.mostFailingCli) lines.push(`  Most failing: ${cli.mostFailingCli} — check credentials, connectivity, allow-list`);
   }
 
   return lines.join("\n");
@@ -326,6 +350,63 @@ function buildMcpSuccessBlocks(m: McpUsageSummary): string[] {
     blocks.push(`<div style="margin-bottom:8px">${rows}</div>`);
   }
   return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// CLI KPI panel
+// ---------------------------------------------------------------------------
+
+function buildCliKpiPanelHtml(kpi: CliKpi): string {
+  if (kpi.totalCalls === 0) return "";
+
+  const gradeClass = gradeColor(kpi.grade);
+  const gradeLabel = kpi.notEnoughData
+    ? `${kpi.overallSuccessRate}% (${kpi.grade}) — not enough data yet`
+    : `${kpi.overallSuccessRate}% (${kpi.grade})`;
+
+  const summaryPills = [
+    `<span class="stat-pill" title="Total CLI invocations">${kpi.totalCalls} call${kpi.totalCalls !== 1 ? "s" : ""}</span>`,
+    kpi.totalFailures > 0
+      ? `<span class="stat-pill roi-low" title="Calls that exited non-zero">${kpi.totalFailures} failure${kpi.totalFailures !== 1 ? "s" : ""}</span>`
+      : `<span class="stat-pill roi-high" title="No failures recorded">0 failures</span>`,
+    kpi.totalRetries > 0
+      ? `<span class="stat-pill conf-estimated" title="Calls made within 30s of a failure in the same session">${kpi.totalRetries} retr${kpi.totalRetries !== 1 ? "ies" : "y"}</span>`
+      : "",
+    kpi.totalTimedOut > 0
+      ? `<span class="stat-pill roi-low" title="Commands killed by timeout">${kpi.totalTimedOut} timeout${kpi.totalTimedOut !== 1 ? "s" : ""}</span>`
+      : "",
+  ].filter(Boolean).join(" ");
+
+  const maxCalls = Math.max(...kpi.byCli.map((c) => c.totalCalls), 1);
+  const rows = kpi.byCli.map((c) => {
+    const rateClass = c.successRate >= GRADE_THRESHOLDS.A ? "roi-high"
+      : c.successRate >= GRADE_THRESHOLDS.B ? "conf-high"
+      : c.successRate >= GRADE_THRESHOLDS.C ? "conf-estimated"
+      : "roi-low";
+    const retryNote = c.retryCount > 0 ? ` · ${c.retryCount} retr${c.retryCount !== 1 ? "ies" : "y"}` : "";
+    const timeoutNote = c.timedOutCount > 0 ? ` · ${c.timedOutCount} timeout${c.timedOutCount !== 1 ? "s" : ""}` : "";
+    const durNote = c.totalCalls >= 3
+      ? ` · P50 ${c.durationP50 < 1000 ? `${c.durationP50}ms` : `${(c.durationP50 / 1000).toFixed(1)}s`} / P95 ${c.durationP95 < 1000 ? `${c.durationP95}ms` : `${(c.durationP95 / 1000).toFixed(1)}s`}`
+      : "";
+    return `<div class="skill-row">
+      <div class="skill-head">
+        <code>${esc(c.cli)}</code>
+        <span class="cost ${rateClass}">${c.successRate}%</span>
+        <span class="bar">${miniBar(c.totalCalls, maxCalls)}</span>
+      </div>
+      <div class="hint">${c.totalCalls} call${c.totalCalls !== 1 ? "s" : ""}${retryNote}${timeoutNote}${durNote}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="sub-panel" style="grid-column: 1 / -1">
+    <h3>CLI efficiency · ${kpi.totalCalls} call${kpi.totalCalls !== 1 ? "s" : ""}</h3>
+    <div style="margin-bottom:6px">
+      <span class="stat-pill ${gradeClass}" title="CLI success rate (exitCode === 0)">${gradeLabel}</span>
+      ${summaryPills}
+    </div>
+    ${rows}
+    ${kpi.mostFailingCli ? `<p class="note" style="margin-top:4px">Most failures: <code>${esc(kpi.mostFailingCli)}</code> — check credentials, connectivity, and allow-list.</p>` : ""}
+  </div>`;
 }
 
 function buildScoreBannerHtml(m: McpUsageSummary, mcpFileTokens: number): string {
@@ -522,6 +603,8 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
         </div>`
       : "";
 
+  const cliKpiHtml = buildCliKpiPanelHtml(metrics.cliKpi);
+
   return `<div class="panel">
   <h2>Efficiency metrics · 14d</h2>
   ${scoreBanner}
@@ -531,6 +614,7 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     ${successHtml}
     ${crossSessionHtml}
     ${noOpWritesHtml}
+    ${cliKpiHtml}
   </div>
   <p class="note" style="margin-top:8px">Costs from runs.jsonl hooks. MCP file-access patterns from <code>~/.claude/learning/mcp-usage.jsonl</code>. Hints written to <code>~/.claude/learning/mcp-agent-hints.md</code>. Estimates only.</p>
   <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">

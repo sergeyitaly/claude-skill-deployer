@@ -879,6 +879,196 @@ export function appendCliPatternHints(patterns: CliErrorPattern[]): void {
 }
 
 // ---------------------------------------------------------------------------
+// CLI KPI — success rate, retries, duration percentiles
+// ---------------------------------------------------------------------------
+
+/** Calls within this window after a failure count as retries. */
+const RETRY_WINDOW_MS = 30_000;
+/** Minimum CLI calls before a grade is meaningful. */
+const MIN_CALLS_FOR_CLI_GRADE = 3;
+
+/** Per-CLI breakdown used inside CliKpi. */
+export interface CliCallStats {
+  cli: string;
+  totalCalls: number;
+  successCount: number;
+  failureCount: number;
+  timedOutCount: number;
+  /** Calls made within RETRY_WINDOW_MS of a previous failure in the same session. */
+  retryCount: number;
+  /** 0–100. */
+  successRate: number;
+  avgDurationMs: number;
+  /** 50th-percentile execution time in ms. */
+  durationP50: number;
+  /** 95th-percentile execution time in ms. */
+  durationP95: number;
+  lastFailedAt?: string;
+  lastFailedCwd?: string;
+}
+
+/** Aggregate CLI efficiency summary — equivalent of EfficiencyScore but for CLI calls. */
+export interface CliKpi {
+  totalCalls: number;
+  totalFailures: number;
+  totalRetries: number;
+  totalTimedOut: number;
+  /** 0–100 across all CLIs. */
+  overallSuccessRate: number;
+  grade: EfficiencyScore["grade"];
+  byCli: CliCallStats[];
+  /** CLI name with the highest failure count (omitted when no failures). */
+  mostFailingCli?: string;
+  /** True when totalCalls < MIN_CALLS_FOR_CLI_GRADE — grade is not meaningful yet. */
+  notEnoughData?: boolean;
+}
+
+function cliGradeFromRate(rate: number): EfficiencyScore["grade"] {
+  if (rate >= GRADE_THRESHOLDS.A) return "A";
+  if (rate >= GRADE_THRESHOLDS.B) return "B";
+  if (rate >= GRADE_THRESHOLDS.C) return "C";
+  if (rate >= GRADE_THRESHOLDS.D) return "D";
+  return "F";
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(Math.floor(sorted.length * p), sorted.length - 1);
+  return sorted[idx] ?? 0;
+}
+
+/**
+ * Compute CLI efficiency KPI from a slice of McpUsageEntry logs.
+ * Pass the full entry array (not pre-filtered) — this function applies its own
+ * date cutoff and CLI-server filter internally.
+ */
+export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
+  const cutoff = Date.now() - daysBack * 86_400_000;
+  const cliEntries = entries.filter(
+    (e) => e.server === "cli" && e.cli && new Date(e.ts).getTime() >= cutoff
+  );
+
+  if (cliEntries.length === 0) {
+    return {
+      totalCalls: 0,
+      totalFailures: 0,
+      totalRetries: 0,
+      totalTimedOut: 0,
+      overallSuccessRate: 100,
+      grade: "A",
+      byCli: [],
+      notEnoughData: true,
+    };
+  }
+
+  // Group by CLI name
+  const byCliMap = new Map<string, McpUsageEntry[]>();
+  for (const e of cliEntries) {
+    const list = byCliMap.get(e.cli!) ?? [];
+    list.push(e);
+    byCliMap.set(e.cli!, list);
+  }
+
+  const byCli: CliCallStats[] = [];
+  let totalFailures = 0;
+  let totalRetries = 0;
+  let totalTimedOut = 0;
+
+  for (const [cli, calls] of byCliMap.entries()) {
+    const sorted = [...calls].sort((a, b) => a.ts.localeCompare(b.ts));
+
+    let successCount = 0;
+    let failureCount = 0;
+    let timedOutCount = 0;
+    let retryCount = 0;
+    let lastFailedAt: string | undefined;
+    let lastFailedCwd: string | undefined;
+
+    // Per-session last-failure timestamp for retry detection
+    const lastFailMs = new Map<string, number>();
+
+    for (const entry of sorted) {
+      const failed = typeof entry.exitCode === "number" && entry.exitCode !== 0;
+      const session = entry.sessionId ?? "__nosession";
+      const entryMs = new Date(entry.ts).getTime();
+
+      // Read prevFail BEFORE updating lastFailMs so a failure doesn't count as
+      // a retry of itself (the timestamp would match if read after the update).
+      const prevFail = lastFailMs.get(session);
+
+      if (entry.timedOut) timedOutCount++;
+
+      if (failed) {
+        failureCount++;
+        lastFailedAt = entry.ts;
+        lastFailedCwd = entry.cwd;
+        lastFailMs.set(session, entryMs);
+      } else {
+        successCount++;
+      }
+
+      // Retry: any call (success or failure) that immediately follows a failure in
+      // the same session within RETRY_WINDOW_MS — covers both success-after-failure
+      // and failure-after-failure patterns.
+      if (prevFail !== undefined && entryMs - prevFail <= RETRY_WINDOW_MS) {
+        retryCount++;
+      }
+    }
+
+    const durations = sorted.map((e) => e.durationMs ?? 0).sort((a, b) => a - b);
+    const avgDurationMs = durations.length > 0
+      ? Math.round(durations.reduce((s, d) => s + d, 0) / durations.length)
+      : 0;
+
+    totalFailures += failureCount;
+    totalRetries += retryCount;
+    totalTimedOut += timedOutCount;
+
+    byCli.push({
+      cli,
+      totalCalls: sorted.length,
+      successCount,
+      failureCount,
+      timedOutCount,
+      retryCount,
+      successRate: sorted.length > 0 ? Math.round((successCount / sorted.length) * 100) : 100,
+      avgDurationMs,
+      durationP50: percentile(durations, 0.5),
+      durationP95: percentile(durations, 0.95),
+      lastFailedAt,
+      lastFailedCwd,
+    });
+  }
+
+  // Sort by total calls descending for display
+  byCli.sort((a, b) => b.totalCalls - a.totalCalls);
+
+  const totalCalls = cliEntries.length;
+  const overallSuccessRate = totalCalls > 0
+    ? Math.round(((totalCalls - totalFailures) / totalCalls) * 100)
+    : 100;
+  const grade = totalCalls < MIN_CALLS_FOR_CLI_GRADE
+    ? "A"
+    : cliGradeFromRate(overallSuccessRate);
+
+  const mostFailingCli = [...byCli]
+    .sort((a, b) => b.failureCount - a.failureCount)
+    .find((c) => c.failureCount > 0)?.cli;
+
+  return {
+    totalCalls,
+    totalFailures,
+    totalRetries,
+    totalTimedOut,
+    overallSuccessRate,
+    grade,
+    byCli,
+    mostFailingCli,
+    notEnoughData: totalCalls < MIN_CALLS_FOR_CLI_GRADE,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Cross-session pattern analysis
 // ---------------------------------------------------------------------------
 

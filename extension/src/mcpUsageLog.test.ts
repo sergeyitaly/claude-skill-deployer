@@ -1,9 +1,10 @@
-﻿import * as fs from "node:fs";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearMcpLogs,
+  computeCliKpi,
   GRADE_THRESHOLDS,
   McpUsageEntry,
   readMcpUsageLog,
@@ -444,5 +445,221 @@ describe("MCP_LOG_MAX_BYTES", () => {
 
   it("is greater than 0", () => {
     expect(MCP_LOG_MAX_BYTES).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeCliKpi
+// ---------------------------------------------------------------------------
+
+function cliEntry(
+  cli: string,
+  exitCode: number,
+  opts: { sessionId?: string; durationMs?: number; timedOut?: boolean; ts?: string; cwd?: string } = {}
+): McpUsageEntry {
+  return {
+    ts: opts.ts ?? new Date().toISOString(),
+    tool: `cli:${cli}`,
+    path: "",
+    durationMs: opts.durationMs ?? 100,
+    server: "cli",
+    cli,
+    exitCode,
+    timedOut: opts.timedOut,
+    sessionId: opts.sessionId ?? "sess001",
+    cwd: opts.cwd,
+  } as McpUsageEntry;
+}
+
+describe("computeCliKpi", () => {
+  it("returns notEnoughData when no CLI entries", () => {
+    const result = computeCliKpi([]);
+    expect(result.totalCalls).toBe(0);
+    expect(result.notEnoughData).toBe(true);
+    expect(result.grade).toBe("A");
+  });
+
+  it("returns notEnoughData when fewer than 3 CLI calls", () => {
+    const entries = [cliEntry("az", 0), cliEntry("az", 0)];
+    const result = computeCliKpi(entries);
+    expect(result.notEnoughData).toBe(true);
+    expect(result.totalCalls).toBe(2);
+  });
+
+  it("grades A when all calls succeed", () => {
+    const entries = Array.from({ length: 5 }, () => cliEntry("git", 0));
+    const result = computeCliKpi(entries);
+    expect(result.overallSuccessRate).toBe(100);
+    expect(result.grade).toBe("A");
+    expect(result.totalFailures).toBe(0);
+  });
+
+  it("grades F when most calls fail", () => {
+    const entries = [
+      cliEntry("terraform", 1),
+      cliEntry("terraform", 1),
+      cliEntry("terraform", 1),
+      cliEntry("terraform", 1),
+      cliEntry("terraform", 0),
+    ];
+    const result = computeCliKpi(entries);
+    expect(result.overallSuccessRate).toBe(20);
+    expect(result.grade).toBe("F");
+    expect(result.totalFailures).toBe(4);
+  });
+
+  it("counts successes and failures correctly across multiple CLIs", () => {
+    const entries = [
+      cliEntry("az", 0), cliEntry("az", 0), cliEntry("az", 1),     // 2/3
+      cliEntry("terraform", 0), cliEntry("terraform", 0),           // 2/2
+    ];
+    const result = computeCliKpi(entries);
+    expect(result.totalCalls).toBe(5);
+    expect(result.totalFailures).toBe(1);
+    expect(result.overallSuccessRate).toBe(80);
+    expect(result.byCli).toHaveLength(2);
+
+    const az = result.byCli.find((c) => c.cli === "az");
+    expect(az?.successRate).toBe(67); // 2/3 rounded
+    expect(az?.failureCount).toBe(1);
+
+    const tf = result.byCli.find((c) => c.cli === "terraform");
+    expect(tf?.successRate).toBe(100);
+  });
+
+  it("detects retries — success within 30s of a failure in the same session", () => {
+    const base = Date.now();
+    const t = (offsetMs: number) => new Date(base + offsetMs).toISOString();
+    const entries = [
+      cliEntry("az", 1, { sessionId: "s1", ts: t(0) }),        // failure
+      cliEntry("az", 0, { sessionId: "s1", ts: t(5_000) }),    // success within 30s → retry
+      cliEntry("az", 0, { sessionId: "s1", ts: t(60_000) }),   // success after 60s → NOT a retry
+    ];
+    const result = computeCliKpi(entries, 365);
+    const az = result.byCli.find((c) => c.cli === "az")!;
+    expect(az.retryCount).toBe(1);
+    expect(result.totalRetries).toBe(1);
+  });
+
+  it("does not count retries across different sessions", () => {
+    const base = Date.now();
+    const t = (offsetMs: number) => new Date(base + offsetMs).toISOString();
+    const entries = [
+      cliEntry("az", 1, { sessionId: "s1", ts: t(0) }),     // failure in s1
+      cliEntry("az", 0, { sessionId: "s2", ts: t(5_000) }), // success in s2 — different session
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalRetries).toBe(0);
+  });
+
+  it("counts failure-after-failure as a retry", () => {
+    const base = Date.now();
+    const t = (offsetMs: number) => new Date(base + offsetMs).toISOString();
+    const entries = [
+      cliEntry("terraform", 1, { sessionId: "s1", ts: t(0) }),       // failure
+      cliEntry("terraform", 1, { sessionId: "s1", ts: t(10_000) }), // failure within 30s → retry
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalRetries).toBe(1);
+  });
+
+  it("counts timed-out calls", () => {
+    const entries = [
+      cliEntry("kubectl", 1, { timedOut: true }),
+      cliEntry("kubectl", 0),
+      cliEntry("kubectl", 0),
+    ];
+    const result = computeCliKpi(entries);
+    expect(result.totalTimedOut).toBe(1);
+    const k = result.byCli.find((c) => c.cli === "kubectl")!;
+    expect(k.timedOutCount).toBe(1);
+  });
+
+  it("computes duration percentiles", () => {
+    const entries = [
+      cliEntry("git", 0, { durationMs: 100 }),
+      cliEntry("git", 0, { durationMs: 200 }),
+      cliEntry("git", 0, { durationMs: 300 }),
+      cliEntry("git", 0, { durationMs: 400 }),
+      cliEntry("git", 0, { durationMs: 2000 }), // outlier → P95
+    ];
+    const result = computeCliKpi(entries);
+    const g = result.byCli.find((c) => c.cli === "git")!;
+    expect(g.durationP50).toBe(300); // median of [100,200,300,400,2000]
+    expect(g.durationP95).toBe(2000);
+    expect(g.avgDurationMs).toBe(600);
+  });
+
+  it("records lastFailedAt and lastFailedCwd on failures", () => {
+    const failTs = new Date().toISOString();
+    const entries = [
+      cliEntry("az", 1, { ts: failTs, cwd: "/project/infra" }),
+      cliEntry("az", 0),
+      cliEntry("az", 0),
+    ];
+    const result = computeCliKpi(entries, 365);
+    const az = result.byCli.find((c) => c.cli === "az")!;
+    expect(az.lastFailedAt).toBe(failTs);
+    expect(az.lastFailedCwd).toBe("/project/infra");
+  });
+
+  it("identifies mostFailingCli", () => {
+    const entries = [
+      cliEntry("az", 0), cliEntry("az", 0), cliEntry("az", 0),
+      cliEntry("terraform", 1), cliEntry("terraform", 1), cliEntry("terraform", 0),
+    ];
+    const result = computeCliKpi(entries);
+    expect(result.mostFailingCli).toBe("terraform");
+  });
+
+  it("omits mostFailingCli when no failures", () => {
+    const entries = Array.from({ length: 4 }, () => cliEntry("git", 0));
+    const result = computeCliKpi(entries);
+    expect(result.mostFailingCli).toBeUndefined();
+  });
+
+  it("sorts byCli by totalCalls descending", () => {
+    const entries = [
+      cliEntry("helm", 0),
+      cliEntry("git", 0), cliEntry("git", 0), cliEntry("git", 0),
+      cliEntry("az", 0), cliEntry("az", 0),
+    ];
+    const result = computeCliKpi(entries);
+    expect(result.byCli[0]!.cli).toBe("git");
+    expect(result.byCli[1]!.cli).toBe("az");
+    expect(result.byCli[2]!.cli).toBe("helm");
+  });
+
+  it("respects daysBack cutoff — ignores old entries", () => {
+    const old = new Date(Date.now() - 20 * 86_400_000).toISOString(); // 20 days ago
+    const entries = [
+      cliEntry("az", 1, { ts: old }),  // outside 14-day window
+      cliEntry("az", 0),               // today
+      cliEntry("az", 0),               // today
+      cliEntry("az", 0),               // today
+    ];
+    const result = computeCliKpi(entries, 14); // default window
+    expect(result.totalCalls).toBe(3);         // old entry excluded
+    expect(result.totalFailures).toBe(0);
+    expect(result.grade).toBe("A");
+  });
+
+  it("grade matches GRADE_THRESHOLDS boundaries exactly", () => {
+    function makeEntries(successCount: number, total: number): McpUsageEntry[] {
+      return [
+        ...Array.from({ length: successCount }, () => cliEntry("az", 0)),
+        ...Array.from({ length: total - successCount }, () => cliEntry("az", 1)),
+      ];
+    }
+    // 90% success → A
+    expect(computeCliKpi(makeEntries(9, 10)).grade).toBe("A");
+    // 75% success → B
+    expect(computeCliKpi(makeEntries(75, 100)).grade).toBe("B");
+    // 60% success → C
+    expect(computeCliKpi(makeEntries(60, 100)).grade).toBe("C");
+    // 45% success → D
+    expect(computeCliKpi(makeEntries(45, 100)).grade).toBe("D");
+    // 44% success → F
+    expect(computeCliKpi(makeEntries(44, 100)).grade).toBe("F");
   });
 });
