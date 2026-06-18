@@ -1728,13 +1728,21 @@ const MOJIBAKE_FIXES: [RegExp, string][] = [
 ];
 
 function hasMojibake(content: string): boolean {
-  return MOJIBAKE_FIXES.some(([pattern]) => pattern.test(content));
+  for (const [pattern] of MOJIBAKE_FIXES) {
+    pattern.lastIndex = 0;
+    if (pattern.exec(content) !== null) {
+      pattern.lastIndex = 0;
+      return true;
+    }
+  }
+  return false;
 }
 
 function fixMojibake(content: string): string {
   let fixed = content;
   for (const [pattern, replacement] of MOJIBAKE_FIXES) {
-    fixed = fixed.replace(new RegExp(pattern.source, "g"), replacement);
+    pattern.lastIndex = 0;
+    fixed = fixed.replace(pattern, replacement);
   }
   return fixed;
 }
@@ -1750,12 +1758,12 @@ const ENCODING_FIX_TEXT_EXTENSIONS = new Set([
 
 function handleMcpEncodingFix(req: HookRequest): HookResponse {
   const body = req.body as Record<string, unknown>;
-  const toolName = (body.tool_name ?? body.toolName ?? "") as string;
+  const toolName = String(body.tool_name ?? body.toolName ?? "");
   if (!ENCODING_FIX_TOOL_NAMES.has(toolName)) {
     return {};
   }
   const toolInput = (body.tool_input ?? body.toolInput ?? body.input ?? {}) as Record<string, unknown>;
-  const filePath = (toolInput.path ?? toolInput.file_path ?? toolInput.filepath ?? "") as string;
+  const filePath = String(toolInput.path ?? toolInput.file_path ?? toolInput.filepath ?? "");
   if (!filePath) {
     return {};
   }
