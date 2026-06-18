@@ -10,8 +10,9 @@ import {
   SkillRule,
   writeSkillVersionSidecar,
 } from "./skillOps";
-import { listInstalledSkills } from "./usageStats";
+import { computeUsageStats, listInstalledSkills } from "./usageStats";
 import { warnOnCostlySkillUpdate } from "./skillVersionCost";
+import { computeSkillRoi } from "./skillRoi";
 
 export interface SkillVersionStatus {
   name: string;
@@ -89,6 +90,56 @@ export function lifecycleAlertsEnabled(): boolean {
 
 export function lifecycleAutoSuggestEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.lifecycle").get<boolean>("autoSuggestUpgrades", true);
+}
+
+export function lifecycleAutoUpgradeOnLowRoiEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.lifecycle").get<boolean>("autoUpgradeOnLowRoi", false);
+}
+
+/**
+ * Upgrades installed skills whose measured ROI band is LOW and a newer catalog version
+ * exists. Intended to be called from the auto-optimize pipeline when
+ * `claudeSkills.lifecycle.autoUpgradeOnLowRoi` is enabled.
+ *
+ * Rationale: a skill with a poor ROI may have a newer version in the library that fixes
+ * the prompt, reduces token usage, or narrows scope — upgrading is a safe, reversible
+ * action that is likely to improve efficiency.
+ *
+ * Returns the names of skills that were successfully upgraded.
+ */
+export async function upgradeSkillsWithLowRoi(
+  libraryDir: string,
+  target: string
+): Promise<string[]> {
+  if (!lifecycleAutoUpgradeOnLowRoiEnabled()) return [];
+
+  const manifest = loadManifest(libraryDir);
+  const usageStats = computeUsageStats(target, manifest);
+  const usageMap = new Map(usageStats.map((s) => [s.name, s]));
+
+  // Only consider skills that are both outdated AND have measured LOW ROI.
+  const outdated = listOutdatedSkills(libraryDir, target);
+  const upgraded: string[] = [];
+
+  for (const status of outdated) {
+    const usageStat = usageMap.get(status.name);
+    // Require at least 3 recorded runs so the ROI signal is not noise.
+    if (!usageStat || (usageStat.runs ?? 0) < 3) continue;
+
+    const roi = computeSkillRoi(status.name, manifest, usageStat);
+    if (roi.roiBand !== "LOW") continue;
+
+    // Force upgrade without an interactive cost prompt — the efficiency signal justifies it.
+    const result = await upgradeSkillInWorkspace(libraryDir, target, status.name, {
+      force: true,
+      confirmCost: false,
+    });
+    if (result === "installed") {
+      upgraded.push(status.name);
+    }
+  }
+
+  return upgraded;
 }
 
 export async function upgradeSkillInWorkspace(

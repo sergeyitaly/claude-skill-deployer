@@ -6,11 +6,18 @@ import { isFeatureEnabled } from "./featureFlags";
 import { copySkill, removeSkill } from "./skillOps";
 import { isValidSkillName } from "./skillLint";
 import { SkillUsageStat } from "./usageStats";
+import { RoiBand } from "./skillRoi";
 
 export interface ArchivalRules {
   no_usage_days: number;
   cost_per_use: number;
   auto_archive: boolean;
+  /** Archive skills with measured LOW ROI band when they also meet the run/idle thresholds. */
+  archive_on_low_roi: boolean;
+  /** Minimum recorded invocations before ROI-based archival is considered. */
+  low_roi_min_runs: number;
+  /** Minimum idle days required in addition to LOW ROI band. */
+  low_roi_idle_days: number;
 }
 
 export function archivalRules(): ArchivalRules {
@@ -19,6 +26,9 @@ export function archivalRules(): ArchivalRules {
     no_usage_days: cfg.get<number>("noUsageDays", 30),
     cost_per_use: cfg.get<number>("costPerUse", 2.0),
     auto_archive: cfg.get<boolean>("autoArchive", false),
+    archive_on_low_roi: cfg.get<boolean>("archiveOnLowRoi", false),
+    low_roi_min_runs: cfg.get<number>("lowRoiMinRuns", 5),
+    low_roi_idle_days: cfg.get<number>("lowRoiIdleDays", 7),
   };
 }
 
@@ -64,20 +74,34 @@ export function listArchivedSkills(target: string): string[] {
 
 export function candidatesForArchival(
   stats: SkillUsageStat[],
-  attributionCostPerUse: Map<string, number>
+  attributionCostPerUse: Map<string, number>,
+  /** Optional ROI band per skill — enables efficiency-based archival when archive_on_low_roi is set. */
+  roiBandBySkill?: Map<string, RoiBand>
 ): string[] {
   if (!isFeatureEnabled("skillArchival")) {
     return [];
   }
   const rules = archivalRules();
   const out: string[] = [];
+  const seen = new Set<string>();
   for (const s of stats) {
     const idle = s.daysSinceLastUse ?? 999;
     const costPerUse = attributionCostPerUse.get(s.name) ?? 0;
     if (idle >= rules.no_usage_days) {
       out.push(s.name);
+      seen.add(s.name);
     } else if (costPerUse >= rules.cost_per_use && idle >= 14) {
       out.push(s.name);
+      seen.add(s.name);
+    } else if (
+      rules.archive_on_low_roi &&
+      !seen.has(s.name) &&
+      roiBandBySkill?.get(s.name) === "LOW" &&
+      (s.runs ?? 0) >= rules.low_roi_min_runs &&
+      idle >= rules.low_roi_idle_days
+    ) {
+      out.push(s.name);
+      seen.add(s.name);
     }
   }
   return out;

@@ -355,6 +355,27 @@ export async function enableOfficialFilesystemServer(
   }
 }
 
+/**
+ * Ensures allowed-dirs.json exists for the Copilot-registered filesystem MCP server.
+ * Copilot uses the bundled server path (${extensionPath}/...) registered via
+ * contributes.mcpServers — no binary deploy or agent-config write is needed.
+ * This is a no-op when the file already exists.
+ * Call unconditionally at extension activation, before any workspace folder guard,
+ * so Copilot always has a working config even when VS Code opens without a folder.
+ */
+export function ensureCopilotFilesystemConfigReady(
+  workspaceDirs: string[],
+  log: (msg: string) => void
+): void {
+  try {
+    if (fs.existsSync(ALLOWED_DIRS_CONFIG_PATH)) return;
+    writeAllowedDirsConfig(workspaceDirs);
+    log("Filesystem MCP server: created allowed-dirs.json for Copilot.");
+  } catch (e) {
+    log(`Filesystem MCP server: could not create Copilot config — ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 export function refreshFilesystemAllowedDirs(
   workspaceDirs: string[],
   log: (msg: string) => void

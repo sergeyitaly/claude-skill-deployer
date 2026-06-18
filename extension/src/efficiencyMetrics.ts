@@ -307,17 +307,23 @@ function buildMcpWarningBlocks(m: McpUsageSummary): string[] {
     ).join("");
     blocks.push(`<div style="margin-bottom:8px"><b>Large files</b>${rows}</div>`);
   }
-  if (m.noOpWrites.length > 0) {
-    const rows = m.noOpWrites.map((n) =>
-      `<div class="skill-row"><div class="skill-head"><span>✓</span> <code>${esc(shortPath(n.path, 45))}</code></div><div class="hint">${esc(n.description)}</div></div>`
-    ).join("");
-    blocks.push(`<div style="margin-bottom:8px"><b>No-op writes (auto-skipped)</b>${rows}</div>`);
-  }
   if (m.excessiveScans.length > 0) {
     const rows = m.excessiveScans.map((sc) =>
       `<div class="skill-row warn-row"><div class="skill-head"><span>⚠</span> <code>${esc(shortPath(sc.path, 45))}</code><span class="cost">${sc.scans}× scanned</span></div><div class="hint">${esc(sc.description)}</div></div>`
     ).join("");
     blocks.push(`<div style="margin-bottom:8px"><b>Excessive directory scans</b>${rows}</div>`);
+  }
+  return blocks;
+}
+
+function buildMcpSuccessBlocks(m: McpUsageSummary): string[] {
+  const shortPath = (p: string, max: number) => p.length > max ? "…" + p.slice(-(max - 3)) : p;
+  const blocks: string[] = [];
+  if (m.noOpWrites.length > 0) {
+    const rows = m.noOpWrites.map((n) =>
+      `<div class="skill-row"><div class="skill-head"><span>✓</span> <code>${esc(shortPath(n.path, 45))}</code></div><div class="hint">${esc(n.description)}</div></div>`
+    ).join("");
+    blocks.push(`<div style="margin-bottom:8px">${rows}</div>`);
   }
   return blocks;
 }
@@ -445,6 +451,7 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
 
   // -- Warnings section --
   const warningBlocks = buildMcpWarningBlocks(m);
+  const successBlocks = buildMcpSuccessBlocks(m);
 
   // -- Suggestions --
   const suggRows = m.suggestions
@@ -466,6 +473,14 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
       : suggRows
         ? `<div class="sub-panel" style="grid-column: 1 / -1"><h3>Suggestions</h3><ul>${suggRows}</ul></div>`
         : "";
+
+  const successHtml =
+    successBlocks.length > 0
+      ? `<div class="sub-panel" style="grid-column: 1 / -1">
+          <h3>Auto-optimized</h3>
+          ${successBlocks.join("")}
+        </div>`
+      : "";
 
   const crossSessionHtml =
     cs.persistentHotFiles.length > 0
@@ -513,6 +528,7 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
   <div class="efficiency-grid">
     ${parts.join("\n    ")}
     ${warningsHtml}
+    ${successHtml}
     ${crossSessionHtml}
     ${noOpWritesHtml}
   </div>

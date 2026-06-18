@@ -7,6 +7,8 @@ import { getCurrentBranch, saveBranchProfile } from "./branchProfiles";
 import { generateOptimizationSuggestions, OptimizationSuggestion, OptimizationType } from "./costOptimizer";
 import { isFeatureEnabled } from "./featureFlags";
 import { archiveSkill, archivalRules, candidatesForArchival } from "./skillArchival";
+import { computeSkillRoi, RoiBand } from "./skillRoi";
+import { upgradeSkillsWithLowRoi, lifecycleAutoUpgradeOnLowRoiEnabled } from "./skillLifecycle";
 import { autoApplySlotsRemaining, recordAutoApplies } from "./autoOptimizerRateLimit";
 import { tokenCostUsd } from "./costRates";
 import { setSkillOverride, loadManifest } from "./skillOps";
@@ -115,6 +117,11 @@ export async function runAutoOptimizePass(target: string, libraryDir: string): P
 
   const result = await applyOptimizationSuggestions(target, libraryDir, suggestions, { auto: true });
   await runArchivalPass(target, libraryDir);
+  // Upgrade outdated skills that have a measured LOW ROI — a newer catalog version may
+  // improve prompt efficiency or reduce token cost.
+  if (lifecycleAutoUpgradeOnLowRoiEnabled()) {
+    await upgradeSkillsWithLowRoi(libraryDir, target);
+  }
   return result;
 }
 
@@ -264,7 +271,12 @@ export async function runArchivalPass(target: string, libraryDir: string): Promi
       costPerUse.set(s.name, tokenCostUsd(s.totalTokens / s.runs));
     }
   }
-  const candidates = candidatesForArchival(stats, costPerUse);
+  // Compute ROI band per skill — passed to candidatesForArchival so that skills with a
+  // measured LOW ROI band can be archived even when they aren't fully idle.
+  const roiBandBySkill = new Map<string, RoiBand>(
+    stats.map((s) => [s.name, computeSkillRoi(s.name, manifest, s).roiBand])
+  );
+  const candidates = candidatesForArchival(stats, costPerUse, roiBandBySkill);
   if (candidates.length === 0) {
     return [];
   }

@@ -4,6 +4,7 @@ import * as path from "node:path";
 
 export const MCP_USAGE_LOG_PATH = path.join(os.homedir(), ".claude", "learning", "mcp-usage.jsonl");
 export const MCP_HINTS_PATH = path.join(os.homedir(), ".claude", "learning", "mcp-agent-hints.md");
+export const MCP_SESSION_INDEX_PATH = path.join(os.homedir(), ".claude", "learning", "mcp-session-index.json");
 
 /** Returns the workspace-scoped MCP usage log path for hybrid telemetry. */
 export function workspaceMcpLogPath(workspaceRoot: string): string {
@@ -199,6 +200,17 @@ const LOG_CACHE_MAX_PATHS = 50;
 const LOG_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 const LOG_RETENTION_DAYS = 30;
 
+// Background periodic prune timer — keeps the log trim independently of the read-path
+// trigger so the file stays manageable even when the dashboard is rarely opened.
+let _pruneTimerStarted = false;
+function ensurePruneTimer(): void {
+  if (_pruneTimerStarted) return;
+  _pruneTimerStarted = true;
+  setInterval(() => {
+    try { maybePruneLog(MCP_USAGE_LOG_PATH); } catch { /* non-fatal */ }
+  }, 10 * 60 * 1000).unref();
+}
+
 function setLogCache(key: string, value: LogCache): void {
   // LRU eviction: delete before re-inserting so the entry moves to the newest
   // position. When at capacity and the key is new, evict the oldest (first) entry.
@@ -240,6 +252,7 @@ export function readMcpUsageLog(logPath = MCP_USAGE_LOG_PATH): McpUsageEntry[] {
     return [];
   }
   try {
+    ensurePruneTimer();
     maybePruneLog(logPath); // trim old entries if file has grown large; no-op otherwise
     const mtime = fs.statSync(logPath).mtimeMs;
     const cached = logCache.get(logPath);
@@ -882,6 +895,52 @@ export interface CrossSessionSummary {
   persistentNoOpWrites: CrossSessionNoOpWriteFile[];
 }
 
+// ---------------------------------------------------------------------------
+// Incremental cross-session index
+// Completed sessions are aggregated into a compact JSON file so that
+// summarizeCrossSessionPatterns can skip the O(n) entry scan for sessions
+// already processed, reading only new (active-session) entries from the log.
+// ---------------------------------------------------------------------------
+
+interface SessionIndexEntry {
+  lastTs: string;
+  reads: Record<string, number>;
+  noOps: Record<string, number>;
+}
+
+type RawSessionIndex = Record<string, SessionIndexEntry>;
+
+function readRawSessionIndex(): RawSessionIndex {
+  try {
+    const raw = JSON.parse(fs.readFileSync(MCP_SESSION_INDEX_PATH, "utf-8"));
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as RawSessionIndex) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeRawSessionIndex(index: RawSessionIndex): void {
+  try {
+    fs.mkdirSync(path.dirname(MCP_SESSION_INDEX_PATH), { recursive: true });
+    const tmp = `${MCP_SESSION_INDEX_PATH}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(index), "utf-8");
+    fs.renameSync(tmp, MCP_SESSION_INDEX_PATH);
+  } catch {
+    // non-fatal
+  }
+}
+
+function evictStaleIndexEntries(index: RawSessionIndex, cutoffMs: number): boolean {
+  let changed = false;
+  for (const sid of Object.keys(index)) {
+    if (new Date(index[sid].lastTs).getTime() < cutoffMs) {
+      delete index[sid];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /**
  * Groups MCP read_file events by sessionId to find files that are
  * consistently over-read across sessions — the ground-truth signal
@@ -911,25 +970,77 @@ export function summarizeCrossSessionPatterns(daysBack = 30, logPath?: string): 
     (e) => !e.error && new Date(e.ts).getTime() >= cutoff
   );
 
-  // session → path → read count
-  const sessions = new Map<string, Map<string, number>>();
-  // session → path → skipped-write count (no-op writes per session)
-  const noOpSessions = new Map<string, Map<string, number>>();
+  // Use the incremental index only for the global log — workspace logs may have
+  // different entry subsets for the same session ID, so we avoid cross-contaminating.
+  const useIndex = !logPath;
+  const index: RawSessionIndex = useIndex ? readRawSessionIndex() : {};
 
+  // The latest session ID is still "active" (entries may still arrive).
+  // All other sessions with distinct IDs are complete and safe to index.
+  const latestSid = [...allEntries].reverse().find((e) => e.sessionId)?.sessionId;
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  // --- Pass 1: index newly completed sessions ---
+  const newlyIndexed = new Map<string, { lastTs: string; reads: Map<string, number>; noOps: Map<string, number> }>();
   for (const e of allEntries) {
-    const sid = e.sessionId ?? e.ts.slice(0, 10); // fallback: date bucket
+    const sid = e.sessionId ?? e.ts.slice(0, 10);
+    if (index[sid]) continue; // already indexed
+    if (sid === latestSid || sid === todayKey) continue; // still potentially active
     if (!e.path) continue;
     const filePath = resolvePath(e.path);
-
+    const sess = newlyIndexed.get(sid) ?? { lastTs: e.ts, reads: new Map<string, number>(), noOps: new Map<string, number>() };
+    if (e.ts > sess.lastTs) sess.lastTs = e.ts;
     if (e.tool === "read_file") {
-      const sessionFiles = sessions.get(sid) ?? new Map<string, number>();
-      sessionFiles.set(filePath, (sessionFiles.get(filePath) ?? 0) + 1);
-      sessions.set(sid, sessionFiles);
+      sess.reads.set(filePath, (sess.reads.get(filePath) ?? 0) + 1);
     } else if (e.tool === "write_file" && e.skipped) {
-      // Track files that agents persistently attempt to rewrite with identical content.
-      const sessionWrites = noOpSessions.get(sid) ?? new Map<string, number>();
-      sessionWrites.set(filePath, (sessionWrites.get(filePath) ?? 0) + 1);
-      noOpSessions.set(sid, sessionWrites);
+      sess.noOps.set(filePath, (sess.noOps.get(filePath) ?? 0) + 1);
+    }
+    newlyIndexed.set(sid, sess);
+  }
+
+  // Persist newly indexed sessions; evict entries older than the cutoff.
+  if (useIndex) {
+    let dirty = newlyIndexed.size > 0;
+    for (const [sid, sess] of newlyIndexed.entries()) {
+      index[sid] = { lastTs: sess.lastTs, reads: Object.fromEntries(sess.reads), noOps: Object.fromEntries(sess.noOps) };
+    }
+    if (evictStaleIndexEntries(index, cutoff)) dirty = true;
+    if (dirty) writeRawSessionIndex(index);
+  }
+
+  // --- Pass 2: build combined session maps from index + live active-session entries ---
+  const sessions = new Map<string, Map<string, number>>();
+  const noOpSessions = new Map<string, Map<string, number>>();
+
+  // Populate from the index (stale entries were evicted above).
+  for (const [sid, entry] of Object.entries(index)) {
+    if (new Date(entry.lastTs).getTime() < cutoff) continue;
+    sessions.set(sid, new Map(Object.entries(entry.reads)));
+    if (Object.keys(entry.noOps).length > 0) {
+      noOpSessions.set(sid, new Map(Object.entries(entry.noOps)));
+    }
+  }
+  // For workspace-log paths (useIndex=false) add newly processed sessions directly.
+  if (!useIndex) {
+    for (const [sid, sess] of newlyIndexed.entries()) {
+      sessions.set(sid, new Map(sess.reads));
+      if (sess.noOps.size > 0) noOpSessions.set(sid, new Map(sess.noOps));
+    }
+  }
+  // Add the active-session live entries (not yet in the index or newlyIndexed).
+  for (const e of allEntries) {
+    const sid = e.sessionId ?? e.ts.slice(0, 10);
+    if (index[sid] || newlyIndexed.has(sid)) continue;
+    if (!e.path) continue;
+    const filePath = resolvePath(e.path);
+    if (e.tool === "read_file") {
+      const m = sessions.get(sid) ?? new Map<string, number>();
+      m.set(filePath, (m.get(filePath) ?? 0) + 1);
+      sessions.set(sid, m);
+    } else if (e.tool === "write_file" && e.skipped) {
+      const m = noOpSessions.get(sid) ?? new Map<string, number>();
+      m.set(filePath, (m.get(filePath) ?? 0) + 1);
+      noOpSessions.set(sid, m);
     }
   }
 
@@ -938,10 +1049,9 @@ export function summarizeCrossSessionPatterns(daysBack = 30, logPath?: string): 
     return { totalSessions: 0, persistentHotFiles: [], persistentNoOpWrites: [] };
   }
 
-  const fileStats = aggregateFileStats(sessions);
-
   const EXCLUDED_PATH_PATTERNS = [/[/\\][Tt]emp[/\\]/, /[/\\]tmp[/\\]/, /mcp-bench-/];
 
+  const fileStats = aggregateFileStats(sessions);
   const persistentHotFiles: CrossSessionHotFile[] = [];
   for (const [filePath, stat] of fileStats.entries()) {
     if (stat.sessionCount < 3) continue;
@@ -958,14 +1068,13 @@ export function summarizeCrossSessionPatterns(daysBack = 30, logPath?: string): 
   }
   persistentHotFiles.sort((a, b) => b.prevalence - a.prevalence || b.readsPerSession - a.readsPerSession);
 
-  // Aggregate no-op write stats across sessions.
   const noOpFileStats = aggregateFileStats(noOpSessions);
   const persistentNoOpWrites: CrossSessionNoOpWriteFile[] = [];
   for (const [filePath, stat] of noOpFileStats.entries()) {
     if (stat.sessionCount < 2) continue;
     if (EXCLUDED_PATH_PATTERNS.some((re) => re.test(filePath))) continue;
     const prevalence = stat.sessionCount / totalSessions;
-    if (prevalence < 0.3) continue; // lower bar than hot-reads: even 30% is actionable
+    if (prevalence < 0.3) continue;
     persistentNoOpWrites.push({
       path: filePath,
       sessionCount: stat.sessionCount,
@@ -1002,6 +1111,11 @@ export function clearMcpLogs(workspaceLogPath?: string): ClearMcpLogsResult {
       fs.writeFileSync(MCP_USAGE_LOG_PATH, "", "utf-8");
       result.clearedGlobal = true;
     }
+  } catch { /* non-fatal */ }
+
+  // Clear the session index — derived from the usage log, stale after a log clear.
+  try {
+    if (fs.existsSync(MCP_SESSION_INDEX_PATH)) fs.unlinkSync(MCP_SESSION_INDEX_PATH);
   } catch { /* non-fatal */ }
 
   if (workspaceLogPath) {

@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 
-export type CliMcpAgentId = "claude" | "cursor" | "kiro";
+export type CliMcpAgentId = "claude" | "cursor" | "kiro" | "copilot";
 
 const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 const CLAUDE_CONFIG_PATH = path.join(os.homedir(), ".claude.json");
@@ -19,9 +19,11 @@ const AGENT_DISPLAY_NAMES: Record<CliMcpAgentId, string> = {
   claude: "Claude Code",
   cursor: "Cursor",
   kiro: "Kiro",
+  copilot: "GitHub Copilot",
 };
 
-const AGENT_CONFIG_PATHS: Record<CliMcpAgentId, string> = {
+// Copilot is registered via contributes.mcpServers in package.json — no config-file write needed.
+const AGENT_CONFIG_PATHS: Record<Exclude<CliMcpAgentId, "copilot">, string> = {
   claude: CLAUDE_CONFIG_PATH,
   cursor: path.join(os.homedir(), ".cursor", "mcp.json"),
   kiro: path.join(os.homedir(), ".kiro", "settings", "mcp.json"),
@@ -51,9 +53,9 @@ export interface CliEnableResult {
 function enabledCliMcpAgentIds(): CliMcpAgentId[] {
   const configured = vscode.workspace
     .getConfiguration("claudeSkills.agents")
-    .get<string[]>("enabled", ["claude", "cursor", "kiro"]);
+    .get<string[]>("enabled", ["claude", "cursor", "kiro", "copilot"]);
   return configured.filter((id): id is CliMcpAgentId =>
-    id === "claude" || id === "cursor" || id === "kiro"
+    id === "claude" || id === "cursor" || id === "kiro" || id === "copilot"
   );
 }
 
@@ -142,6 +144,7 @@ function upsertCliEntry(config: AgentMcpConfig): boolean {
 }
 
 function enableAgentCliMcp(agentId: CliMcpAgentId): void {
+  if (agentId === "copilot") return; // registered via contributes.mcpServers — no config write needed
   const configFile = AGENT_CONFIG_PATHS[agentId];
   const config = readJsonFile<AgentMcpConfig>(configFile) ?? {};
   if (upsertCliEntry(config)) {
@@ -150,6 +153,7 @@ function enableAgentCliMcp(agentId: CliMcpAgentId): void {
 }
 
 function disableAgentCliMcp(agentId: CliMcpAgentId): void {
+  if (agentId === "copilot") return; // registered via contributes.mcpServers — cannot be removed at runtime
   const configFile = AGENT_CONFIG_PATHS[agentId];
   const config = readJsonFile<AgentMcpConfig>(configFile);
   if (!config?.mcpServers?.[CLI_SERVER_KEY]) return;
@@ -158,8 +162,35 @@ function disableAgentCliMcp(agentId: CliMcpAgentId): void {
 }
 
 function isCliMcpEnabled(agentId: CliMcpAgentId): boolean {
+  if (agentId === "copilot") {
+    // Copilot always has the server registered via contributes.mcpServers.
+    // Treat it as active only when cli-config.json exists — the server process
+    // crashes on startup without it (same check mcpOfficial.ts uses for allowed-dirs.json).
+    return fs.existsSync(CLI_CONFIG_PATH);
+  }
   const config = readJsonFile<AgentMcpConfig>(AGENT_CONFIG_PATHS[agentId]);
   return Boolean(config?.mcpServers?.[CLI_SERVER_KEY]);
+}
+
+/**
+ * Ensures cli-config.json exists for the Copilot-registered CLI MCP server.
+ * Copilot uses the bundled server path (${extensionPath}/...) registered via
+ * contributes.mcpServers — no binary deploy or agent-config write is needed.
+ * This is a no-op when the file already exists.
+ * Call unconditionally at extension activation, before any workspace folder guard,
+ * so Copilot always has a working CLI config even when VS Code opens without a folder.
+ */
+export function ensureCopilotCliConfigReady(
+  workspaceDirs: string[],
+  log: (msg: string) => void
+): void {
+  try {
+    if (fs.existsSync(CLI_CONFIG_PATH)) return;
+    writeCliConfig(workspaceDirs);
+    log("CLI MCP server: created cli-config.json for Copilot.");
+  } catch (e) {
+    log(`CLI MCP server: could not create Copilot config — ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export function refreshCliConfig(workspaceDirs: string[], log: (msg: string) => void): void {
@@ -176,7 +207,7 @@ export function getCliMcpServerStatus(): {
   enabled: boolean;
   activeAgents: CliMcpAgentId[];
 } {
-  const all: CliMcpAgentId[] = ["claude", "cursor", "kiro"];
+  const all: CliMcpAgentId[] = ["claude", "cursor", "kiro", "copilot"];
   const activeAgents = all.filter(isCliMcpEnabled);
   return { enabled: activeAgents.length > 0, activeAgents };
 }
@@ -260,9 +291,9 @@ export async function disableOfficialCliServer(
   onStatusChanged?: () => void
 ): Promise<void> {
   try {
-    const all: CliMcpAgentId[] = ["claude", "cursor", "kiro"];
+    const all: CliMcpAgentId[] = ["claude", "cursor", "kiro", "copilot"];
     for (const agentId of all) {
-      disableAgentCliMcp(agentId);
+      disableAgentCliMcp(agentId); // no-op for copilot
       log(`CLI MCP server disabled for ${AGENT_DISPLAY_NAMES[agentId]}.`);
     }
     try {

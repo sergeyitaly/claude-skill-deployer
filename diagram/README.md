@@ -11,6 +11,7 @@ Mermaid diagrams describing how **Claude Skills Manager** (VS Code extension) wo
 | 4 | Git branch profiles and profile init | [04-branch-profiles-profile-init.md](04-branch-profiles-profile-init.md) |
 | 5 | Learning, cost intelligence, and feedback loop | [05-learning-cost-feedback.md](05-learning-cost-feedback.md) |
 | 6 | IDE / agent skill sets (branch × Cursor/Kiro/VS Code) | [06-ide-agent-skill-profiles.md](06-ide-agent-skill-profiles.md) |
+| 7 | Hook system & MCP architecture | [07-hook-mcp-architecture.md](07-hook-mcp-architecture.md) |
 
 **Draw.io (editable):** [docs/diagrams/skill-profiles-ide-branch-flow.drawio](../docs/diagrams/skill-profiles-ide-branch-flow.drawio)
 

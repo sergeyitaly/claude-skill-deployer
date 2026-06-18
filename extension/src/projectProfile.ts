@@ -228,6 +228,10 @@ function gitRoot(target: string): string | undefined {
   return gitCommand(target, ["rev-parse", "--show-toplevel"]);
 }
 
+export function findProjectRoot(target: string): string {
+  return gitRoot(target) ?? target;
+}
+
 function detectGitRemotes(target: string): { remotes: string[]; isGitRepo: boolean } {
   const repo = getGitRepository(target);
   if (repo?.state.remotes?.length) {
@@ -1047,6 +1051,22 @@ export function formatProjectProfileSummary(profile: ProjectProfileFile): string
     `Features: multiAgent=${on("multiAgent") ? "on" : "off"}, attribution=${on("attributionCollector") ? "on" : "off"}, costIntel=${on("costIntelligence") ? "on" : "off"}, sessionAdapt=${on("sessionSkillAdaptation") ? "on" : "off"}`,
   ].filter((l): l is string => Boolean(l));
   return lines.join("\n");
+}
+
+export function formatProjectProfileStatusBarText(profile: ProjectProfileFile): string {
+  return `Project: ${PROFILE_TYPE_LABELS[profile.profileType]}`;
+}
+
+export function formatProjectProfileStatusBarTooltip(profile: ProjectProfileFile): string {
+  const on = (k: FeatureKey) => profile.enabledFeatures[k] ?? DEFAULTS[k];
+  const features = [
+    on("multiAgent") ? "Multi-Agent" : null,
+    on("attributionCollector") ? "Attribution" : null,
+    on("costIntelligence") ? "Cost Intel" : null,
+    on("sessionSkillAdaptation") ? "Session Adapt" : null,
+  ].filter((f): f is string => Boolean(f));
+  
+  return `Profile: ${profile.profileType}\nCost Tracking: ${profile.costTracking}\nFeatures: ${features.length > 0 ? features.join(", ") : "None"}`;
 }
 
 export function effectiveFeatureMap(target: string): Record<string, boolean> {

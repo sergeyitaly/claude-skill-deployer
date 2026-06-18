@@ -199,4 +199,45 @@ export function appendSkillRun(
   return record;
 }
 
+/**
+ * Log a native IDE tool invocation (run_task, run_in_terminal, etc.) to mcp-usage.jsonl
+ * for tracking native tool operations captured via postToolUse hooks.
+ */
+export function appendToolUse(
+  target: string,
+  entry: {
+    tool: string;           // e.g. "run_task", "run_in_terminal", "run_command"
+    agent?: RunAgent;
+    sessionId?: string;
+    durationMs?: number;
+    metadata?: Record<string, unknown>;
+  }
+): void {
+  const file = path.join(target, ".claude", "mcp-usage.jsonl");
+  const globalFile = path.join(process.env.HOME || process.env.USERPROFILE || "~", ".claude", "learning", "mcp-usage.jsonl");
+
+  const record = {
+    ts: new Date().toISOString(),
+    tool: `native:${entry.tool}`,  // Prefix with "native:" to distinguish from MCP servers
+    durationMs: entry.durationMs ?? 0,
+    sessionId: entry.sessionId,
+    ...entry.metadata,
+  };
+
+  // Dual-path logging: workspace + global
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify(record) + "\n", "utf-8");
+  } catch (e) {
+    // Silently fail if unable to write workspace log
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+    fs.appendFileSync(globalFile, JSON.stringify(record) + "\n", "utf-8");
+  } catch (e) {
+    // Silently fail if unable to write global log
+  }
+}
+
 export { pruneRunsJsonl } from "./learningPrune";

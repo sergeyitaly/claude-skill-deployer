@@ -239,8 +239,8 @@ import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer
 import { applyMcpAutoFixesForTarget } from "./mcpAutoFix";
 import { startMcpForceWatchdog } from "./mcpForceWatchdog";
 import { checkMcpHealth } from "./mcpHealth";
-import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup, syncFilesystemServerBinary } from "./mcpOfficial";
-import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig, syncCliServerBinary } from "./mcpCli";
+import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup, syncFilesystemServerBinary, ensureCopilotFilesystemConfigReady } from "./mcpOfficial";
+import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig, syncCliServerBinary, ensureCopilotCliConfigReady } from "./mcpCli";
 import {
   enableMcpForcePermissions,
   injectMcpForceClaude,
@@ -1302,6 +1302,19 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
   }
   const initialTarget = getWorkspaceTarget();
 
+  // Sync MCP server binaries and ensure Copilot's config files exist unconditionally —
+  // before any workspace-folder guard. Copilot is registered via contributes.mcpServers
+  // and its server processes start as soon as the user opens a chat, regardless of
+  // whether a workspace folder is open. Without these config files the server processes
+  // crash immediately and Copilot cannot use any MCP tools.
+  {
+    const earlyWorkspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
+    syncFilesystemServerBinary(context.extensionPath, log);
+    syncCliServerBinary(context.extensionPath, log);
+    ensureCopilotFilesystemConfigReady(earlyWorkspaceDirs, log);
+    ensureCopilotCliConfigReady(earlyWorkspaceDirs, log);
+  }
+
   void (async () => {
     recordActivation();
     await runV1Migration(context, initialTarget);
@@ -1347,8 +1360,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         if (!getWorkspaceTarget()) return;
         const workspaceDirs = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
 
-        // Filesystem MCP server — always sync binary first so updates are auto-applied.
-        syncFilesystemServerBinary(context.extensionPath, log);
+        // Filesystem MCP server — binary already synced at activation; handle agent-config setup.
         if (needsFilesystemMcpSetup()) {
           void enableOfficialFilesystemServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`MCP server: auto-started and configured for ${workspaceDirs.length} workspace folder(s).`);
@@ -1379,8 +1391,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
           }
         }
 
-        // CLI MCP server — always sync binary first so updates and missing files are repaired.
-        syncCliServerBinary(context.extensionPath, log);
+        // CLI MCP server — binary already synced at activation; handle agent-config setup.
         if (needsCliMcpSetup()) {
           void enableOfficialCliServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`CLI MCP server: auto-started and configured.`);

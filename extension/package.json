@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.72",
+  "version": "1.0.73",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -537,6 +537,15 @@
           "--config",
           "${userHome}/.claude/mcp-servers/filesystem/allowed-dirs.json"
         ]
+      },
+      "claude-skills-cli": {
+        "label": "Claude Skills CLI",
+        "command": "node",
+        "args": [
+          "${extensionPath}/resources/mcp-servers/cli/index.js",
+          "--config",
+          "${userHome}/.claude/mcp-servers/cli/cli-config.json"
+        ]
       }
     },
     "configuration": [
@@ -1027,6 +1036,11 @@
             "type": "boolean",
             "default": true,
             "description": "Periodically prompt to upgrade outdated skills from the bundled library."
+          },
+          "claudeSkills.lifecycle.autoUpgradeOnLowRoi": {
+            "type": "boolean",
+            "default": false,
+            "description": "During auto-optimize passes, automatically upgrade outdated skills whose measured ROI band is LOW to the latest catalog version (requires at least 3 recorded sessions of data)."
           }
         }
       },
@@ -1387,6 +1401,23 @@
             "default": 30,
             "minimum": 7,
             "description": "Archive skills unused for this many days (when auto-archive enabled)."
+          },
+          "claudeSkills.archival.archiveOnLowRoi": {
+            "type": "boolean",
+            "default": false,
+            "description": "Archive skills whose measured ROI band is LOW, even if they are still being used. Requires lowRoiMinRuns sessions of data and lowRoiIdleDays idle days."
+          },
+          "claudeSkills.archival.lowRoiMinRuns": {
+            "type": "number",
+            "default": 5,
+            "minimum": 2,
+            "description": "Minimum recorded invocations before ROI-based archival is considered."
+          },
+          "claudeSkills.archival.lowRoiIdleDays": {
+            "type": "number",
+            "default": 7,
+            "minimum": 0,
+            "description": "Minimum idle days required in addition to LOW ROI band before a skill is archived."
           }
         }
       },
