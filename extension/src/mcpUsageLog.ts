@@ -863,10 +863,23 @@ export interface CrossSessionHotFile {
   prevalence: number;
 }
 
+export interface CrossSessionNoOpWriteFile {
+  path: string;
+  /** Number of distinct sessions where this file had a skipped (no-op) write. */
+  sessionCount: number;
+  totalSessions: number;
+  /** Average skipped writes per session. */
+  skipsPerSession: number;
+  /** Fraction of sessions (0–1). */
+  prevalence: number;
+}
+
 export interface CrossSessionSummary {
   totalSessions: number;
   /** Files read in >50% of sessions, sorted by prevalence desc. */
   persistentHotFiles: CrossSessionHotFile[];
+  /** Files with skipped (no-op) writes in >50% of sessions — agents are needlessly rewriting them. */
+  persistentNoOpWrites: CrossSessionNoOpWriteFile[];
 }
 
 /**
@@ -894,24 +907,35 @@ function aggregateFileStats(
 
 export function summarizeCrossSessionPatterns(daysBack = 30, logPath?: string): CrossSessionSummary {
   const cutoff = Date.now() - daysBack * 86_400_000;
-  const entries = readMcpUsageLog(logPath).filter(
-    (e) => !e.error && e.tool === "read_file" && new Date(e.ts).getTime() >= cutoff
+  const allEntries = readMcpUsageLog(logPath).filter(
+    (e) => !e.error && new Date(e.ts).getTime() >= cutoff
   );
 
   // session → path → read count
   const sessions = new Map<string, Map<string, number>>();
-  for (const e of entries) {
+  // session → path → skipped-write count (no-op writes per session)
+  const noOpSessions = new Map<string, Map<string, number>>();
+
+  for (const e of allEntries) {
     const sid = e.sessionId ?? e.ts.slice(0, 10); // fallback: date bucket
-    const filePath = e.path ? resolvePath(e.path) : e.path;
-    if (!filePath) continue;
-    const sessionFiles = sessions.get(sid) ?? new Map<string, number>();
-    sessionFiles.set(filePath, (sessionFiles.get(filePath) ?? 0) + 1);
-    sessions.set(sid, sessionFiles);
+    if (!e.path) continue;
+    const filePath = resolvePath(e.path);
+
+    if (e.tool === "read_file") {
+      const sessionFiles = sessions.get(sid) ?? new Map<string, number>();
+      sessionFiles.set(filePath, (sessionFiles.get(filePath) ?? 0) + 1);
+      sessions.set(sid, sessionFiles);
+    } else if (e.tool === "write_file" && e.skipped) {
+      // Track files that agents persistently attempt to rewrite with identical content.
+      const sessionWrites = noOpSessions.get(sid) ?? new Map<string, number>();
+      sessionWrites.set(filePath, (sessionWrites.get(filePath) ?? 0) + 1);
+      noOpSessions.set(sid, sessionWrites);
+    }
   }
 
-  const totalSessions = sessions.size;
+  const totalSessions = Math.max(sessions.size, noOpSessions.size);
   if (totalSessions === 0) {
-    return { totalSessions: 0, persistentHotFiles: [] };
+    return { totalSessions: 0, persistentHotFiles: [], persistentNoOpWrites: [] };
   }
 
   const fileStats = aggregateFileStats(sessions);
@@ -932,9 +956,27 @@ export function summarizeCrossSessionPatterns(daysBack = 30, logPath?: string): 
       prevalence,
     });
   }
-
   persistentHotFiles.sort((a, b) => b.prevalence - a.prevalence || b.readsPerSession - a.readsPerSession);
-  return { totalSessions, persistentHotFiles };
+
+  // Aggregate no-op write stats across sessions.
+  const noOpFileStats = aggregateFileStats(noOpSessions);
+  const persistentNoOpWrites: CrossSessionNoOpWriteFile[] = [];
+  for (const [filePath, stat] of noOpFileStats.entries()) {
+    if (stat.sessionCount < 2) continue;
+    if (EXCLUDED_PATH_PATTERNS.some((re) => re.test(filePath))) continue;
+    const prevalence = stat.sessionCount / totalSessions;
+    if (prevalence < 0.3) continue; // lower bar than hot-reads: even 30% is actionable
+    persistentNoOpWrites.push({
+      path: filePath,
+      sessionCount: stat.sessionCount,
+      totalSessions,
+      skipsPerSession: Math.round((stat.totalReads / stat.sessionCount) * 10) / 10,
+      prevalence,
+    });
+  }
+  persistentNoOpWrites.sort((a, b) => b.prevalence - a.prevalence || b.skipsPerSession - a.skipsPerSession);
+
+  return { totalSessions, persistentHotFiles, persistentNoOpWrites };
 }
 
 // ---------------------------------------------------------------------------

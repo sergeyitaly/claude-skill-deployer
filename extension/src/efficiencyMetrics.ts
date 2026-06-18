@@ -1,6 +1,11 @@
 import * as fs from "node:fs";
 import { readEnrichedRuns } from "./usageStats";
 import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
+
+// Hints are written at most once every 30 s to avoid redundant file I/O when the
+// dashboard is opened repeatedly in quick succession (e.g. during a task).
+const HINTS_WRITE_MIN_INTERVAL_MS = 30_000;
+let lastHintsWriteMs = 0;
 import {
   summarizeMcpUsage,
   summarizeCrossSessionPatterns,
@@ -144,12 +149,16 @@ export function computeEfficiencyMetrics(
     : resolveMcpLogPath(target, telemetryScope);
   const crossSession = summarizeCrossSessionPatterns(30, crossSessionLogPath);
 
-  // Write auto-remediation hints file whenever there is actionable data
+  // Write auto-remediation hints at most once per 30 s — avoids redundant file I/O
+  // when the dashboard is opened repeatedly or on every cost-pipeline tick.
   if (mcp.totalCalls > 0) {
-    writeMcpHints(mcp);
-    // Append CLI error-pattern hints derived from the last 30 days of log entries
-    const allEntries = readMcpUsageLog(resolveMcpLogPath(target, telemetryScope) ?? undefined);
-    appendCliPatternHints(analyzeCliPatterns(allEntries));
+    const now = Date.now();
+    if (now - lastHintsWriteMs >= HINTS_WRITE_MIN_INTERVAL_MS) {
+      lastHintsWriteMs = now;
+      writeMcpHints(mcp);
+      const allEntries = readMcpUsageLog(resolveMcpLogPath(target, telemetryScope) ?? undefined);
+      appendCliPatternHints(analyzeCliPatterns(allEntries));
+    }
   }
 
   return {
@@ -424,7 +433,8 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     m.wasteWarnings.length > 0 ||
     m.excessiveScans.length > 0 ||
     m.largeFiles.length > 0 ||
-    cs.persistentHotFiles.length > 0
+    cs.persistentHotFiles.length > 0 ||
+    cs.persistentNoOpWrites.length > 0
   );
 
   const parts: string[] = [];
@@ -477,6 +487,26 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
         </div>`
       : "";
 
+  const noOpWritesHtml =
+    cs.persistentNoOpWrites.length > 0
+      ? `<div class="sub-panel" style="grid-column: 1 / -1">
+          <h3>Persistent no-op writes · 30d · ${cs.totalSessions} session(s)</h3>
+          ${cs.persistentNoOpWrites
+            .slice(0, 6)
+            .map(
+              (f) => `<div class="skill-row warn-row">
+                <div class="skill-head">
+                  <code>${esc(f.path.length > 50 ? "…" + f.path.slice(-47) : f.path)}</code>
+                  <span class="cost">${Math.round(f.prevalence * 100)}% of sessions</span>
+                </div>
+                <div class="hint">${f.sessionCount}/${f.totalSessions} sessions · avg ${f.skipsPerSession}× skipped per session — agent rewrites identical content</div>
+              </div>`
+            )
+            .join("")}
+          <p class="note" style="margin-top:4px">Agent is rewriting these files with unchanged content — click <b>Apply auto-fixes</b> to add permanent cache rules.</p>
+        </div>`
+      : "";
+
   return `<div class="panel">
   <h2>Efficiency metrics · 14d</h2>
   ${scoreBanner}
@@ -484,6 +514,7 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     ${parts.join("\n    ")}
     ${warningsHtml}
     ${crossSessionHtml}
+    ${noOpWritesHtml}
   </div>
   <p class="note" style="margin-top:8px">Costs from runs.jsonl hooks. MCP file-access patterns from <code>~/.claude/learning/mcp-usage.jsonl</code>. Hints written to <code>~/.claude/learning/mcp-agent-hints.md</code>. Estimates only.</p>
   <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">

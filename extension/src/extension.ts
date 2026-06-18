@@ -237,6 +237,7 @@ import { recordActivation, recordError, recordFeatureUse } from "./analytics";
 import { runV1Migration } from "./migration";
 import { autoMigrateProxyIfActive, revertMcpOptimizer } from "./mcpAutoOptimizer";
 import { applyMcpAutoFixesForTarget } from "./mcpAutoFix";
+import { startMcpForceWatchdog } from "./mcpForceWatchdog";
 import { checkMcpHealth } from "./mcpHealth";
 import { enableOfficialFilesystemServer, disableOfficialFilesystemServer, refreshFilesystemAllowedDirs, getFilesystemMcpServerStatus, needsFilesystemMcpSetup, syncFilesystemServerBinary } from "./mcpOfficial";
 import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatus, needsCliMcpSetup, refreshCliConfig, syncCliServerBinary } from "./mcpCli";
@@ -1437,6 +1438,15 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
       }
     });
+
+    // Watchdog: if MCP force mode is active but MCP server becomes unreachable,
+    // auto-revert permissions to prevent agents from being deadlocked.
+    context.subscriptions.push(
+      startMcpForceWatchdog(getWorkspaceTarget, log, () => {
+        provider.refreshMcpServerStatus();
+        refreshMcpStatusBars();
+      })
+    );
   }
 
   context.subscriptions.push(
@@ -3585,3 +3595,5 @@ export function deactivate() {
   AttributionCollector.stopAll();
   void stopHookServer();
 }
+
+

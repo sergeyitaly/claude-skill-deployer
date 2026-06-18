@@ -126,25 +126,46 @@ const WORKSPACE_LOG_PATH = (() => {
   }
 })();
 
+// ---------------------------------------------------------------------------
+// Async write queue for MCP usage log.
+// Batches rapid successive tool-call entries into a single I/O operation via
+// setImmediate so the log flush never blocks the event loop during tool dispatch.
+// ---------------------------------------------------------------------------
+
+/** Map<filePath, lines[]> of pending log lines awaiting the next flush. */
+const _logQueue = new Map();
+let _logFlushScheduled = false;
+
+function _flushLogQueue() {
+  _logFlushScheduled = false;
+  for (const [filePath, lines] of _logQueue) {
+    _logQueue.delete(filePath);
+    const data = lines.join("");
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.appendFileSync(filePath, data, "utf-8");
+    } catch {
+      // non-fatal — never crash the server over logging
+    }
+  }
+}
+
 function appendMcpUsageLog(entry) {
   if (process.env.MCP_DISABLE_USAGE_LOG) return;
   const line = JSON.stringify(entry) + "\n";
-  // Always write to global log for cross-session intelligence.
-  try {
-    fs.mkdirSync(path.dirname(MCP_USAGE_LOG), { recursive: true });
-    fs.appendFileSync(MCP_USAGE_LOG, line, "utf-8");
-  } catch {
-    // non-fatal — never crash the server over logging
-  }
-  // Also write to workspace-scoped log for per-project KPI attribution (hybrid mode).
+
+  const enqueue = (filePath) => {
+    const existing = _logQueue.get(filePath);
+    if (existing) { existing.push(line); } else { _logQueue.set(filePath, [line]); }
+  };
+
+  enqueue(MCP_USAGE_LOG);
   const wsLog = WORKSPACE_LOG_PATH;
-  if (wsLog && wsLog !== MCP_USAGE_LOG) {
-    try {
-      fs.mkdirSync(path.dirname(wsLog), { recursive: true });
-      fs.appendFileSync(wsLog, line, "utf-8");
-    } catch {
-      // non-fatal
-    }
+  if (wsLog && wsLog !== MCP_USAGE_LOG) enqueue(wsLog);
+
+  if (!_logFlushScheduled) {
+    _logFlushScheduled = true;
+    setImmediate(_flushLogQueue);
   }
 }
 
