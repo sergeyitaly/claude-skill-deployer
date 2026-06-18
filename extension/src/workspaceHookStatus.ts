@@ -90,6 +90,28 @@ export function formatHookStatusPanelHtml(status: WorkspaceHookStatus): string {
         ? `<p class="note">${escapeHtml(gap.summary)}</p>`
         : "";
 
+  const g = status.guards;
+  const guardsRows = [
+    `<div class="hook-row">
+      <span>Dir cache guard <span class="agent-id">(PreToolUse)</span></span>
+      <span class="hook-badge ${g.dirCacheGuard ? "hook-on" : "hook-off"}">${g.dirCacheGuard ? "on" : "off"}</span>
+    </div>`,
+    `<div class="hook-row">
+      <span>CLI loop guard <span class="agent-id">(PostToolUse)</span></span>
+      <span class="hook-badge ${g.cliLoopGuard ? "hook-on" : "hook-off"}">${g.cliLoopGuard ? "on" : "off"}</span>
+    </div>`,
+    `<div class="hook-row">
+      <span>File split advisor <span class="agent-id">(PostToolUse)</span></span>
+      <span class="hook-badge ${g.fileSplitAdvisor ? "hook-on" : "hook-off"}">${g.fileSplitAdvisor ? "on" : "off"}</span>
+    </div>`,
+  ].join("");
+  const degradedBanner = g.degraded
+    ? `<div class="warn" style="margin-top:0.5rem">
+        ⚠ Guard hooks are configured but the VS Code extension hook server is not running —
+        enforcement is inactive. Reload VS Code or ensure the Claude Skills extension is active.
+      </div>`
+    : "";
+
   return `<div class="panel hook-panel">
     <h2>Workspace hooks</h2>
     <p class="note" style="margin-top:0">${escapeHtml(attrSummary)} Session/budget hooks apply to Claude Code only.</p>
@@ -98,6 +120,9 @@ export function formatHookStatusPanelHtml(status: WorkspaceHookStatus): string {
     ${agentRows || "<p class=\"note\">No attribution-capable agents enabled.</p>"}
     <div class="hook-section-label">Cost control (Claude Code)</div>
     ${costRows}
+    <div class="hook-section-label">Efficiency guards</div>
+    ${guardsRows}
+    ${degradedBanner}
   </div>`;
 }
 
@@ -117,7 +142,15 @@ export function formatHookStatusPlain(status: WorkspaceHookStatus): string {
     ? "Practical/deployment focus: on"
     : "Practical/deployment focus: off";
 
-  return `${attr}. ${session}. ${budget}. ${focus}. ${practical}.`;
+  const g = status.guards;
+  const guardParts = [
+    g.dirCacheGuard ? "dir-cache: on" : "dir-cache: off",
+    g.cliLoopGuard ? "cli-loop: on" : "cli-loop: off",
+    g.fileSplitAdvisor ? "file-split: on" : "file-split: off",
+  ];
+  const guardsSummary = `Guards (${guardParts.join(", ")})${g.degraded ? " ⚠ DEGRADED — hook server not running" : ""}`;
+
+  return `${attr}. ${session}. ${budget}. ${focus}. ${practical}. ${guardsSummary}.`;
 }
 
 export { HOOK_STATUS_STYLES } from "./dashboardStyles";

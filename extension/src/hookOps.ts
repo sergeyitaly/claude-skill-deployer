@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { AgentId, enabledAgents, loadAgentsManifest, workspaceMirrorAgentIds } from "./agentOps";
 import { assessClaudeVscodeAttributionGap, ClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 import { ensureLearningDir } from "./usageStats";
-import { hookBaseUrl } from "./hookServer";
+import { hookBaseUrl, isHookServerRunning } from "./hookServer";
 import { writeJsonAtomic } from "./fileWriteCoordination";
 
 // Legacy filenames — used only to detect and remove old JS-based hook commands during migration
@@ -1287,6 +1287,18 @@ export interface WorkspaceHookStatus {
   };
   /** Claude VS Code PostToolUse gap + PreToolUse workaround state. */
   claudeVscodeGap?: ClaudeVscodeAttributionGap;
+  /**
+   * Efficiency guard hooks (PreToolUse / PostToolUse).
+   * `degraded` is true when a guard is configured but the hook server is not reachable,
+   * meaning the curl command silently no-ops and enforcement is inactive.
+   */
+  guards: {
+    dirCacheGuard: boolean;
+    cliLoopGuard: boolean;
+    fileSplitAdvisor: boolean;
+    /** True when at least one guard is configured but the hook server port is unreachable. */
+    degraded: boolean;
+  };
 }
 
 function attributionConfiguredForAgent(target: string, agentId: AgentId): boolean {
@@ -1323,6 +1335,16 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
   const applicableAgents = agents.filter((a) => a.applicable);
   const configuredCount = applicableAgents.filter((a) => a.configured).length;
 
+  // Efficiency guards — configured means the hook entry is written to settings.json.
+  // degraded means at least one guard is configured but the hook server is not running
+  // (e.g. VS Code was closed but the Claude CLI session is still active), so the curl
+  // command will silently no-op instead of being handled.
+  const dirCacheGuard = isDirCacheGuardConfigured(target);
+  const cliLoopGuard = isCliLoopGuardConfigured(target);
+  const fileSplitAdvisor = isFileSplitAdvisorConfigured(target);
+  const anyGuardConfigured = dirCacheGuard || cliLoopGuard || fileSplitAdvisor;
+  const guardsDegraded = anyGuardConfigured && !isHookServerRunning();
+
   return {
     attribution: {
       configuredCount,
@@ -1348,6 +1370,12 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
         agentCostControlPromptHooksConfigured(target, libraryDir),
     },
     claudeVscodeGap: assessClaudeVscodeAttributionGap(target),
+    guards: {
+      dirCacheGuard,
+      cliLoopGuard,
+      fileSplitAdvisor,
+      degraded: guardsDegraded,
+    },
   };
 }
 

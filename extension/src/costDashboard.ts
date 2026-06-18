@@ -378,10 +378,10 @@ export function buildDashboardMainBodyHtml(
     .map((row) => {
       const pct = agentCostTotal > 0 && row.cost > 0 ? Math.round((row.cost / agentCostTotal) * 100) : 0;
       const detail = !row.transcriptTracked
-        ? "Deploy only — spend not measured (no transcript roots)"
+        ? "Hook-only — enable attribution hooks for measured Kiro/Copilot spend"
         : row.tokens === 0
           ? "No usage logged in the last 14 days"
-          : `${formatTokenCount(row.tokens)} tokens · ${row.sessions} session(s)`;
+          : `${formatTokenCount(row.tokens)} tokens · ${row.sessions > 0 ? `${row.sessions} session(s)` : "hook-measured"}`;
       return `<div class="skill-row">
         <div class="skill-head"><b>${escapeHtml(row.displayName)}</b> <span class="agent-id">(${escapeHtml(row.agent)})</span>
           ${attrByAgent.has(row.agent as AgentId) ? `<span class="hook-badge ${attrByAgent.get(row.agent as AgentId) ? "hook-on" : "hook-off"}">attr ${attrByAgent.get(row.agent as AgentId) ? "on" : "off"}</span>` : ""}
@@ -547,7 +547,7 @@ export function buildDashboardMainBodyHtml(
 
   <div class="panel">
     <h2>By agent · 14d</h2>
-    <p class="note" style="margin-top:0">Claude + Cursor: this workspace only. Kiro + Copilot: deploy only.</p>
+    <p class="note" style="margin-top:0">Claude + Cursor: transcript-based (this workspace). Kiro + Copilot: hook-measured from <code>runs.jsonl</code> (enable attribution hooks for Kiro cost data).</p>
     ${agentRows}
   </div>
 
@@ -774,7 +774,7 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
         ? `${formatCompactUsd(row.cost)} | ${formatTokenCount(row.tokens)} | ${row.sessions} sessions`
         : row.transcriptTracked
           ? "no usage logged"
-          : "deploy only — spend not measured";
+          : "deploy only — spend not measured (enable attribution hooks)";
     lines.push(`    ${row.displayName} (${row.agent}): ${spend}`);
     if (row.models.length > 0) {
       for (const m of row.models) {

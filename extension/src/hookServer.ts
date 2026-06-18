@@ -14,16 +14,48 @@ export function hookBaseUrl(): string {
   return `http://127.0.0.1:${_port}`;
 }
 
+/** True when the hook server has successfully bound to a port. */
+export function isHookServerRunning(): boolean {
+  return _server !== undefined;
+}
+
+const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1 MB — guard against runaway hook payloads
+
 function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): void {
   const chunks: Buffer[] = [];
-  req.on("data", (chunk: Buffer) => chunks.push(chunk));
+  let totalBytes = 0;
+  let oversized = false;
+  req.on("data", (chunk: Buffer) => {
+    totalBytes += chunk.byteLength;
+    if (totalBytes > MAX_BODY_BYTES) {
+      oversized = true;
+      req.destroy(); // stop reading; the end handler will still fire
+      return;
+    }
+    chunks.push(chunk);
+  });
   req.on("end", () => {
     void (async () => {
       try {
+        if (oversized) {
+          res.writeHead(413, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "payload too large" }));
+          return;
+        }
         const body = Buffer.concat(chunks).toString("utf-8");
         const parsed = new URL(req.url ?? "/", "http://localhost");
         const segments = parsed.pathname.replace(/^\/+/, "").split("/");
-        const hookName = segments[0] === "hook" ? (segments[1] ?? "") : segments[0];
+        const firstSegment = segments[0];
+
+        // Health-check endpoint — lets external callers (hooks, diagnostics) verify
+        // the server is alive without triggering a full hook dispatch cycle.
+        if (firstSegment === "health") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, port: _port }));
+          return;
+        }
+
+        const hookName = firstSegment === "hook" ? (segments[1] ?? "") : firstSegment;
         const agent = parsed.searchParams.get("agent") ?? "claude";
         const cwdParam = parsed.searchParams.get("cwd");
         const cwd = cwdParam ? decodeURIComponent(cwdParam) : process.cwd();

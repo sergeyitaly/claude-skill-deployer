@@ -73,6 +73,8 @@ export interface McpWasteWarning {
 export interface ReadAfterWriteWarning {
   path: string;
   secondsAfter: number;
+  /** Tokens wasted by reading content that was just written (bytes of the read / 4). */
+  estimatedWastedTokens: number;
   description: string;
 }
 
@@ -292,9 +294,11 @@ function detectReadAfterWrite(
       const wTime = lastWriteByPath.get(e.path);
       if (wTime !== undefined && ts > wTime && ts - wTime <= windowSecs * 1000) {
         const secondsAfter = Math.round((ts - wTime) / 1000);
+        const estimatedWastedTokens = bytesToTokens(e.bytes ?? 0);
         warnings.push({
           path: e.path,
           secondsAfter,
+          estimatedWastedTokens,
           description: `Read ${secondsAfter}s after write — reuse written content instead of re-reading`,
         });
         // Clear so we don't keep firing for the same write unless there is another write.
@@ -522,7 +526,8 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
   const readAfterWrite = detectReadAfterWrite(resolvedEntries);
   const agentLoops = detectAgentLoops(resolvedEntries);
   const largeFiles = detectLargeFiles(resolvedEntries);
-  // Exclude files already surfaced as agent loops — the loop warning is more specific.
+  // Exclude files already surfaced as agent loops before scoring — the loop warning is more
+  // specific and counting the same file in both signals would double-penalise the score.
   const loopPaths = new Set(agentLoops.map((l) => l.path));
   const wasteWarnings = detectWaste(resolvedEntries).warnings
     .filter((w) => !loopPaths.has(w.path))
@@ -530,9 +535,13 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
   const noOpWrites = detectNoOpWrites(resolvedEntries);
   const excessiveScans = detectExcessiveScans(resolvedEntries);
 
+  // computeScore receives the post-filter wasteWarnings so loop-path reads are not double-counted.
+  const efficiencyScore = computeScore(goodEntries.length, wasteWarnings, readAfterWrite, agentLoops, noOpWrites, excessiveScans);
+
   const totalWastedTokens =
     wasteWarnings.reduce((s, w) => s + w.wastedTokens, 0) +
-    agentLoops.reduce((s, l) => s + l.estimatedWastedTokens, 0);
+    agentLoops.reduce((s, l) => s + l.estimatedWastedTokens, 0) +
+    readAfterWrite.reduce((s, r) => s + r.estimatedWastedTokens, 0);
 
   // Suggestions
   const suggestions: McpOptimizationSuggestion[] = [];
@@ -573,8 +582,6 @@ export function summarizeMcpUsage(daysBack = 14, logPath?: string): McpUsageSumm
       description: `Cache directory listings instead of re-scanning — ${excessiveScans.length} path(s) scanned 3× or more${entrySuffix}`,
     });
   }
-
-  const efficiencyScore = computeScore(goodEntries.length, wasteWarnings, readAfterWrite, agentLoops, noOpWrites, excessiveScans);
 
   // Latest session ID for per-session alert deduplication.
   const latestSessionId = [...entries].reverse().find((e) => e.sessionId)?.sessionId;
@@ -823,9 +830,9 @@ function aggregateFileStats(
   return fileStats;
 }
 
-export function summarizeCrossSessionPatterns(daysBack = 30): CrossSessionSummary {
+export function summarizeCrossSessionPatterns(daysBack = 30, logPath?: string): CrossSessionSummary {
   const cutoff = Date.now() - daysBack * 86_400_000;
-  const entries = readMcpUsageLog().filter(
+  const entries = readMcpUsageLog(logPath).filter(
     (e) => !e.error && e.tool === "read_file" && new Date(e.ts).getTime() >= cutoff
   );
 

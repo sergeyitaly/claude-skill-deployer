@@ -136,7 +136,13 @@ export function computeEfficiencyMetrics(
     .slice(0, 8);
 
   const mcp = summarizeMcpUsage(daysBack, resolveMcpLogPath(target, telemetryScope));
-  const crossSession = summarizeCrossSessionPatterns(30); // always reads global log for cross-project intelligence
+  // Pass the same resolved log path so cross-session analysis respects the telemetry scope.
+  // Falls back to the global log (undefined) for "global" scope, which provides
+  // cross-project intelligence — intentional when the user explicitly opts into global scope.
+  const crossSessionLogPath = telemetryScope === "global"
+    ? undefined
+    : resolveMcpLogPath(target, telemetryScope);
+  const crossSession = summarizeCrossSessionPatterns(30, crossSessionLogPath);
 
   // Write auto-remediation hints file whenever there is actionable data
   if (mcp.totalCalls > 0) {

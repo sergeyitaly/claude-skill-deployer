@@ -22,7 +22,7 @@ import {
   removeSkill,
   settingsLocalPath,
 } from "./skillOps";
-import { computeCreditUsageFromRoots, mergeHookModelsIntoAgentRows, ModelUsage } from "./usageCost";
+import { computeCreditUsageFromRoots, mergeHookModelsIntoAgentRows, ModelUsage, totalTokensForModelUsage } from "./usageCost";
 import { readCachedCreditUsageFromRoots } from "./transcriptUsageIndex";
 import { fileContentHash, shouldCopyPath, stringContentHash } from "./fileHash";
 import { yieldToEventLoop } from "./eventLoop";
@@ -990,7 +990,29 @@ export function computePerAgentCreditUsage(
       models: summary.byModel,
     };
   });
-  return mergeHookModelsIntoAgentRows(rows, workspaceTarget, daysBack);
+
+  const merged = mergeHookModelsIntoAgentRows(rows, workspaceTarget, daysBack);
+
+  // For agents without transcript roots (Kiro, Copilot), the hook merge populates
+  // `models` but leaves `cost` and `tokens` at 0. Roll up hook model totals into
+  // the row so the dashboard shows real measured spend instead of "Deploy only".
+  return merged.map((row) => {
+    if (row.transcriptTracked || row.models.length === 0) {
+      return row;
+    }
+    const hookCost = row.models.reduce((s, m) => s + m.cost, 0);
+    const hookTokens = row.models.reduce((s, m) => s + totalTokensForModelUsage(m), 0);
+    if (hookCost <= 0 && hookTokens <= 0) {
+      return row;
+    }
+    return {
+      ...row,
+      cost: hookCost,
+      tokens: hookTokens,
+      // Mark as hook-measured so the dashboard can label it correctly
+      transcriptTracked: true,
+    };
+  });
 }
 
 export function agentCapabilityLines(libraryDir: string): string[] {

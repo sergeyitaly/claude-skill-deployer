@@ -46,7 +46,8 @@ export function checkMcpHealth(): McpHealth {
     errors.push(`MCP server script missing: ${FILESYSTEM_SERVER_PATH}`);
   }
 
-  // Check 2: Per-agent config (claude, cursor, kiro; copilot is always registered via package.json)
+  // Check 2: Per-agent config (claude, cursor, kiro; copilot is always registered via
+  // package.json contributes.mcpServers and needs no config-file write).
   const configuredAgents: string[] = ["copilot"]; // always registered via contributes.mcpServers
   for (const [agentId, configPath] of Object.entries(AGENT_CONFIG_PATHS)) {
     const config = readJsonConfig(configPath);
@@ -56,10 +57,15 @@ export function checkMcpHealth(): McpHealth {
     }
   }
 
-  // Copilot is always registered via contributes.mcpServers — it needs no config-file write,
-  // so it must not count toward the "is the server actually wired up?" binary check.
+  // Copilot is always registered via contributes.mcpServers so it needs no config-file
+  // write — exclude it from the "is the server actually wired up?" binary check, but
+  // also require allowed-dirs.json to exist or Copilot's server process will crash.
+  const allowedDirsPath = path.join(
+    os.homedir(), ".claude", "mcp-servers", "filesystem", "allowed-dirs.json"
+  );
+  const copilotReady = fs.existsSync(allowedDirsPath);
   const realAgents = configuredAgents.filter((a) => a !== "copilot");
-  const configValid = serverExists && realAgents.length > 0;
+  const configValid = serverExists && (realAgents.length > 0 || copilotReady);
   if (!configValid && serverExists) {
     errors.push("Filesystem MCP server not configured for any agent (Claude, Cursor, or Kiro).");
   }
