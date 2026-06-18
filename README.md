@@ -162,6 +162,8 @@ Both MCP servers auto-start on extension activation â€” no manual setup req
 
 Every call is recorded as a JSONL line in `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped). The extension reads these logs to compute efficiency KPIs and optimization hints.
 
+> **v1.0.73 — Native tool operations now logged** — PostToolUse hooks now capture all IDE tool invocations, including native tools like `run_task` and `run_in_terminal`. These appear in `mcp-usage.jsonl` with the `tool` field prefixed as `native:<toolName>` to distinguish them from MCP server operations. This provides complete observability across all agent tooling, filling a previous gap where native tools were untracked.
+
 > **v1.0.70 fix â€” all tools now return MCP-compliant responses.** Previous builds returned non-standard shapes (`{ content: string }` for `read_file`; `{ entries: [...] }` for `list_directory`; `{ results: [...] }` for `search_files`) that caused Zod validation errors or silent empty output. All six tools now wrap results in the required `content: [{ type: "text", text: "..." }]` array. The fix is deployed automatically on the next extension activation (`syncFilesystemServerBinary` copies the updated binary). Because the MCP server is a **persistent stdio process**, open agent sessions must reconnect (reload the IDE window or start a new chat) to pick up the updated binary.
 
 ### CLI MCP server tools
@@ -254,15 +256,16 @@ Agent calls mcp__claude-skills-cli__run_command(cli="npm", args=["run", "build"]
 
 ### Scenario 4 â€” Full file I/O observability (no enforcement)
 
-An AI agent can choose between its built-in native tools (`Read`, `Edit`, `Glob`, etc.) and the MCP filesystem tools. Both work; only MCP calls are logged and scored.
+An AI agent can choose between its built-in native tools (`Read`, `Edit`, `Glob`, etc.) and the MCP filesystem tools. Both work; **all calls are now logged and scored** via PostToolUse hooks.
 
 **What you get:**
 
-- The **Agent KPI** status bar shows an efficiency grade (Aâ€“F) based on how the agent used file tools in the last 24 h.
-- The **Cost Dashboard â†’ Efficiency metrics** panel breaks down token waste by file and session.
+- The **Agent KPI** status bar shows an efficiency grade (A–F) based on how the agent used file and IDE tools in the last 24 h (including native `run_task`, `run_in_terminal`, etc.).
+- The **Cost Dashboard → Efficiency metrics** panel breaks down token waste by tool, file, and session.
 - A hints file (`~/.claude/learning/mcp-agent-hints.md`) is auto-written after each analysis pass with rules the agent can read at session start to avoid repeating past wasteful patterns.
+- Native tool operations appear in the logs with the prefix `native:<toolName>` for clear distinction from MCP server operations.
 
-**When to use this scenario:** auditing an existing agent setup without changing its behavior.
+**When to use this scenario:** auditing an existing agent setup without changing its behavior, or tracking both MCP and native tool efficiency.
 
 ---
 
@@ -280,10 +283,11 @@ Command Palette â†’ **Enable MCP Force Mode** applies two changes:
 **What you get:**
 
 - 100% of file I/O flows through the MCP server, so every read, write, list, and search appears in the telemetry log.
-- KPI grades are meaningful rather than partial (native tool calls leave no trace).
-- The **Efficiency metrics** panel shows exact token counts per file, per session, and per tool type.
+- All native tool operations (run_task, run_in_terminal, etc.) are also captured and logged as `native:<toolName>` entries in `mcp-usage.jsonl`.
+- KPI grades are meaningful and comprehensive (all tool calls are tracked—no gaps).
+- The **Efficiency metrics** panel shows exact token counts per file, per session, per tool type, and across native tools.
 
-**When to use this scenario:** strict agent observability, cost audits, or testing agents in isolation.
+**When to use this scenario:** strict agent observability across all IDE operations, cost audits, or testing agents in isolation.
 
 ---
 

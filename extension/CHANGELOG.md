@@ -3,7 +3,7 @@
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.72** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.73** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.73** | PostToolUse native tool logging — run_task, run_in_terminal, and all IDE tools now tracked in mcp-usage.jsonl |
 | **1.0.72** | MCP server v1.2 — edit_file, session caches, auto-fix hints, and scoring accuracy |
 | **1.0.70** | MCP filesystem error guard â€” self-correcting hooks extend to all MCP tool failures |
 | **1.0.69** | Adaptive agent loop â€” self-correcting hooks, session memory, dir-cache guard |
@@ -32,6 +33,32 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.73] — 2026-06-18
+
+**Summary:** Native IDE tool operations (run_task, run_in_terminal, etc.) are now captured by PostToolUse hooks and logged to mcp-usage.jsonl alongside MCP server operations. Fills a gap where native tools were previously untracked, enabling complete observability across all agent tooling.
+
+**Theme:** PostToolUse native tool logging — complete agent tooling visibility
+
+### Added
+
+- **Native tool operation logging** (`appendToolUse()` in `runRecording.ts`) — PostToolUse hooks now capture all IDE tool invocations, not just MCP operations. Native tools appear in `mcp-usage.jsonl` with `tool` field formatted as `native:<toolName>` (e.g., `native:run_task`, `native:run_in_terminal`) to distinguish them from MCP server operations.
+
+- **PostToolUse hook handler update** (`handleSkillInvoke()` in `hookHandlers.ts`) — modified to call `appendToolUse()` for non-skill tools before returning, ensuring all native IDE tool operations are logged with full context (agent, sessionId, model, timestamps).
+
+- **Dual-path native tool logging** — native tool operations are logged to both `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped), matching the existing MCP server logging pattern.
+
+### Changed
+
+- **Efficiency scoring now includes native tools** — KPI grades now reflect usage patterns across native tools (run_task, run_in_terminal, etc.) as well as MCP operations, providing complete observability of agent efficiency.
+
+- **Scenarios 4 & 5 behavior change** — "Full file I/O observability" and "MCP Force Mode" now provide complete tooling observability (previously only MCP calls were logged; native tools left no trace). All tool invocations now appear in telemetry logs.
+
+### Fixed
+
+- **Gap in agent tool tracking** — native tool operations (`run_task`, `run_in_terminal`, etc.) that flowed through the PostToolUse hook handler were previously dropped before any logging occurred. Now properly captured and logged with consistent metadata alongside MCP operations.
 
 ---
 
