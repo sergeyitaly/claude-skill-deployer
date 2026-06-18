@@ -25,6 +25,7 @@ export interface McpUsageEntry {
   /**
    * Filesystem server: "read_file" | "write_file" | "list_directory" | "search_files" | "delete_file"
    * CLI server: "cli:<name>" (e.g. "cli:az", "cli:terraform") | "list_available_clis"
+   * Native bash hook: "bash:<name>" (e.g. "bash:npm", "bash:terraform")
    */
   tool: string;
   /** Filesystem entries always have a path; CLI entries omit it. */
@@ -44,10 +45,12 @@ export interface McpUsageEntry {
   /** Rotated on each MCP initialize handshake — identifies one agent conversation. */
   sessionId?: string;
   // ── CLI server fields (present when server === "cli") ──────────────────────
-  /** "cli" for CLI MCP server entries; absent for filesystem server entries. */
-  server?: "cli";
-  /** Normalised CLI name, e.g. "az", "terraform" (CLI server only). */
+  /** "cli" for CLI MCP server entries; "bash" for native terminal-watch entries; absent for filesystem entries. */
+  server?: "cli" | "bash";
+  /** Normalised CLI name, e.g. "az", "terraform" (CLI server and bash entries). */
   cli?: string;
+  /** Full command string (native bash/PowerShell terminal-watch entries only). */
+  command?: string;
   /** Process exit code (CLI server only). */
   exitCode?: number;
   /** Byte length of stdout (CLI server only). */
@@ -896,6 +899,14 @@ export interface CliCallStats {
   timedOutCount: number;
   /** Calls made within RETRY_WINDOW_MS of a previous failure in the same session. */
   retryCount: number;
+  /**
+   * Retries that succeeded — the agent failed then corrected itself within the window.
+   * A positive signal: high recoveryRate means the agent is self-correcting.
+   * recoveryRate = recoveryCount / failureCount × 100 (0–100, or null when no failures).
+   */
+  recoveryCount: number;
+  /** 0–100; null when failureCount === 0 (no failures to recover from). */
+  recoveryRate: number | null;
   /** 0–100. */
   successRate: number;
   avgDurationMs: number;
@@ -913,6 +924,13 @@ export interface CliKpi {
   totalFailures: number;
   totalRetries: number;
   totalTimedOut: number;
+  /**
+   * How many failures were followed by a success within RETRY_WINDOW_MS in the same session.
+   * Positive signal: high value means the agent self-corrects rather than getting stuck.
+   */
+  totalRecoveries: number;
+  /** 0–100; null when totalFailures === 0. */
+  overallRecoveryRate: number | null;
   /** 0–100 across all CLIs. */
   overallSuccessRate: number;
   grade: EfficiencyScore["grade"];
@@ -939,14 +957,24 @@ function percentile(sorted: number[], p: number): number {
 
 /**
  * Compute CLI efficiency KPI from a slice of McpUsageEntry logs.
- * Pass the full entry array (not pre-filtered) — this function applies its own
- * date cutoff and CLI-server filter internally.
+ *
+ * @param entries - Full or pre-filtered entry array.
+ * @param daysBack - Lookback window in days.  When the caller has already
+ *   filtered entries to this window (e.g. inside computeEfficiencyMetrics),
+ *   pass `daysBack: 0` to skip the redundant date-parse pass and avoid
+ *   iterating the array twice.
  */
 export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
-  const cutoff = Date.now() - daysBack * 86_400_000;
-  const cliEntries = entries.filter(
-    (e) => e.server === "cli" && e.cli && new Date(e.ts).getTime() >= cutoff
-  );
+  const isTerminalEntry = (e: McpUsageEntry) =>
+    (e.server === "cli" || e.server === "bash") && Boolean(e.cli);
+
+  const cliEntries = daysBack > 0
+    ? entries.filter((e) => {
+        if (!isTerminalEntry(e)) return false;
+        const cutoff = Date.now() - daysBack * 86_400_000;
+        return Date.parse(e.ts) >= cutoff;
+      })
+    : entries.filter(isTerminalEntry);
 
   if (cliEntries.length === 0) {
     return {
@@ -954,6 +982,8 @@ export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
       totalFailures: 0,
       totalRetries: 0,
       totalTimedOut: 0,
+      totalRecoveries: 0,
+      overallRecoveryRate: null,
       overallSuccessRate: 100,
       grade: "A",
       byCli: [],
@@ -981,10 +1011,11 @@ export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
     let failureCount = 0;
     let timedOutCount = 0;
     let retryCount = 0;
+    let recoveryCount = 0;
     let lastFailedAt: string | undefined;
     let lastFailedCwd: string | undefined;
 
-    // Per-session last-failure timestamp for retry detection
+    // Per-session last-failure timestamp for retry/recovery detection
     const lastFailMs = new Map<string, number>();
 
     for (const entry of sorted) {
@@ -995,6 +1026,7 @@ export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
       // Read prevFail BEFORE updating lastFailMs so a failure doesn't count as
       // a retry of itself (the timestamp would match if read after the update).
       const prevFail = lastFailMs.get(session);
+      const isRetry = prevFail !== undefined && entryMs - prevFail <= RETRY_WINDOW_MS;
 
       if (entry.timedOut) timedOutCount++;
 
@@ -1005,14 +1037,16 @@ export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
         lastFailMs.set(session, entryMs);
       } else {
         successCount++;
+        // Recovery: a success that follows a failure within the retry window.
+        // Clears the failure marker so only the first recovery per failure is counted.
+        if (isRetry) {
+          recoveryCount++;
+          lastFailMs.delete(session);
+        }
       }
 
-      // Retry: any call (success or failure) that immediately follows a failure in
-      // the same session within RETRY_WINDOW_MS — covers both success-after-failure
-      // and failure-after-failure patterns.
-      if (prevFail !== undefined && entryMs - prevFail <= RETRY_WINDOW_MS) {
-        retryCount++;
-      }
+      // Retry: any call (success or failure) within RETRY_WINDOW_MS of a prior failure.
+      if (isRetry) retryCount++;
     }
 
     const durations = sorted.map((e) => e.durationMs ?? 0).sort((a, b) => a - b);
@@ -1031,6 +1065,8 @@ export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
       failureCount,
       timedOutCount,
       retryCount,
+      recoveryCount,
+      recoveryRate: failureCount > 0 ? Math.round((recoveryCount / failureCount) * 100) : null,
       successRate: sorted.length > 0 ? Math.round((successCount / sorted.length) * 100) : 100,
       avgDurationMs,
       durationP50: percentile(durations, 0.5),
@@ -1055,11 +1091,18 @@ export function computeCliKpi(entries: McpUsageEntry[], daysBack = 14): CliKpi {
     .sort((a, b) => b.failureCount - a.failureCount)
     .find((c) => c.failureCount > 0)?.cli;
 
+  const totalRecoveries = byCli.reduce((s, c) => s + c.recoveryCount, 0);
+  const overallRecoveryRate = totalFailures > 0
+    ? Math.round((totalRecoveries / totalFailures) * 100)
+    : null;
+
   return {
     totalCalls,
     totalFailures,
     totalRetries,
     totalTimedOut,
+    totalRecoveries,
+    overallRecoveryRate,
     overallSuccessRate,
     grade,
     byCli,

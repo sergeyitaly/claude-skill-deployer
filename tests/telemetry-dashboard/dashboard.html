@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Claude Skills Manager — Telemetry Dashboard</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:#0d1117;color:#c9d1d9;min-height:100vh;padding:24px}
+  h1{font-size:20px;font-weight:700;color:#f0f6fc;margin-bottom:4px}
+  h3{font-size:13px;font-weight:600;color:#8b949e;margin-bottom:12px;
+     text-transform:uppercase;letter-spacing:.05em}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;
+          margin-bottom:28px;flex-wrap:wrap;gap:8px}
+  .header-meta{font-size:12px;color:#8b949e;line-height:1.6}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+            gap:14px;margin-bottom:28px}
+  .kpi{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:18px 20px}
+  .kpi-label{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+  .kpi-value{font-size:28px;font-weight:700;color:#f0f6fc;line-height:1}
+  .kpi-sub{font-size:11px;color:#8b949e;margin-top:6px}
+  .kpi.green .kpi-value{color:#3fb950}
+  .kpi.blue  .kpi-value{color:#5C9CF5}
+  .kpi.yellow .kpi-value{color:#d29922}
+  .kpi.purple .kpi-value{color:#bc8cff}
+  .panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+  .panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px}
+  .panel.wide{grid-column:1/-1}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:6px 10px;color:#8b949e;font-size:11px;
+     text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #30363d}
+  td{padding:7px 10px;border-bottom:1px solid #21262d}
+  tr:last-child td{border-bottom:none}
+  code{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;
+       background:#21262d;padding:2px 5px;border-radius:3px}
+  .grade-badge{display:inline-flex;align-items:center;justify-content:center;
+               width:36px;height:36px;border-radius:50%;font-size:18px;font-weight:700;
+               color:#fff;background:#4CAF50;flex-shrink:0}
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .bar-label{font-size:12px;width:150px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-track{flex:1;background:#21262d;border-radius:3px;height:8px}
+  .bar-fill{height:8px;border-radius:3px;background:#5C9CF5}
+  .bar-num{font-size:12px;color:#8b949e;width:50px;text-align:right}
+  .dim{color:#8b949e;font-size:12px}
+  .badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;
+         font-weight:600;margin-left:4px}
+  .badge-blue{background:#1a2a4a;color:#5C9CF5}
+  .badge-purple{background:#2a1a4a;color:#bc8cff}
+  .badge-green{background:#1a3a22;color:#3fb950}
+  .no-data{text-align:center;padding:40px;color:#8b949e;font-size:13px;line-height:1.8}
+  footer{margin-top:28px;font-size:11px;color:#484f58;text-align:center}
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>Claude Skills Manager — Telemetry Dashboard</h1>
+    <div class="header-meta">
+      Period: last <strong>30 days</strong> &nbsp;|&nbsp;
+      Generated: <strong>Jun 19, 2026, 12:51 AM</strong> &nbsp;|&nbsp;
+      Source: <code>~/.claude/learning/</code>
+    </div>
+  </div>
+  <div class="grade-badge" title="MCP read efficiency grade">A</div>
+</div>
+
+
+
+<div class="kpi-grid">
+  <div class="kpi blue">
+    <div class="kpi-label">Sessions Analysed</div>
+    <div class="kpi-value">1</div>
+    <div class="kpi-sub">last 30 days</div>
+  </div>
+  <div class="kpi green">
+    <div class="kpi-label">Token Waste Prevented</div>
+    <div class="kpi-value">0</div>
+    <div class="kpi-sub">reads + loops + no-op writes</div>
+  </div>
+  <div class="kpi green">
+    <div class="kpi-label">Repeated Reads Avoided</div>
+    <div class="kpi-value">0</div>
+    <div class="kpi-sub">0 re-reads · 0 no-op writes</div>
+  </div>
+  
+  <div class="kpi blue">
+    <div class="kpi-label">Terminal Calls</div>
+    <div class="kpi-value">0</div>
+    <div class="kpi-sub">0 native bash · 0 MCP CLI</div>
+  </div>
+  <div class="kpi purple">
+    <div class="kpi-label">Native Bash Coverage</div>
+    <div class="kpi-value">0%</div>
+    <div class="kpi-sub">0 bash hook · 0 MCP CLI calls</div>
+  </div>
+  <div class="kpi yellow">
+    <div class="kpi-label">Delivery Acceleration</div>
+    <div class="kpi-value">~20%</div>
+    <div class="kpi-sub">estimated from waste reduction</div>
+  </div>
+  <div class="kpi green">
+    <div class="kpi-label">Est. AI Savings / Month</div>
+    <div class="kpi-value">$0.00</div>
+    <div class="kpi-sub">at Sonnet $3/M input tokens</div>
+  </div>
+  <div class="kpi green">
+    <div class="kpi-label">MCP Efficiency Score</div>
+    <div class="kpi-value">100%</div>
+    <div class="kpi-sub">useful reads / total · grade A</div>
+  </div>
+</div>
+
+<div class="panels">
+  <div class="panel">
+    <h3>Waste Breakdown</h3>
+    <div class="bar-row">
+        <span class="bar-label">Repeated reads (3rd+)</span>
+        <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+        <span class="bar-num">0</span>
+      </div><div class="bar-row">
+        <span class="bar-label">No-op writes skipped</span>
+        <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+        <span class="bar-num">0</span>
+      </div><div class="bar-row">
+        <span class="bar-label">Agent loop reads</span>
+        <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+        <span class="bar-num">0</span>
+      </div><div class="bar-row">
+        <span class="bar-label">Read-after-write ops</span>
+        <div class="bar-track"><div class="bar-fill" style="width:0%"></div></div>
+        <span class="bar-num">0</span>
+      </div>
+    <p class="dim" style="margin-top:12px">Tokens wasted: <strong>0</strong> · Total reads: <strong>4</strong></p>
+  </div>
+
+  <div class="panel">
+    <h3>Terminal Health · 0 calls</h3>
+    <p class="dim">No CLI or bash calls recorded yet.<br>
+         Register <code>terminal-watch.js</code> as a PostToolUse<br>hook to capture native bash/PowerShell commands.</p>
+  </div>
+
+  <div class="panel">
+    <h3>Daily AI Cost · 30d</h3>
+    <p class="dim">No run data yet</p>
+    <p class="dim">Total: $0.00 · Avg/day: — · Skill runs: 0</p>
+  </div>
+
+  <div class="panel wide">
+    <h3>Top Skills by Usage</h3>
+    <p class="dim">No skill runs yet. The <code>skill-invoke-watch.js</code> hook writes to runs.jsonl when the AI reads a skill file.</p>
+  </div>
+</div>
+
+
+<footer>
+  Generated by <strong>generate-dashboard.mjs</strong> —
+  real data from <code>~\.claude\learning\mcp-usage.jsonl</code>
+  and <code>~\.claude\learning\runs.jsonl</code>.
+  MCP CLI entries tagged <span style="color:#5C9CF5">blue</span>, native bash entries tagged <span style="color:#bc8cff">purple</span>.
+</footer>
+</body>
+</html>

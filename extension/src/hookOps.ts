@@ -15,6 +15,8 @@ const LEGACY_TASK_DRIFT_HOOK = "task-drift-watch.js";
 const LEGACY_SKILL_INVOKE_HOOK = "skill-invoke-watch.js";
 const LEGACY_OFFICIAL_SKILLS_HOOK = "official-skills-watch.js";
 const LEGACY_PROFILE_INIT_HOOK = "profile-init-watch.js";
+const TERMINAL_WATCH_SCRIPT = "terminal-watch.js";
+const TERMINAL_WATCH_MATCHER = "Bash|PowerShell|run_in_terminal";
 
 const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
 const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
@@ -183,6 +185,33 @@ function hasPreToolHook(settings: Settings, hookName: string): boolean {
 function hasSessionStartHook(settings: Settings, hookName: string): boolean {
   const matchers = settings.hooks?.SessionStart ?? [];
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(`/hook/${hookName}`)));
+}
+
+function hasTerminalWatchHook(settings: Settings): boolean {
+  const matchers = settings.hooks?.PostToolUse ?? [];
+  return matchers.some((m) => m.hooks.some((h) => h.command.includes(TERMINAL_WATCH_SCRIPT)));
+}
+
+function ensureTerminalWatchHookRegistered(settings: Settings, extensionPath: string): boolean {
+  if (hasTerminalWatchHook(settings)) return false;
+  const hookScript = path.join(extensionPath, "resources", "hooks", TERMINAL_WATCH_SCRIPT)
+    .replace(/\\/g, "/");
+  settings.hooks = settings.hooks ?? {};
+  settings.hooks.PostToolUse = settings.hooks.PostToolUse ?? [];
+  settings.hooks.PostToolUse.push({
+    matcher: TERMINAL_WATCH_MATCHER,
+    hooks: [{ type: "command", command: `node "${hookScript}" claude`, timeout: 5 }],
+  });
+  return true;
+}
+
+export function isTerminalWatchHookConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasTerminalWatchHook(settings);
+  } catch {
+    return false;
+  }
 }
 
 export function isTaskDriftHookConfigured(target: string): boolean {
@@ -870,8 +899,9 @@ export function installCostControlHooks(extensionPath: string, target: string): 
   const addedContextFocus = ensureHookRegistered(settings, LEGACY_CONTEXT_FOCUS_HOOK, HOOK_CONTEXT_FOCUS, claudeHookCmd(HOOK_CONTEXT_FOCUS));
   const addedPracticalFocus = ensureHookRegistered(settings, LEGACY_PRACTICAL_FOCUS_HOOK, HOOK_PRACTICAL_FOCUS, claudeHookCmd(HOOK_PRACTICAL_FOCUS));
   const addedTaskDrift = ensureHookRegistered(settings, LEGACY_TASK_DRIFT_HOOK, HOOK_TASK_DRIFT, claudeHookCmd(HOOK_TASK_DRIFT));
+  const addedTerminal = ensureTerminalWatchHookRegistered(settings, extensionPath);
 
-  if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus || addedTaskDrift) {
+  if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus || addedTaskDrift || addedTerminal) {
     writeJsonFile(settingsFile, settings);
   }
 

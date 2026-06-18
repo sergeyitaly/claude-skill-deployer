@@ -3,7 +3,7 @@
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.74** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.76** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.76** | Native bash telemetry — terminal-watch hook, auto-registration, Azure E2E benchmark, telemetry dashboard |
+| **1.0.75** | CLI KPI Phase 1 — success rate, retry count, P50/P95 duration, recovery rate across all CLI MCP calls |
 | **1.0.74** | QA audit hardening — binary file guard, skill lifecycle pipeline, security test suite, 24 new tests |
 | **1.0.73** | PostToolUse native tool logging — run_task, run_in_terminal, and all IDE tools now tracked in mcp-usage.jsonl |
 | **1.0.72** | MCP server v1.2 — edit_file, session caches, auto-fix hints, and scoring accuracy |
@@ -35,6 +37,53 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.76] — 2026-06-19
+
+**Summary:** Native bash/PowerShell telemetry — `terminal-watch.js` PostToolUse hook captures every AI agent terminal command into `mcp-usage.jsonl`, auto-registered by `installCostControlHooks` on extension start; `computeCliKpi` extended to analyse both MCP CLI and native bash entries in a unified view; Azure E2E infrastructure benchmark (10 resources, 7 Terraform modules, GitHub Actions pipeline); real-telemetry dashboard generator.
+
+**Theme:** AI Ops platform — closing the gap between MCP file telemetry and full agent execution observability
+
+### Added
+
+- **`terminal-watch.js`** (`resources/hooks/`) — PostToolUse hook for `Bash`, `PowerShell`, and `run_in_terminal` tool names. Infers exit code from output patterns (`Exit code: N`, PowerShell error record markers, `isError` flag), detects retries (same CLI failed within 60 s), appends `{ tool:"bash:<cli>", server:"bash", cli, command, exitCode, isRetry? }` to both global and workspace-scoped `mcp-usage.jsonl`. Fills the telemetry gap: previously only MCP CLI server calls were logged; now ALL AI terminal execution lands in the same log.
+- **`McpUsageEntry.server?: "cli" | "bash"`** (`mcpUsageLog.ts`) — widens the discriminant to include native bash hook entries.
+- **`McpUsageEntry.command?: string`** (`mcpUsageLog.ts`) — stores the full command string for native bash entries.
+- **`computeCliKpi` extended** (`mcpUsageLog.ts`) — `isTerminalEntry` predicate replaces the `server === "cli"` filter; both MCP CLI (`cli:*`) and native bash (`bash:*`) entries now flow through the same success-rate, retry, duration-percentile, and recovery-rate analysis.
+- **`ensureTerminalWatchHookRegistered`** (`hookOps.ts`) — builds the absolute `node "/path/terminal-watch.js" claude` command from `extensionPath` and appends one PostToolUse matcher entry; idempotent.
+- **`isTerminalWatchHookConfigured(target)`** (`hookOps.ts`) — public check for status/diagnostic use.
+- **`installCostControlHooks` auto-registers terminal-watch** (`hookOps.ts`) — `addedTerminal` wired into the existing write-once-if-any-changed pattern; no extra file I/O.
+- **`tests/azure-infra-benchmark/`** — production-style Terraform infrastructure: Resource Group, Storage Account (TLS 1.2, versioning, diagnostic settings), Key Vault (RBAC auth, purge protection), ACR (Standard, admin disabled), Log Analytics Workspace, Application Insights, User-Assigned Managed Identity with 4 RBAC assignments, Container Apps Environment, Container App (identity pull, autoscale 1–3, APPINSIGHTS env wired). GitHub Actions pipeline: fmt → validate → plan → apply → docker build → push → `az containerapp update` → health verify. Full E2E benchmark report (`BENCHMARK_REPORT.md`).
+- **`tests/telemetry-dashboard/generate-dashboard.mjs`** — reads `~/.claude/learning/mcp-usage.jsonl` and `runs.jsonl`, computes real metrics (sessions, token waste, repeated reads, CLI recovery rate, native bash coverage), writes self-contained `dashboard.html`. Usage: `node generate-dashboard.mjs --days 30`.
+
+### Behavior changes
+
+- `installCostControlHooks` now registers `terminal-watch.js` automatically the first time a workspace is opened after upgrading. Adds one PostToolUse entry matching `Bash|PowerShell|run_in_terminal` to `~/.claude/settings.json`. Idempotent on subsequent starts.
+- Native bash commands now appear in the CLI KPI panel of the efficiency dashboard alongside MCP CLI calls, colour-coded with `server:"bash"` badge. Sessions with zero bash hook entries show `bash coverage: 0%` — expected until the hook fires at least once.
+
+---
+
+## [1.0.75] — 2026-06-19
+
+**Summary:** CLI KPI Phase 1 — `computeCliKpi` delivers per-CLI success rate, total call count, retry count, timeout count, self-correction recovery rate, and P50/P95 duration percentiles; rendered in a new CLI efficiency panel in the cost dashboard and formatted in the output-channel efficiency report.
+
+**Theme:** AI Ops observability — full CLI MCP execution telemetry
+
+### Added
+
+- **`computeCliKpi(entries, daysBack)`** (`mcpUsageLog.ts`) — aggregates CLI MCP server entries (`server:"cli"`) by CLI name; computes success rate (exitCode === 0), failure count, retry count (same CLI failed then succeeded within 30 s), timeout count, recovery rate, and P50/P95 duration percentiles per CLI. Grade thresholds (A ≥ 95%, B ≥ 85%, C ≥ 70%, D ≥ 50%) exported as `GRADE_THRESHOLDS`.
+- **`CliKpi` / `CliCallStats` interfaces** (`mcpUsageLog.ts`) — typed output for the KPI function; `notEnoughData` flag when `totalCalls < 5`.
+- **`EfficiencyMetrics.cliKpi`** (`efficiencyMetrics.ts`) — `computeCliKpi` wired into the main metrics pipeline; pre-filtered to the same `daysBack` window to avoid redundant date-parse passes.
+- **CLI efficiency panel** (`efficiencyMetrics.ts`) — `buildCliKpiPanelHtml` renders per-CLI rows with mini bar chart, success-rate colour coding, retry/timeout/recovery pills, and duration percentiles when ≥ 3 calls exist.
+- **Output-channel CLI section** (`efficiencyMetrics.ts`) — `formatEfficiencyReport` appends `### CLI KPI` block with success rate, grade, failure/retry/timeout counts, recovery rate, per-CLI breakdown, and `mostFailingCli` guidance.
+- **`appendCliPatternHints` / `analyzeCliPatterns`** (`mcpUsageLog.ts`) — detects recurring CLI failure patterns across entries and writes actionable hints to `mcp-agent-hints.md`.
+
+### Behavior changes
+
+- Efficiency dashboard now shows a **CLI efficiency** sub-panel below the MCP waste panels. Requires at least one session with the CLI MCP server active to display data.
+- `mcp-agent-hints.md` gains a `## CLI Patterns` section on the next dashboard open after CLI failures are detected.
 
 ---
 
