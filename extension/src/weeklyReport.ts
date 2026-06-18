@@ -133,7 +133,7 @@ function ghExec(args: string[], cwd: string): string {
   }
 }
 
-function safeDeliveryError(err: unknown): string {
+export function safeDeliveryError(err: unknown): string {
   const msg = (err as Error).message ?? "delivery failed";
   if (/password|secret|token|smtp|auth/i.test(msg)) {
     return "email delivery failed (check SMTP settings)";

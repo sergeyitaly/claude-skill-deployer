@@ -1,12 +1,14 @@
-import * as fs from "node:fs";
+﻿import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearMcpLogs,
+  GRADE_THRESHOLDS,
   McpUsageEntry,
   readMcpUsageLog,
   summarizeMcpUsage,
+  MCP_LOG_MAX_BYTES,
 } from "./mcpUsageLog";
 
 const tmpDirs: string[] = [];
@@ -384,5 +386,63 @@ describe("clearMcpLogs", () => {
     // The global log at MCP_USAGE_LOG_PATH may or may not exist on this machine.
     // clearMcpLogs is non-destructive when file is absent — just verify it doesn't throw.
     expect(() => clearMcpLogs()).not.toThrow();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// GRADE_THRESHOLDS constant -- P2b fix verification
+// ---------------------------------------------------------------------------
+
+describe("GRADE_THRESHOLDS", () => {
+  it("exports all five grades", () => {
+    expect(GRADE_THRESHOLDS).toMatchObject({ A: 90, B: 75, C: 60, D: 45, F: 0 });
+  });
+
+  it("has A as the highest threshold", () => {
+    const values = Object.values(GRADE_THRESHOLDS) as number[];
+    expect(Math.max(...values)).toBe(GRADE_THRESHOLDS.A);
+  });
+
+  it("has F as the lowest threshold (0)", () => {
+    expect(GRADE_THRESHOLDS.F).toBe(0);
+  });
+
+  it("thresholds are strictly decreasing A to F", () => {
+    const order: Array<keyof typeof GRADE_THRESHOLDS> = ["A", "B", "C", "D", "F"];
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(GRADE_THRESHOLDS[order[i]!]).toBeGreaterThan(GRADE_THRESHOLDS[order[i + 1]!]!);
+    }
+  });
+
+  it("summarizeMcpUsage assigns grade A for a clean session", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp-usage.jsonl");
+    const entries: McpUsageEntry[] = Array.from({ length: 10 }, (_, i) => ({
+      ts: new Date(Date.now() + i * 1000).toISOString(),
+      tool: "read_file",
+      path: `/allowed/file${i}.ts`,
+      durationMs: 5,
+      bytes: 100,
+      sessionId: "sess001",
+    }));
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(logPath);
+    expect(summary.efficiencyScore.grade).toBe("A");
+    expect(summary.efficiencyScore.score).toBeGreaterThanOrEqual(GRADE_THRESHOLDS.A);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MCP_LOG_MAX_BYTES constant -- P1c/P3b fix verification
+// ---------------------------------------------------------------------------
+
+describe("MCP_LOG_MAX_BYTES", () => {
+  it("is exported and equals 50 MB", () => {
+    expect(MCP_LOG_MAX_BYTES).toBe(50 * 1024 * 1024);
+  });
+
+  it("is greater than 0", () => {
+    expect(MCP_LOG_MAX_BYTES).toBeGreaterThan(0);
   });
 });

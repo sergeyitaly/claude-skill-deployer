@@ -1,6 +1,6 @@
 ---
 name: mcp-server-creation
-description: Build, wire, and debug a stdio MCP server bundled inside a VS Code extension (claude-skills-deployer pattern). Covers the full lifecycle: server code, allow-list security, correct MCP content-response format, premature-exit fix, deployment to ~/.claude/mcp-servers/, registration in ~/.claude.json for Claude/Cursor/Kiro, extension auto-start on activation, status bar item, and health dialog integration. Use when adding a new MCP server to the claude-skills-deployer extension or debugging "no output" / early-exit failures in an existing one.
+description: Build, wire, and debug a stdio MCP server bundled inside a VS Code extension (claude-skills-deployer pattern). Covers server code, allow-list security, MCP content-response format, premature-exit fix, deployment to ~/.claude/mcp-servers/, registration in ~/.claude.json for Claude/Cursor/Kiro, auto-start on activation, and health dialog integration. Use when adding a new MCP server or debugging "no output" / early-exit failures.
 user-invocable: true
 allowed-tools:
   - Read

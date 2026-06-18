@@ -3,7 +3,7 @@
 Claude Code skills from a personal global skill library.
 
 Usage:
-  python generate_skills.py install [--force] [--dry-run]
+  python generate_skills.py sync-library [--force] [--dry-run]   # alias: install
   python generate_skills.py generate [--target PATH] [--all] [--force] [--dry-run]
   python generate_skills.py list [--target PATH]
   python generate_skills.py setup-task [--target PATH] [--force]
@@ -359,7 +359,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_install = sub.add_parser("install", aliases=["sync-library"],
+    p_install = sub.add_parser("sync-library", aliases=["install"],
                                 help="Copy bundled skills_library/* into ~/.claude/skills/")
     p_install.add_argument("--force", action="store_true")
     p_install.add_argument("--dry-run", action="store_true")

@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+﻿import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
@@ -8,7 +8,7 @@ import { generateOptimizationSuggestions, OptimizationSuggestion, OptimizationTy
 import { isFeatureEnabled } from "./featureFlags";
 import { archiveSkill, archivalRules, candidatesForArchival } from "./skillArchival";
 import { computeSkillRoi, RoiBand } from "./skillRoi";
-import { upgradeSkillsWithLowRoi, lifecycleAutoUpgradeOnLowRoiEnabled } from "./skillLifecycle";
+import { upgradeSkillsWithLowRoi, upgradeSkillInWorkspace, lifecycleAutoUpgradeOnLowRoiEnabled } from "./skillLifecycle";
 import { autoApplySlotsRemaining, recordAutoApplies } from "./autoOptimizerRateLimit";
 import { tokenCostUsd } from "./costRates";
 import { setSkillOverride, loadManifest } from "./skillOps";
@@ -108,21 +108,24 @@ export async function runAutoOptimizePass(target: string, libraryDir: string): P
     return null;
   }
 
+  // Include archive/upgrade suggestion types in the auto-apply pass when the
+  // corresponding features are enabled. These unify what were separate runArchivalPass
+  // and upgradeSkillsWithLowRoi calls so each skill is touched only once per cycle.
+  const autoArchiveEnabled = isFeatureEnabled("skillArchival") && archivalRules().auto_archive;
+  const autoUpgradeEnabled = lifecycleAutoUpgradeOnLowRoiEnabled();
+
+  const allowedTypes = new Set<OptimizationType>(["disable", "unused"]);
+  if (autoArchiveEnabled) allowedTypes.add("archive");
+  if (autoUpgradeEnabled) allowedTypes.add("upgrade");
+
   const suggestions = generateOptimizationSuggestions(target, libraryDir).filter(
-    (s) => s.type === "disable" || s.type === "unused"
+    (s) => allowedTypes.has(s.type)
   );
   if (suggestions.length === 0) {
     return null;
   }
 
-  const result = await applyOptimizationSuggestions(target, libraryDir, suggestions, { auto: true });
-  await runArchivalPass(target, libraryDir);
-  // Upgrade outdated skills that have a measured LOW ROI — a newer catalog version may
-  // improve prompt efficiency or reduce token cost.
-  if (lifecycleAutoUpgradeOnLowRoiEnabled()) {
-    await upgradeSkillsWithLowRoi(libraryDir, target);
-  }
-  return result;
+  return applyOptimizationSuggestions(target, libraryDir, suggestions, { auto: true });
 }
 
 export interface ApplyResult {
@@ -232,6 +235,38 @@ export async function applyOptimizationSuggestions(
         result.skipped.push(`${suggestion.skill} (manual: ${suggestion.action})`);
         break;
 
+      case "archive": {
+        const archived = archiveSkill(target, suggestion.skill, libraryDir, {
+          reason: auto ? "optimizer-auto: low-roi+idle" : "optimizer: low-roi+idle",
+          roiBand: "LOW",
+        });
+        if (archived) {
+          result.applied.push(`Archived ${suggestion.skill}`);
+          if (auto) {
+            notifyBackground(`Auto-archived "${suggestion.skill}" (LOW ROI, idle — restore any time)`);
+          }
+        } else {
+          result.skipped.push(suggestion.skill);
+        }
+        break;
+      }
+
+      case "upgrade": {
+        const upgradeStatus = await upgradeSkillInWorkspace(libraryDir, target, suggestion.skill, {
+          force: true,
+          confirmCost: false,
+        });
+        if (upgradeStatus === "installed") {
+          result.applied.push(`Upgraded ${suggestion.skill}`);
+          if (auto) {
+            notifyBackground(`Auto-upgraded "${suggestion.skill}" — newer version may improve efficiency`);
+          }
+        } else {
+          result.skipped.push(suggestion.skill);
+        }
+        break;
+      }
+
       default:
         result.skipped.push(suggestion.skill);
     }
@@ -286,7 +321,15 @@ export async function runArchivalPass(target: string, libraryDir: string): Promi
   }
   const archived: string[] = [];
   for (const skill of candidates.slice(0, 2)) {
-    if (archiveSkill(target, skill, libraryDir)) {
+    const stat = stats.find((s) => s.name === skill);
+    const manifest2 = loadManifest(libraryDir);
+    const roiBand = stat ? computeSkillRoi(skill, manifest2, stat).roiBand : undefined;
+    const archived2 = archiveSkill(target, skill, libraryDir, {
+      reason: "archival-pass: idle+cost",
+      roiBand,
+      runs: stat?.runs,
+    });
+    if (archived2) {
       archived.push(skill);
     }
   }

@@ -6,6 +6,14 @@ export const MCP_USAGE_LOG_PATH = path.join(os.homedir(), ".claude", "learning",
 export const MCP_HINTS_PATH = path.join(os.homedir(), ".claude", "learning", "mcp-agent-hints.md");
 export const MCP_SESSION_INDEX_PATH = path.join(os.homedir(), ".claude", "learning", "mcp-session-index.json");
 
+/**
+ * Maximum size for mcp-usage.jsonl before pruning is recommended (50 MB).
+ * Checked by learningPrune.ts; the MCP servers themselves never rotate the log.
+ * Note: there is no "daily-stats.json" — per-day cost aggregation is stored in
+ * dashboard-snapshot.json (see dashboardSnapshotCache.ts).
+ */
+export const MCP_LOG_MAX_BYTES = 50 * 1024 * 1024;
+
 /** Returns the workspace-scoped MCP usage log path for hybrid telemetry. */
 export function workspaceMcpLogPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".claude", "mcp-usage.jsonl");
@@ -467,11 +475,20 @@ function detectExcessiveScans(entries: McpUsageEntry[]): ExcessiveScanWarning[] 
 
 const MIN_OPS_FOR_SCORE = 5;
 
+/** Score thresholds for each efficiency grade (inclusive lower bound). */
+export const GRADE_THRESHOLDS: Record<EfficiencyScore["grade"], number> = {
+  A: 90,
+  B: 75,
+  C: 60,
+  D: 45,
+  F: 0,
+} as const;
+
 function scoreToGrade(score: number): EfficiencyScore["grade"] {
-  if (score >= 90) return "A";
-  if (score >= 75) return "B";
-  if (score >= 60) return "C";
-  if (score >= 45) return "D";
+  if (score >= GRADE_THRESHOLDS.A) return "A";
+  if (score >= GRADE_THRESHOLDS.B) return "B";
+  if (score >= GRADE_THRESHOLDS.C) return "C";
+  if (score >= GRADE_THRESHOLDS.D) return "D";
   return "F";
 }
 

@@ -3,10 +3,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { isFeatureEnabled } from "./featureFlags";
-import { copySkill, removeSkill } from "./skillOps";
+import { copySkill } from "./skillOps";
 import { isValidSkillName } from "./skillLint";
 import { SkillUsageStat } from "./usageStats";
 import { RoiBand } from "./skillRoi";
+
+export interface ArchiveMeta {
+  archivedAt: string;
+  from: string;
+  libraryDir: string;
+  reason: string;
+  /** Measured ROI band at time of archival — helps decide whether to restore. */
+  roiBand?: RoiBand;
+  /** Total recorded invocations at time of archival. */
+  runs?: number;
+  /** Installed version at time of archival. */
+  version?: string;
+}
 
 export interface ArchivalRules {
   no_usage_days: number;
@@ -107,7 +120,12 @@ export function candidatesForArchival(
   return out;
 }
 
-export function archiveSkill(target: string, skillName: string, libraryDir: string): boolean {
+export function archiveSkill(
+  target: string,
+  skillName: string,
+  libraryDir: string,
+  opts?: { reason?: string; roiBand?: RoiBand; runs?: number; version?: string }
+): boolean {
   if (!isValidSkillName(skillName)) {
     return false;
   }
@@ -115,19 +133,28 @@ export function archiveSkill(target: string, skillName: string, libraryDir: stri
   if (!fs.existsSync(src)) {
     return false;
   }
+
+  // Bump the installed skill's patch version BEFORE moving it to record the archival event.
+  bumpPatchVersion(src);
+
   const destRoot = archivedRoot(target);
   const dest = path.join(destRoot, skillName);
   fs.mkdirSync(destRoot, { recursive: true });
   if (fs.existsSync(dest)) {
     fs.rmSync(dest, { recursive: true, force: true });
   }
+  // Move skill to archive directory.  The original path is gone after this — do NOT call
+  // removeSkill() afterwards (dead code that would no-op on the already-moved path).
   fs.renameSync(src, dest);
-  bumpPatchVersion(dest);
-  removeSkill(path.join(target, ".claude", "skills"), skillName);
-  const meta = {
+
+  const meta: ArchiveMeta = {
     archivedAt: new Date().toISOString(),
     from: src,
     libraryDir,
+    reason: opts?.reason ?? "manual",
+    roiBand: opts?.roiBand,
+    runs: opts?.runs,
+    version: opts?.version,
   };
   fs.writeFileSync(path.join(dest, ".archive-meta.json"), JSON.stringify(meta, null, 2) + "\n", "utf-8");
   return true;
@@ -146,7 +173,10 @@ export function restoreArchivedSkill(target: string, skillName: string, libraryD
     if (fs.existsSync(dest)) {
       fs.rmSync(dest, { recursive: true, force: true });
     }
-    fs.renameSync(src, dest);
+    // Copy first, then remove source — safer than renameSync which is not atomic
+    // across filesystem boundaries and leaves the skill in neither location if it fails.
+    fs.cpSync(src, dest, { recursive: true });
+    fs.rmSync(src, { recursive: true, force: true });
     return true;
   }
 

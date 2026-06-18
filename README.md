@@ -77,7 +77,8 @@ Gives AI agents structured read/write/edit access to `~/.claude/` and open works
 
 - **Auto-started on activation** — deployed and registered for Claude/Cursor/Kiro automatically. The server binary is auto-synced on every activation so extension updates propagate without a manual "Enable" step.
 - **`edit_file` tool (v1.2)** — targeted string-replace edits. `old_string` must match exactly once; errors on ambiguous or missing matches. Prefer over `write_file` for surgical changes.
-- **Session read/dir cache** — `read_file` skips re-reads of unchanged files (mtime guard); `list_directory` returns cached listings within the same session. Both caches invalidate on writes, edits, and deletes.
+- **Session read/dir cache** — `read_file` skips re-reads of unchanged files (mtime guard); `list_directory` returns cached listings within the same session. Both caches invalidate on writes, edits, and deletes. A **60-minute TTL** evicts stale entries so long-running sessions never serve outdated dir listings.
+- **Binary file guard** — `read_file` rejects files larger than 50 MB or detected as binary (PNG, JPEG, PDF, ZIP, ELF, PE/EXE) with a clear error message. Use `search_in_file` to locate specific content in large or binary files instead.
 - **MCP Health** status bar (`$(plug) MCP Connected` / `$(plug) MCP · N agents` / `$(warning) MCP: setup needed`) — click for the combined health report (filesystem + CLI sections).
 - **Agent KPI** status bar (`$(pulse) KPI: A · 42 calls`) — live efficiency grade from the last 24 h of file-access telemetry.
 - **MCP Force Mode** — blocks Claude's native `Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash` **and** the CLI MCP tools (`run_command`, `list_available_clis`), routing all file I/O through the filesystem MCP server. Enable at startup via `claudeSkills.mcpForce.enableOnStartup`. Revert with **Disable MCP Force Mode**.
@@ -438,7 +439,7 @@ Clear all three with **Claude Skills: Clear MCP Server Logs** (Command Palette) 
 ## Quick start (CLI)
 
 ```bash
-py generate_skills.py install
+py generate_skills.py sync-library   # primary name; "install" is an alias
 py generate_skills.py list --target .
 py generate_skills.py generate --target .
 py generate_skills.py generate --target . --dry-run
@@ -527,7 +528,7 @@ Or Settings → `claudeSkills.features.*`:
 | `predictiveAlerts` | on | Workspace spend vs weekly budget; sane WoW trend (not global all-projects) |
 | `communityBenchmarks` | off | Opt-in community cost benchmarks |
 | `teamCostSharing` | on | Git author attribution on shared skills |
-| `skillArchival` | on | Archive idle skills (restore available) |
+| `skillArchival` | on | Archive idle / LOW-ROI skills (fully reversible; restoreArchivedSkill re-installs) |
 | `emergencyCutoff` | on | Hard daily spend limit ($10 default) |
 | `prCostEstimate` | off | PR cost comment via `gh` CLI |
 | `costAwareSearch` | on | ROI/cost labels and sort in skills tree |
@@ -557,7 +558,7 @@ Estimates where no usage data exists — hook/API-priced where hooks logged usag
 - **Usage Report split** — **Skills detail** (runs, **Cost/run**, tokens, ratings) from `runs.jsonl` hooks + self-learning; **Credits · 14d** from session transcripts (`API` / `Mixed` / `Est.` basis); **Inefficient skills** from user feedback; **Proposed for current task** from `task-skill-proposals.json`
 - **Fallback chain** — hooks → session transcripts → install-tier heuristics (documented in dashboard)
 - **Stale data guard** — auto-purges equal-split `transcriptSkills`; **Top skills** uses hook-measured costs when v2 runs exist (even if transcript attribution is stale)
-- **Indexed stats** — `skill-stats.json` + `daily-stats.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
+- **Indexed stats** — `skill-stats.json` + `dashboard-snapshot.json` updated on refresh (reduces full `runs.jsonl` scans); in-memory cache on mtime/size
 
 ### Controls & optimization
 
@@ -597,7 +598,7 @@ Install **`skill-feedback-adaptation`**, **`self-learning`**, and **`skill-usage
 | `.claude/learning/skill-proposal-alert-state.json` | Dedup state for high-usage skill proposal notifications |
 | `.claude/learning/cost-attribution.json` | Transcript-based per-skill estimates (`transcriptSkills`) and unattributed totals |
 | `.claude/learning/skill-stats.json` | Aggregated per-skill stats index (hook/self-learning runs) |
-| `.claude/learning/daily-stats.json` | Cost/tokens/runs by day |
+| `.claude/learning/dashboard-snapshot.json` | Pre-computed dashboard data (cost/tokens/runs by session; replaces `daily-stats.json`) |
 | `.claude/learning/system-state.json` | Unified `profileInit` / attribution / hooks / capabilities snapshot |
 | `.claude/learning/write-locks.json` | Coordinated write versions for profile-init files |
 | `.claude/learning/pricing-overrides.json` | Optional manual model pricing + hourly rate |
@@ -611,7 +612,7 @@ Background sync runs **collect → index → analyze** on a schedule and after h
 | Stage | What it does |
 |---|---|
 | **Collect** | Parse session transcripts into `cost-attribution.json`; refresh attribution health |
-| **Index** | Aggregate hook/self-learning runs into `skill-stats.json` and `daily-stats.json` |
+| **Index** | Aggregate hook/self-learning runs into `skill-stats.json`; pre-compute `dashboard-snapshot.json` |
 | **Analyze** | ROI bands, optimization suggestions, system-state snapshot, predictive alerts |
 
 Stage timings and errors appear in the Cost Dashboard **System** panel. A circuit breaker trips after more than 10 pipeline runs per minute and forces safe mode (auto-optimize off) until the window clears.
@@ -826,7 +827,7 @@ Current extension version: **1.0.70** (`serhiivoinolovych`). See [CHANGELOG.md](
 
 - **CPU**: under 1% idle; 2–5% during attribution collection (5-minute intervals)
 - **Memory**: ~50 MB baseline; +20 MB when the dashboard WebView is open
-- **Disk**: ~500 KB–2 MB per project under `<workspace>/.claude/learning/` (`runs.jsonl`, indexes, attribution store); `skill-stats.json` / `daily-stats.json` limit full-log rescans
+- **Disk**: ~500 KB–2 MB per project under `<workspace>/.claude/learning/` (`runs.jsonl`, indexes, attribution store); `skill-stats.json` / `dashboard-snapshot.json` limit full-log rescans
 - **Startup**: under 200 ms added to VS Code activation
 
 Tuned for workspaces with fewer than 100 skills and fewer than 10K transcript lines. `runs.jsonl` is pruned to 90 days on attribution reset.

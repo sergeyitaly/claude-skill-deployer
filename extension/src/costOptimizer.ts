@@ -15,8 +15,18 @@ import { computeUsageStats, readEnrichedRuns, SkillUsageStat } from "./usageStat
 import { readPipelineCycle } from "./pipelineCycle";
 import { buildSystemModeContext } from "./systemMode";
 import { applyOptimizerSafetyCaps } from "./optimizerSafety";
+import { computeSkillRoi } from "./skillRoi";
+import { listOutdatedSkills } from "./skillLifecycle";
 
-export type OptimizationType = "disable" | "switch_agent" | "cache" | "unused";
+/**
+ * disable   — set skill override to "off" (reversible)
+ * unused    — same as disable but triggered by idle days rather than cost
+ * switch_agent — prefer a cheaper agent for this skill
+ * cache     — manual: add mcp-agent-hints for a hot file
+ * archive   — move skill to .claude/skills-archived/ (reversible); LOW ROI + idle
+ * upgrade   — install newer catalog version; LOW ROI + outdated version available
+ */
+export type OptimizationType = "disable" | "switch_agent" | "cache" | "unused" | "archive" | "upgrade";
 
 export interface OptimizerThresholds {
   disableCostPerUseUsd: number;
@@ -196,6 +206,60 @@ export function generateOptimizationSuggestions(
         priority: 50,
       });
     }
+  }
+
+  // ── archive suggestions ──────────────────────────────────────────────────
+  // Skills with measured LOW ROI that have been idle long enough are candidates
+  // for archival.  Archival is reversible (restoreArchivedSkill), so it is
+  // surfaced even when auto-archive is disabled — the user sees the suggestion
+  // and can choose to act.
+  const ARCHIVE_MIN_RUNS = 5;
+  const ARCHIVE_IDLE_DAYS = 14;
+  const alreadySuggested = new Set(suggestions.map((s) => s.skill));
+
+  for (const stat of usageStats) {
+    if (alreadySuggested.has(stat.name)) continue;
+    const skillName = stat.name;
+    if ((stat.runs ?? 0) < ARCHIVE_MIN_RUNS) continue;
+    const idle = stat.daysSinceLastUse ?? 0;
+    if (idle < ARCHIVE_IDLE_DAYS) continue;
+    const roi = computeSkillRoi(skillName, m, stat);
+    if (roi.roiBand !== "LOW") continue;
+    suggestions.push({
+      type: "archive",
+      skill: skillName,
+      reason: `LOW ROI (${roi.roi}:1) after ${stat.runs} runs, idle ${idle} day(s)`,
+      action: `Archive "${skillName}" — reversible; low-value skill not used recently`,
+      priority: 62,
+    });
+    alreadySuggested.add(skillName);
+  }
+
+  // ── upgrade suggestions ───────────────────────────────────────────────────
+  // Outdated skills with measured LOW ROI get an upgrade suggestion — a newer
+  // catalog version may improve the prompt, reduce tokens, or narrow scope.
+  // Requires at least 3 measured runs so the ROI signal is not noise.
+  const UPGRADE_MIN_RUNS = 3;
+  try {
+    const outdated = listOutdatedSkills(libraryDir, target);
+    for (const status of outdated) {
+      if (alreadySuggested.has(status.name)) continue;
+      const stat = usageStats.find((s) => s.name === status.name);
+      if (!stat || (stat.runs ?? 0) < UPGRADE_MIN_RUNS) continue;
+      const roi = computeSkillRoi(status.name, m, stat);
+      if (roi.roiBand !== "LOW") continue;
+      const note = status.changelog ? ` (${status.changelog})` : "";
+      suggestions.push({
+        type: "upgrade",
+        skill: status.name,
+        reason: `LOW ROI + outdated ${status.installedVersion} → ${status.catalogVersion}${note}`,
+        action: `Upgrade "${status.name}" to ${status.catalogVersion} — newer version may reduce token cost`,
+        priority: 68,
+      });
+      alreadySuggested.add(status.name);
+    }
+  } catch {
+    // listOutdatedSkills can fail if the library directory is unavailable — non-fatal
   }
 
   return applyOptimizerSafetyCaps(

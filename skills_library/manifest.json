@@ -202,6 +202,18 @@
       "description": "Open, read, edit, create, and convert spreadsheet files (.xlsx, .xlsm, .csv, .tsv)",
       "detect_globs": ["**/*.xlsx", "**/*.xlsm", "**/*.csv", "**/*.tsv"],
       "cost_estimate": "medium"
+    },
+    "azure-infra-preflight": {
+      "description": "Pre-flight checklist before any Azure Terraform deploy — verify az login, detect SSH key type, check target resource group, validate Terraform version, and write subscription context",
+      "detect_globs": ["**/*.tf", "**/*.tfvars", "**/azure-pipelines.yml", "**/*azure*.yml", "**/*azure*.yaml"],
+      "cost_estimate": "medium",
+      "version": "1.0.0"
+    },
+    "infra-cost-guard": {
+      "description": "Estimate and gate on infrastructure running costs before deploying — detect expensive resource types in Terraform plan or live resource list, calculate hourly/daily/monthly estimates, warn before apply",
+      "detect_globs": ["**/*.tf", "**/*.tfvars", "**/main.tf", "**/outputs.tf"],
+      "cost_estimate": "medium",
+      "version": "1.0.0"
     }
   }
 }

@@ -14,6 +14,27 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
+
+/** Maximum file size allowed for read_file (50 MB). Prevents OOM on large binaries. */
+const MAX_READ_BYTES = 50 * 1024 * 1024;
+
+/** Binary-file magic byte signatures (first 4 bytes). */
+const BINARY_SIGNATURES = [
+  [0x89, 0x50, 0x4e, 0x47], // PNG
+  [0xff, 0xd8, 0xff],        // JPEG
+  [0x47, 0x49, 0x46],        // GIF
+  [0x25, 0x50, 0x44, 0x46], // PDF
+  [0x50, 0x4b, 0x03, 0x04], // ZIP / DOCX / XLSX / JAR
+  [0x7f, 0x45, 0x4c, 0x46], // ELF binary
+  [0x4d, 0x5a],              // Windows PE / EXE / DLL
+];
+
+/** Returns true when the first bytes of a Buffer match a known binary signature. */
+function looksLikeBinary(buf) {
+  return BINARY_SIGNATURES.some(
+    (sig) => sig.every((byte, i) => buf[i] === byte)
+  );
+}
 const path = require("node:path");
 const readline = require("node:readline");
 
@@ -98,18 +119,28 @@ let SESSION_ID = "";
 // sessionDirCache: Map<sessionId, Map<resolvedPath, listingText>>
 //   Stores directory listings; invalidated when a file is written inside the dir.
 // ---------------------------------------------------------------------------
+/** Entries older than this are evicted from the read/dir caches (60 minutes). */
+const SESSION_CACHE_TTL_MS = 60 * 60 * 1000;
+
 const sessionReadCache = new Map();
 const sessionDirCache  = new Map();
+/** Epoch-ms when each session's cache entry was first created. Used for TTL eviction. */
+const sessionCreatedAt = new Map();
 
 /**
  * Prune caches for all sessions except the current one to bound memory use.
+ * Also evicts any session whose cache is older than SESSION_CACHE_TTL_MS so
+ * long-running sessions (>1 h) don't accumulate stale dir entries.
  * Called on each `initialize` handshake (new agent conversation).
  */
 function pruneSessionCaches(keepSessionId) {
+  const now = Date.now();
   for (const sid of [...sessionReadCache.keys()]) {
-    if (sid !== keepSessionId) {
+    const age = now - (sessionCreatedAt.get(sid) ?? 0);
+    if (sid !== keepSessionId || age > SESSION_CACHE_TTL_MS) {
       sessionReadCache.delete(sid);
       sessionDirCache.delete(sid);
+      sessionCreatedAt.delete(sid);
     }
   }
 }
@@ -182,8 +213,29 @@ function dispatchTool(id, toolName, args) {
     switch (toolName) {
       case "read_file": {
         const resolved = assertAllowed(args.path);
+        // Guard: reject files that are too large or binary before reading into memory.
+        const stat = (() => { try { return fs.statSync(resolved); } catch { return null; } })();
+        if (stat !== null) {
+          if (stat.size > MAX_READ_BYTES) {
+            throw new Error(
+              `File too large to read (${(stat.size / 1_048_576).toFixed(1)} MB > ${MAX_READ_BYTES / 1_048_576} MB limit). ` +
+              `Use search_in_file to locate specific content instead.`
+            );
+          }
+          if (stat.size > 0) {
+            const header = Buffer.alloc(Math.min(4, stat.size));
+            const fd = fs.openSync(resolved, "r");
+            try { fs.readSync(fd, header, 0, header.length, 0); } finally { fs.closeSync(fd); }
+            if (looksLikeBinary(header)) {
+              throw new Error(
+                `Binary file detected at '${args.path}'. read_file only supports text files. ` +
+                `Check the file extension or use a dedicated binary-aware tool.`
+              );
+            }
+          }
+        }
         // Session cache: skip re-read if file mtime is unchanged since last read.
-        const mtime = (() => { try { return fs.statSync(resolved).mtimeMs; } catch { return -1; } })();
+        const mtime = stat ? stat.mtimeMs : -1;
         const sReads = sessionReadCache.get(SESSION_ID) ?? new Map();
         const cached = sReads.get(resolved);
         if (cached && mtime !== -1 && cached.mtimeMs === mtime) {
@@ -410,7 +462,8 @@ rl.on("line", async (line) => {
     switch (method) {
       case "initialize":
         SESSION_ID = crypto.randomUUID().slice(0, 12);
-        // Prune caches from previous sessions to keep memory bounded.
+        sessionCreatedAt.set(SESSION_ID, Date.now());
+        // Prune caches from previous sessions (and any expired TTL entries).
         pruneSessionCaches(SESSION_ID);
         respond(id, {
           protocolVersion: "2024-11-05",

@@ -24,11 +24,6 @@ add/remove recommendations.
   not an error. Recommendations in that case are limited to "not yet
   measurable; check back after the self-learning skill has recorded some
   runs".
-- `.claude/learning/skill-feedback.jsonl` — user negative reactions per skill
-  (written by [[skill-feedback-adaptation]]). Use for **inefficiency %** and
-  update suggestions alongside run-based KPIs.
-- Optionally, `.claude/learning/task-skill-proposals.json` — latest task-scoped
-  skill proposals (also from [[skill-feedback-adaptation]]).
 - Optionally, the library's `manifest.json` (wherever the skill library
   lives, e.g. `~/.claude/skills/` or a synced `skills_library/`) — useful to
   see a skill's `detect_globs`/description when judging relevance.
@@ -42,11 +37,6 @@ For each installed skill name, and for each distinct `skill` value in
 - `success_rate` — `rc == 0` count / `runs` (as a percentage).
 - `avg_duration` — mean of `duration` across records that have it.
 - `last_used` — max `ts`; `days_since_last_use` — days between that and now.
-- **Per agent** — when `agent` is set on a row (`claude`, `cursor`, `kiro`,
-  `copilot`), group invocations by agent. The VS Code Usage Report shows a
-  **Skill usage by agent** section and a matrix for skills used by more than
-  one agent on the same workspace (common when switching between Claude Code,
-  Cursor, Kiro, and Copilot on one task). Rows without `agent` count as Claude.
 - Records whose `skill` value doesn't match any installed skill name are
   general task-tracking entries (per [[self-learning]]'s schema) — ignore
   them for this report, but you may mention the count as "N other tracked
@@ -63,19 +53,6 @@ for consistency):
 | **Needs attention** | `runs >= 3` and `success_rate < 60%` |
 | **Low usage** | `runs >= 1` but doesn't qualify as Active (rare or stale) |
 | **Unused** | Installed, but zero matching records in `runs.jsonl` |
-
-### Inefficiency (user feedback)
-
-For each skill with entries in `skill-feedback.jsonl`:
-
-- `negative_count` — number of negative/correction records.
-- `inefficiency_pct` — higher when more feedback relative to other skills
-  (extension scales 0–100%; more feedback → deeper red in Usage Report).
-- **Update suggestion** — recommend SKILL.md edits when `negative_count >= 3`,
-  or point at `session-learnings.md` / feedback `context` fields for fixes.
-
-Deprioritize skills with high inefficiency when recommending additions unless
-no alternative exists.
 
 ## 4. Recommendations
 
@@ -101,9 +78,8 @@ no alternative exists.
 
 ## 5. Output format
 
-A short table (Skill | Runs | Success % | By agent | Last used | Rating | Note),
-then 2-4 sentences of plain-language recommendation. When multiple agents
-invoked the same skill, call that out explicitly. Keep it concise — this is a
+A short table (Skill | Runs | Success % | Last used | Rating | Note), then 2-4
+sentences of plain-language recommendation. Keep it concise — this is a
 status check, not an audit report. If the user just wants the headline
 numbers (e.g. "how many skills are active"), answer directly without the
 table.

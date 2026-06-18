@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.73",
+  "version": "1.0.74",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -199,7 +199,7 @@
       },
       {
         "command": "claudeSkills.enableCliMcpServer",
-        "title": "Enable CLI MCP Server (az, aws, git, kubectl…)",
+        "title": "Enable CLI MCP Server (az, aws, git, kubectlâ€¦)",
         "icon": "$(terminal)",
         "category": "Claude Skills"
       },
@@ -564,9 +564,9 @@
             "enum": ["silent", "minimal", "normal"],
             "default": "minimal",
             "enumDescriptions": [
-              "No toasts — errors and confirmations only. Work is logged to the output channel.",
-              "Quiet default — background auto-apply and suggestions log only; command success uses output/status bar.",
-              "All notifications — previous behavior including auto-apply and suggestion toasts."
+              "No toasts â€” errors and confirmations only. Work is logged to the output channel.",
+              "Quiet default â€” background auto-apply and suggestions log only; command success uses output/status bar.",
+              "All notifications â€” previous behavior including auto-apply and suggestion toasts."
             ],
             "description": "How chatty the extension is with VS Code notification toasts."
           },
@@ -590,7 +590,7 @@
           "claudeSkills.mcpForce.enableOnStartup": {
             "type": "boolean",
             "default": false,
-            "description": "Automatically enable MCP Force Mode (permissions.deny + CLAUDE.md block) on extension startup. Requires the filesystem MCP server to be healthy — silently skipped if MCP is not yet configured. Disable via 'Claude Skills: Disable MCP Force Mode'."
+            "description": "Automatically enable MCP Force Mode (permissions.deny + CLAUDE.md block) on extension startup. Requires the filesystem MCP server to be healthy â€” silently skipped if MCP is not yet configured. Disable via 'Claude Skills: Disable MCP Force Mode'."
           },
           "claudeSkills.preferLocalSkillOverrides": {
             "type": "boolean",
@@ -682,7 +682,7 @@
             "type": "number",
             "default": 0,
             "minimum": 0,
-            "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget × 30, or 30-day workspace spend if daily budget is off."
+            "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget Ã— 30, or 30-day workspace spend if daily budget is off."
           },
           "claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes": {
             "type": "number",
@@ -764,7 +764,7 @@
               "Prefer general LLM knowledge; read workspace files when editing or when asked about this repo.",
               "Verify repo-specific facts in files; use general knowledge for concepts (recommended default).",
               "Read and cite workspace files before claiming how this project works; load only task-relevant skills.",
-              "Only assert facts from read files, user input, or tool output — say uncertain rather than guess."
+              "Only assert facts from read files, user input, or tool output â€” say uncertain rather than guess."
             ],
             "default": "balanced",
             "description": "How strongly to prioritize verified local workspace context over general model knowledge."
@@ -807,7 +807,7 @@
             "default": 50,
             "minimum": 0,
             "maximum": 100,
-            "description": "Inject low-trust prompt when workspace attribution confidence is below this percent (0–100)."
+            "description": "Inject low-trust prompt when workspace attribution confidence is below this percent (0â€“100)."
           }
         }
       },
@@ -819,7 +819,7 @@
           "claudeSkills.practicalFocus.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Inject deployment-first guidance via hook — concrete architecture and first-try deploy steps instead of theoretical advice."
+            "description": "Inject deployment-first guidance via hook â€” concrete architecture and first-try deploy steps instead of theoretical advice."
           },
           "claudeSkills.practicalFocus.level": {
             "type": "string",
@@ -830,7 +830,7 @@
               "deploy-ready"
             ],
             "enumDescriptions": [
-              "Trade-offs and theory are fine — early design discussions.",
+              "Trade-offs and theory are fine â€” early design discussions.",
               "Mix theory with concrete next steps tied to this repo.",
               "Concrete architecture and IaC aligned with repo patterns; read infra before advising (recommended when enabling).",
               "Every answer must be first-try deployable: exact commands, prereqs, validation, rollback."
@@ -941,7 +941,7 @@
           "claudeSkills.projectProfile.promptOnFirstDetect": {
             "type": "boolean",
             "default": true,
-            "description": "On first workspace open (no project-profile.json yet), ask how you plan to use AI agents — e.g. multi-agent team vs solo — instead of silently applying auto-detect."
+            "description": "On first workspace open (no project-profile.json yet), ask how you plan to use AI agents â€” e.g. multi-agent team vs solo â€” instead of silently applying auto-detect."
           },
           "claudeSkills.projectProfile.probeRemoteGit": {
             "type": "boolean",
@@ -1163,7 +1163,7 @@
           "claudeSkills.features.practicalFocus": {
             "type": "boolean",
             "default": true,
-            "description": "Practical/deployment focus toggle — architecture and first-try deploy steps over theoretical advice."
+            "description": "Practical/deployment focus toggle â€” architecture and first-try deploy steps over theoretical advice."
           },
           "claudeSkills.features.costIntelligence": {
             "type": "boolean",
@@ -1217,7 +1217,7 @@
             "default": 12,
             "minimum": 4,
             "maximum": 30,
-            "description": "Maximum skills kept enabled for the current task (8–12 recommended)."
+            "description": "Maximum skills kept enabled for the current task (8â€“12 recommended)."
           },
           "claudeSkills.taskFocus.minProposals": {
             "type": "number",
@@ -1231,12 +1231,12 @@
             "default": 50,
             "minimum": 0,
             "maximum": 100,
-            "description": "Only propose task skills at or above this confidence (0–100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
+            "description": "Only propose task skills at or above this confidence (0â€“100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
           },
           "claudeSkills.taskFocus.approveSkillSets": {
             "type": "boolean",
             "default": true,
-            "description": "Offer 2–3 skill-set options for user approval before auto-applying task focus. When off, the extension picks one set automatically (previous behavior)."
+            "description": "Offer 2â€“3 skill-set options for user approval before auto-applying task focus. When off, the extension picks one set automatically (previous behavior)."
           }
         }
       },
@@ -1272,7 +1272,7 @@
             "default": 2,
             "minimum": 1,
             "maximum": 5,
-            "description": "Prune irrelevant personal installs when installed count exceeds maxActiveSkills × this multiplier."
+            "description": "Prune irrelevant personal installs when installed count exceeds maxActiveSkills Ã— this multiplier."
           },
           "claudeSkills.costDiscipline.propagateToAllAgents": {
             "type": "boolean",
@@ -1328,7 +1328,7 @@
           "claudeSkills.optimizer.autoDetectOnPipeline": {
             "type": "boolean",
             "default": true,
-            "description": "When autoApply is on, run detect → auto-adjust after each cost pipeline sync (debounced ~5s), not only on the 30-minute timer."
+            "description": "When autoApply is on, run detect â†’ auto-adjust after each cost pipeline sync (debounced ~5s), not only on the 30-minute timer."
           },
           "claudeSkills.optimizer.disableCostPerUseUsd": {
             "type": "number",
@@ -1340,7 +1340,7 @@
             "type": "number",
             "default": 5,
             "minimum": 1,
-            "description": "Pair with disableCostPerUseUsd — only suggest disable when runs are below this count."
+            "description": "Pair with disableCostPerUseUsd â€” only suggest disable when runs are below this count."
           },
           "claudeSkills.optimizer.unusedIdleDays": {
             "type": "number",
@@ -1470,15 +1470,15 @@
           "claudeSkills.telemetry.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only — no network upload unless you add your own exporter."
+            "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only â€” no network upload unless you add your own exporter."
           },
           "claudeSkills.telemetry.scope": {
             "type": "string",
             "enum": ["workspace", "global", "hybrid"],
             "default": "hybrid",
             "enumDescriptions": [
-              "MCP telemetry and KPIs read exclusively from <workspace>/.claude/mcp-usage.jsonl — strict per-project isolation, no cross-project data.",
-              "Read from ~/.claude/learning/mcp-usage.jsonl only (pre-1.0.64 behavior) — all projects share one global log.",
+              "MCP telemetry and KPIs read exclusively from <workspace>/.claude/mcp-usage.jsonl â€” strict per-project isolation, no cross-project data.",
+              "Read from ~/.claude/learning/mcp-usage.jsonl only (pre-1.0.64 behavior) â€” all projects share one global log.",
               "Use workspace log when it has data (per-project KPIs), fall back to global log otherwise. Cross-session hints always read from global. Recommended."
             ],
             "description": "Where MCP file-access telemetry is read from for the efficiency KPI panel. The MCP server always writes to both logs in hybrid and workspace modes."
@@ -1625,7 +1625,7 @@
           "claudeSkills.skillSetResolver.usageRules.removeIdleSkills": {
             "type": "boolean",
             "default": false,
-            "description": "Remove skills idle for at least unusedIdleDays with attributed cost ≥ minAttributedCostUsd."
+            "description": "Remove skills idle for at least unusedIdleDays with attributed cost â‰¥ minAttributedCostUsd."
           },
           "claudeSkills.skillSetResolver.usageRules.unusedIdleDays": {
             "type": "number",

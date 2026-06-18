@@ -3,7 +3,7 @@
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.73** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.74** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.74** | QA audit hardening — binary file guard, skill lifecycle pipeline, security test suite, 24 new tests |
 | **1.0.73** | PostToolUse native tool logging — run_task, run_in_terminal, and all IDE tools now tracked in mcp-usage.jsonl |
 | **1.0.72** | MCP server v1.2 — edit_file, session caches, auto-fix hints, and scoring accuracy |
 | **1.0.71** | Self-correcting large-file guard — enforced hook escalation, atomic writes, CLAUDE.md lock |
@@ -34,6 +35,49 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.74] — 2026-06-18
+
+**Summary:** Full E2E QA audit pass — binary file guard in the MCP filesystem server, skill lifecycle pipeline fixes (archive bug, atomic restore, efficiency-driven archive/upgrade), 24 new tests (509 total), exported constants for grade thresholds and log retention, and `sync-library` as the canonical CLI subcommand name.
+
+**Theme:** QA audit hardening — correctness, security, and observability
+
+### Fixed
+
+- **`archiveSkill` double-remove bug** (`skillArchival.ts`) — `removeSkill()` was called after `fs.renameSync()` on a path that no longer existed (dead code). Removed. Added comment explaining the invariant.
+- **`bumpPatchVersion` wrong location** (`skillArchival.ts`) — version was bumped inside the archive directory after the move (semantically wrong). Now bumps the installed copy *before* `renameSync` so the archival event is stamped in the skill's version history.
+- **`restoreArchivedSkill` unsafe rename** (`skillArchival.ts`) — `fs.renameSync` is not atomic across filesystem boundaries; a crash mid-operation leaves the skill in neither location. Replaced with `fs.cpSync` (copy first) then `fs.rmSync` (delete only after copy succeeds).
+- **TypeScript type: `stat.skill`** (`costOptimizer.ts`) — `SkillUsageStat` uses `.name`, not `.skill`; fixed typo in archive suggestion loop.
+
+### Added
+
+- **Binary file guard in `read_file`** (`filesystem/index.js`) — rejects files larger than 50 MB or detected as binary (PNG, JPEG, PDF, ZIP, ELF, PE/EXE) via magic-byte check before reading into memory. Returns a clear error directing agents to `search_in_file` instead.
+- **60-minute session cache TTL** (`filesystem/index.js`) — `pruneSessionCaches` now evicts entries older than `SESSION_CACHE_TTL_MS` (60 min) so long-running sessions never serve stale directory listings.
+- **`ArchiveMeta` efficiency context** (`skillArchival.ts`) — `.archive-meta.json` now records `reason`, `roiBand`, `runs`, and `version` at archival time. All callers (`archiveSkill`, `runArchivalPass`) pass these fields.
+- **`"archive"` and `"upgrade"` suggestion types** (`costOptimizer.ts`) — `OptimizationType` extended. `generateOptimizationSuggestions` now emits `archive` for LOW ROI + idle skills (≥5 runs, ≥14 idle days) and `upgrade` for outdated skills with measured LOW ROI (≥3 runs). Both appear in the dashboard and are actionable from the optimizer.
+- **Archive/upgrade apply cases** (`autoOptimizer.ts`) — `applyOptimizationSuggestions` switch now handles `"archive"` (calls `archiveSkill` with opts) and `"upgrade"` (calls `upgradeSkillInWorkspace` with `force: true, confirmCost: false`). Previously both fell through to `default: skipped`.
+- **Dynamic `allowedTypes` in `runAutoOptimizePass`** (`autoOptimizer.ts`) — replaces the hardcoded `disable|unused` filter. Adds `"archive"` when `auto_archive` is on and `"upgrade"` when `autoUpgradeOnLowRoi` is on, unifying what were three separate passes into the rate-limited suggestion pipeline.
+- **`GRADE_THRESHOLDS` constant** (`mcpUsageLog.ts`) — exported `{ A: 90, B: 75, C: 60, D: 45, F: 0 }` replaces magic numbers in `scoreToGrade`. Makes grade boundaries visible and maintainable.
+- **`MCP_LOG_MAX_BYTES` constant** (`mcpUsageLog.ts`) — exported `50 * 1024 * 1024`; used by `learningPrune.ts`. Doc comment explicitly notes that `daily-stats.json` does not exist — the actual artifact is `dashboard-snapshot.json`.
+- **`safeDeliveryError` export** (`weeklyReport.ts`) — function was private; exported for direct unit testing of credential masking behavior.
+- **`azure-infra-preflight` and `infra-cost-guard`** (`skills_library/manifest.json`) — two skill directories that existed on disk but were absent from the manifest. Skill detection would silently skip them.
+- **42-test MCP security suite** (`tests/mcp-security.test.js`) — path traversal (8 cases), CLI allow-list enforcement (17 cases: all dangerous commands rejected, case normalization, `.exe`/`.cmd` strip), shell injection resistance (7 cases), binary file detection (8 cases). All pass.
+- **`skillArchival.test.ts`** (19 tests) — archive, restore, round-trip, meta fields, version bump placement, `listArchivedSkills`, `candidatesForArchival` threshold logic.
+- **`weeklyReport.test.ts`** (17 tests) — `isNoreplyEmail`, `shouldSendScheduledReport`, SMTP not-configured, no-recipient, `safeDeliveryError` masking (password / token / secret / smtp keywords).
+- **`mcpUsageLog.test.ts` extensions** — `GRADE_THRESHOLDS` shape/ordering/clean-session grade A, `MCP_LOG_MAX_BYTES` value.
+- **`skillLifecycle.test.ts` extensions** — `stampMissingVersionSidecars` (stamps missing, skips existing), `compareSemver` edge cases (v-prefix, partial version, missing segments).
+
+### Changed
+
+- **`runArchivalPass` efficiency context** (`autoOptimizer.ts`) — now computes `roiBand` from usage stats and passes it (with `runs`) to `archiveSkill` opts so archived skills carry their efficiency signal.
+- **`generate_skills.py` subcommand name** — `sync-library` is now the primary name; `install` is the alias. Help text and usage example updated to match.
+- **`mcp-server-creation` skill description** — trimmed from 545 to 431 chars (lint warning resolved).
+
+### Documentation
+
+- **README.md** — session cache TTL bullet, binary file guard bullet, `sync-library` primary name in CLI quick-start, `daily-stats.json` → `dashboard-snapshot.json` in learning files table, pipeline stage table, disk-size bullet, and skill archival feature flag description.
 
 ---
 
