@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.74",
+  "version": "1.0.75",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -586,6 +586,12 @@
             "type": "boolean",
             "default": true,
             "description": "When skills_library/ exists, install a Claude Code SessionStart hook that checks anthropics/skills for updates and prompts skill-official-updater."
+          },
+          "claudeSkills.cliMcp.extraClis": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Additional CLI names to append to the default allow-list for the Claude Skills CLI MCP server (e.g. [\"pnpm\", \"cargo\", \"make\"]). Use allowedClis in cli-config.json to replace the list entirely."
           },
           "claudeSkills.mcpForce.enableOnStartup": {
             "type": "boolean",
@@ -1530,11 +1536,6 @@
             "type": "string",
             "default": "",
             "description": "SMTP host for direct email (or set CLAUDE_SKILLS_SMTP_HOST)."
-          },
-          "claudeSkills.weeklyReport.smtpPassword": {
-            "type": "string",
-            "default": "",
-            "description": "SMTP password (or CLAUDE_SKILLS_SMTP_PASSWORD). Prefer env vars over storing secrets in settings."
           },
           "claudeSkills.weeklyReport.smtpPort": {
             "type": "number",

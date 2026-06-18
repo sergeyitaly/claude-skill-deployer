@@ -1,4 +1,4 @@
-You are a Senior Staff Software Engineer, DevOps Architect, Security Reviewer,
+﻿You are a Senior Staff Software Engineer, DevOps Architect, Security Reviewer,
 QA Lead, VS Code Extension Reviewer, MCP Protocol Reviewer, and FinOps Auditor.
 
 Perform a COMPLETE end-to-end audit of this repository.
@@ -35,7 +35,7 @@ Do not rely on README claims alone.
 Verify implementation.
 
 --------------------------------------------------
-PHASE 1 — REPOSITORY INVENTORY
+PHASE 1 â€” REPOSITORY INVENTORY
 --------------------------------------------------
 
 Analyze:
@@ -57,7 +57,7 @@ Produce:
 - critical execution paths
 
 --------------------------------------------------
-PHASE 2 — INSTALLATION & ONBOARDING
+PHASE 2 â€” INSTALLATION & ONBOARDING
 --------------------------------------------------
 
 Verify:
@@ -79,7 +79,7 @@ Look for:
 - activation failures
 
 --------------------------------------------------
-PHASE 3 — SKILL DETECTION ENGINE
+PHASE 3 â€” SKILL DETECTION ENGINE
 --------------------------------------------------
 
 Audit:
@@ -102,7 +102,7 @@ Check:
 - no unreachable skills
 
 --------------------------------------------------
-PHASE 4 — MULTI-AGENT DEPLOYMENT
+PHASE 4 â€” MULTI-AGENT DEPLOYMENT
 --------------------------------------------------
 
 Audit:
@@ -126,7 +126,7 @@ Look for:
 - overwrite risks
 
 --------------------------------------------------
-PHASE 5 — FILESYSTEM MCP SERVER
+PHASE 5 â€” FILESYSTEM MCP SERVER
 --------------------------------------------------
 
 Audit:
@@ -165,7 +165,7 @@ binary payload reads
 Report results.
 
 --------------------------------------------------
-PHASE 6 — CLI MCP SERVER
+PHASE 6 â€” CLI MCP SERVER
 --------------------------------------------------
 
 Audit:
@@ -191,7 +191,7 @@ Verify:
 - Linux command handling
 
 --------------------------------------------------
-PHASE 7 — HOOK SYSTEM
+PHASE 7 â€” HOOK SYSTEM
 --------------------------------------------------
 
 Audit:
@@ -215,7 +215,7 @@ Review:
 - attribution hooks
 
 --------------------------------------------------
-PHASE 8 — TELEMETRY
+PHASE 8 â€” TELEMETRY
 --------------------------------------------------
 
 Audit:
@@ -239,7 +239,7 @@ filesystem MCP events
 CLI MCP events
 
 --------------------------------------------------
-PHASE 9 — KPI ENGINE
+PHASE 9 â€” KPI ENGINE
 --------------------------------------------------
 
 Audit:
@@ -274,7 +274,7 @@ Check exact boundaries:
 Verify correct grades.
 
 --------------------------------------------------
-PHASE 10 — COST INTELLIGENCE
+PHASE 10 â€” COST INTELLIGENCE
 --------------------------------------------------
 
 Audit:
@@ -297,7 +297,7 @@ missing attribution
 incorrect fallback logic
 
 --------------------------------------------------
-PHASE 11 — WEEKLY REPORTING
+PHASE 11 â€” WEEKLY REPORTING
 --------------------------------------------------
 
 Audit:
@@ -319,7 +319,7 @@ missing PAT
 GitHub noreply email
 
 --------------------------------------------------
-PHASE 12 — BRANCH PROFILES
+PHASE 12 â€” BRANCH PROFILES
 --------------------------------------------------
 
 Audit:
@@ -334,7 +334,7 @@ Verify:
 - conflict resolution
 
 --------------------------------------------------
-PHASE 13 — PROFILE INIT
+PHASE 13 â€” PROFILE INIT
 --------------------------------------------------
 
 Audit:
@@ -353,7 +353,7 @@ profile installation
 skill application
 
 --------------------------------------------------
-PHASE 14 — LEARNING SYSTEM
+PHASE 14 â€” LEARNING SYSTEM
 --------------------------------------------------
 
 Audit:
@@ -369,7 +369,7 @@ Verify:
 - proposal generation
 
 --------------------------------------------------
-PHASE 15 — DOCUMENTATION ACCURACY
+PHASE 15 â€” DOCUMENTATION ACCURACY
 --------------------------------------------------
 
 Validate README claims against implementation.
@@ -388,7 +388,7 @@ sync-library command references
 v1.0.73 references
 
 --------------------------------------------------
-PHASE 16 — PERFORMANCE REVIEW
+PHASE 16 â€” PERFORMANCE REVIEW
 --------------------------------------------------
 
 Review:
@@ -401,13 +401,13 @@ log growth
 Look for:
 
 large scans
-O(n²) loops
+O(nÂ²) loops
 unbounded caches
 memory leaks
 excessive file reads
 
 --------------------------------------------------
-PHASE 17 — TEST COVERAGE
+PHASE 17 â€” TEST COVERAGE
 --------------------------------------------------
 
 Audit all tests.
@@ -425,7 +425,7 @@ Verify coverage of:
 Identify missing tests.
 
 --------------------------------------------------
-PHASE 18 — SECURITY REVIEW
+PHASE 18 â€” SECURITY REVIEW
 --------------------------------------------------
 
 Perform dedicated security audit.
@@ -449,7 +449,7 @@ CRITICAL
 severity ratings.
 
 --------------------------------------------------
-PHASE 19 — RELEASE READINESS
+PHASE 19 â€” RELEASE READINESS
 --------------------------------------------------
 
 Evaluate:
@@ -457,7 +457,7 @@ Evaluate:
 npm test
 
 Expected:
-461 passing
+531 passing
 
 Verify:
 
@@ -473,7 +473,7 @@ PASS WITH WARNINGS
 FAIL
 
 --------------------------------------------------
-PHASE 20 — FUTURE ARCHITECTURE
+PHASE 20 â€” FUTURE ARCHITECTURE
 --------------------------------------------------
 
 Evaluate:

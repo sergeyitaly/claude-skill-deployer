@@ -428,7 +428,7 @@ describe("GRADE_THRESHOLDS", () => {
       sessionId: "sess001",
     }));
     writeLog(logPath, entries);
-    const summary = summarizeMcpUsage(logPath);
+    const summary = summarizeMcpUsage(14, logPath);
     expect(summary.efficiencyScore.grade).toBe("A");
     expect(summary.efficiencyScore.score).toBeGreaterThanOrEqual(GRADE_THRESHOLDS.A);
   });
@@ -661,5 +661,101 @@ describe("computeCliKpi", () => {
     expect(computeCliKpi(makeEntries(45, 100)).grade).toBe("D");
     // 44% success → F
     expect(computeCliKpi(makeEntries(44, 100)).grade).toBe("F");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recovery Rate
+// ---------------------------------------------------------------------------
+
+describe("computeCliKpi — recoveryRate", () => {
+  function cliTs(cli: string, exitCode: number, session: string, offsetMs: number, base: number): McpUsageEntry {
+    return {
+      ts: new Date(base + offsetMs).toISOString(),
+      tool: `cli:${cli}`,
+      path: "",
+      durationMs: 50,
+      server: "cli",
+      cli,
+      exitCode,
+      sessionId: session,
+    } as McpUsageEntry;
+  }
+
+  it("recoveryRate is null when there are no failures", () => {
+    const entries = Array.from({ length: 4 }, () => ({
+      ts: new Date().toISOString(), tool: "cli:git", path: "", durationMs: 50,
+      server: "cli" as const, cli: "git", exitCode: 0, sessionId: "s1",
+    } as McpUsageEntry));
+    const result = computeCliKpi(entries, 365);
+    expect(result.overallRecoveryRate).toBeNull();
+    expect(result.byCli[0]!.recoveryRate).toBeNull();
+  });
+
+  it("100% recovery: every failure is followed by a success within 30s", () => {
+    const base = Date.now();
+    const entries = [
+      cliTs("az", 1, "s1", 0, base),       // failure
+      cliTs("az", 0, "s1", 5_000, base),   // success within 30s → recovery
+      cliTs("az", 1, "s1", 60_000, base),  // second failure
+      cliTs("az", 0, "s1", 65_000, base),  // success within 30s → recovery
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalFailures).toBe(2);
+    expect(result.totalRecoveries).toBe(2);
+    expect(result.overallRecoveryRate).toBe(100);
+    expect(result.byCli[0]!.recoveryRate).toBe(100);
+  });
+
+  it("0% recovery: all failures have no subsequent success within 30s", () => {
+    const base = Date.now();
+    const entries = [
+      cliTs("terraform", 1, "s1", 0, base),
+      cliTs("terraform", 1, "s1", 40_000, base), // > 30s later, not a recovery of first
+      cliTs("terraform", 0, "s1", 80_000, base), // > 30s after second failure
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalFailures).toBe(2);
+    expect(result.totalRecoveries).toBe(0);
+    expect(result.overallRecoveryRate).toBe(0);
+  });
+
+  it("partial recovery: 1 of 2 failures recovered", () => {
+    const base = Date.now();
+    const entries = [
+      cliTs("kubectl", 1, "s1", 0, base),        // failure #1
+      cliTs("kubectl", 0, "s1", 5_000, base),    // recovery #1
+      cliTs("kubectl", 1, "s1", 60_000, base),   // failure #2 (new window starts here)
+      // no success follows failure #2 within 30s
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalFailures).toBe(2);
+    expect(result.totalRecoveries).toBe(1);
+    expect(result.overallRecoveryRate).toBe(50);
+  });
+
+  it("each failure counted only once even if multiple successes follow", () => {
+    const base = Date.now();
+    const entries = [
+      cliTs("az", 1, "s1", 0, base),        // failure
+      cliTs("az", 0, "s1", 5_000, base),    // first success → recovery (clears failure marker)
+      cliTs("az", 0, "s1", 10_000, base),   // second success → NOT another recovery
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalFailures).toBe(1);
+    expect(result.totalRecoveries).toBe(1);
+    expect(result.overallRecoveryRate).toBe(100);
+  });
+
+  it("recovery does not cross session boundaries", () => {
+    const base = Date.now();
+    const entries = [
+      cliTs("az", 1, "s1", 0, base),       // failure in session s1
+      cliTs("az", 0, "s2", 5_000, base),   // success in session s2 — different session
+    ];
+    const result = computeCliKpi(entries, 365);
+    expect(result.totalFailures).toBe(1);
+    expect(result.totalRecoveries).toBe(0);
+    expect(result.overallRecoveryRate).toBe(0);
   });
 });

@@ -473,7 +473,7 @@ export function formatBranchProfilesReport(target: string): string {
   return lines.join("\n");
 }
 
-let lastKnownBranch: string | undefined;
+const _lastKnownBranchByTarget = new Map<string, string>();
 
 export interface BranchChangeOptions {
   /** When set, called instead of auto-saving a snapshot for branches with no saved profile. */
@@ -522,8 +522,11 @@ export async function handleBranchChange(
     return;
   }
 
+  const _targetKey = path.normalize(target);
+  const lastKnownBranch = _lastKnownBranchByTarget.get(_targetKey);
+
   if (lastKnownBranch === undefined) {
-    lastKnownBranch = branch;
+    _lastKnownBranchByTarget.set(_targetKey, branch);
     const hasSavedProfile = !!loadBranchProfile(target, branch);
     await maybeRecoverRequiredSkills(branch, hasSavedProfile, true, opts, log);
     if (!hasSavedProfile) {
@@ -542,7 +545,7 @@ export async function handleBranchChange(
   }
 
   const previous = lastKnownBranch;
-  lastKnownBranch = branch;
+  _lastKnownBranchByTarget.set(_targetKey, branch);
   log(`Git branch changed: \`${previous}\` -> \`${branch}\` (leaving-branch profile was saved on last skill edit).`);
 
   const incoming = loadBranchProfile(target, branch);
@@ -582,10 +585,21 @@ export async function handleBranchChange(
   }
 }
 
-export function resetBranchTracking(): void {
-  lastKnownBranch = undefined;
+export function resetBranchTracking(target?: string): void {
+  if (target) {
+    _lastKnownBranchByTarget.delete(path.normalize(target));
+  } else {
+    _lastKnownBranchByTarget.clear();
+  }
 }
 
 export function initBranchTracking(target: string | undefined): void {
-  lastKnownBranch = target ? getCurrentBranch(target) : undefined;
+  if (!target) return;
+  const branch = getCurrentBranch(target);
+  const key = path.normalize(target);
+  if (branch) {
+    _lastKnownBranchByTarget.set(key, branch);
+  } else {
+    _lastKnownBranchByTarget.delete(key);
+  }
 }

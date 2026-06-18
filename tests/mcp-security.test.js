@@ -140,6 +140,75 @@ console.log("\n=== Phase 5/8: Path Traversal Protection ===");
 })();
 
 // ---------------------------------------------------------------------------
+// Symlink traversal tests (H1 fix verification)
+// ---------------------------------------------------------------------------
+
+console.log("\n=== Phase 5: Symlink Traversal Protection ===");
+
+(function runSymlinkTests() {
+  // Skip on platforms/environments where symlinks cannot be created.
+  let canSymlink = true;
+  const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-sym-test-"));
+  const allowed = path.join(tmpBase, "allowed");
+  const outside = path.join(tmpBase, "outside");
+  fs.mkdirSync(allowed, { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  const secretFile = path.join(outside, "secret.txt");
+  fs.writeFileSync(secretFile, "secret", "utf-8");
+
+  try {
+    fs.symlinkSync(secretFile, path.join(allowed, "escape.txt"));
+  } catch {
+    canSymlink = false;
+  }
+
+  const assertAllowedWithRealpath = makeAssertAllowedWithRealpath([allowed]);
+
+  if (canSymlink) {
+    test("rejects symlink inside allowed dir pointing outside (H1 fix)", () => {
+      const symlink = path.join(allowed, "escape.txt");
+      assert.throws(
+        () => assertAllowedWithRealpath(symlink),
+        /Access denied/
+      );
+    });
+  } else {
+    test("symlink test skipped — cannot create symlinks on this platform/env", () => {
+      // no-op pass
+    });
+  }
+
+  test("still allows normal file inside allowed dir after realpathSync check", () => {
+    const real = path.join(allowed, "normal.txt");
+    fs.writeFileSync(real, "ok", "utf-8");
+    assert.doesNotThrow(() => assertAllowedWithRealpath(real));
+  });
+
+  fs.rmSync(tmpBase, { recursive: true, force: true });
+})();
+
+/**
+ * Mirrors the fixed assertAllowed from filesystem/index.js that calls realpathSync.
+ * Used here so the security test verifies the post-H1 logic without launching the server.
+ */
+function makeAssertAllowedWithRealpath(allowedDirs) {
+  return function assertAllowed(requestedPath) {
+    const resolved = path.resolve(requestedPath);
+    const dirs = allowedDirs.map((d) => path.resolve(d));
+    const isInside = (p) => dirs.some((dir) => p === dir || p.startsWith(dir + path.sep));
+    if (!isInside(resolved)) {
+      throw new Error(`Access denied: '${requestedPath}' is outside allowed directories.`);
+    }
+    let real = resolved;
+    try { real = fs.realpathSync(resolved); } catch { /* new file */ }
+    if (real !== resolved && !isInside(real)) {
+      throw new Error(`Access denied: '${requestedPath}' is a symlink resolving outside allowed directories.`);
+    }
+    return resolved;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // CLI allow-list tests  (mirrors cli/index.js normalization logic)
 // ---------------------------------------------------------------------------
 

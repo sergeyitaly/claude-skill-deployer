@@ -66,7 +66,7 @@ export function readWeeklyReportConfig(): WeeklyReportConfig {
     smtpHost: cfg.get<string>("smtpHost", "") || process.env.CLAUDE_SKILLS_SMTP_HOST || "",
     smtpPort: cfg.get<number>("smtpPort", 587) || Number(process.env.CLAUDE_SKILLS_SMTP_PORT || 587),
     smtpUser: cfg.get<string>("smtpUser", "") || process.env.CLAUDE_SKILLS_SMTP_USER || "",
-    smtpPassword: cfg.get<string>("smtpPassword", "") || process.env.CLAUDE_SKILLS_SMTP_PASSWORD || "",
+    smtpPassword: process.env.CLAUDE_SKILLS_SMTP_PASSWORD || "",
     emailSubject:
       cfg.get<string>("emailSubject", "") ||
       cfg.get<string>("issueTitle", "Weekly Claude Skills Benefits Report"),
@@ -378,7 +378,9 @@ function smtpSession(
         if (step === 0 && code === "220") {
           send("EHLO localhost");
           step = 1;
-        } else if (step === 1 && code === "250" && line.includes("localhost")) {
+        } else if (step === 1 && code === "250" && line[3] === " ") {
+          // line[3] === " " identifies the terminal line of a multi-line EHLO response
+          // (RFC 5321: continuation lines use "250-", final line uses "250 ").
           if (socket instanceof net.Socket && !(socket as tls.TLSSocket).encrypted) {
             send("STARTTLS");
             step = 2;
@@ -396,7 +398,7 @@ function smtpSession(
           socket.removeAllListeners("error");
           smtpSession(upgraded, smtpHost, user, password, to, subject, body).then(resolve).catch(reject);
           return;
-        } else if (step === 3 && code === "250" && line.includes("localhost")) {
+        } else if (step === 3 && code === "250" && line[3] === " ") {
           send("AUTH LOGIN");
           step = 4;
         } else if (step === 4 && code === "334") {
@@ -415,7 +417,11 @@ function smtpSession(
           send("DATA");
           step = 9;
         } else if (step === 9 && code === "354") {
-          socket.write(`Subject: ${subject}\r\nFrom: ${user}\r\nTo: ${to}\r\n\r\n${body}\r\n.\r\n`);
+          const dateStr = new Date().toUTCString();
+          socket.write(
+            `Subject: ${subject}\r\nFrom: ${user}\r\nTo: ${to}\r\nDate: ${dateStr}\r\n` +
+            `MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}\r\n.\r\n`
+          );
           step = 10;
         } else if (step === 10 && code === "250") {
           send("QUIT");

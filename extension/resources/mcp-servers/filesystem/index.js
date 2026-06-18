@@ -27,6 +27,9 @@ const BINARY_SIGNATURES = [
   [0x50, 0x4b, 0x03, 0x04], // ZIP / DOCX / XLSX / JAR
   [0x7f, 0x45, 0x4c, 0x46], // ELF binary
   [0x4d, 0x5a],              // Windows PE / EXE / DLL
+  [0x00, 0x61, 0x73, 0x6d], // WebAssembly (.wasm)
+  [0x42, 0x4d],              // BMP image
+  [0x53, 0x51, 0x4c, 0x69], // SQLite database
 ];
 
 /** Returns true when the first bytes of a Buffer match a known binary signature. */
@@ -49,36 +52,65 @@ function sha1hex(content) {
 const configArgIdx = process.argv.indexOf("--config");
 const configPath = configArgIdx !== -1 ? process.argv[configArgIdx + 1] : null;
 
+// Cache resolved allowed-dirs so assertAllowed() does not re-read the config file
+// on every tool call. Invalidated by fs.watch so runtime config updates (e.g. the
+// extension refreshing workspaceLogPath) still take effect without restarting.
+let _allowedDirsCache = null;
+let _allowedDirsCacheWatcher = null;
+
 function getAllowedDirs() {
+  if (_allowedDirsCache !== null) return _allowedDirsCache;
   if (configPath) {
     try {
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       if (Array.isArray(cfg.allowedDirs) && cfg.allowedDirs.length > 0) {
-        return cfg.allowedDirs.map((d) => path.resolve(d));
+        _allowedDirsCache = cfg.allowedDirs.map((d) => path.resolve(d));
+        if (!_allowedDirsCacheWatcher) {
+          try {
+            _allowedDirsCacheWatcher = fs.watch(configPath, () => { _allowedDirsCache = null; });
+            _allowedDirsCacheWatcher.unref();
+          } catch { /* ignore watch errors — stale cache is safe */ }
+        }
+        return _allowedDirsCache;
       }
     } catch {
       // fall through to default
     }
   }
-  return [path.resolve(os.homedir(), ".claude")];
+  _allowedDirsCache = [path.resolve(os.homedir(), ".claude")];
+  return _allowedDirsCache;
 }
 
 /**
  * Resolve requestedPath and verify it is inside one of the allowed dirs.
  * Throws with a clear message if not; returns the resolved absolute path if OK.
+ *
+ * Both the nominal path (path.resolve) and the real path (fs.realpathSync) are
+ * checked so a symlink inside an allowed dir cannot escape to the filesystem.
  */
 function assertAllowed(requestedPath) {
   const resolved = path.resolve(requestedPath);
   const allowed = getAllowedDirs();
-  const denied = allowed.every(
-    (dir) => resolved !== dir && !resolved.startsWith(dir + path.sep)
-  );
-  if (denied) {
+  const isInside = (p) => allowed.some((dir) => p === dir || p.startsWith(dir + path.sep));
+
+  if (!isInside(resolved)) {
     throw new Error(
       `Access denied: "${resolved}" is outside allowed directories. ` +
         `Allowed: ${allowed.join(", ")}`
     );
   }
+
+  // Resolve symlinks and re-check — a symlink inside an allowed dir may point outside.
+  // Falls back to `resolved` for new files (realpathSync throws ENOENT; no symlink risk).
+  let real = resolved;
+  try { real = fs.realpathSync(resolved); } catch { /* file doesn't exist yet */ }
+  if (real !== resolved && !isInside(real)) {
+    throw new Error(
+      `Access denied: "${resolved}" is a symlink resolving to "${real}" which is outside allowed directories. ` +
+        `Allowed: ${allowed.join(", ")}`
+    );
+  }
+
   return resolved;
 }
 
@@ -379,6 +411,9 @@ function dispatchTool(id, toolName, args) {
         const patternStr = typeof args.pattern === "string" ? args.pattern : "";
         const contextLines = typeof args.context_lines === "number" ? Math.min(Math.max(0, args.context_lines), 10) : 2;
         const maxMatches = typeof args.max_matches === "number" ? Math.min(args.max_matches, 100) : 50;
+        if (patternStr.length > 500) {
+          throw new Error(`Regex pattern too long (${patternStr.length} chars > 500 max).`);
+        }
         let regex;
         try {
           regex = new RegExp(patternStr);
@@ -389,7 +424,13 @@ function dispatchTool(id, toolName, args) {
         logExtra.bytes = Buffer.byteLength(content, "utf-8");
         const lines = content.split("\n");
         const matches = [];
+        // Time-budget guard: catastrophic regex backtracking blocks the event loop.
+        // Check every 200 lines so the overhead is negligible for typical files.
+        const _searchDeadline = Date.now() + 5_000;
         for (let i = 0; i < lines.length && matches.length < maxMatches; i++) {
+          if (i % 200 === 0 && Date.now() > _searchDeadline) {
+            throw new Error("search_in_file: regex match timed out after 5s — simplify the pattern.");
+          }
           if (regex.test(lines[i])) {
             const start = Math.max(0, i - contextLines);
             const end = Math.min(lines.length - 1, i + contextLines);

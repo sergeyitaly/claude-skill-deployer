@@ -209,10 +209,11 @@ def cmd_setup_task(args) -> int:
     vscode_dir = target / ".vscode"
     tasks_path = vscode_dir / "tasks.json"
 
+    python_cmd = "py" if sys.platform == "win32" else "python3"
     new_task = {
         "label": "Generate Claude Skills",
         "type": "shell",
-        "command": "py",
+        "command": python_cmd,
         "args": [
             str(SCRIPT_DIR / "generate_skills.py"),
             "generate",
