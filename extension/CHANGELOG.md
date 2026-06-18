@@ -3,7 +3,7 @@
 All notable changes to **Claude Skills Manager** (VS Code extension) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.76** is the current Marketplace publish target.
+Consolidated release line starts at **1.0.1** (2026-06-12). **1.0.77** is the current Marketplace publish target.
 
 ## How to read this log
 
@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.77** | Bug fixes — archiveSkill Windows EPERM, terminal-watch CLI name extraction for chained commands |
 | **1.0.76** | Native bash telemetry — terminal-watch hook, auto-registration, Azure E2E benchmark, telemetry dashboard |
 | **1.0.75** | CLI KPI Phase 1 — success rate, retry count, P50/P95 duration, recovery rate across all CLI MCP calls |
 | **1.0.74** | QA audit hardening — binary file guard, skill lifecycle pipeline, security test suite, 24 new tests |
@@ -37,6 +38,23 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 – 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 – 1.0.16** | Foundation — skills, agents, profile init |
+
+---
+
+## [1.0.77] — 2026-06-19
+
+**Summary:** Two bug fixes discovered during live benchmarking — `archiveSkill` Windows EPERM on temp-dir cross-directory rename, and `terminal-watch.js` misidentifying `cd` as the CLI name when commands are prefixed with `cd "path";`.
+
+**Theme:** Hardening — Windows compatibility and telemetry accuracy
+
+### Fixed
+
+- **`archiveSkill` EPERM on Windows** (`skillArchival.ts:148`) — `fs.renameSync(src, dest)` throws `EPERM: operation not permitted` when source and destination are in different temp directories on Windows (a known cross-mount-point limitation). Applied the same `fs.cpSync` → `fs.rmSync` pattern used in `restoreArchivedSkill` since v1.0.74. The `skillArchival.test.ts > restoreArchivedSkill > removes the archived copy after restore` test was failing intermittently on Windows CI.
+- **`terminal-watch.js` CLI name extraction** (`inferCli`) — Claude Code prefixes every PowerShell tool call with `cd "<workspace>"; real-command`. The original `split(/\s+/)[0]` extracted `cd` as the CLI name, collapsing all real commands into a single useless bucket. `inferCli` now strips the leading `cd "<path>";` or `Set-Location "<path>";` prefix before extracting the first meaningful token. Real CLI names (`npm`, `git`, `node`, `terraform`, etc.) now appear correctly in the telemetry dashboard and KPI panel.
+
+### Test results
+
+- 99 test files, 531 tests — 100% pass after fix
 
 ---
 

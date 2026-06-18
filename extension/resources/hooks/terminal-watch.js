@@ -54,12 +54,16 @@ function extractCommand(toolInput) {
 }
 
 /**
- * Derive a normalised CLI name from the first token of the command string.
- * Strips Windows executable suffixes (.cmd, .exe, .ps1, .bat).
+ * Derive a normalised CLI name from the command string.
+ * Skips leading "cd <path>;" or "Set-Location <path>;" prefixes that Claude Code
+ * prepends to every PowerShell call so the actual executable name is captured.
  */
 function inferCli(command) {
   if (!command || typeof command !== "string") return "unknown";
-  const first = command.trim().split(/\s+/)[0].toLowerCase();
+  let cmd = command.trim();
+  // Strip leading "cd ..." or "Set-Location ..." before a semicolon
+  cmd = cmd.replace(/^(?:cd|Set-Location)\s+(?:"[^"]*"|'[^']*'|\S+)\s*;\s*/i, "").trim();
+  const first = cmd.split(/\s+/)[0].toLowerCase();
   return first.replace(/\.(cmd|exe|ps1|bat)$/i, "") || "unknown";
 }
 

@@ -143,9 +143,11 @@ export function archiveSkill(
   if (fs.existsSync(dest)) {
     fs.rmSync(dest, { recursive: true, force: true });
   }
-  // Move skill to archive directory.  The original path is gone after this — do NOT call
-  // removeSkill() afterwards (dead code that would no-op on the already-moved path).
-  fs.renameSync(src, dest);
+  // Copy first, then remove source — safer than renameSync which is not atomic across
+  // filesystem boundaries (EPERM on Windows temp dirs) and leaves the skill in neither
+  // location if it fails mid-operation.
+  fs.cpSync(src, dest, { recursive: true });
+  fs.rmSync(src, { recursive: true, force: true });
 
   const meta: ArchiveMeta = {
     archivedAt: new Date().toISOString(),
