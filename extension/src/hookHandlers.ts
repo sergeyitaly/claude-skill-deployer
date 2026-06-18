@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { appendSkillRun, RunAgent } from "./runRecording";
+import { appendSkillRun, appendToolUse, RunAgent } from "./runRecording";
 import { readContextFocusConfig, effectiveContextFocusLevel, ContextFocusLevel } from "./contextFocusConfig";
 import { readPracticalFocusConfig, PracticalFocusLevel } from "./practicalFocusConfig";
 import { readBudgetConfig, readBudgetState, writeBudgetState, BudgetDayNotifications } from "./budgetConfig";
@@ -191,7 +191,23 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
   const toolUseId = String(body.tool_use_id ?? body.toolUseId ?? "");
 
   const skill = extractSkillName(toolName, toolInput);
-  if (!skill) return {};
+  
+  // Log non-skill tools (native IDE tools like run_task, run_in_terminal, etc.)
+  if (!skill) {
+    appendToolUse(cwd, {
+      tool: String(toolName).toLowerCase() || "unknown",
+      agent: req.agent as RunAgent,
+      sessionId,
+      metadata: {
+        source: "skill-invoke-hook-v2",
+        tool_name: String(toolName),
+        tool_use_id: toolUseId || undefined,
+        hook_agent: req.agent,
+        model: typeof body.model === "string" ? body.model : undefined,
+      },
+    });
+    return {};
+  }
 
   const stateFile = path.join(cwd, ".claude", "learning", "skill-invoke-state.json");
   const MAX_STATE_KEYS = 3000;
@@ -1684,6 +1700,83 @@ function handleFileSplitReadGuard(req: HookRequest): HookResponse {
 
 
 
+// ---------------------------------------------------------------------------
+// Handler: mcp-encoding-fix (PostToolUse -- write_file / edit_file)
+// ---------------------------------------------------------------------------
+
+const MOJIBAKE_FIXES: [RegExp, string][] = [
+  [/â€“/g, "—"],   // U+2014 em dash
+  [/â€”/g, "–"],   // U+2013 en dash
+  [/â€™/g, "’"], // right single quote
+  [/â€œ/g, "“"], // left double quote
+  [/â€/g, "”"],  // right double quote
+  [/â€¦/g, "…"],  // ellipsis
+  [/â†’/g, "→"],  // right arrow
+  [/â†—/g, "↗"],  // north east arrow
+  [/â†/g, "←"],   // left arrow
+  [/Â·/g, "·"],   // middle dot
+  [/Ã—/g, "×"],   // multiplication sign
+  [/â‰¥/g, "≥"],  // greater-than or equal
+  [/â‰¤/g, "≤"],  // less-than or equal
+  [/âˆ’/g, "−"],  // minus sign
+  [/âœ“/g, "✓"],  // check mark
+  [/âœ—/g, "✗"],  // ballot x
+  [/â“‚/g, "│"],  // box drawings light vertical
+  [/â“€/g, "─"],  // box drawings light horizontal
+  [/â–¼/g, "▼"],  // black down-pointing triangle
+  [/﻿/g, ""], // UTF-8 BOM
+];
+
+function hasMojibake(content: string): boolean {
+  return MOJIBAKE_FIXES.some(([pattern]) => pattern.test(content));
+}
+
+function fixMojibake(content: string): string {
+  let fixed = content;
+  for (const [pattern, replacement] of MOJIBAKE_FIXES) {
+    fixed = fixed.replace(new RegExp(pattern.source, "g"), replacement);
+  }
+  return fixed;
+}
+
+const ENCODING_FIX_TOOL_NAMES = new Set([
+  "write_file", "edit_file", "str_replace_based_edit_tool",
+  "create_file", "overwrite_file", "replace_in_file",
+]);
+const ENCODING_FIX_TEXT_EXTENSIONS = new Set([
+  ".md", ".txt", ".ts", ".js", ".json", ".yaml", ".yml",
+  ".html", ".css", ".sh", ".ps1", ".py", ".toml",
+]);
+
+function handleMcpEncodingFix(req: HookRequest): HookResponse {
+  const body = req.body as Record<string, unknown>;
+  const toolName = (body.tool_name ?? body.toolName ?? "") as string;
+  if (!ENCODING_FIX_TOOL_NAMES.has(toolName)) {
+    return {};
+  }
+  const toolInput = (body.tool_input ?? body.toolInput ?? body.input ?? {}) as Record<string, unknown>;
+  const filePath = (toolInput.path ?? toolInput.file_path ?? toolInput.filepath ?? "") as string;
+  if (!filePath) {
+    return {};
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  if (!ENCODING_FIX_TEXT_EXTENSIONS.has(ext)) {
+    return {};
+  }
+  const resolved = path.isAbsolute(filePath) ? filePath : path.join(req.cwd, filePath);
+  try {
+    const raw = fs.readFileSync(resolved, "utf-8");
+    if (!hasMojibake(raw)) {
+      return {};
+    }
+    const fixed = fixMojibake(raw);
+    fs.writeFileSync(resolved, fixed, "utf-8");
+    return { hookMessage: `[encoding-fix] Fixed Mojibake in ${path.basename(resolved)}` };
+  } catch {
+    return {};
+  }
+}
+
 export async function handleHookRequest(req: HookRequest): Promise<HookResponse> {
   switch (req.hookName) {
     case "skill-invoke": return handleSkillInvoke(req);
@@ -1702,6 +1795,7 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "mcp-error-guard": return Promise.resolve(handleMcpErrorGuard(req));
     case "file-split-advisor": return Promise.resolve(handleFileSplitAdvisor(req));
     case "file-split-read-guard": return Promise.resolve(handleFileSplitReadGuard(req));
+    case "mcp-encoding-fix": return Promise.resolve(handleMcpEncodingFix(req));
     default: return {};
   }
 }

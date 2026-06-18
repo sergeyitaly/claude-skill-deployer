@@ -433,3 +433,26 @@ export async function promptSwitchAgentSkillSet(
   );
   return result;
 }
+
+/** Remove skills from all saved per-IDE profiles for this workspace. Called after cost discipline prunes them. */
+export function removePrunedSkillsFromSavedSets(target: string, pruned: string[]): void {
+  if (pruned.length === 0) return;
+  const key = repoKeyFor(target);
+  if (!key) return;
+  const prunedSet = new Set(pruned);
+  const store = readStore();
+  const repo = store.repos[key];
+  if (!repo) return;
+  let changed = false;
+  for (const branchEntry of Object.values(repo.branches)) {
+    for (const set of Object.values(branchEntry.sets)) {
+      if (!set) continue;
+      const filtered = (set as AgentSkillSet).skills.filter((s) => !prunedSet.has(s));
+      if (filtered.length !== (set as AgentSkillSet).skills.length) {
+        (set as AgentSkillSet).skills = filtered;
+        changed = true;
+      }
+    }
+  }
+  if (changed) writeStore(store);
+}

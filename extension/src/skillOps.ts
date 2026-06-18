@@ -468,10 +468,8 @@ export function copySkill(
   if (!fs.existsSync(path.join(src, "SKILL.md"))) {
     return "missing-source";
   }
-  if (fs.existsSync(dst) && !force) {
-    if (!shouldCopyPath(src, dst)) {
-      return "skipped-exists";
-    }
+  if (fs.existsSync(dst) && !shouldCopyPath(src, dst)) {
+    return "skipped-exists";
   }
   if (dryRun) {
     return "would-install";

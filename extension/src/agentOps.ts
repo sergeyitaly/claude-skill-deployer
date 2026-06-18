@@ -195,7 +195,7 @@ function writeCopilotInstruction(
   dryRun: boolean
 ): AgentInstallResult["status"] {
   const content = buildCopilotInstructionsFile(skillName, detectGlobs, sourceSkillMd);
-  if (fs.existsSync(destFile) && !force) {
+  if (fs.existsSync(destFile)) {
     const existing = fileContentHash(destFile);
     if (existing && existing === stringContentHash(content)) {
       return "skipped-exists";

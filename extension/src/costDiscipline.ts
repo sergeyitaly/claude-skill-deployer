@@ -1,12 +1,26 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
 import { bootstrapWorkspaceForHostAgent, formatHostBootstrapLog } from "./hostAgentBootstrap";
 import { applyBudgetTierGating } from "./budgetTierGating";
 import { pruneIrrelevantPersonalSkills, relevantInstallOnlyEnabled } from "./branchSkillBootstrap";
 import { isFeatureEnabled } from "./featureFlags";
-import { loadManifest } from "./skillOps";
+import { listEffectiveEnabledSkills, loadManifest } from "./skillOps";
 import { listInstalledSkills } from "./usageStats";
 import { readTaskFocusLimits } from "./taskFocusConfig";
+import { agentMirrorsNeedSync } from "./agentOps";
+import { stringContentHash } from "./fileHash";
+import { removePrunedSkillsFromSavedSets } from "./agentSkillProfiles";
+
+const lastDisciplineFingerprint = new Map<string, string>();
+
+export function invalidateCostDisciplineFingerprint(target?: string): void {
+  if (target) {
+    lastDisciplineFingerprint.delete(path.resolve(target));
+    return;
+  }
+  lastDisciplineFingerprint.clear();
+}
 
 export interface CostDisciplineResult {
   budgetDisabled: string[];
@@ -47,6 +61,10 @@ export function runCostDisciplinePass(
     const installedCount = listInstalledSkills(target).length;
     if (installedCount > pruneThreshold()) {
       prunedIrrelevant = pruneIrrelevantPersonalSkills(libraryDir, target, manifest);
+      if (prunedIrrelevant.length > 0) {
+        removePrunedSkillsFromSavedSets(target, prunedIrrelevant);
+        invalidateCostDisciplineFingerprint(target);
+      }
     }
   }
 
@@ -57,11 +75,18 @@ export function runCostDisciplinePass(
   let mirroredArtifacts: string[] = [];
   let agentPathsUpdated = 0;
   if (shouldPropagate) {
-    const propagated = propagateCostDisciplineToAgents(libraryDir, target);
-    mirroredArtifacts = propagated.mirrored;
-    agentPathsUpdated = propagated.agentResults.filter(
-      (r) => r.status === "installed" || r.status === "written"
-    ).length;
+    const key = path.resolve(target);
+    const effective = listEffectiveEnabledSkills(target);
+    const fp = stringContentHash(JSON.stringify({ skills: [...effective].sort(), budget: budget.disabled.sort() }));
+    const mirrorsStale = agentMirrorsNeedSync(target, libraryDir);
+    if (lastDisciplineFingerprint.get(key) !== fp || mirrorsStale) {
+      lastDisciplineFingerprint.set(key, fp);
+      const propagated = propagateCostDisciplineToAgents(libraryDir, target);
+      mirroredArtifacts = propagated.mirrored;
+      agentPathsUpdated = propagated.agentResults.filter(
+        (r) => r.status === "installed" || r.status === "written"
+      ).length;
+    }
   }
 
   return {
