@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * PostToolUse hook: log native Bash / PowerShell / run_in_terminal commands
  * into mcp-usage.jsonl alongside CLI MCP server entries.
@@ -63,7 +63,13 @@ function inferCli(command) {
   let cmd = command.trim();
   // Strip leading "cd ..." or "Set-Location ..." before a semicolon
   cmd = cmd.replace(/^(?:cd|Set-Location)\s+(?:"[^"]*"|'[^']*'|\S+)\s*;\s*/i, "").trim();
+  // Strip PowerShell variable assignment ($var = ...) to get the actual command
+  cmd = cmd.replace(/^\$\w+\s*=\s*/, "").trim();
+  // Strip wrapping parenthesis
+  if (cmd.startsWith("(")) cmd = cmd.slice(1).trim();
   const first = cmd.split(/\s+/)[0].toLowerCase();
+  // Ignore bare PS variable references that slipped through
+  if (first.startsWith("$")) return "unknown";
   return first.replace(/\.(cmd|exe|ps1|bat)$/i, "") || "unknown";
 }
 
@@ -205,3 +211,4 @@ function main() {
 }
 
 main();
+

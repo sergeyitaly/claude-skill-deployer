@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Human-AI Collaboration Efficiency (HACE) score.
  *
  * Computes four observable components from Claude session transcripts
@@ -152,10 +152,14 @@ function parseSessionFile(filePath: string): HaceTurn[] {
       const content = e.message.content ?? [];
       const isToolResult = content.some(c => c.type === "tool_result");
       if (!isToolResult) {
-        // Real human prompt — commit previous turn first
-        commitTurn();
-        humanTs     = ts;
-        promptChars = content.reduce((n, c) => n + (c.text?.length ?? 0), 0);
+        // Only count entries with actual human text — skip hook injections and
+        // system notifications that Claude Code writes as user entries with no text.
+        const chars = content.reduce((n, c) => n + (c.text?.length ?? 0), 0);
+        if (chars > 0) {
+          commitTurn();
+          humanTs     = ts;
+          promptChars = chars;
+        }
       }
     }
 
@@ -269,3 +273,4 @@ export function computeHaceMetrics(
     grade:               grade(haceScore),
   };
 }
+
