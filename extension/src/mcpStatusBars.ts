@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { checkMcpHealth } from "./mcpHealth";
 import { getCliMcpServerStatus } from "./mcpCli";
-import { summarizeMcpUsage, workspaceMcpLogPath } from "./mcpUsageLog";
+import { summarizeMcpUsage, workspaceMcpLogPath, computeCliKpi, readMcpUsageLog } from "./mcpUsageLog";
+import { computeHaceMetrics, HaceMetrics } from "./haceMetrics";
 
 export interface McpStatusBarItems {
   mcpHealthStatusBarItem: vscode.StatusBarItem;
@@ -11,6 +12,22 @@ export interface McpStatusBarItems {
 
 let lastMcpBarRefreshMs = 0;
 const MCP_BAR_REFRESH_INTERVAL_MS = 2000;
+
+let _haceCache: HaceMetrics | null = null;
+let _haceCacheTarget = "";
+let _haceCacheMs = 0;
+const HACE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function getCachedHace(target: string, cliSuccessRate: number): HaceMetrics {
+  const now = Date.now();
+  if (_haceCache && _haceCacheTarget === target && now - _haceCacheMs < HACE_CACHE_TTL_MS) {
+    return _haceCache;
+  }
+  _haceCache = computeHaceMetrics(target, cliSuccessRate, 14);
+  _haceCacheTarget = target;
+  _haceCacheMs = now;
+  return _haceCache;
+}
 
 /**
  * Refresh MCP health and KPI status bars with throttling to prevent excessive updates.
@@ -72,6 +89,21 @@ export function refreshMcpStatusBars(
       `Efficiency: ${score}% (grade ${grade})\n` +
       `MCP calls: ${calls}${wastedLabel}\n` +
       (summary.suggestions.length > 0 ? `\nTop hint: ${summary.suggestions[0].description}` : "") +
+      (() => {
+        if (!workspaceTarget) return "";
+        const logPath2 = workspaceMcpLogPath(workspaceTarget);
+        const cliEntries = readMcpUsageLog(logPath2);
+        const kpi2 = computeCliKpi(cliEntries, 1);
+        const h = getCachedHace(workspaceTarget, kpi2.overallSuccessRate);
+        if (h.noData) return "";
+        return `\n\n-- HACE · Human-AI Collaboration --\n` +
+          `Score: ${h.haceScore}/100 · ${h.grade}\n` +
+          `  Prompt Clarity  ${h.promptClarityScore}%  (thinking rate: ${Math.round(h.thinkingRate * 100)}%)\n` +
+          `  Task Velocity   ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)\n` +
+          `  Accuracy        ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)\n` +
+          `  CLI Efficiency  ${h.cliEfficiencyScore}%\n` +
+          `  Avg response    ${h.avgResponseSecs.toFixed(1)}s`;
+      })() +
       `\n\nClick for full MCP health report.`;
   }
   mcpKpiStatusBarItem.command = "claudeSkills.showMcpHealth";
@@ -112,3 +144,5 @@ export function refreshCliMcpStatusBar(mcpCliStatusBarItem: vscode.StatusBarItem
 export function resetMcpStatusBarRefreshThrottle(): void {
   lastMcpBarRefreshMs = 0;
 }
+
+
