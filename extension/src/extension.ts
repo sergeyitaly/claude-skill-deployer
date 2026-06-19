@@ -137,6 +137,7 @@ import {
   isDirCacheGuardConfigured,
   installOfficialSkillsSessionHook,
   installSkillGapDetectorHook,
+  installTerminalWatchHook,
   removeMcpForceHooks,
   installFileSplitAdvisorHook,
   isFileSplitAdvisorConfigured,
@@ -1084,6 +1085,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       ensureAttributionHooksActive(context.extensionPath, target, log);
     }
     installSkillGapDetectorHook(context.extensionPath, target);
+    installTerminalWatchHook(context.extensionPath, target);
 
     if (!shouldRunWorkspaceState(lastWorkspaceStateAt, { workspaceState: opts.workspaceState })) {
       return;

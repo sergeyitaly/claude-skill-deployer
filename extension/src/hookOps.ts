@@ -285,6 +285,19 @@ export function isTerminalWatchHookConfigured(target: string): boolean {
   }
 }
 
+export function installTerminalWatchHook(extensionPath: string, target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasTerminalWatchHook(settings);
+  const added = ensureTerminalWatchHookRegistered(settings, extensionPath);
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
+}
+
 export function isTaskDriftHookConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));
