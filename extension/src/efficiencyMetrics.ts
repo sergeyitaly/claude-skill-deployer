@@ -22,6 +22,7 @@ import {
 } from "./mcpUsageLog";
 import { formatCompactUsd } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
+import { computeHaceMetrics, HaceMetrics } from "./haceMetrics";
 
 export type TelemetryScope = "workspace" | "global" | "hybrid";
 
@@ -76,6 +77,8 @@ export interface EfficiencyMetrics {
   crossSession: CrossSessionSummary;
   /** CLI KPI: success rate, retries, duration percentiles across all CLI MCP calls. */
   cliKpi: CliKpi;
+  /** Human-AI Collaboration Efficiency score derived from session transcripts. */
+  hace: HaceMetrics;
 }
 
 export function computeEfficiencyMetrics(
@@ -181,6 +184,8 @@ export function computeEfficiencyMetrics(
     }
   }
 
+  const hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack);
+
   return {
     costPerSkill,
     costPerAgent,
@@ -189,6 +194,7 @@ export function computeEfficiencyMetrics(
     mcpFileTokens: mcp.totalEstimatedTokens,
     crossSession,
     cliKpi,
+    hace,
   };
 }
 
@@ -287,6 +293,16 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
     if (cli.mostFailingCli) lines.push(`  Most failing: ${cli.mostFailingCli} — check credentials, connectivity, allow-list`);
   }
 
+  const h = metrics.hace;
+  if (!h.noData) {
+    lines.push(`\n### HACE Score: ${h.haceScore}/100 (${h.grade})  —  ${h.totalTurns} turn(s) across ${h.sessions} session(s)`);
+    lines.push(`  Prompt Clarity  ${h.promptClarityScore}%  (thinking rate: ${Math.round(h.thinkingRate * 100)}%)`);
+    lines.push(`  Task Velocity   ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)`);
+    lines.push(`  Accuracy        ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)`);
+    lines.push(`  CLI Efficiency  ${h.cliEfficiencyScore}%`);
+    lines.push(`  Avg response    ${h.avgResponseSecs.toFixed(1)}s`);
+  }
+
   return lines.join("\n");
 }
 
@@ -375,6 +391,49 @@ function buildMcpSuccessBlocks(m: McpUsageSummary): string[] {
 // ---------------------------------------------------------------------------
 // CLI KPI panel
 // ---------------------------------------------------------------------------
+
+function buildHacePanelHtml(h: HaceMetrics): string {
+  if (h.noData) return "";
+
+  const gradeClass = h.haceScore >= 85 ? "roi-high"
+    : h.haceScore >= 70 ? "conf-high"
+    : h.haceScore >= 55 ? "conf-estimated"
+    : "roi-low";
+
+  function componentRow(label: string, score: number, detail: string): string {
+    return `<div class="skill-row">
+      <div class="skill-head">
+        <span>${esc(label)}</span>
+        <span class="cost ${score >= 70 ? "roi-high" : score >= 50 ? "conf-estimated" : "roi-low"}">${score}%</span>
+        <span class="bar">${miniBar(score, 100)}</span>
+      </div>
+      <div class="hint">${esc(detail)}</div>
+    </div>`;
+  }
+
+  const rows = [
+    componentRow("Prompt Clarity",  h.promptClarityScore,
+      `${Math.round(h.thinkingRate * 100)}% of turns triggered extended thinking — lower = clearer prompts`),
+    componentRow("Task Velocity",   h.taskVelocityScore,
+      `${h.turnsPerMinute.toFixed(1)} turns/min — target ≥ 2.0`),
+    componentRow("Accuracy Rate",   h.accuracyScore,
+      `${Math.round(h.correctionRate * 100)}% correction turns (short re-prompts after long responses)`),
+    componentRow("CLI Efficiency",  h.cliEfficiencyScore,
+      "CLI exit-code success rate from terminal-watch telemetry"),
+  ].join("\n");
+
+  return `<div class="sub-panel" style="grid-column: 1 / -1">
+    <h3>HACE · Human-AI Collaboration Efficiency</h3>
+    <div style="margin-bottom:6px">
+      <span class="stat-pill ${gradeClass}" title="Weighted composite: 30% clarity · 25% velocity · 25% accuracy · 20% CLI">${h.haceScore}/100 · ${h.grade}</span>
+      <span class="stat-pill conf-estimated" title="Sessions analysed">${h.sessions} session${h.sessions !== 1 ? "s" : ""}</span>
+      <span class="stat-pill conf-estimated" title="Total conversation turns">${h.totalTurns} turn${h.totalTurns !== 1 ? "s" : ""}</span>
+      <span class="stat-pill" title="Average wall-clock seconds from user message to first assistant token">avg ${h.avgResponseSecs.toFixed(1)}s response</span>
+    </div>
+    ${rows}
+    <p class="note" style="margin-top:4px">Derived from session transcripts in <code>~/.claude/projects/</code>. Prompt Clarity: fewer thinking blocks = clearer prompts. Accuracy: short follow-ups after long responses signal corrections.</p>
+  </div>`;
+}
 
 function buildCliKpiPanelHtml(kpi: CliKpi): string {
   if (kpi.totalCalls === 0) return "";
@@ -631,7 +690,8 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
         </div>`
       : "";
 
-  const cliKpiHtml = buildCliKpiPanelHtml(metrics.cliKpi);
+  const cliKpiHtml  = buildCliKpiPanelHtml(metrics.cliKpi);
+  const haceHtml    = buildHacePanelHtml(metrics.hace);
 
   return `<div class="panel">
   <h2>Efficiency metrics · 14d</h2>
@@ -643,6 +703,7 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
     ${crossSessionHtml}
     ${noOpWritesHtml}
     ${cliKpiHtml}
+    ${haceHtml}
   </div>
   <p class="note" style="margin-top:8px">Costs from runs.jsonl hooks. MCP file-access patterns from <code>~/.claude/learning/mcp-usage.jsonl</code>. Hints written to <code>~/.claude/learning/mcp-agent-hints.md</code>. Estimates only.</p>
   <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
