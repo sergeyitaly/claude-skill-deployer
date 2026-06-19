@@ -33,8 +33,30 @@ const configArgIdx = process.argv.indexOf("--config");
 const configPath = configArgIdx !== -1 ? process.argv[configArgIdx + 1] : null;
 
 const DEFAULT_ALLOWED_CLIS = [
-  "az", "aws", "git", "kubectl", "helm", "terraform",
-  "gcloud", "docker", "gh", "dotnet", "node", "npm",
+  // Cloud / infra
+  "az", "aws", "gcloud", "terraform", "kubectl", "helm", "docker", "gh",
+  // Version control
+  "git",
+  // JavaScript / TypeScript
+  "node", "npm", "npx", "yarn", "pnpm", "bun",
+  // Python
+  "python", "python3", "pip", "pip3", "uv",
+  // .NET / C#
+  "dotnet",
+  // Rust
+  "cargo", "rustc",
+  // Go
+  "go",
+  // Java / JVM
+  "mvn", "gradle", "java",
+  // Build / task runners
+  "make",
+  // Ruby
+  "bundle", "ruby",
+  // PHP
+  "composer",
+  // Swift / Apple
+  "swift",
 ];
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes
 const MAX_TIMEOUT_MS = 30 * 60 * 1000;     // 30 minutes
@@ -66,11 +88,16 @@ function readConfig() {
 
 function getAllowedClis() {
   const cfg = readConfig();
-  const list = Array.isArray(cfg.allowedClis) && cfg.allowedClis.length > 0
-    ? cfg.allowedClis
-    : DEFAULT_ALLOWED_CLIS;
+  // allowedClis replaces the default list entirely (for locked-down environments).
+  // extraClis appends to the default list (for adding project-specific tools).
+  let list = DEFAULT_ALLOWED_CLIS;
+  if (Array.isArray(cfg.allowedClis) && cfg.allowedClis.length > 0) {
+    list = cfg.allowedClis;
+  } else if (Array.isArray(cfg.extraClis) && cfg.extraClis.length > 0) {
+    list = [...DEFAULT_ALLOWED_CLIS, ...cfg.extraClis];
+  }
   // Normalise: lowercase, strip .cmd/.exe suffix for matching purposes
-  return list.map((c) => c.toLowerCase().replace(/\.(cmd|exe)$/, ""));
+  return [...new Set(list.map((c) => c.toLowerCase().replace(/\.(cmd|exe)$/, "")))];
 }
 
 function getDefaultTimeoutMs() {

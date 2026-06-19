@@ -156,8 +156,21 @@ export function computeEfficiencyMetrics(
 
   // Write auto-remediation hints at most once per 30 s — avoids redundant file I/O
   // when the dashboard is opened repeatedly or on every cost-pipeline tick.
-  const allEntries = readMcpUsageLog(resolveMcpLogPath(target, telemetryScope) ?? undefined);
-  const cliKpi = computeCliKpi(allEntries, daysBack);
+  // Read log entries once for both CLI KPI and hint writing.  The logCache in
+  // readMcpUsageLog makes the second call a no-op when summarizeMcpUsage already
+  // read the file.  Skip the read entirely for idle workspaces (no workspace-local
+  // log and no filesystem MCP calls) to avoid touching the potentially large
+  // global ~/.claude/learning/mcp-usage.jsonl unnecessarily.
+  const mcpLogPath = resolveMcpLogPath(target, telemetryScope);
+  const allEntries = (mcpLogPath !== undefined || mcp.totalCalls > 0)
+    ? readMcpUsageLog(mcpLogPath ?? undefined)
+    : [];
+
+  // Pre-filter to the same daysBack window used by summarizeMcpUsage so
+  // computeCliKpi can skip its own date-parse pass (daysBack: 0 = no re-filter).
+  const cutoffMs = Date.now() - daysBack * 86_400_000;
+  const windowEntries = allEntries.filter((e) => Date.parse(e.ts) >= cutoffMs);
+  const cliKpi = computeCliKpi(windowEntries, 0);
 
   if (mcp.totalCalls > 0) {
     const now = Date.now();
@@ -255,10 +268,17 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
   if (cli.totalCalls > 0) {
     const nd = cli.notEnoughData ? " (not enough data yet)" : "";
     lines.push(`\n### CLI KPI: ${cli.overallSuccessRate}% success (${cli.grade})${nd}  —  ${cli.totalCalls} call(s)`);
-    if (cli.totalFailures > 0) lines.push(`  Failures: ${cli.totalFailures}  Retries: ${cli.totalRetries}  Timeouts: ${cli.totalTimedOut}`);
+    if (cli.totalFailures > 0) {
+      const recLine = cli.overallRecoveryRate !== null
+        ? `  Recovery Rate: ${cli.overallRecoveryRate}%  (${cli.totalRecoveries}/${cli.totalFailures} failures self-corrected)`
+        : "";
+      lines.push(`  Failures: ${cli.totalFailures}  Retries: ${cli.totalRetries}  Timeouts: ${cli.totalTimedOut}`);
+      if (recLine) lines.push(recLine);
+    }
     for (const c of cli.byCli) {
       const flags: string[] = [];
       if (c.failureCount > 0) flags.push(`${c.failureCount} fail`);
+      if (c.recoveryRate !== null) flags.push(`🔄 ${c.recoveryRate}% recovery`);
       if (c.retryCount > 0) flags.push(`${c.retryCount} retry`);
       if (c.timedOutCount > 0) flags.push(`${c.timedOutCount} timeout`);
       const dur = c.totalCalls >= 3 ? `  P50 ${c.durationP50}ms / P95 ${c.durationP95}ms` : "";
@@ -364,11 +384,16 @@ function buildCliKpiPanelHtml(kpi: CliKpi): string {
     ? `${kpi.overallSuccessRate}% (${kpi.grade}) — not enough data yet`
     : `${kpi.overallSuccessRate}% (${kpi.grade})`;
 
+  const recoveryPill = kpi.totalFailures > 0 && kpi.overallRecoveryRate !== null
+    ? `<span class="stat-pill ${kpi.overallRecoveryRate >= 75 ? "roi-high" : kpi.overallRecoveryRate >= 50 ? "conf-estimated" : "roi-low"}" title="% of failures where the agent corrected itself within 30s — a positive signal">🔄 ${kpi.overallRecoveryRate}% recovery</span>`
+    : "";
+
   const summaryPills = [
     `<span class="stat-pill" title="Total CLI invocations">${kpi.totalCalls} call${kpi.totalCalls !== 1 ? "s" : ""}</span>`,
     kpi.totalFailures > 0
-      ? `<span class="stat-pill roi-low" title="Calls that exited non-zero">${kpi.totalFailures} failure${kpi.totalFailures !== 1 ? "s" : ""}</span>`
-      : `<span class="stat-pill roi-high" title="No failures recorded">0 failures</span>`,
+      ? `<span class="stat-pill roi-low" title="Calls that exited non-zero">⚠ ${kpi.totalFailures} failure${kpi.totalFailures !== 1 ? "s" : ""}</span>`
+      : `<span class="stat-pill roi-high" title="No failures recorded">✅ 0 failures</span>`,
+    recoveryPill,
     kpi.totalRetries > 0
       ? `<span class="stat-pill conf-estimated" title="Calls made within 30s of a failure in the same session">${kpi.totalRetries} retr${kpi.totalRetries !== 1 ? "ies" : "y"}</span>`
       : "",
@@ -384,6 +409,9 @@ function buildCliKpiPanelHtml(kpi: CliKpi): string {
       : c.successRate >= GRADE_THRESHOLDS.C ? "conf-estimated"
       : "roi-low";
     const retryNote = c.retryCount > 0 ? ` · ${c.retryCount} retr${c.retryCount !== 1 ? "ies" : "y"}` : "";
+    const recoveryNote = c.recoveryRate !== null
+      ? ` · 🔄 ${c.recoveryRate}% recovery`
+      : "";
     const timeoutNote = c.timedOutCount > 0 ? ` · ${c.timedOutCount} timeout${c.timedOutCount !== 1 ? "s" : ""}` : "";
     const durNote = c.totalCalls >= 3
       ? ` · P50 ${c.durationP50 < 1000 ? `${c.durationP50}ms` : `${(c.durationP50 / 1000).toFixed(1)}s`} / P95 ${c.durationP95 < 1000 ? `${c.durationP95}ms` : `${(c.durationP95 / 1000).toFixed(1)}s`}`
@@ -394,7 +422,7 @@ function buildCliKpiPanelHtml(kpi: CliKpi): string {
         <span class="cost ${rateClass}">${c.successRate}%</span>
         <span class="bar">${miniBar(c.totalCalls, maxCalls)}</span>
       </div>
-      <div class="hint">${c.totalCalls} call${c.totalCalls !== 1 ? "s" : ""}${retryNote}${timeoutNote}${durNote}</div>
+      <div class="hint">${c.totalCalls} call${c.totalCalls !== 1 ? "s" : ""}${retryNote}${recoveryNote}${timeoutNote}${durNote}</div>
     </div>`;
   }).join("");
 
