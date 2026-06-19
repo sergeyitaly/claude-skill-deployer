@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+﻿import * as fs from "node:fs";
 import { readEnrichedRuns } from "./usageStats";
 import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
 
@@ -184,7 +184,12 @@ export function computeEfficiencyMetrics(
     }
   }
 
-  const hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack);
+  let hace: HaceMetrics;
+  try {
+    hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack);
+  } catch {
+    hace = { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0, cliEfficiencyScore: 0, haceScore: 0, grade: "—" };
+  }
 
   return {
     costPerSkill,
@@ -712,3 +717,4 @@ export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
   </div>
 </div>`;
 }
+

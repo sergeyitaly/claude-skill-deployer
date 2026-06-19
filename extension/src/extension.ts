@@ -191,7 +191,8 @@ import { AttributionCollector } from "./attributionCollector";
 import { resetMisattributedData } from "./attributionReset";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
 import { computeEfficiencyMetrics, formatEfficiencyReport, TelemetryScope } from "./efficiencyMetrics";
-import { clearMcpLogs, workspaceMcpLogPath, summarizeMcpUsage, summarizeCrossSessionPatterns, MCP_USAGE_LOG_PATH } from "./mcpUsageLog";
+import { clearMcpLogs, workspaceMcpLogPath, summarizeMcpUsage, summarizeCrossSessionPatterns, MCP_USAGE_LOG_PATH, computeCliKpi, readMcpUsageLog } from "./mcpUsageLog";
+import { computeHaceMetrics } from "./haceMetrics";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
 import { formatCostDashboardHtml, formatCostDashboardText, formatTeamEconomicsPanelsHtml, getOrBuildDashboardMainBody } from "./costDashboard";
 import { tryReadValidDashboardSnapshot } from "./dashboardSnapshotCache";
@@ -534,6 +535,23 @@ function refreshMcpStatusBars() {
       `Efficiency: ${score}% (grade ${grade})\n` +
       `MCP calls: ${calls}${wastedLabel}\n` +
       (summary.suggestions.length > 0 ? `\nTop hint: ${summary.suggestions[0].description}` : "") +
+      (() => {
+        if (!target) return "";
+        try {
+          const logPath2 = workspaceMcpLogPath(target);
+          const cliEntries = readMcpUsageLog(logPath2);
+          const kpi2 = computeCliKpi(cliEntries, 1);
+          const h = computeHaceMetrics(target, kpi2.overallSuccessRate, 14);
+          if (h.noData) return "";
+          return `\n\n-- HACE · Human-AI Collaboration --\n` +
+            `Score: ${h.haceScore}/100 · ${h.grade}\n` +
+            `  Prompt Clarity  ${h.promptClarityScore}%  (thinking rate: ${Math.round(h.thinkingRate * 100)}%)\n` +
+            `  Task Velocity   ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)\n` +
+            `  Accuracy        ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)\n` +
+            `  CLI Efficiency  ${h.cliEfficiencyScore}%\n` +
+            `  Avg response    ${h.avgResponseSecs.toFixed(1)}s`;
+        } catch { return ""; }
+      })() +
       `\n\nClick for full MCP health report.`;
   }
   mcpKpiStatusBarItem.command = "claudeSkills.showMcpHealth";
@@ -3610,5 +3628,6 @@ export function deactivate() {
   AttributionCollector.stopAll();
   void stopHookServer();
 }
+
 
 
