@@ -17,6 +17,8 @@ const LEGACY_OFFICIAL_SKILLS_HOOK = "official-skills-watch.js";
 const LEGACY_PROFILE_INIT_HOOK = "profile-init-watch.js";
 const TERMINAL_WATCH_SCRIPT = "terminal-watch.js";
 const TERMINAL_WATCH_MATCHER = "Bash|PowerShell|run_in_terminal";
+const SKILL_GAP_DETECTOR_SCRIPT = "skill-gap-detector.js";
+const SKILL_GAP_DETECTOR_MATCHER = "startup|resume|clear";
 
 const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
 const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
@@ -193,16 +195,85 @@ function hasTerminalWatchHook(settings: Settings): boolean {
 }
 
 function ensureTerminalWatchHookRegistered(settings: Settings, extensionPath: string): boolean {
-  if (hasTerminalWatchHook(settings)) return false;
   const hookScript = path.join(extensionPath, "resources", "hooks", TERMINAL_WATCH_SCRIPT)
     .replace(/\\/g, "/");
+  const expectedCommand = `node "${hookScript}" claude`;
+
+  const postHooks = settings.hooks?.PostToolUse ?? [];
+  const existing = postHooks.find(
+    (m) => m.matcher === TERMINAL_WATCH_MATCHER && m.hooks.some((h) => h.command.includes(TERMINAL_WATCH_SCRIPT))
+  );
+
+  if (existing) {
+    // Hook exists — update path if it points to a stale extension version
+    if (existing.hooks.some((h) => h.command === expectedCommand)) return false;
+    existing.hooks = existing.hooks.map((h) =>
+      h.command.includes(TERMINAL_WATCH_SCRIPT) ? { ...h, command: expectedCommand } : h
+    );
+    return true;
+  }
+
   settings.hooks = settings.hooks ?? {};
   settings.hooks.PostToolUse = settings.hooks.PostToolUse ?? [];
   settings.hooks.PostToolUse.push({
     matcher: TERMINAL_WATCH_MATCHER,
-    hooks: [{ type: "command", command: `node "${hookScript}" claude`, timeout: 5 }],
+    hooks: [{ type: "command", command: expectedCommand, timeout: 5 }],
   });
   return true;
+}
+
+function hasSkillGapDetectorHook(settings: Settings): boolean {
+  const matchers = settings.hooks?.SessionStart ?? [];
+  return matchers.some((m) => m.hooks.some((h) => h.command.includes(SKILL_GAP_DETECTOR_SCRIPT)));
+}
+
+function ensureSkillGapDetectorRegistered(settings: Settings, extensionPath: string): boolean {
+  const scriptPath = path.join(extensionPath, "resources", "hooks", SKILL_GAP_DETECTOR_SCRIPT)
+    .replace(/\\/g, "/");
+  const expectedCommand = `node "${scriptPath}" claude`;
+
+  const sessionHooks = settings.hooks?.SessionStart ?? [];
+  const existing = sessionHooks.find(
+    (m) => m.hooks.some((h) => h.command.includes(SKILL_GAP_DETECTOR_SCRIPT))
+  );
+
+  if (existing) {
+    if (existing.hooks.some((h) => h.command === expectedCommand)) return false;
+    existing.hooks = existing.hooks.map((h) =>
+      h.command.includes(SKILL_GAP_DETECTOR_SCRIPT) ? { ...h, command: expectedCommand } : h
+    );
+    return true;
+  }
+
+  settings.hooks = settings.hooks ?? {};
+  settings.hooks.SessionStart = settings.hooks.SessionStart ?? [];
+  settings.hooks.SessionStart.push({
+    matcher: SKILL_GAP_DETECTOR_MATCHER,
+    hooks: [{ type: "command", command: expectedCommand, timeout: 20 }],
+  });
+  return true;
+}
+
+export function isSkillGapDetectorConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasSkillGapDetectorHook(settings);
+  } catch {
+    return false;
+  }
+}
+
+export function installSkillGapDetectorHook(extensionPath: string, target: string): HookInstallStatus {
+  ensureLearningDir(target);
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  const had = hasSkillGapDetectorHook(settings);
+  const added = ensureSkillGapDetectorRegistered(settings, extensionPath);
+  if (added) {
+    writeJsonFile(settingsFile, settings);
+    return had ? "updated" : "installed";
+  }
+  return "already-configured";
 }
 
 export function isTerminalWatchHookConfigured(target: string): boolean {

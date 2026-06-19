@@ -144,6 +144,28 @@ Last session: 14min ago
 
 Agents resume with full context — no need to re-derive what was done or which project is active.
 
+#### Skill gap detector (`SessionStart`)
+
+At the start of every session the extension scans the workspace for technology markers and cross-references them against the skills installed in `.claude/skills/`. If required skills are missing, a concise warning is injected into the agent's context before any tool call runs:
+
+```
+[skill-gap-detector] Skills missing for this workspace:
+  • azure-infra-preflight — Azure provider (azurerm) found in Terraform files
+  • terraform-plan-review — Terraform (.tf) files detected in workspace
+Run the skill-creator skill or: python generate_skills.py install <skill-name>
+```
+
+Detection rules:
+
+| Stack marker | Skills flagged if absent |
+|---|---|
+| Any `.tf` file | `terraform-module-ops`, `terraform-plan-review` |
+| `.tf` file containing `azurerm` | `azure-infra-preflight` |
+| `.ps1` or `.sh` files | `cross-platform-scripting` |
+| Security keywords in `CLAUDE.md` | `security-review` |
+
+The hook outputs nothing when all relevant skills are installed — zero noise in normal sessions. It self-heals its own path on extension updates (same mechanism as `terminal-watch`).
+
 The extension never hides skills already in `<workspace>/.claude/skills/` —
 project-local skills show as *project-only* in the tree. `.claude/skills/` remains the git-tracked source of truth; other agent paths are mirrored automatically.
 
@@ -162,6 +184,8 @@ Both MCP servers auto-start on extension activation — no manual setup required
 | `mcp__filesystem__delete_file` | Delete a file |
 
 Every call is recorded as a JSONL line in `~/.claude/learning/mcp-usage.jsonl` (global) and `<workspace>/.claude/mcp-usage.jsonl` (workspace-scoped). The extension reads these logs to compute efficiency KPIs and optimization hints.
+
+> **v1.0.78 — Skill gap detector + terminal-watch self-heal** — New `SessionStart` hook (`skill-gap-detector.js`) scans the workspace at startup, detects missing skills for the active tech stack (Terraform, Azure, shell scripts, security), and injects a plain-text warning into the agent session before any tool call. Zero output when all skills are present. Additionally, `terminal-watch` now self-heals its extension path on version upgrades — previously the hook silently broke whenever the extension updated because the versioned path in `settings.json` was not updated automatically.
 
 > **v1.0.73 — Native tool operations now logged** — PostToolUse hooks now capture all IDE tool invocations, including native tools like `run_task` and `run_in_terminal`. These appear in `mcp-usage.jsonl` with the `tool` field prefixed as `native:<toolName>` to distinguish them from MCP server operations. This provides complete observability across all agent tooling, filling a previous gap where native tools were untracked.
 
