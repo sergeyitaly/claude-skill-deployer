@@ -87,37 +87,17 @@ export function enabledAgents(libraryDir: string): AgentId[] {
   return configured.filter((id) => id in manifest.agents);
 }
 
-/** Full fan-out to all enabled agents (team-multi-agent tier). */
-export function isFullMultiAgentMirrorMode(): boolean {
-  return true;
-}
-
 /**
- * Workspace mirror targets: all enabled non-Claude agents when multiAgent is on;
- * on solo-dev tier, only the running IDE agent (Cursor/Kiro/Copilot).
+ * Workspace mirror targets: all enabled non-Claude agents.
  */
-function configuredEnabledAgents(): AgentId[] {
-  return vscode.workspace.getConfiguration("claudeSkills.agents").get<AgentId[]>("enabled", [
-    "claude",
-    "cursor",
-    "kiro",
-    "copilot",
-  ]);
-}
-
 export function workspaceMirrorAgentIds(libraryDir: string, opts?: { agentIds?: AgentId[] }): AgentId[] {
   if (opts?.agentIds?.length) {
     return [...new Set(opts.agentIds.filter((id) => id !== "claude"))];
   }
-  const enabled = libraryDir ? enabledAgents(libraryDir) : configuredEnabledAgents();
-  if (isFullMultiAgentMirrorMode()) {
-    return enabled.filter((id) => id !== "claude");
-  }
-  const host = detectHostAgentId();
-  if (host === "claude" || !enabled.includes(host)) {
-    return [];
-  }
-  return [host];
+  const enabled = libraryDir
+    ? enabledAgents(libraryDir)
+    : vscode.workspace.getConfiguration("claudeSkills.agents").get<AgentId[]>("enabled", ["claude", "cursor", "kiro", "copilot"]);
+  return enabled.filter((id) => id !== "claude");
 }
 
 export function workspaceMirrorAllowed(libraryDir: string, costDisciplinePropagation = false): boolean {

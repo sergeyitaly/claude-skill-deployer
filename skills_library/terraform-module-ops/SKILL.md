@@ -2,6 +2,7 @@
 name: terraform-module-ops
 description: Navigate a Terraform codebase before changing it — build a module-to-resource map, identify the state backend and provider versions, run the safe local fmt/validate workflow, and flag known-drift resources or operations that need explicit user approval (full apply, destroy, state edits). Use before making Terraform changes, to find which file owns a resource, or to check whether an operation is safe to run.
 user-invocable: true
+deprecated: true
 allowed-tools:
   - Bash
   - Read
