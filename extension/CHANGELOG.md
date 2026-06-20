@@ -652,7 +652,7 @@ This release completes the **AI Efficiency Engine** — a closed-loop system tha
 
 ### Behavior changes
 
-- **Skill-set approval** — extension offers Focused / Workspace / Broader option sets (`claudeSkills.taskFocus.approveSkillSets`, default on); auto-apply and task focus wait until you pick **Choose Task Skill Set** or the startup quick pick
+- **Skill-set approval** — extension offers Focused / Workspace / Broader option sets; auto-apply and task focus wait until you pick **Choose Task Skill Set** or the startup quick pick
 - **Minimum proposal confidence** — `claudeSkills.taskFocus.minProposalConfidence` (default 50) filters heuristics, drift refresh, usage report, and hooks; required platform skills stay exempt; generic tokens (`skill`, `skills`, `set`, …) no longer inflate scores
 - **Multi-agent mirroring** — Claude → Cursor/Kiro/Copilot skill/learning mirror only when `claudeSkills.features.multiAgent` is on (removed solo-dev cost-discipline bypass)
 

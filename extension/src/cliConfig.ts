@@ -21,7 +21,6 @@ export interface CliConfigFile {
     enabled: boolean;
     maxActiveSkills: number;
     minProposalConfidence: number;
-    approveSkillSets: boolean;
   };
   costDiscipline?: {
     enabled: boolean;
@@ -65,7 +64,6 @@ export function buildCliConfig(libraryDir: string, target?: string): CliConfigFi
       enabled: taskFocus.enabled,
       maxActiveSkills: taskFocus.maxActiveSkills,
       minProposalConfidence: taskFocus.minProposalConfidence,
-      approveSkillSets: taskFocus.approveSkillSets,
     },
     costDiscipline: {
       enabled: costCfg.get<boolean>("enabled", true),

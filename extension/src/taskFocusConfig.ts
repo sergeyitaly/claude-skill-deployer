@@ -6,7 +6,6 @@ export interface TaskFocusLimits {
   minProposals: number;
   /** Minimum confidence (0–100, inclusive) for task-scoped proposals; required platform skills exempt. */
   minProposalConfidence: number;
-  approveSkillSets: boolean;
 }
 
 /** Cap active task skills (default 12) — required platform skills count toward the cap. */
@@ -23,7 +22,6 @@ export function readTaskFocusLimits(): TaskFocusLimits {
     maxActiveSkills,
     minProposals: Math.max(1, cfg.get<number>("minProposals", 8)),
     minProposalConfidence,
-    approveSkillSets: cfg.get<boolean>("approveSkillSets", true),
   };
 }
 

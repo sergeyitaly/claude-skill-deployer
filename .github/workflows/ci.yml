@@ -27,6 +27,10 @@ jobs:
       - name: Compile TypeScript
         run: npm run compile
 
+      - name: Check source files for UTF-8 BOM
+        run: |
+          node -e "const fs=require('fs'),p=require('path');let bad=[];for(const root of ['src','resources']){function walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=path.join(d,e.name);if(e.isDirectory())walk(f);else if(/\.(ts|js)$/.test(e.name)){const b=fs.readFileSync(f);if(b[0]===0xef&&b[1]===0xbb&&b[2]===0xbf)bad.push(f);}}}walk(root)}if(bad.length){console.log(bad.join('\n'));process.exit(1)}"
+
       - name: Unit tests
         run: npm test
 

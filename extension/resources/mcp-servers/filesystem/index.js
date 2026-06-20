@@ -81,6 +81,16 @@ function getAllowedDirs() {
   return _allowedDirsCache;
 }
 
+function normalizeAllowedDirComparison(p) {
+  return process.platform === "win32" ? p.toLowerCase() : p;
+}
+
+function isInsideAllowedDir(p, dir) {
+  const normalizedPath = normalizeAllowedDirComparison(p);
+  const normalizedDir = normalizeAllowedDirComparison(dir);
+  return normalizedPath === normalizedDir || normalizedPath.startsWith(normalizedDir + path.sep);
+}
+
 /**
  * Resolve requestedPath and verify it is inside one of the allowed dirs.
  * Throws with a clear message if not; returns the resolved absolute path if OK.
@@ -91,7 +101,7 @@ function getAllowedDirs() {
 function assertAllowed(requestedPath) {
   const resolved = path.resolve(requestedPath);
   const allowed = getAllowedDirs();
-  const isInside = (p) => allowed.some((dir) => p === dir || p.startsWith(dir + path.sep));
+  const isInside = (p) => allowed.some((dir) => isInsideAllowedDir(p, dir));
 
   if (!isInside(resolved)) {
     throw new Error(

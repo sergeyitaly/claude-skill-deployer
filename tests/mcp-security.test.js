@@ -60,9 +60,13 @@ function test(name, fn) {
 function makeAssertAllowed(allowedDirs) {
   return function assertAllowed(requestedPath) {
     const resolved = path.resolve(requestedPath);
-    const denied = allowedDirs
-      .map((d) => path.resolve(d))
-      .every((dir) => resolved !== dir && !resolved.startsWith(dir + path.sep));
+    const dirs = allowedDirs.map((d) => path.resolve(d));
+    const isInside = (p, dir) => {
+      const normalizedPath = process.platform === "win32" ? p.toLowerCase() : p;
+      const normalizedDir = process.platform === "win32" ? dir.toLowerCase() : dir;
+      return normalizedPath === normalizedDir || normalizedPath.startsWith(normalizedDir + path.sep);
+    };
+    const denied = dirs.every((dir) => !isInside(resolved, dir));
     if (denied) {
       throw new Error(`Access denied: '${requestedPath}' is outside allowed directories.`);
     }
@@ -112,6 +116,12 @@ console.log("\n=== Phase 5/8: Path Traversal Protection ===");
 
   test("rejects path that is the parent of allowed dir", () => {
     assert.throws(() => assertAllowed(tmpBase), /Access denied/);
+  });
+
+  test("allows same path with drive-letter case change on Windows", () => {
+    if (process.platform !== "win32") return;
+    const assertAllowed = makeAssertAllowed(["C:\\foo"]);
+    assert.doesNotThrow(() => assertAllowed("c:\\foo\\file.txt"));
   });
 
   test("rejects allowed dir name used as prefix trick (e.g. allowed-evil)", () => {
@@ -195,13 +205,17 @@ function makeAssertAllowedWithRealpath(allowedDirs) {
   return function assertAllowed(requestedPath) {
     const resolved = path.resolve(requestedPath);
     const dirs = allowedDirs.map((d) => path.resolve(d));
-    const isInside = (p) => dirs.some((dir) => p === dir || p.startsWith(dir + path.sep));
-    if (!isInside(resolved)) {
+    const isInside = (p, dir) => {
+      const normalizedPath = process.platform === "win32" ? p.toLowerCase() : p;
+      const normalizedDir = process.platform === "win32" ? dir.toLowerCase() : dir;
+      return normalizedPath === normalizedDir || normalizedPath.startsWith(normalizedDir + path.sep);
+    };
+    if (!dirs.some((dir) => isInside(resolved, dir))) {
       throw new Error(`Access denied: '${requestedPath}' is outside allowed directories.`);
     }
     let real = resolved;
     try { real = fs.realpathSync(resolved); } catch { /* new file */ }
-    if (real !== resolved && !isInside(real)) {
+    if (real !== resolved && !dirs.some((dir) => isInside(real, dir))) {
       throw new Error(`Access denied: '${requestedPath}' is a symlink resolving outside allowed directories.`);
     }
     return resolved;

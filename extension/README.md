@@ -135,7 +135,6 @@ your-repo/
 **What the extension does:**
 
 - Enables **full cost intelligence**: dashboard, predictive alerts, optimization suggestions, task drift reproposal.
-- **Choose Task Skill Set** before auto-apply — default **approveSkillSets** offers Focused / Workspace / Broader options (confidence floor 50% by default).
 - **Cost discipline** after focus: disables skills outside the cap via `skillOverrides`, prunes irrelevant personal installs.
 - **Economy** budget mode (status bar): locally disables expensive catalog tiers; **Normal** enforces daily USD cap; hooks warn on large sessions.
 
@@ -454,7 +453,6 @@ Keeps skill overhead low without manual curation:
 |---|---|---|
 | `claudeSkills.taskFocus.maxActiveSkills` | 12 | Cap active + proposed skills (required platform skills count toward cap) |
 | `claudeSkills.taskFocus.minProposalConfidence` | 50 | Only propose skills at or above this confidence; required platform skills exempt |
-| `claudeSkills.taskFocus.approveSkillSets` | on | Offer Focused / Workspace / Broader sets for approval before auto-apply |
 | `claudeSkills.branchBootstrap.enabled` | on | New git branches get infra/app heuristics + relevant-only install (not main's full library) |
 | `claudeSkills.costDiscipline.enabled` | on | Budget tier gating + irrelevant-skill prune after task focus |
 | `claudeSkills.costDiscipline.propagateToAllAgents` | on | Fan out focus/budget disables to other agents when multi-agent sync is on |

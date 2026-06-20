@@ -1148,11 +1148,6 @@
             "minimum": 0,
             "maximum": 100,
             "description": "Only propose task skills at or above this confidence (0Ã¢â‚¬â€œ100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
-          },
-          "claudeSkills.taskFocus.approveSkillSets": {
-            "type": "boolean",
-            "default": true,
-            "description": "Offer 2Ã¢â‚¬â€œ3 skill-set options for user approval before auto-applying task focus. When off, the extension picks one set automatically (previous behavior)."
           }
         }
       },
