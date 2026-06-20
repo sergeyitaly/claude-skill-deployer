@@ -53,24 +53,44 @@ const configArgIdx = process.argv.indexOf("--config");
 const configPath = configArgIdx !== -1 ? process.argv[configArgIdx + 1] : null;
 
 // Cache resolved allowed-dirs so assertAllowed() does not re-read the config file
-// on every tool call. Invalidated by fs.watch so runtime config updates (e.g. the
-// extension refreshing workspaceLogPath) still take effect without restarting.
+// on every tool call. Cache keys use stat metadata and are also invalidated by
+// fs.watch so runtime config updates (e.g. the extension refreshing workspaceLogPath)
+// still take effect without restarting.
 let _allowedDirsCache = null;
+let _allowedDirsCacheKey = null;
 let _allowedDirsCacheWatcher = null;
 
+function invalidateAllowedDirsCache() {
+  _allowedDirsCache = null;
+  _allowedDirsCacheKey = null;
+}
+
+function watchAllowedDirsConfig() {
+  if (!configPath || _allowedDirsCacheWatcher) return;
+  const dir = path.dirname(configPath);
+  const base = path.basename(configPath);
+  try {
+    _allowedDirsCacheWatcher = fs.watch(dir, (_event, filename) => {
+      const name = filename instanceof Buffer ? filename.toString() : filename;
+      if (name === base || name == null) invalidateAllowedDirsCache();
+    });
+    _allowedDirsCacheWatcher.unref();
+  } catch { /* ignore watch errors — stale cache is safe */ }
+}
+
 function getAllowedDirs() {
-  if (_allowedDirsCache !== null) return _allowedDirsCache;
   if (configPath) {
+    let stat = null;
+    try { stat = fs.statSync(configPath); } catch { /* config missing; fall through to default */ }
+    const cacheKey = stat ? `${stat.mtimeMs}:${stat.size}` : null;
+    if (_allowedDirsCache !== null && _allowedDirsCacheKey === cacheKey) return _allowedDirsCache;
+
     try {
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       if (Array.isArray(cfg.allowedDirs) && cfg.allowedDirs.length > 0) {
         _allowedDirsCache = cfg.allowedDirs.map((d) => path.resolve(d));
-        if (!_allowedDirsCacheWatcher) {
-          try {
-            _allowedDirsCacheWatcher = fs.watch(configPath, () => { _allowedDirsCache = null; });
-            _allowedDirsCacheWatcher.unref();
-          } catch { /* ignore watch errors — stale cache is safe */ }
-        }
+        _allowedDirsCacheKey = cacheKey;
+        watchAllowedDirsConfig();
         return _allowedDirsCache;
       }
     } catch {
@@ -78,6 +98,7 @@ function getAllowedDirs() {
     }
   }
   _allowedDirsCache = [path.resolve(os.homedir(), ".claude")];
+  _allowedDirsCacheKey = null;
   return _allowedDirsCache;
 }
 
