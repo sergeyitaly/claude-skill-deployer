@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { encodeCursorWorkspacePath, encodeWorkspacePath } from "./workspaceTranscripts";
 import { computeCreditUsageFromRoots, spendPrefixForCreditSummary, aggregateHookModelUsageByAgent } from "./usageCost";
-import { invalidateLearningCache } from "./learningStateIndex";
+import { invalidateLearningCache } from "./runsStore";
 
 const tempDirs: string[] = [];
 

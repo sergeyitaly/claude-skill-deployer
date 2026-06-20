@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { directoryExists } from "./criticalFixes";
 
 export interface RecoveryIssue {
   file?: string;
@@ -60,7 +59,7 @@ export function scanForIssues(target: string): RecoveryIssue[] {
     issues.push({ file: runsPath, action: "backup-and-repair", message: "Corrupted runs.jsonl" });
   }
 
-  if (!directoryExists(skillsDir)) {
+  if (!fs.existsSync(skillsDir) || !fs.statSync(skillsDir).isDirectory()) {
     issues.push({ action: "create-skills-dir", message: "Missing .claude/skills directory" });
   }
 

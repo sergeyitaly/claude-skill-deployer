@@ -67,6 +67,11 @@ Check available MCPs - if useful for research (searching docs, finding similar s
 Based on the user interview, fill in these components:
 
 - **name**: Skill identifier
+- **version**: Semantic version string — start at `"1.0.0"` for new skills. Bump on every update:
+  - **patch** (`1.0.0 → 1.0.1`): wording tweaks, example additions, typo fixes
+  - **minor** (`1.0.0 → 1.1.0`): new steps, new patterns, new tool declarations
+  - **major** (`1.0.0 → 2.0.0`): renamed frontmatter fields, removed steps, breaking workflow change
+  Always increment `version` when writing or saving a changed `SKILL.md` — even single-line edits. This is how the extension tracks which skills have been updated since the last workspace sync.
 - **description**: When to trigger, what it does. This is the primary triggering mechanism - include both what the skill does AND specific contexts for when to use it. All "when to use" info goes here, not in the body. Note: currently Claude has a tendency to "undertrigger" skills -- to not use them when they'd be useful. To combat this, please make the skill descriptions a little bit "pushy". So for instance, instead of "How to build a simple fast dashboard to display internal Anthropic data.", you might write "How to build a simple fast dashboard to display internal Anthropic data. Make sure to use this skill whenever the user mentions dashboards, data visualization, internal metrics, or wants to display any kind of company data, even if they don't explicitly ask for a 'dashboard.'"
 - **compatibility**: Required tools, dependencies (optional, rarely needed)
 - **the rest of the skill :)**
@@ -440,6 +445,7 @@ In Claude.ai, the core workflow is the same (draft → test → review → impro
 
 **Updating an existing skill**: The user might be asking you to update an existing skill, not create a new one. In this case:
 - **Preserve the original name.** Note the skill's directory name and `name` frontmatter field -- use them unchanged. E.g., if the installed skill is `research-helper`, output `research-helper.skill` (not `research-helper-v2`).
+- **Bump the version.** Read the current `version` from the frontmatter and increment it (patch for minor edits, minor for new steps/tools, major for breaking changes). If no `version` field exists yet, add `version: "1.0.1"`.
 - **Copy to a writeable location before editing.** The installed skill path may be read-only. Copy to `/tmp/skill-name/`, edit there, and package from the copy.
 - **If packaging manually, stage in `/tmp/` first**, then copy to the output directory -- direct writes may fail due to permissions.
 

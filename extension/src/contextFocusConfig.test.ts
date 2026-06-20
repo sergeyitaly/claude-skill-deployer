@@ -18,7 +18,7 @@ vi.mock("vscode", () => ({
 }));
 
 vi.mock("./featureFlags", () => ({
-  isFeatureEnabled: (key: string) => key === "contextFocus",
+  isFeatureEnabled: () => true,
 }));
 
 const baseConfig = (): ContextFocusConfig => ({

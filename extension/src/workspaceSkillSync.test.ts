@@ -88,7 +88,7 @@ describe("propagateWorkspaceSkillChange", () => {
       forceAgentSync: true,
     });
     expect(costControlHooksActive(target)).toBe(true);
-    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-context-focus.json"))).toBe(true);
+    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-prompt-context.json"))).toBe(true);
   });
 
   it("debounces repeated propagate calls into one run", () => {

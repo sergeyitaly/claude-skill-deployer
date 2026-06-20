@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { isFeatureEnabled } from "./featureFlags";
 
 /** How much to favor theoretical advice vs concrete deployable architecture. */
 export type PracticalFocusLevel = "exploratory" | "balanced" | "architecture-first" | "deploy-ready";
@@ -84,7 +83,7 @@ export function syncPracticalFocusConfigToDisk(): PracticalFocusConfig {
   const config = configFromVsCodeSettings();
   const effective: PracticalFocusConfig = {
     ...config,
-    enabled: config.enabled && isFeatureEnabled("practicalFocus"),
+    enabled: config.enabled,
   };
   writePracticalFocusConfig(effective);
   return effective;

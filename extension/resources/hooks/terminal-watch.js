@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * PostToolUse hook: log native Bash / PowerShell / run_in_terminal commands
  * into mcp-usage.jsonl alongside CLI MCP server entries.
@@ -151,6 +151,41 @@ function appendLog(logPath, entry) {
 }
 
 // ---------------------------------------------------------------------------
+// PowerShell file-operation detection
+// Maps PS file cmdlets to their MCP filesystem server equivalents so that
+// PowerShell-sourced file I/O lands in mcp-usage.jsonl with the same tool
+// names ("read_file", "write_file", etc.) that the waste analysers expect.
+// ---------------------------------------------------------------------------
+const PS_FILE_OPS = [
+  { re: /\b(Get-Content|gc|cat)\b/i,               fsOp: "read_file"     },
+  { re: /\b(Set-Content|Out-File|Add-Content)\b/i, fsOp: "write_file"    },
+  { re: /\b(Get-ChildItem|gci)\b/i,                fsOp: "list_directory" },
+  { re: /\b(Select-String|sls)\b/i,                fsOp: "search_in_file" },
+  { re: /\b(Remove-Item|ri)\b/i,                   fsOp: "delete_file"   },
+];
+
+/** Extract the first file path from a PowerShell command string. */
+function extractPsPath(command) {
+  const m =
+    command.match(/-(?:Path|LiteralPath|FilePath)\s+"([^"]+)"/i) ||
+    command.match(/-(?:Path|LiteralPath|FilePath)\s+'([^']+)'/i) ||
+    command.match(/-(?:Path|LiteralPath|FilePath)\s+([\w\\/:.\-@]+)/i) ||
+    command.match(/\b(?:Get-Content|gc|cat|Set-Content|Out-File|Add-Content|Get-ChildItem|gci|Select-String|sls|Remove-Item|ri)\s+"([^"]+)"/i) ||
+    command.match(/\b(?:Get-Content|gc|cat|Set-Content|Out-File|Add-Content|Get-ChildItem|gci|Select-String|sls|Remove-Item|ri)\s+'([^']+)'/i) ||
+    command.match(/\b(?:Get-Content|gc|cat|Set-Content|Out-File|Add-Content|Get-ChildItem|gci|Select-String|sls|Remove-Item|ri)\s+([\w\\/:.\-@]+)/i);
+  return m ? m[1] : "";
+}
+
+/** Return { fsOp, psCmd } if the command performs a recognised file operation, else null. */
+function detectPsFileOp(command) {
+  for (const { re, fsOp } of PS_FILE_OPS) {
+    const m = command.match(re);
+    if (m) return { fsOp, psCmd: m[1] };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 function main() {
@@ -204,10 +239,29 @@ function main() {
     ...(isRetry ? { isRetry: true } : {}),
   };
 
-  // Write to global log always; also write workspace-scoped log when available
-  appendLog(MCP_USAGE_LOG, entry);
+  // Write only to workspace-scoped log
   const wsLog = path.join(cwd, ".claude", "mcp-usage.jsonl");
-  if (wsLog !== MCP_USAGE_LOG) appendLog(wsLog, entry);
+  appendLog(wsLog, entry);
+
+  // PowerShell file-op bridge: when a PS command successfully reads/writes a file,
+  // also write a filesystem-equivalent entry (server:"powershell") so the waste
+  // analysers in summarizeMcpUsage see it alongside MCP filesystem server calls.
+  if (toolName === "powershell" && exitCode === 0) {
+    const psOp = detectPsFileOp(command);
+    if (psOp) {
+      const psEntry = {
+        ts:        new Date().toISOString(),
+        tool:      psOp.fsOp,
+        server:    "powershell",
+        psCmd:     psOp.psCmd,
+        path:      extractPsPath(command),
+        sessionId: sessionId || undefined,
+        exitCode,
+        durationMs: 0,
+      };
+      appendLog(wsLog, psEntry);
+    }
+  }
 }
 
 main();

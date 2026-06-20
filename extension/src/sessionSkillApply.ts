@@ -8,14 +8,12 @@ import {
   saveBranchProfile,
 } from "./branchProfiles";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
-import { isFeatureEnabled } from "./featureFlags";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { listInstalledSkills } from "./usageStats";
 import {
   readTaskSkillProposals,
   resolveProposalSkillNames,
   TaskSkillProposalsFile,
-  taskSkillSetApprovalPending,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
 import { readTaskFocusLimits } from "./taskFocusConfig";
@@ -61,12 +59,12 @@ interface TaskProposalsApplyState {
 
 /** Feature toggle: claudeSkills.features.sessionSkillAdaptation */
 export function sessionSkillAdaptationEnabled(): boolean {
-  return isFeatureEnabled("sessionSkillAdaptation");
+  return true;
 }
 
 /** Feature toggle: claudeSkills.features.autoApplyTaskProposals (default on) */
 export function taskProposalsAutoApplyEnabled(): boolean {
-  return isFeatureEnabled("autoApplyTaskProposals");
+  return true;
 }
 
 /** @deprecated Use sessionSkillAdaptationEnabled — kept for setting migration. */
@@ -154,9 +152,6 @@ function readAppliedProfileSkillNames(target: string): string[] {
 }
 
 function proposalNamesForApply(proposals: TaskSkillProposalsFile): string[] {
-  if (taskSkillSetApprovalPending(proposals)) {
-    return [];
-  }
   if (taskProposalsAutoApplyEnabled()) {
     return resolveProposalSkillNames(proposals);
   }
@@ -278,9 +273,6 @@ export function applyTaskProposalsIfPending(
   }
   const state = readTaskProposalsApplyState(target);
   if (state.lastGeneratedAt === proposals.generatedAt) {
-    return { applied: false };
-  }
-  if (taskSkillSetApprovalPending(proposals)) {
     return { applied: false };
   }
   const names = proposalNamesForApply(proposals);

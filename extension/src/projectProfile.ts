@@ -634,110 +634,32 @@ export function tierFeaturePreset(
   signals: ProjectProfileSignals,
   userPlan?: UserProjectPlan
 ): Partial<Record<FeatureKey, boolean>> {
-  const multiAgent =
-    userPlan === "budget-focused"
-      ? false
-      : wantsMultiAgentSync(signals) || type === "team-multi-agent" || type === "enterprise";
   switch (type) {
     case "throwaway":
       return {
-        multiAgent: false,
-        attributionCollector: false,
-        costIntelligence: false,
         autoOptimizer: false,
-        branchProfiles: false,
-        budgetControls: false,
-        teamCostSharing: false,
-        sessionSkillAdaptation: false,
-        autoApplyTaskProposals: false,
-        deterministicTaskProposals: false,
-        taskSkillFocus: false,
-        taskDriftReproposal: false,
-        skillSetResolver: false,
-        costAwareSearch: false,
-        contextFocus: false,
-        practicalFocus: false,
-        emergencyCutoff: false,
-        predictiveAlerts: false,
-        skillArchival: false,
         communityBenchmarks: false,
         prCostEstimate: false,
       };
     case "solo-dev":
       return {
-        multiAgent: false,
-        attributionCollector: false,
         autoOptimizer: false,
-        teamCostSharing: false,
-        costAwareSearch: false,
-        skillSetResolver: true,
-        predictiveAlerts: false,
         communityBenchmarks: false,
         prCostEstimate: false,
-        branchProfiles: true,
-        budgetControls: true,
-        costIntelligence: true,
-        sessionSkillAdaptation: true,
-        deterministicTaskProposals: true,
-        taskSkillFocus: true,
-        taskDriftReproposal: true,
-        autoApplyTaskProposals: true,
       };
     case "team-multi-agent":
       return {
-        multiAgent: true,
-        attributionCollector: true,
-        costIntelligence: true,
         autoOptimizer: true,
-        branchProfiles: true,
-        budgetControls: true,
-        teamCostSharing: true,
-        sessionSkillAdaptation: true,
-        autoApplyTaskProposals: true,
-        deterministicTaskProposals: true,
-        taskSkillFocus: true,
-        taskDriftReproposal: true,
-        costAwareSearch: true,
-        skillSetResolver: true,
-        predictiveAlerts: true,
-        emergencyCutoff: true,
-        skillArchival: true,
       };
     case "budget-sensitive":
       return {
-        multiAgent,
-        attributionCollector: true,
-        costIntelligence: true,
         autoOptimizer: true,
-        branchProfiles: true,
-        budgetControls: true,
-        teamCostSharing: true,
-        sessionSkillAdaptation: true,
-        autoApplyTaskProposals: true,
-        deterministicTaskProposals: true,
-        taskSkillFocus: true,
-        taskDriftReproposal: true,
-        costAwareSearch: true,
-        skillSetResolver: true,
-        predictiveAlerts: true,
-        emergencyCutoff: true,
       };
     case "enterprise":
       return {
-        multiAgent: true,
-        attributionCollector: false,
-        costIntelligence: true,
         autoOptimizer: false,
-        branchProfiles: true,
-        budgetControls: true,
-        teamCostSharing: false,
-        costAwareSearch: false,
         communityBenchmarks: false,
         prCostEstimate: false,
-        sessionSkillAdaptation: true,
-        deterministicTaskProposals: true,
-        taskSkillFocus: true,
-        taskDriftReproposal: true,
       };
     default:
       return {};
@@ -953,15 +875,7 @@ function tierMirrorSemanticsChanged(existing: ProjectProfileFile, built: Project
   if ((existing.userPlan ?? "accept-detected") !== (built.userPlan ?? "accept-detected")) {
     return true;
   }
-  const existingMa = existing.enabledFeatures?.multiAgent;
-  const builtMa = built.enabledFeatures?.multiAgent;
-  if (existingMa === builtMa) {
-    return false;
-  }
-  if (existingMa === undefined || builtMa === undefined) {
-    return false;
-  }
-  return existingMa !== builtMa;
+  return false;
 }
 
 function mergeProjectProfileRefresh(
@@ -1048,7 +962,7 @@ export function formatProjectProfileSummary(profile: ProjectProfileFile): string
     `Team (30d): ${s.teamSize} (${effectiveAuthorCount30d(s)} authors)`,
     s.remoteOriginUrl ? `Origin: ${s.remoteOriginUrl} (${s.remoteProbeSource})` : undefined,
     profile.userPlan ? `Plan: ${profile.userPlan}` : undefined,
-    `Features: multiAgent=${on("multiAgent") ? "on" : "off"}, attribution=${on("attributionCollector") ? "on" : "off"}, costIntel=${on("costIntelligence") ? "on" : "off"}, sessionAdapt=${on("sessionSkillAdaptation") ? "on" : "off"}`,
+    `Features: autoOptimizer=${on("autoOptimizer") ? "on" : "off"}, communityBenchmarks=${on("communityBenchmarks") ? "on" : "off"}, prCostEstimate=${on("prCostEstimate") ? "on" : "off"}`,
   ].filter((l): l is string => Boolean(l));
   return lines.join("\n");
 }
@@ -1060,10 +974,9 @@ export function formatProjectProfileStatusBarText(profile: ProjectProfileFile): 
 export function formatProjectProfileStatusBarTooltip(profile: ProjectProfileFile): string {
   const on = (k: FeatureKey) => profile.enabledFeatures[k] ?? DEFAULTS[k];
   const features = [
-    on("multiAgent") ? "Multi-Agent" : null,
-    on("attributionCollector") ? "Attribution" : null,
-    on("costIntelligence") ? "Cost Intel" : null,
-    on("sessionSkillAdaptation") ? "Session Adapt" : null,
+    on("autoOptimizer") ? "Auto Optimizer" : null,
+    on("communityBenchmarks") ? "Community Benchmarks" : null,
+    on("prCostEstimate") ? "PR Cost Estimate" : null,
   ].filter((f): f is string => Boolean(f));
   
   return `Profile: ${profile.profileType}\nCost Tracking: ${profile.costTracking}\nFeatures: ${features.length > 0 ? features.join(", ") : "None"}`;

@@ -392,6 +392,79 @@ describe("clearMcpLogs", () => {
 
 
 // ---------------------------------------------------------------------------
+// PowerShell file-op bridge entries (server: "powershell")
+// ---------------------------------------------------------------------------
+
+describe("summarizeMcpUsage — PowerShell file-op bridge entries", () => {
+  it("includes powershell read_file entries in redundant-read waste warnings", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    const file = path.join(root, "extension.ts");
+    const entries: McpUsageEntry[] = [
+      makeEntry({ path: file, tool: "read_file", server: "powershell", psCmd: "Get-Content", bytes: 3000, minsAgo: 10 }),
+      makeEntry({ path: file, tool: "read_file", server: "powershell", psCmd: "Get-Content", bytes: 3000, minsAgo: 8 }),
+      makeEntry({ path: file, tool: "read_file", server: "powershell", psCmd: "Get-Content", bytes: 3000, minsAgo: 6 }),
+      makeEntry({ path: path.join(root, "a.ts"), bytes: 100, minsAgo: 5 }),
+      makeEntry({ path: path.join(root, "b.ts"), bytes: 100, minsAgo: 4 }),
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+    expect(summary.wasteWarnings.length).toBeGreaterThanOrEqual(1);
+    expect(summary.wasteWarnings[0].reads).toBe(3);
+  });
+
+  it("counts powershell read_file entries in byTool[read_file] alongside MCP entries", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    const entries: McpUsageEntry[] = [
+      makeEntry({ path: path.join(root, "a.ts"), tool: "read_file", bytes: 100 }),
+      makeEntry({ path: path.join(root, "b.ts"), tool: "read_file", server: "powershell", psCmd: "Get-Content", bytes: 200 }),
+      makeEntry({ path: path.join(root, "c.ts"), tool: "read_file", server: "powershell", psCmd: "Get-Content", bytes: 300 }),
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+    expect(summary.byTool["read_file"].calls).toBe(3);
+  });
+
+  it("detects read-after-write when write is MCP filesystem and read is powershell", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    const filePath = path.join(root, "output.ts");
+    const writeTs = new Date(Date.now() - 5 * 60_000).toISOString();
+    const readTs  = new Date(new Date(writeTs).getTime() + 20_000).toISOString();
+    const entries: McpUsageEntry[] = [
+      { ts: writeTs, tool: "write_file", path: filePath, durationMs: 5 },
+      { ts: readTs,  tool: "read_file",  path: filePath, durationMs: 0, server: "powershell", psCmd: "Get-Content", bytes: 500 },
+      makeEntry({ path: path.join(root, "a.ts"), minsAgo: 3 }),
+      makeEntry({ path: path.join(root, "b.ts"), minsAgo: 2 }),
+      makeEntry({ path: path.join(root, "c.ts"), minsAgo: 1 }),
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+    expect(summary.readAfterWrite.length).toBeGreaterThanOrEqual(1);
+    expect(path.normalize(summary.readAfterWrite[0].path)).toBe(path.normalize(filePath));
+    expect(summary.readAfterWrite[0].secondsAfter).toBe(20);
+  });
+
+  it("does not include powershell write_file entries in read-after-write when skipped is absent", () => {
+    const root = tempDir();
+    const logPath = path.join(root, "mcp.jsonl");
+    const filePath = path.join(root, "written.ts");
+    const base = Date.now() - 5 * 60_000;
+    const entries: McpUsageEntry[] = [
+      { ts: new Date(base).toISOString(),          tool: "write_file", path: filePath, durationMs: 0, server: "powershell", psCmd: "Set-Content" },
+      { ts: new Date(base + 10_000).toISOString(), tool: "read_file",  path: filePath, durationMs: 0, bytes: 100 },
+      makeEntry({ path: path.join(root, "a.ts"), minsAgo: 3 }),
+      makeEntry({ path: path.join(root, "b.ts"), minsAgo: 2 }),
+      makeEntry({ path: path.join(root, "c.ts"), minsAgo: 1 }),
+    ];
+    writeLog(logPath, entries);
+    const summary = summarizeMcpUsage(14, logPath);
+    expect(summary.readAfterWrite.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GRADE_THRESHOLDS constant -- P2b fix verification
 // ---------------------------------------------------------------------------
 

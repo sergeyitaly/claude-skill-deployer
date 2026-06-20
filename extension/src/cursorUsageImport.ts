@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { runsFilePath } from "./runRecording";
-import { invalidateLearningCache } from "./learningStateIndex";
+import { runsFilePath } from "./runsStore";
+import { invalidateLearningCache } from "./runsStore";
 
 /** Reconciles Cursor's blended cost estimates against a CSV exported from the Cursor dashboard (Settings -> Usage -> Export). */
 

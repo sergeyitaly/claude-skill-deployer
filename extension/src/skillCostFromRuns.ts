@@ -5,7 +5,7 @@ import {
   isV2HookRun,
   readEnrichedRunsFromFile,
   runsFilePath,
-} from "./runRecording";
+} from "./runsStore";
 import { formatCompactUsd } from "./skillCost";
 import { readEnrichedRuns } from "./usageStats";
 

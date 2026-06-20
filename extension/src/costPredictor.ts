@@ -1,8 +1,8 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { notificationLevel, notifySuggestion } from "./userNotify";
-import { assessAttributionHealth } from "./attributionHealth";
-import { formatConfidenceBadge } from "./attributionConfidence";
+import { assessAttributionHealth } from "./attributionQuality";
+import { formatConfidenceBadge } from "./attributionQuality";
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
 import { readBudgetConfig } from "./budgetConfig";
 import { localDateKey } from "./localDate";

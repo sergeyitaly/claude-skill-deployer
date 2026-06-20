@@ -41,11 +41,6 @@ function sessionSkillAdaptationEnabled(cwd) {
   return features?.sessionSkillAdaptation !== false;
 }
 
-function taskSkillSetApprovalEnabled(cwd) {
-  const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
-  return cfg?.taskFocus?.approveSkillSets !== false;
-}
-
 function minProposalConfidence(cwd) {
   const cfg = readJsonSafe(path.join(cwd, CLI_CONFIG));
   const raw = cfg?.taskFocus?.minProposalConfidence;
@@ -53,14 +48,6 @@ function minProposalConfidence(cwd) {
     return Math.min(100, Math.max(0, Math.round(raw)));
   }
   return 50;
-}
-
-function taskProposalsPendingApproval(cwd) {
-  if (!taskSkillSetApprovalEnabled(cwd)) {
-    return false;
-  }
-  const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
-  return proposals?.approvalStatus === "pending" && Array.isArray(proposals?.options) && proposals.options.length > 0;
 }
 
 function resolveProposalSkillNamesFromFile(proposals, cwd) {
@@ -73,12 +60,6 @@ function resolveProposalSkillNamesFromFile(proposals, cwd) {
     (p) => p && typeof p.name === "string" && (required.has(p.name) || (p.confidence ?? 0) >= minConf)
   );
   const allowed = new Set(filtered.map((p) => p.name));
-  if (proposals.selectedOptionId && Array.isArray(proposals.options)) {
-    const selected = proposals.options.find((o) => o && o.id === proposals.selectedOptionId);
-    if (selected && Array.isArray(selected.skills) && selected.skills.length) {
-      return selected.skills.filter((name) => required.has(name) || allowed.has(name));
-    }
-  }
   return filtered.map((p) => p.name);
 }
 
@@ -266,11 +247,9 @@ function resolveSkillsToEnable(cwd) {
 
   const proposals = readJsonSafe(path.join(cwd, PROPOSALS_REL));
   if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length && taskProposalsAutoApply(cwd)) {
-    if (!taskProposalsPendingApproval(cwd)) {
-      for (const name of resolveProposalSkillNamesFromFile(proposals, cwd)) {
-        names.add(name);
-        fromProposals = true;
-      }
+    for (const name of resolveProposalSkillNamesFromFile(proposals, cwd)) {
+      names.add(name);
+      fromProposals = true;
     }
   } else if (proposals && Array.isArray(proposals.proposals) && proposals.proposals.length) {
     const resolved = resolveProposalSkillNamesFromFile(proposals, cwd);

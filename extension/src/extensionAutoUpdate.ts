@@ -2,12 +2,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { integrationTestMode } from "./criticalFixes";
 import { notifyBackground } from "./userNotify";
 
 const OPEN_VSX_BASE = "https://open-vsx.org";
 const LAST_INSTALLED_KEY = "claudeSkills.lastAutoUpdatedVersion";
 const LAST_CHECK_KEY = "claudeSkills.lastExtensionUpdateCheckMs";
+
+function integrationTestMode(): boolean {
+  return process.env.CLAUDE_SKILLS_INTEGRATION_TEST === "1";
+}
 
 export interface OpenVsxLatest {
   version: string;

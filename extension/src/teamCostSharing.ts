@@ -2,9 +2,8 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
-import { isFeatureEnabled } from "./featureFlags";
-import { invalidateTeamEconomicsCache } from "./teamEconomicsCache";
-import { invalidateDashboardSnapshot } from "./dashboardSnapshotCache";
+import { invalidateTeamEconomicsCache } from "./dashboardCache";
+import { invalidateDashboardSnapshot } from "./dashboardCache";
 
 export interface SkillAuthorAttribution {
   skill: string;
@@ -102,10 +101,6 @@ export function computeAuthorAttribution(
   target: string,
   attribution: SkillAttributionMap
 ): SkillAuthorAttribution[] {
-  if (!isFeatureEnabled("teamCostSharing")) {
-    return [];
-  }
-
   const results: SkillAuthorAttribution[] = [];
   const skillsDir = path.join(target, ".claude", "skills");
   if (!fs.existsSync(skillsDir)) {

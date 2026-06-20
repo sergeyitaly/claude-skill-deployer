@@ -8,7 +8,6 @@ import {
   writeCopilotBootstrap,
 } from "./copilotTransform";
 import { parseSkillFrontmatter } from "./skillLint";
-import { isFeatureEnabled } from "./featureFlags";
 import {
   copySkill,
   discoverBundledSkills,
@@ -90,7 +89,7 @@ export function enabledAgents(libraryDir: string): AgentId[] {
 
 /** Full fan-out to all enabled agents (team-multi-agent tier). */
 export function isFullMultiAgentMirrorMode(): boolean {
-  return isFeatureEnabled("multiAgent");
+  return true;
 }
 
 /**
@@ -147,9 +146,6 @@ export function shouldSyncWorkspaceToAll(libraryDir?: string, costDisciplineProp
 
 /** True when multi-agent feature is on and global installs fan out to all enabled agents. */
 export function shouldSyncGlobalToAll(): boolean {
-  if (!isFeatureEnabled("multiAgent")) {
-    return false;
-  }
   return vscode.workspace.getConfiguration("claudeSkills.agents").get<boolean>("syncGlobalToAll", true);
 }
 

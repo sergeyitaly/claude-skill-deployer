@@ -3,12 +3,12 @@ import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
 import { detectRelevantSkills, Manifest } from "./skillOps";
 import { CreditUsageSummary, creditUsageCostLabel, formatModelLabel, modelCostCellLabel } from "./usageCost";
-import { EnrichedRunRecord, isUsageBreakdownRun, isUsageRunRecord, normalizeRunRecord, RunAgent } from "./runRecording";
-import { readCachedEnrichedRuns } from "./learningStateIndex";
+import { EnrichedRunRecord, isUsageBreakdownRun, isUsageRunRecord, normalizeRunRecord, RunAgent } from "./runsStore";
+import { readCachedEnrichedRuns } from "./runsStore";
 import { WorkspaceHookStatus } from "./hookOps";
 import { formatHookStatusBannerHtml } from "./workspaceHookStatus";
-import { formatConfidenceBadge, SkillCostConfidence, WorkspaceConfidence } from "./attributionConfidence";
-import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml, formatSkillTrustHtml, GlobalTrustBadge } from "./attributionTrust";
+import { formatConfidenceBadge, SkillCostConfidence, WorkspaceConfidence } from "./attributionQuality";
+import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml, formatSkillTrustHtml, GlobalTrustBadge } from "./attributionQuality";
 import { DASHBOARD_USAGE_EXTRA_STYLES, wrapDashboardHtml } from "./dashboardStyles";
 import { computeSkillInefficiencyStats, SkillInefficiencyStat } from "./skillFeedback";
 import { resolveTaskSkillProposals, TaskSkillProposal, readTaskSkillProposals } from "./taskSkillProposals";
@@ -605,7 +605,7 @@ function htmlOutdatedSection(statuses: SkillVersionStatus[]): string {
   const items = outdated
     .map(
       (s) =>
-        `<li><b>${escapeHtml(s.name)}</b> <span class="badge outdated">${escapeHtml(s.installedVersion)} → ${escapeHtml(s.catalogVersion)}</span>${s.changelog ? ` — ${escapeHtml(s.changelog)}` : ""}</li>`
+        `<li><b>${escapeHtml(s.name)}</b> <span class="badge outdated">${escapeHtml(s.installedVersion)} â†’ ${escapeHtml(s.catalogVersion)}</span>${s.changelog ? ` — ${escapeHtml(s.changelog)}` : ""}</li>`
     )
     .join("\n");
   const depItems = deprecated
@@ -938,22 +938,7 @@ function htmlTaskProposalsSection(
         `<li><b>${escapeHtml(p.name)}</b> <span class="badge task-conf">${p.confidence}%</span> ${p.installed ? '<span class="badge active">installed</span>' : '<span class="badge low-usage">install</span>'} — ${escapeHtml(p.reason)}</li>`
     )
     .join("\n");
-  let approvalNote = "";
-  if (file?.approvalStatus === "pending" && file.options?.length) {
-    const optionLines = file.options
-      .map(
-        (o) =>
-          `<li><b>${escapeHtml(o.label)}</b> (${o.skills.length} skills) — ${escapeHtml(o.description)}</li>`
-      )
-      .join("\n");
-    approvalNote = `<div class="note">Waiting for approval — run <b>Claude Skills: Choose Task Skill Set</b>.</div><ul>${optionLines}</ul>`;
-  } else if (file?.selectedOptionId && file.options?.length) {
-    const picked = file.options.find((o) => o.id === file.selectedOptionId);
-    if (picked) {
-      approvalNote = `<div class="note">Active set: <b>${escapeHtml(picked.label)}</b> (${picked.skills.length} skills).</div>`;
-    }
-  }
-  return `<div class="panel"><h2>Proposed for current task</h2>${summary}${approvalNote}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes. Local-only: not committed or shared with teammates.</div></div>`;
+  return `<div class="panel"><h2>Proposed for current task</h2>${summary}<ul>${items}</ul><div class="note">From <code>task-skill-proposals.json</code> — regenerate via <code>skill-feedback-adaptation</code> when the task changes. Local-only: not committed or shared with teammates.</div></div>`;
 }
 
 function htmlMisusedSection(stats: SkillUsageStat[]): string {

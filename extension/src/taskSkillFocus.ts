@@ -1,11 +1,10 @@
 import * as path from "node:path";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
 import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
-import { isFeatureEnabled } from "./featureFlags";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { setSkillOverride, readSkillOverrides } from "./skillOps";
-import { readTaskSkillProposals, resolveProposalSkillNames, taskSkillSetApprovalPending } from "./taskSkillProposals";
+import { readTaskSkillProposals, resolveProposalSkillNames } from "./taskSkillProposals";
 import { listInstalledSkills } from "./usageStats";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 
@@ -22,7 +21,7 @@ export interface TaskActiveSkillsFile {
 }
 
 export function taskSkillFocusEnabled(): boolean {
-  return isFeatureEnabled("taskSkillFocus");
+  return true;
 }
 
 export function taskActiveSkillsPath(target: string): string {
@@ -104,9 +103,6 @@ export function applyTaskSkillFocusFromProposals(
   }
   const proposals = readTaskSkillProposals(target);
   if (!proposals?.proposals.length) {
-    return { applied: false };
-  }
-  if (taskSkillSetApprovalPending(proposals)) {
     return { applied: false };
   }
   const state = readTaskActiveSkills(target);

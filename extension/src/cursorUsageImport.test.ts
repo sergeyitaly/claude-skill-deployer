@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { autoReconcileCursorCostsFromDownloads, parseCursorUsageCsv, reconcileCursorCosts } from "./cursorUsageImport";
-import { runsFilePath } from "./runRecording";
+import { runsFilePath } from "./runsStore";
 
 const tempDirs: string[] = [];
 

@@ -11,7 +11,6 @@ import {
   getGitRepository,
   repoKeyFor,
 } from "./branchProfiles";
-import { isFeatureEnabled } from "./featureFlags";
 import {
   listEffectiveEnabledSkills,
   readSkillOverrides,
@@ -93,11 +92,7 @@ export function agentProfilesFeatureActive(): boolean {
   if (!cfg.get<boolean>("enabled", true)) {
     return false;
   }
-  if (isFeatureEnabled("multiAgent")) {
-    return true;
-  }
-  // Host-first: per-IDE skill sets still apply when the extension runs in Cursor/Kiro/VS Code.
-  return detectHostAgentId() !== "claude";
+  return true;
 }
 
 function agentProfilesEnabled(): boolean {

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Manifest } from "./skillOps";
-import { SKILL_INVOKE_HOOK_SOURCE } from "./runRecording";
+import { SKILL_INVOKE_HOOK_SOURCE } from "./runsStore";
 import {
   evaluateTaskDrift,
   processTaskDriftReproposal,
@@ -36,7 +36,7 @@ vi.mock("vscode", () => ({
 }));
 
 vi.mock("./featureFlags", () => ({
-  isFeatureEnabled: (key: string) => key === "taskDriftReproposal" || key === "taskSkillFocus",
+  isFeatureEnabled: () => true,
 }));
 
 function writeRuns(target: string, rows: Record<string, unknown>[]): void {

@@ -17,8 +17,6 @@ const LEGACY_OFFICIAL_SKILLS_HOOK = "official-skills-watch.js";
 const LEGACY_PROFILE_INIT_HOOK = "profile-init-watch.js";
 const TERMINAL_WATCH_SCRIPT = "terminal-watch.js";
 const TERMINAL_WATCH_MATCHER = "Bash|PowerShell|run_in_terminal";
-const SKILL_GAP_DETECTOR_SCRIPT = "skill-gap-detector.js";
-const SKILL_GAP_DETECTOR_MATCHER = "startup|resume|clear";
 
 const ATTRIBUTION_HOOK_MARKER = "claude-skills-skill-invoke";
 const KIRO_ATTRIBUTION_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}.kiro.hook`;
@@ -29,15 +27,9 @@ const KIRO_BUDGET_HOOK_FILE = "claude-skills-budget.kiro.hook";
 const KIRO_WHEN_PROMPT_SUBMIT = "promptSubmit";
 /** Kiro session-start hooks use sessionStart (not agentSpawn). */
 const KIRO_WHEN_SESSION_START = "sessionStart";
-const SESSION_SIZE_HOOK_MARKER = "claude-skills-session-size";
-const CONTEXT_FOCUS_HOOK_MARKER = "claude-skills-context-focus";
-const PRACTICAL_FOCUS_HOOK_MARKER = "claude-skills-practical-focus";
-const KIRO_SESSION_SIZE_HOOK_FILE = "claude-skills-session-size.kiro.hook";
-const KIRO_CONTEXT_FOCUS_HOOK_FILE = "claude-skills-context-focus.kiro.hook";
-const KIRO_PRACTICAL_FOCUS_HOOK_FILE = "claude-skills-practical-focus.kiro.hook";
-const COPILOT_SESSION_SIZE_HOOK_FILE = "claude-skills-session-size.json";
-const COPILOT_CONTEXT_FOCUS_HOOK_FILE = "claude-skills-context-focus.json";
-const COPILOT_PRACTICAL_FOCUS_HOOK_FILE = "claude-skills-practical-focus.json";
+const PROMPT_CONTEXT_HOOK_MARKER = "claude-skills-prompt-context";
+const KIRO_PROMPT_CONTEXT_HOOK_FILE = "claude-skills-prompt-context.kiro.hook";
+const COPILOT_PROMPT_CONTEXT_HOOK_FILE = "claude-skills-prompt-context.json";
 const TASK_DRIFT_HOOK_MARKER = "claude-skills-task-drift";
 const BUDGET_HOOK_MARKER = "claude-skills-budget";
 const PROFILE_INIT_HOOK_MARKER = `${ATTRIBUTION_HOOK_MARKER}-profile-init`;
@@ -51,10 +43,8 @@ const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread";
 
 // Hook name → URL path segments used to detect and generate curl commands
 const HOOK_SKILL_INVOKE = "skill-invoke";
-const HOOK_SESSION_SIZE = "session-size";
+const HOOK_PROMPT_CONTEXT = "prompt-context";
 const HOOK_BUDGET = "budget";
-const HOOK_CONTEXT_FOCUS = "context-focus";
-const HOOK_PRACTICAL_FOCUS = "practical-focus";
 const HOOK_TASK_DRIFT = "task-drift";
 const HOOK_OFFICIAL_SKILLS = "official-skills";
 const HOOK_PROFILE_INIT = "profile-init";
@@ -222,59 +212,6 @@ function ensureTerminalWatchHookRegistered(settings: Settings, extensionPath: st
   return true;
 }
 
-function hasSkillGapDetectorHook(settings: Settings): boolean {
-  const matchers = settings.hooks?.SessionStart ?? [];
-  return matchers.some((m) => m.hooks.some((h) => h.command.includes(SKILL_GAP_DETECTOR_SCRIPT)));
-}
-
-function ensureSkillGapDetectorRegistered(settings: Settings, extensionPath: string): boolean {
-  const scriptPath = path.join(extensionPath, "resources", "hooks", SKILL_GAP_DETECTOR_SCRIPT)
-    .replace(/\\/g, "/");
-  const expectedCommand = `node "${scriptPath}" claude`;
-
-  const sessionHooks = settings.hooks?.SessionStart ?? [];
-  const existing = sessionHooks.find(
-    (m) => m.hooks.some((h) => h.command.includes(SKILL_GAP_DETECTOR_SCRIPT))
-  );
-
-  if (existing) {
-    if (existing.hooks.some((h) => h.command === expectedCommand)) return false;
-    existing.hooks = existing.hooks.map((h) =>
-      h.command.includes(SKILL_GAP_DETECTOR_SCRIPT) ? { ...h, command: expectedCommand } : h
-    );
-    return true;
-  }
-
-  settings.hooks = settings.hooks ?? {};
-  settings.hooks.SessionStart = settings.hooks.SessionStart ?? [];
-  settings.hooks.SessionStart.push({
-    matcher: SKILL_GAP_DETECTOR_MATCHER,
-    hooks: [{ type: "command", command: expectedCommand, timeout: 20 }],
-  });
-  return true;
-}
-
-export function isSkillGapDetectorConfigured(target: string): boolean {
-  try {
-    const settings = readSettings(path.join(target, ".claude", "settings.json"));
-    return hasSkillGapDetectorHook(settings);
-  } catch {
-    return false;
-  }
-}
-
-export function installSkillGapDetectorHook(extensionPath: string, target: string): HookInstallStatus {
-  ensureLearningDir(target);
-  const settingsFile = path.join(target, ".claude", "settings.json");
-  const settings = readSettings(settingsFile);
-  const had = hasSkillGapDetectorHook(settings);
-  const added = ensureSkillGapDetectorRegistered(settings, extensionPath);
-  if (added) {
-    writeJsonFile(settingsFile, settings);
-    return had ? "updated" : "installed";
-  }
-  return "already-configured";
-}
 
 export function isTerminalWatchHookConfigured(target: string): boolean {
   try {
@@ -311,8 +248,6 @@ function claudeCostControlHooksFullyConfigured(target: string): boolean {
   return (
     isSessionSizeHookConfigured(target) &&
     isBudgetHookConfigured(target) &&
-    isContextFocusHookConfigured(target) &&
-    isPracticalFocusHookConfigured(target) &&
     isTaskDriftHookConfigured(target)
   );
 }
@@ -326,8 +261,6 @@ export function costControlHooksActive(target: string): boolean {
   return (
     isSessionSizeHookConfigured(target) ||
     isBudgetHookConfigured(target) ||
-    isContextFocusHookConfigured(target) ||
-    isPracticalFocusHookConfigured(target) ||
     isTaskDriftHookConfigured(target)
   );
 }
@@ -335,7 +268,7 @@ export function costControlHooksActive(target: string): boolean {
 export function isSessionSizeHookConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));
-    return hasHook(settings, HOOK_SESSION_SIZE);
+    return hasHook(settings, HOOK_PROMPT_CONTEXT);
   } catch {
     return false;
   }
@@ -351,29 +284,19 @@ export function isBudgetHookConfigured(target: string): boolean {
 }
 
 export function isContextFocusHookConfigured(target: string): boolean {
-  try {
-    const settings = readSettings(path.join(target, ".claude", "settings.json"));
-    return hasHook(settings, HOOK_CONTEXT_FOCUS);
-  } catch {
-    return false;
-  }
+  return isSessionSizeHookConfigured(target);
 }
 
 export function isPracticalFocusHookConfigured(target: string): boolean {
-  try {
-    const settings = readSettings(path.join(target, ".claude", "settings.json"));
-    return hasHook(settings, HOOK_PRACTICAL_FOCUS);
-  } catch {
-    return false;
-  }
+  return isSessionSizeHookConfigured(target);
 }
 
 // ── Prompt hook spec ─────────────────────────────────────────────────────────
 
 interface CostControlPromptHookSpec {
-  hookName: string;       // URL path segment, e.g. "session-size"
-  legacyFilename: string; // Old JS filename for migration cleanup
-  marker: string;         // Description marker in Kiro/Copilot JSON files
+  hookName: string;          // URL path segment, e.g. "prompt-context"
+  legacyFilenames: string[]; // Old JS filenames (and/or old hook names) for migration cleanup
+  marker: string;            // Description marker in Kiro/Copilot JSON files
   displayName: string;
   kiroHookFile: string;
   copilotHookFile: string;
@@ -381,40 +304,29 @@ interface CostControlPromptHookSpec {
 
 const COST_CONTROL_PROMPT_HOOK_SPECS: CostControlPromptHookSpec[] = [
   {
-    hookName: HOOK_SESSION_SIZE,
-    legacyFilename: LEGACY_SESSION_HOOK,
-    marker: SESSION_SIZE_HOOK_MARKER,
-    displayName: "session size watch",
-    kiroHookFile: KIRO_SESSION_SIZE_HOOK_FILE,
-    copilotHookFile: COPILOT_SESSION_SIZE_HOOK_FILE,
+    hookName: HOOK_PROMPT_CONTEXT,
+    // Cleans up three old JS-file entries and three old server-hook entries on upgrade
+    legacyFilenames: [
+      LEGACY_SESSION_HOOK, "session-size",
+      LEGACY_CONTEXT_FOCUS_HOOK, "context-focus",
+      LEGACY_PRACTICAL_FOCUS_HOOK, "practical-focus",
+    ],
+    marker: PROMPT_CONTEXT_HOOK_MARKER,
+    displayName: "prompt context watch",
+    kiroHookFile: KIRO_PROMPT_CONTEXT_HOOK_FILE,
+    copilotHookFile: COPILOT_PROMPT_CONTEXT_HOOK_FILE,
   },
   {
     hookName: HOOK_BUDGET,
-    legacyFilename: LEGACY_BUDGET_HOOK,
+    legacyFilenames: [LEGACY_BUDGET_HOOK],
     marker: BUDGET_HOOK_MARKER,
     displayName: "budget watch",
     kiroHookFile: KIRO_BUDGET_HOOK_FILE,
     copilotHookFile: COPILOT_BUDGET_HOOK_FILE,
   },
   {
-    hookName: HOOK_CONTEXT_FOCUS,
-    legacyFilename: LEGACY_CONTEXT_FOCUS_HOOK,
-    marker: CONTEXT_FOCUS_HOOK_MARKER,
-    displayName: "context focus watch",
-    kiroHookFile: KIRO_CONTEXT_FOCUS_HOOK_FILE,
-    copilotHookFile: COPILOT_CONTEXT_FOCUS_HOOK_FILE,
-  },
-  {
-    hookName: HOOK_PRACTICAL_FOCUS,
-    legacyFilename: LEGACY_PRACTICAL_FOCUS_HOOK,
-    marker: PRACTICAL_FOCUS_HOOK_MARKER,
-    displayName: "practical focus watch",
-    kiroHookFile: KIRO_PRACTICAL_FOCUS_HOOK_FILE,
-    copilotHookFile: COPILOT_PRACTICAL_FOCUS_HOOK_FILE,
-  },
-  {
     hookName: HOOK_TASK_DRIFT,
-    legacyFilename: LEGACY_TASK_DRIFT_HOOK,
+    legacyFilenames: [LEGACY_TASK_DRIFT_HOOK],
     marker: TASK_DRIFT_HOOK_MARKER,
     displayName: "task drift re-proposal",
     kiroHookFile: KIRO_TASK_DRIFT_HOOK_FILE,
@@ -441,7 +353,7 @@ function installCursorPromptHook(target: string, spec: CostControlPromptHookSpec
   existing.version = 1;
   existing.hooks = existing.hooks ?? {};
   const entries = (existing.hooks.beforeSubmitPrompt ?? []).filter(
-    (e) => !(e.command ?? "").includes(spec.legacyFilename)
+    (e) => !spec.legacyFilenames.some((lf) => (e.command ?? "").includes(lf))
   );
   const desired = { command: agentPromptHookCommand("cursor", spec.hookName, target), timeout: 8 };
   const idx = entries.findIndex((e) => (e.command ?? "").includes(`/hook/${spec.hookName}`));
@@ -694,16 +606,19 @@ function migrateAttributionHookMatcher(settings: Settings): boolean {
   return changed;
 }
 
-function ensureHookRegistered(settings: Settings, legacyFilename: string, hookName: string, command: string): boolean {
+function ensureHookRegistered(settings: Settings, legacyFilenames: string | string[], hookName: string, command: string): boolean {
   settings.hooks = settings.hooks ?? {};
   settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit ?? [];
 
+  const patterns = (Array.isArray(legacyFilenames) ? legacyFilenames : [legacyFilenames]).filter(Boolean);
   let removedLegacy = false;
-  settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter((m) => {
-    const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
-    if (hasLegacy) { removedLegacy = true; return false; }
-    return true;
-  });
+  if (patterns.length > 0) {
+    settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter((m) => {
+      const hasLegacy = m.hooks.some((h) => patterns.some((p) => h.command.includes(p)));
+      if (hasLegacy) { removedLegacy = true; return false; }
+      return true;
+    });
+  }
 
   if (hasHook(settings, hookName)) return removedLegacy;
 
@@ -978,14 +893,18 @@ export function installCostControlHooks(extensionPath: string, target: string): 
   const settingsFile = path.join(target, ".claude", "settings.json");
   const settings = readSettings(settingsFile);
 
-  const addedSession = ensureHookRegistered(settings, LEGACY_SESSION_HOOK, HOOK_SESSION_SIZE, claudeHookCmd(HOOK_SESSION_SIZE));
-  const addedBudget = ensureHookRegistered(settings, LEGACY_BUDGET_HOOK, HOOK_BUDGET, claudeHookCmd(HOOK_BUDGET));
-  const addedContextFocus = ensureHookRegistered(settings, LEGACY_CONTEXT_FOCUS_HOOK, HOOK_CONTEXT_FOCUS, claudeHookCmd(HOOK_CONTEXT_FOCUS));
-  const addedPracticalFocus = ensureHookRegistered(settings, LEGACY_PRACTICAL_FOCUS_HOOK, HOOK_PRACTICAL_FOCUS, claudeHookCmd(HOOK_PRACTICAL_FOCUS));
-  const addedTaskDrift = ensureHookRegistered(settings, LEGACY_TASK_DRIFT_HOOK, HOOK_TASK_DRIFT, claudeHookCmd(HOOK_TASK_DRIFT));
+  // prompt-context replaces session-size, context-focus, practical-focus — clean up all six legacy patterns
+  const addedPromptContext = ensureHookRegistered(
+    settings,
+    [LEGACY_SESSION_HOOK, "session-size", LEGACY_CONTEXT_FOCUS_HOOK, "context-focus", LEGACY_PRACTICAL_FOCUS_HOOK, "practical-focus"],
+    HOOK_PROMPT_CONTEXT,
+    claudeHookCmd(HOOK_PROMPT_CONTEXT)
+  );
+  const addedBudget = ensureHookRegistered(settings, [LEGACY_BUDGET_HOOK], HOOK_BUDGET, claudeHookCmd(HOOK_BUDGET));
+  const addedTaskDrift = ensureHookRegistered(settings, [LEGACY_TASK_DRIFT_HOOK], HOOK_TASK_DRIFT, claudeHookCmd(HOOK_TASK_DRIFT));
   const addedTerminal = ensureTerminalWatchHookRegistered(settings, extensionPath);
 
-  if (addedSession || addedBudget || addedContextFocus || addedPracticalFocus || addedTaskDrift || addedTerminal) {
+  if (addedPromptContext || addedBudget || addedTaskDrift || addedTerminal) {
     writeJsonFile(settingsFile, settings);
   }
 
@@ -1409,7 +1328,6 @@ export interface WorkspaceHookStatus {
   guards: {
     dirCacheGuard: boolean;
     cliLoopGuard: boolean;
-    fileSplitAdvisor: boolean;
     /** True when at least one guard is configured but the hook server port is unreachable. */
     degraded: boolean;
   };
@@ -1455,8 +1373,7 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
   // command will silently no-op instead of being handled.
   const dirCacheGuard = isDirCacheGuardConfigured(target);
   const cliLoopGuard = isCliLoopGuardConfigured(target);
-  const fileSplitAdvisor = isFileSplitAdvisorConfigured(target);
-  const anyGuardConfigured = dirCacheGuard || cliLoopGuard || fileSplitAdvisor;
+  const anyGuardConfigured = dirCacheGuard || cliLoopGuard;
   const guardsDegraded = anyGuardConfigured && !isHookServerRunning();
 
   return {
@@ -1466,107 +1383,28 @@ export function getWorkspaceHookStatus(target: string, libraryDir: string): Work
       allConfigured: applicableAgents.length > 0 && configuredCount === applicableAgents.length,
       agents,
     },
-    costControl: {
-      sessionSize:
+    costControl: (() => {
+      const promptContext =
         isSessionSizeHookConfigured(target) &&
-        agentPromptHookConfigured(target, libraryDir, HOOK_SESSION_SIZE),
-      budget:
-        isBudgetHookConfigured(target) &&
-        agentPromptHookConfigured(target, libraryDir, HOOK_BUDGET),
-      contextFocus:
-        isContextFocusHookConfigured(target) &&
-        agentPromptHookConfigured(target, libraryDir, HOOK_CONTEXT_FOCUS),
-      practicalFocus:
-        isPracticalFocusHookConfigured(target) &&
-        agentPromptHookConfigured(target, libraryDir, HOOK_PRACTICAL_FOCUS),
-      configured:
-        claudeCostControlHooksFullyConfigured(target) &&
-        agentCostControlPromptHooksConfigured(target, libraryDir),
-    },
+        agentPromptHookConfigured(target, libraryDir, HOOK_PROMPT_CONTEXT);
+      return {
+        sessionSize: promptContext,
+        budget:
+          isBudgetHookConfigured(target) &&
+          agentPromptHookConfigured(target, libraryDir, HOOK_BUDGET),
+        contextFocus: promptContext,
+        practicalFocus: promptContext,
+        configured:
+          claudeCostControlHooksFullyConfigured(target) &&
+          agentCostControlPromptHooksConfigured(target, libraryDir),
+      };
+    })(),
     claudeVscodeGap: assessClaudeVscodeAttributionGap(target),
     guards: {
       dirCacheGuard,
       cliLoopGuard,
-      fileSplitAdvisor,
       degraded: guardsDegraded,
     },
   };
 }
 
-
-// ── File split advisor hook ───────────────────────────────────────────────────
-// PostToolUse on mcp__filesystem__read_file: injects a split suggestion when
-// a file exceeds 50 KB / 500 lines. Self-learning state lives in
-// .claude/learning/file-split-advisor.json.
-
-const HOOK_FILE_SPLIT_ADVISOR = "file-split-advisor";
-const FILE_SPLIT_ADVISOR_MATCHER = "mcp__filesystem__read_file";
-
-// PreToolUse companion: blocks re-reads of already-flagged large files.
-const HOOK_FILE_SPLIT_READ_GUARD = "file-split-read-guard";
-// Same matcher — fires before every read_file call.
-const FILE_SPLIT_READ_GUARD_MATCHER = "mcp__filesystem__read_file";
-
-export function isFileSplitAdvisorConfigured(target: string): boolean {
-  try {
-    const settings = readSettings(path.join(target, ".claude", "settings.json"));
-    return hasPostToolHook(settings, HOOK_FILE_SPLIT_ADVISOR);
-  } catch {
-    return false;
-  }
-}
-
-export function installFileSplitAdvisorHook(target: string): HookInstallStatus {
-  ensureLearningDir(target);
-  const settingsFile = path.join(target, ".claude", "settings.json");
-  const settings = readSettings(settingsFile);
-  const had = hasPostToolHook(settings, HOOK_FILE_SPLIT_ADVISOR);
-  const addedPost = ensurePostToolHookRegistered(
-    settings,
-    FILE_SPLIT_ADVISOR_MATCHER,
-    "",
-    HOOK_FILE_SPLIT_ADVISOR,
-    claudeHookCmd(HOOK_FILE_SPLIT_ADVISOR)
-  );
-  // Also install the PreToolUse read-guard companion.
-  const hadGuard = hasPreToolHook(settings, HOOK_FILE_SPLIT_READ_GUARD);
-  const addedPre = ensurePreToolHookRegistered(
-    settings,
-    FILE_SPLIT_READ_GUARD_MATCHER,
-    "",
-    HOOK_FILE_SPLIT_READ_GUARD,
-    claudeHookCmd(HOOK_FILE_SPLIT_READ_GUARD)
-  );
-  if (addedPost || addedPre) {
-    writeJsonFile(settingsFile, settings);
-    return (had || hadGuard) ? "updated" : "installed";
-  }
-  return "already-configured";
-}
-
-export function removeFileSplitAdvisorHook(target: string): boolean {
-  const settingsFile = path.join(target, ".claude", "settings.json");
-  const settings = readSettings(settingsFile);
-  let changed = false;
-
-  if (settings.hooks?.PostToolUse) {
-    const before = settings.hooks.PostToolUse.length;
-    settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-      (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_FILE_SPLIT_ADVISOR}`))
-    );
-    changed = settings.hooks.PostToolUse.length !== before || changed;
-  }
-
-  if (settings.hooks?.PreToolUse) {
-    const before = settings.hooks.PreToolUse.length;
-    settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(
-      (m) => !m.hooks.some((h) => h.command.includes(`/hook/${HOOK_FILE_SPLIT_READ_GUARD}`))
-    );
-    changed = settings.hooks.PreToolUse.length !== before || changed;
-  }
-
-  if (changed) {
-    writeJsonFile(settingsFile, settings);
-  }
-  return changed;
-}

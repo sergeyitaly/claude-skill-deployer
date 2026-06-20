@@ -4,7 +4,10 @@ import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { computeCreditUsageFromRoots } from "./usageCost";
 import { tokenCostUsd } from "./costRates";
-import { countV2HookRuns, isUsageRunRecord } from "./runRecording";
+import { countV2HookRuns, isCollectorTranscriptRun, isUsageRunRecord } from "./runsStore";
+import { collectorStatePath, LEGACY_COLLECTOR_STATE_PATH } from "./collectorState";
+import { pruneBackupFiles, pruneRunsJsonl } from "./learningPrune";
+import { invalidateLearningCache } from "./runsStore";
 import { readRunRecords, RunRecord } from "./usageStats";
 
 /** Prefer hook/self-learning stored cost; fall back to blended estimate when missing. */
@@ -415,4 +418,86 @@ function formatK(n: number): string {
     return `${(n / 1_000).toFixed(1)}k`;
   }
   return `${n}`;
+}
+
+// â”€â”€ Attribution Reset (inlined from attributionReset.ts) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const RUNS_RELATIVE = path.join(".claude", "learning", "runs.jsonl");
+
+export interface ResetResult {
+  removedRuns: number;
+  keptRuns: number;
+  backupAttribution: string | null;
+  backupRuns: string | null;
+}
+
+function isCollectorTranscriptLine(line: string): boolean {
+  try {
+    return isCollectorTranscriptRun(JSON.parse(line) as { action?: string; metadata?: { source?: string } });
+  } catch {
+    return false;
+  }
+}
+
+export function resetMisattributedData(target: string): ResetResult {
+  const result: ResetResult = { removedRuns: 0, keptRuns: 0, backupAttribution: null, backupRuns: null };
+
+  const runsFile = path.join(target, RUNS_RELATIVE);
+  const learningDir = path.dirname(runsFile);
+  if (fs.existsSync(runsFile)) {
+    const backup = `${runsFile}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(runsFile, backup);
+    result.backupRuns = backup;
+    const kept: string[] = [];
+    for (const line of fs.readFileSync(runsFile, "utf-8").split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (isCollectorTranscriptLine(trimmed)) {
+        result.removedRuns += 1;
+      } else {
+        kept.push(trimmed);
+        result.keptRuns += 1;
+      }
+    }
+    fs.writeFileSync(runsFile, kept.join("\n") + (kept.length ? "\n" : ""), "utf-8");
+  }
+
+  migrateLegacyCostAttribution(target);
+  const attrPath = costAttributionPath(target);
+  if (fs.existsSync(attrPath)) {
+    const backup = `${attrPath}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(attrPath, backup);
+    result.backupAttribution = backup;
+    try {
+      const raw = JSON.parse(fs.readFileSync(attrPath, "utf-8")) as Record<string, unknown>;
+      raw.transcriptSkills = {};
+      raw.unattributed = {};
+      raw.base_context = {};
+      delete raw.agentTotals;
+      raw.updatedAt = new Date().toISOString();
+      delete raw.skills;
+      fs.writeFileSync(attrPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
+    } catch {
+      fs.writeFileSync(attrPath, JSON.stringify({ transcriptSkills: {}, unattributed: {}, base_context: {} }, null, 2) + "\n", "utf-8");
+    }
+  }
+
+  const statePath = collectorStatePath(target);
+  const resetState = { lastRun: 0, fileMtimes: {}, processedSessions: {}, workspacePath: target };
+  if (fs.existsSync(statePath)) {
+    const backup = `${statePath}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(statePath, backup);
+    fs.writeFileSync(statePath, JSON.stringify(resetState, null, 2) + "\n", "utf-8");
+  } else if (fs.existsSync(LEGACY_COLLECTOR_STATE_PATH)) {
+    const backup = `${LEGACY_COLLECTOR_STATE_PATH}.pre-reset-${Date.now()}.bak`;
+    fs.copyFileSync(LEGACY_COLLECTOR_STATE_PATH, backup);
+    fs.writeFileSync(LEGACY_COLLECTOR_STATE_PATH, JSON.stringify(resetState, null, 2) + "\n", "utf-8");
+  }
+
+  pruneRunsJsonl(runsFile);
+  invalidateLearningCache(target);
+  pruneBackupFiles(learningDir, "pre-reset-");
+  pruneBackupFiles(learningDir, ".bak-");
+
+  return result;
 }

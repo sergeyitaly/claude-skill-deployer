@@ -8,7 +8,7 @@ import { getCurrentBranch } from "./branchProfiles";
 import { configFromVsCodeSettings } from "./budgetConfig";
 import { formatCompactUsd } from "./skillCost";
 import { loadManifest, Manifest } from "./skillOps";
-import { readCachedEnrichedRuns } from "./learningStateIndex";
+import { readCachedEnrichedRuns } from "./runsStore";
 import { writeJsonAtomic } from "./fileWriteCoordination";
 import {
   readTaskSkillProposals,
@@ -20,7 +20,7 @@ export interface SkillProposalAlertConfig {
   enabled: boolean;
   /** Branch/task spend must reach this % of monthly credits before prompting. */
   monthlyCreditThresholdPercent: number;
-  /** Monthly credit budget in USD. 0 = derive from daily budget × 30 or workspace 30d spend. */
+  /** Monthly credit budget in USD. 0 = derive from daily budget Ã— 30 or workspace 30d spend. */
   monthlyCreditsUsd: number;
 }
 

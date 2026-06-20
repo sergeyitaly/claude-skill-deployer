@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
-import { assessAttributionHealth } from "./attributionHealth";
+import { assessAttributionHealth } from "./attributionQuality";
 import {
   AgentAttribution,
   buildCostAttribution,
@@ -13,7 +13,7 @@ import { tierForSkill } from "./skillCost";
 import { loadManifest, Manifest } from "./skillOps";
 import { computeUsageStats, readEnrichedRuns, SkillUsageStat } from "./usageStats";
 import { readPipelineCycle } from "./pipelineCycle";
-import { buildSystemModeContext } from "./systemMode";
+import { buildSystemModeContext } from "./attributionQuality";
 import { applyOptimizerSafetyCaps } from "./optimizerSafety";
 import { computeSkillRoi } from "./skillRoi";
 import { listOutdatedSkills } from "./skillLifecycle";
@@ -53,7 +53,7 @@ export interface OptimizationSuggestion {
   reason: string;
   action: string;
   savings?: number;
-  /** Heuristic monthly savings (14d data × 2). */
+  /** Heuristic monthly savings (14d data Ã— 2). */
   monthlySavingsUsd?: number;
   from?: AgentId;
   to?: AgentId;
@@ -68,7 +68,7 @@ function monthlyUsd(amount: number): number {
 }
 
 function formatMonthlyAction(base: string, monthlyUsd: number): string {
-  return `${base} → save ~$${monthlyUsd.toFixed(0)}/month`;
+  return `${base} â†’ save ~$${monthlyUsd.toFixed(0)}/month`;
 }
 
 function skillTotalCost(data: Partial<Record<AgentId, AgentAttribution>>): number {
@@ -208,7 +208,7 @@ export function generateOptimizationSuggestions(
     }
   }
 
-  // ── archive suggestions ──────────────────────────────────────────────────
+  // â”€â”€ archive suggestions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Skills with measured LOW ROI that have been idle long enough are candidates
   // for archival.  Archival is reversible (restoreArchivedSkill), so it is
   // surfaced even when auto-archive is disabled — the user sees the suggestion
@@ -235,7 +235,7 @@ export function generateOptimizationSuggestions(
     alreadySuggested.add(skillName);
   }
 
-  // ── upgrade suggestions ───────────────────────────────────────────────────
+  // â”€â”€ upgrade suggestions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Outdated skills with measured LOW ROI get an upgrade suggestion — a newer
   // catalog version may improve the prompt, reduce tokens, or narrow scope.
   // Requires at least 3 measured runs so the ROI signal is not noise.
@@ -252,7 +252,7 @@ export function generateOptimizationSuggestions(
       suggestions.push({
         type: "upgrade",
         skill: status.name,
-        reason: `LOW ROI + outdated ${status.installedVersion} → ${status.catalogVersion}${note}`,
+        reason: `LOW ROI + outdated ${status.installedVersion} â†’ ${status.catalogVersion}${note}`,
         action: `Upgrade "${status.name}" to ${status.catalogVersion} — newer version may reduce token cost`,
         priority: 68,
       });

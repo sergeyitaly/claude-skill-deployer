@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { buildCostAttribution, resolveDisplayAttribution } from "./costAttribution";
-import { isFeatureEnabled } from "./featureFlags";
 import { readSkillOverrides, setSkillOverride, SkillOverrideValue } from "./skillOps";
 import { listInstalledSkills } from "./usageStats";
 import { computeTodayCreditUsage } from "./usageCost";
@@ -63,7 +62,7 @@ export function perSkillLimitUsd(): number {
 }
 
 export async function checkEmergencyCutoff(target: string | undefined, libraryDir?: string): Promise<boolean> {
-  if (!isFeatureEnabled("emergencyCutoff") || !target) {
+  if (!target) {
     return false;
   }
   if (readState().active) {

@@ -57,7 +57,7 @@ describe("cliConfig", () => {
 
     const config = syncCliConfigToWorkspace(target, libraryDir);
     expect(config.version).toBe(1);
-    expect(config.features.sessionSkillAdaptation).toBe(false);
+    expect(config.features.sessionSkillAdaptation).toBe(true);
     expect(config.agents.enabled).toEqual(["claude", "cursor"]);
     expect(config.agents.hostAgent).toBe("cursor");
     expect(config.taskFocus?.maxActiveSkills).toBe(12);

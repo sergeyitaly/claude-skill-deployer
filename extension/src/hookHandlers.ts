@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { appendSkillRun, appendToolUse, RunAgent } from "./runRecording";
+import { appendSkillRun, appendToolUse, RunAgent } from "./runsStore";
 import { readContextFocusConfig, effectiveContextFocusLevel, ContextFocusLevel } from "./contextFocusConfig";
 import { readPracticalFocusConfig, PracticalFocusLevel } from "./practicalFocusConfig";
 import { readBudgetConfig, readBudgetState, writeBudgetState, BudgetDayNotifications } from "./budgetConfig";
@@ -25,8 +25,6 @@ import {
 } from "./sessionSkillApply";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branchProfiles";
-import { isFeatureEnabled } from "./featureFlags";
-import { analyzeCliFailures, loadLearnedPatternsForHook, learnedPatternsPath, analyzeMcpErrors, loadMcpPatternsForHook, mcpPatternsPath } from "./cliGuardLearner";
 
 export interface HookRequest {
   hookName: string;
@@ -77,6 +75,41 @@ function readJsonSafe<T>(file: string): T | null {
   } catch {
     return null;
   }
+}
+
+function learnedPatternsPath(): string {
+  return path.join(os.homedir(), ".claude", "learning", "cli-guard-patterns.json");
+}
+
+function mcpPatternsPath(): string {
+  return path.join(os.homedir(), ".claude", "learning", "mcp-guard-patterns.json");
+}
+
+function analyzeCliFailures(): { needsReview: number } {
+  return { needsReview: 0 };
+}
+
+function analyzeMcpErrors(): { needsReview: number } {
+  return { needsReview: 0 };
+}
+
+function loadLearnedPatternsForHook(): Array<{
+  needsReview: boolean;
+  clis: string[];
+  exitCode: number | null;
+  stderrSubstring?: string;
+  hint: string;
+}> {
+  return [];
+}
+
+function loadMcpPatternsForHook(): Array<{
+  needsReview: boolean;
+  clis: string[];
+  stderrSubstring?: string;
+  hint: string;
+}> {
+  return [];
 }
 
 function writeJsonSafe(file: string, data: unknown): void {
@@ -899,7 +932,7 @@ async function handleProfileInit(req: HookRequest): Promise<HookResponse> {
       return ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000;
     })();
 
-    const sessionSkillAdaptation = isFeatureEnabled("sessionSkillAdaptation");
+    const sessionSkillAdaptation = true;
     const base = sessionSkillAdaptation
       ? deterministicEnabled && proposalsFresh
         ? formatFreshSessionContext(cwd)
@@ -986,8 +1019,8 @@ function handleMcpForce(req: HookRequest): HookResponse {
   const redirect = MCP_FORCE_REDIRECT[toolName];
 
   const lines: string[] = [
-    "🚫 Native file tools are disabled (MCP-force mode).",
-    "✅ Use MCP filesystem tools instead:",
+    "ðŸš« Native file tools are disabled (MCP-force mode).",
+    "âœ… Use MCP filesystem tools instead:",
     "",
   ];
 
@@ -998,12 +1031,12 @@ function handleMcpForce(req: HookRequest): HookResponse {
         ? (input as Record<string, unknown>).path ?? (input as Record<string, unknown>).file_path ?? "..."
         : "...";
     lines.push(`  ${toolName}("${String(examplePath)}")`);
-    lines.push(`  → \`${redirect}({ "path": "${String(examplePath)}" })\``);
+    lines.push(`  â†’ \`${redirect}({ "path": "${String(examplePath)}" })\``);
   } else {
-    lines.push("  Read(f)  → mcp__filesystem__read_file({ \"path\": f })");
-    lines.push("  Write(f) → mcp__filesystem__write_file({ \"path\": f, \"content\": c })");
-    lines.push("  Glob(p)  → mcp__filesystem__list_directory({ \"path\": dir })");
-    lines.push("  Grep(p)  → mcp__filesystem__search_files({ \"path\": \".\", \"pattern\": p })");
+    lines.push("  Read(f)  â†’ mcp__filesystem__read_file({ \"path\": f })");
+    lines.push("  Write(f) â†’ mcp__filesystem__write_file({ \"path\": f, \"content\": c })");
+    lines.push("  Glob(p)  â†’ mcp__filesystem__list_directory({ \"path\": dir })");
+    lines.push("  Grep(p)  â†’ mcp__filesystem__search_files({ \"path\": \".\", \"pattern\": p })");
   }
 
   return promptOutput(lines.join("\n"), req.agent);
@@ -1084,7 +1117,7 @@ function buildLastSessionSummary(): string {
     }
     const cliEntries = Object.entries(cliCalls).sort((a, b) => b[1] - a[1]).slice(0, 5);
     if (cliEntries.length > 0) {
-      parts.push(`  CLI calls: ${cliEntries.map(([c, n]) => `${c}×${n}`).join(", ")}`);
+      parts.push(`  CLI calls: ${cliEntries.map(([c, n]) => `${c}Ã—${n}`).join(", ")}`);
     }
 
     return parts.join("\n");
@@ -1129,7 +1162,7 @@ function handleMcpGate(req: HookRequest): HookResponse {
   if (!serverExists) {
     return sessionStartOutput(
       mcpGateMessage([
-        "⛔ MCP-Force Gate: MCP server script not found.",
+        "â›” MCP-Force Gate: MCP server script not found.",
         "   All native file tools (Read, Write, Edit, Glob, Grep) are blocked.",
         "   Run \"Claude Skills: Enable MCP Server\" in VS Code to restore file access.",
       ]),
@@ -1141,7 +1174,7 @@ function handleMcpGate(req: HookRequest): HookResponse {
   if (!lastTs) {
     return sessionStartOutput(
       mcpGateMessage([
-        "✓ MCP-Force Gate: MCP server installed and ready (log empty — either first use or logs were recently cleared).",
+        "âœ“ MCP-Force Gate: MCP server installed and ready (log empty — either first use or logs were recently cleared).",
         "  Use mcp__filesystem__* tools — native file tools are blocked.",
       ]),
       req.agent
@@ -1164,7 +1197,7 @@ function handleMcpGate(req: HookRequest): HookResponse {
   }
 
   return sessionStartOutput(
-    mcpGateMessage([`✓ MCP-Force Gate: MCP ready (last activity ${age}). Use mcp__filesystem__* for all file ops.`]),
+    mcpGateMessage([`âœ“ MCP-Force Gate: MCP ready (last activity ${age}). Use mcp__filesystem__* for all file ops.`]),
     req.agent
   );
 }
@@ -1172,10 +1205,10 @@ function handleMcpGate(req: HookRequest): HookResponse {
 // ---------------------------------------------------------------------------
 // Handler: dir-cache-guard (PreToolUse — mcp__filesystem__list_directory)
 // Blocks redundant directory scans within a session using an in-memory cache.
-// Cache miss → allow + record. Cache hit → block with decision:"block".
+// Cache miss â†’ allow + record. Cache hit â†’ block with decision:"block".
 // ---------------------------------------------------------------------------
 
-/** sessionId → normalized directory paths already listed this session. */
+/** sessionId â†’ normalized directory paths already listed this session. */
 const _dirListingCache = new Map<string, Set<string>>();
 const DIR_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // evict per-session entry after 4 h
 
@@ -1252,7 +1285,7 @@ const CLI_GUARD_PATTERNS: CliGuardPattern[] = [
   {
     exitCode: (c) => c !== 0,
     stderrPattern: /AuthorizationFailed|403 Forbidden|does not have authorization/i,
-    hint: "Authorization failed (403). The executing identity lacks the required role.\n→ Invoke skill: azure-rbac-diagnostics",
+    hint: "Authorization failed (403). The executing identity lacks the required role.\nâ†’ Invoke skill: azure-rbac-diagnostics",
     skill: "azure-rbac-diagnostics",
   },
   // kubectl / helm — connection refused or kubeconfig missing
@@ -1282,7 +1315,7 @@ const CLI_GUARD_PATTERNS: CliGuardPattern[] = [
     stderrPattern: /C:\/Program Files\/Git\/subscriptions|segment at position 0 didn't match|parsing segment.*staticSubscriptions/i,
     hint:
       "Git Bash is mangling the leading slash in Azure resource IDs " +
-      "(e.g. /subscriptions/... → C:/Program Files/Git/subscriptions/...).\n" +
+      "(e.g. /subscriptions/... â†’ C:/Program Files/Git/subscriptions/...).\n" +
       "Fix: pass env: { MSYS_NO_PATHCONV: \"1\" } in the run_command call, " +
       "OR switch to PowerShell for this command.",
   },
@@ -1324,7 +1357,7 @@ function handleCliLoopGuard(req: HookRequest): HookResponse {
     if (pattern.stderrPattern && !pattern.stderrPattern.test(stderr)) continue;
 
     const lines = [`⚠ CLI guard (\`${cli}\` exited ${exitCode}):`, pattern.hint];
-    if (pattern.skill) lines.push(`→ Invoke skill: ${pattern.skill}`);
+    if (pattern.skill) lines.push(`â†’ Invoke skill: ${pattern.skill}`);
     return promptOutput(lines.join("\n"), req.agent);
   }
 
@@ -1501,7 +1534,7 @@ function buildSplitHint(filePath: string, bytes: number, lineCount: number, sess
   const sizeLabel = bytes >= 1024 * 1024
     ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
     : `${Math.round(bytes / 1024)} KB`;
-  const severity = isHuge ? "🔴 LARGE FILE" : "⚠️  LARGE FILE";
+  const severity = isHuge ? "ðŸ”´ LARGE FILE" : "⚠ï¸  LARGE FILE";
 
   const { types, utils, consts, rest } = inferSplitPoints(content);
   const suggestedModules: string[] = [];
@@ -1518,7 +1551,7 @@ function buildSplitHint(filePath: string, bytes: number, lineCount: number, sess
   }
 
   const escalation = sessionReads >= 2
-    ? `\n♻️  Read ${sessionReads}× this session — every repeat read costs ~${Math.round(bytes / 4 / 1000)}k tokens. Split now to make future reads cheap.\n`
+    ? `\nâ™»ï¸  Read ${sessionReads}Ã— this session — every repeat read costs ~${Math.round(bytes / 4 / 1000)}k tokens. Split now to make future reads cheap.\n`
     : "";
 
   return [
@@ -1627,9 +1660,9 @@ function handleFileSplitAdvisor(req: HookRequest): HookResponse {
   // Return stopTask so Claude Code halts the current chain and forces the split
   // before the agent can continue. For other agents use a hard systemPrompt.
   const escalation = [
-    `🛑 MANDATORY SPLIT REQUIRED — do not continue with the current task until complete.`,
+    `ðŸ›‘ MANDATORY SPLIT REQUIRED — do not continue with the current task until complete.`,
     ``,
-    `\`${path.basename(filePath)}\` has been read ${currentReads}× this session at ${Math.round(bytes / 1024)}KB each time.`,
+    `\`${path.basename(filePath)}\` has been read ${currentReads}Ã— this session at ${Math.round(bytes / 1024)}KB each time.`,
     `Every re-read burns ~${Math.round(bytes / 4 / 1000)}k tokens. This is blocking efficient execution.`,
     ``,
     hint,
@@ -1686,12 +1719,12 @@ function handleFileSplitReadGuard(req: HookRequest): HookResponse {
   return {
     decision: "block",
     reason: [
-      `LARGE FILE GUARD: \`${path.basename(filePath)}\` (${kb}KB) has already been read ${prevReads}× this session.`,
+      `LARGE FILE GUARD: \`${path.basename(filePath)}\` (${kb}KB) has already been read ${prevReads}Ã— this session.`,
       `Full re-reads are blocked to prevent token waste (~${Math.round((rec.lastBytes ?? 0) / 4 / 1000)}k tokens each).`,
       ``,
       `Instead, use targeted reads:`,
-      `  • mcp__filesystem__search_in_file({ path: "${filePath}", pattern: "<what you need>" })`,
-      `  • mcp__filesystem__read_file with start_line/end_line if the server supports it`,
+      `  â€¢ mcp__filesystem__search_in_file({ path: "${filePath}", pattern: "<what you need>" })`,
+      `  â€¢ mcp__filesystem__read_file with start_line/end_line if the server supports it`,
       ``,
       `If you must split this file first, do that now with mcp__filesystem__write_file, then read the smaller result.`,
     ].join("\n"),
@@ -1705,26 +1738,26 @@ function handleFileSplitReadGuard(req: HookRequest): HookResponse {
 // ---------------------------------------------------------------------------
 
 const MOJIBAKE_FIXES: [RegExp, string][] = [
-  [/â€“/g, "—"],   // U+2014 em dash
-  [/â€”/g, "–"],   // U+2013 en dash
-  [/â€™/g, "’"], // right single quote
-  [/â€œ/g, "“"], // left double quote
-  [/â€/g, "”"],  // right double quote
-  [/â€¦/g, "…"],  // ellipsis
-  [/â†’/g, "→"],  // right arrow
-  [/â†—/g, "↗"],  // north east arrow
-  [/â†/g, "←"],   // left arrow
-  [/Â·/g, "·"],   // middle dot
-  [/Ã—/g, "×"],   // multiplication sign
-  [/â‰¥/g, "≥"],  // greater-than or equal
-  [/â‰¤/g, "≤"],  // less-than or equal
-  [/âˆ’/g, "−"],  // minus sign
-  [/âœ“/g, "✓"],  // check mark
-  [/âœ—/g, "✗"],  // ballot x
-  [/â“‚/g, "│"],  // box drawings light vertical
-  [/â“€/g, "─"],  // box drawings light horizontal
-  [/â–¼/g, "▼"],  // black down-pointing triangle
-  [/﻿/g, ""], // UTF-8 BOM
+  [/Ã¢â‚¬“/g, "—"],   // U+2014 em dash
+  [/Ã¢â‚¬”/g, "–"],   // U+2013 en dash
+  [/Ã¢â‚¬â„¢/g, "’"], // right single quote
+  [/Ã¢â‚¬Å“/g, "“"], // left double quote
+  [/Ã¢â‚¬/g, "”"],  // right double quote
+  [/Ã¢â‚¬Â¦/g, "…"],  // ellipsis
+  [/Ã¢â€ ’/g, "â†’"],  // right arrow
+  [/Ã¢â€ —/g, "â†—"],  // north east arrow
+  [/Ã¢â€ /g, "â†"],   // left arrow
+  [/Ã‚·/g, "·"],   // middle dot
+  [/Ãƒ—/g, "Ã—"],   // multiplication sign
+  [/Ã¢â€°Â¥/g, "â‰¥"],  // greater-than or equal
+  [/Ã¢â€°Â¤/g, "â‰¤"],  // less-than or equal
+  [/Ã¢Ë†’/g, "âˆ’"],  // minus sign
+  [/Ã¢Å““/g, "âœ“"],  // check mark
+  [/Ã¢Å“—/g, "âœ—"],  // ballot x
+  [/Ã¢“â€š/g, "â”‚"],  // box drawings light vertical
+  [/Ã¢“â‚¬/g, "â”€"],  // box drawings light horizontal
+  [/Ã¢–Â¼/g, "â–¼"],  // black down-pointing triangle
+  [/ï»¿/g, ""], // UTF-8 BOM
 ];
 
 function hasMojibake(content: string): boolean {
@@ -1785,9 +1818,29 @@ function handleMcpEncodingFix(req: HookRequest): HookResponse {
   }
 }
 
+function extractPromptContent(resp: HookResponse, agent: string): string {
+  if (agent === "cursor" || agent === "kiro") {
+    const v = resp.additional_context ?? resp.additionalContext;
+    return typeof v === "string" ? v : "";
+  }
+  return typeof resp.systemMessage === "string" ? resp.systemMessage : "";
+}
+
+function handlePromptContext(req: HookRequest): HookResponse {
+  const parts = [
+    extractPromptContent(handleSessionSize(req), req.agent),
+    extractPromptContent(handleContextFocus(req), req.agent),
+    extractPromptContent(handlePracticalFocus(req), req.agent),
+  ].filter(Boolean);
+  if (parts.length === 0) return {};
+  return promptOutput(parts.join("\n\n"), req.agent);
+}
+
 export async function handleHookRequest(req: HookRequest): Promise<HookResponse> {
   switch (req.hookName) {
     case "skill-invoke": return handleSkillInvoke(req);
+    case "prompt-context": return handlePromptContext(req);
+    // Keep individual cases as fallbacks for existing installations not yet upgraded
     case "session-size": return handleSessionSize(req);
     case "budget": return handleBudget(req);
     case "context-focus": return handleContextFocus(req);

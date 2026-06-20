@@ -104,10 +104,8 @@ describe("installCostControlHooks", () => {
       m.hooks.map((h) => h.command)
     );
     const hookNames = [
-      "/hook/session-size",
+      "/hook/prompt-context",
       "/hook/budget",
-      "/hook/context-focus",
-      "/hook/practical-focus",
       "/hook/task-drift",
     ];
     for (const hookName of hookNames) {
@@ -128,10 +126,8 @@ describe("installCostControlHooks", () => {
     expect(fs.existsSync(path.join(target, ".cursor", "hooks", "hookPlatform.js"))).toBe(false);
 
     const kiroSpecs = [
-      ["claude-skills-session-size.kiro.hook", "promptSubmit", "/hook/session-size", "agent=kiro"],
+      ["claude-skills-prompt-context.kiro.hook", "promptSubmit", "/hook/prompt-context", "agent=kiro"],
       ["claude-skills-budget.kiro.hook", "promptSubmit", "/hook/budget", "agent=kiro"],
-      ["claude-skills-context-focus.kiro.hook", "promptSubmit", "/hook/context-focus", "agent=kiro"],
-      ["claude-skills-practical-focus.kiro.hook", "promptSubmit", "/hook/practical-focus", "agent=kiro"],
       ["claude-skills-task-drift.kiro.hook", "promptSubmit", "/hook/task-drift", "agent=kiro"],
     ] as const;
     for (const [file, whenType, cmdPart, agentPart] of kiroSpecs) {
@@ -144,10 +140,8 @@ describe("installCostControlHooks", () => {
     }
 
     const copilotFiles = [
-      "claude-skills-session-size.json",
+      "claude-skills-prompt-context.json",
       "claude-skills-budget.json",
-      "claude-skills-context-focus.json",
-      "claude-skills-practical-focus.json",
       "claude-skills-task-drift.json",
     ];
     for (const file of copilotFiles) {

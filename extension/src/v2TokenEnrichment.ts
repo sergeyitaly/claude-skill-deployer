@@ -9,8 +9,8 @@ import {
   isV2HookRun,
   readEnrichedRunsFromFile,
   runsFilePath,
-} from "./runRecording";
-import { invalidateLearningCache } from "./learningStateIndex";
+} from "./runsStore";
+import { invalidateLearningCache } from "./runsStore";
 
 function expandHome(p: string): string {
   if (p.startsWith("~/")) {

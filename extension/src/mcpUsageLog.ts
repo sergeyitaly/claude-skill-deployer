@@ -1,4 +1,4 @@
-﻿import * as fs from "node:fs";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -26,6 +26,7 @@ export interface McpUsageEntry {
    * Filesystem server: "read_file" | "write_file" | "list_directory" | "search_files" | "delete_file"
    * CLI server: "cli:<name>" (e.g. "cli:az", "cli:terraform") | "list_available_clis"
    * Native bash hook: "bash:<name>" (e.g. "bash:npm", "bash:terraform")
+   * PowerShell file op bridge: "read_file" | "write_file" | "list_directory" | "search_in_file" | "delete_file" (server "powershell")
    */
   tool: string;
   /** Filesystem entries always have a path; CLI entries omit it. */
@@ -45,10 +46,12 @@ export interface McpUsageEntry {
   /** Rotated on each MCP initialize handshake — identifies one agent conversation. */
   sessionId?: string;
   // ── CLI server fields (present when server === "cli") ──────────────────────
-  /** "cli" for CLI MCP server entries; "bash" for native terminal-watch entries; absent for filesystem entries. */
-  server?: "cli" | "bash";
+  /** "cli" for CLI MCP server entries; "bash" for native terminal-watch entries; "powershell" for PS file-op bridge entries; absent for filesystem entries. */
+  server?: "cli" | "bash" | "powershell";
   /** Normalised CLI name, e.g. "az", "terraform" (CLI server and bash entries). */
   cli?: string;
+  /** Original PowerShell cmdlet name (powershell server entries only), e.g. "Get-Content". */
+  psCmd?: string;
   /** Full command string (native bash/PowerShell terminal-watch entries only). */
   command?: string;
   /** Process exit code (CLI server only). */

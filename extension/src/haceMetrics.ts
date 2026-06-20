@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Human-AI Collaboration Efficiency (HACE) score.
  *
  * Computes four observable components from Claude session transcripts

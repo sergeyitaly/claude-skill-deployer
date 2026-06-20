@@ -64,6 +64,8 @@ Do **not** commit skill files or profile JSON to git.
 
 ## Output — write `.claude/profile.local.json`
 
+Also write or refine **`.claude/learning/task-skill-proposals.json`** so the Usage Report shows your ranked branch skill proposals (the extension may seed this file when init starts — overwrite with your agent-selected set).
+
 ```json
 {
   "version": 1,

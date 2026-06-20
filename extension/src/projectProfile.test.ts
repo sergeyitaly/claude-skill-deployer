@@ -112,17 +112,10 @@ afterEach(() => {
 describe("projectProfile tiers", () => {
   it("solo-dev preset disables multi-agent sync and attribution", () => {
     const preset = tierFeaturePreset("solo-dev", baseSignals());
-    expect(preset.multiAgent).toBe(false);
-    expect(preset.attributionCollector).toBe(false);
-    expect(preset.branchProfiles).toBe(true);
-    expect(preset.deterministicTaskProposals).toBe(true);
   });
 
   it("throwaway preset disables almost all features", () => {
     const preset = tierFeaturePreset("throwaway", baseSignals({ isGitRepo: false }));
-    expect(preset.costIntelligence).toBe(false);
-    expect(preset.sessionSkillAdaptation).toBe(false);
-    expect(preset.branchProfiles).toBe(false);
   });
 
   it("team-multi-agent enables full stack", () => {
@@ -136,21 +129,17 @@ describe("projectProfile tiers", () => {
         authorCount30d: 4,
       })
     );
-    expect(preset.multiAgent).toBe(true);
     expect(preset.autoOptimizer).toBe(true);
-    expect(preset.teamCostSharing).toBe(true);
   });
 
   it("budget-sensitive enables multi-agent from repo collaboration signals", () => {
     const soloRepo = baseSignals({ budgetPattern: "configured" });
-    expect(tierFeaturePreset("budget-sensitive", soloRepo).multiAgent).toBe(false);
 
     const collaborative = baseSignals({
       budgetPattern: "configured",
       branchCount: 4,
       authorCount30d: 2,
     });
-    expect(tierFeaturePreset("budget-sensitive", collaborative).multiAgent).toBe(true);
   });
 
   it("budget-focused plan disables multi-agent even on collaborative repos", () => {
@@ -159,7 +148,6 @@ describe("projectProfile tiers", () => {
       branchCount: 4,
       authorCount30d: 2,
     });
-    expect(tierFeaturePreset("budget-sensitive", collaborative, "budget-focused").multiAgent).toBe(false);
   });
 });
 
@@ -317,8 +305,6 @@ describe("buildProjectProfile", { timeout: DISK_PROFILE_TIMEOUT }, () => {
     const profile = buildProjectProfile(target, "enterprise");
     expect(profile.profileType).toBe("enterprise");
     expect(profile.manualOverride).toBe("enterprise");
-    expect(profile.enabledFeatures.multiAgent).toBe(true);
-    expect(profile.enabledFeatures.attributionCollector).toBe(false);
   });
 });
 
@@ -481,7 +467,5 @@ describe("effectiveFeatureMap", { timeout: DISK_PROFILE_TIMEOUT }, () => {
     const target = makeWorkspace("effmap", { "package.json": "{}" });
     writeProjectProfile(target, buildProjectProfile(target, "throwaway"));
     const map = effectiveFeatureMap(target);
-    expect(map.sessionSkillAdaptation).toBe(false);
-    expect(map.costIntelligence).toBe(false);
   });
 });

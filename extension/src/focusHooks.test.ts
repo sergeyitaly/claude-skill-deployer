@@ -5,8 +5,7 @@ import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 const HOOKS_DIR = path.join(__dirname, "..", "resources", "hooks");
-const CONTEXT_HOOK = path.join(HOOKS_DIR, "context-focus-watch.js");
-const PRACTICAL_HOOK = path.join(HOOKS_DIR, "practical-focus-watch.js");
+const PROMPT_CONTEXT_HOOK = path.join(HOOKS_DIR, "prompt-context-watch.js");
 const BUDGET_HOOK = path.join(HOOKS_DIR, "budget-watch.js");
 const PROFILE_INIT_HOOK = path.join(HOOKS_DIR, "profile-init-watch.js");
 
@@ -31,13 +30,24 @@ function writeConfig(name: "context" | "practical", data: Record<string, unknown
   return file;
 }
 
-function runFocusHook(
-  script: string,
+// Written once at module level, not registered for per-test cleanup
+const DISABLED_PRACTICAL = (() => {
+  const f = path.join(os.tmpdir(), "focus-disabled-practical.json");
+  fs.writeFileSync(f, JSON.stringify({ enabled: false }, null, 2) + "\n", "utf-8");
+  return f;
+})();
+const DISABLED_CONTEXT = (() => {
+  const f = path.join(os.tmpdir(), "focus-disabled-context.json");
+  fs.writeFileSync(f, JSON.stringify({ enabled: false }, null, 2) + "\n", "utf-8");
+  return f;
+})();
+
+function runPromptContextHook(
   cwd: string,
   configEnv: Record<string, string>,
   payload: Record<string, unknown> = {}
 ): { stdout: string; status: number | null } {
-  const result = spawnSync(process.execPath, [script], {
+  const result = spawnSync(process.execPath, [PROMPT_CONTEXT_HOOK], {
     input: JSON.stringify({
       cwd,
       session_id: "test-session-001",
@@ -65,12 +75,13 @@ afterEach(() => {
   configFiles.length = 0;
 });
 
-describe("context-focus-watch.js", () => {
-  it("emits additionalContext when enabled", () => {
+describe("prompt-context-watch.js — context focus", () => {
+  it("emits additionalContext when context focus enabled", () => {
     const cwd = makeWorkspace();
     const config = writeConfig("context", { enabled: true, level: "local-first", injectEveryPrompt: true });
-    const { stdout } = runFocusHook(CONTEXT_HOOK, cwd, {
+    const { stdout } = runPromptContextHook(cwd, {
       CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: config,
+      CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: DISABLED_PRACTICAL,
     });
     expect(stdout.trim()).not.toBe("");
     const parsed = JSON.parse(stdout.trim()) as {
@@ -79,11 +90,12 @@ describe("context-focus-watch.js", () => {
     expect(parsed.hookSpecificOutput?.additionalContext).toContain("LOCAL-FIRST");
   });
 
-  it("outputs nothing when disabled", () => {
+  it("outputs nothing when both focus hooks are disabled and session is small", () => {
     const cwd = makeWorkspace();
     const config = writeConfig("context", { enabled: false, level: "balanced" });
-    const { stdout } = runFocusHook(CONTEXT_HOOK, cwd, {
+    const { stdout } = runPromptContextHook(cwd, {
       CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: config,
+      CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: DISABLED_PRACTICAL,
     });
     expect(stdout.trim()).toBe("");
   });
@@ -98,10 +110,12 @@ describe("context-focus-watch.js", () => {
       autoEscalateOnSessionSize: true,
       injectEveryPrompt: true,
     });
-    const { stdout } = runFocusHook(
-      CONTEXT_HOOK,
+    const { stdout } = runPromptContextHook(
       cwd,
-      { CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: config },
+      {
+        CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: config,
+        CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: DISABLED_PRACTICAL,
+      },
       { transcript_path: transcript }
     );
     const parsed = JSON.parse(stdout.trim()) as {
@@ -158,11 +172,12 @@ describe("budget-watch.js", () => {
   });
 });
 
-describe("practical-focus-watch.js", () => {
+describe("prompt-context-watch.js — practical focus", () => {
   it("emits deploy-ready guidance when enabled", () => {
     const cwd = makeWorkspace(true);
     const config = writeConfig("practical", { enabled: true, level: "deploy-ready", injectEveryPrompt: true });
-    const { stdout } = runFocusHook(PRACTICAL_HOOK, cwd, {
+    const { stdout } = runPromptContextHook(cwd, {
+      CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: DISABLED_CONTEXT,
       CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: config,
     });
     const parsed = JSON.parse(stdout.trim()) as {
@@ -174,10 +189,11 @@ describe("practical-focus-watch.js", () => {
     expect(text).toContain("deployment-practical");
   });
 
-  it("outputs nothing when disabled", () => {
+  it("outputs nothing when disabled (with context focus also disabled)", () => {
     const cwd = makeWorkspace();
     const config = writeConfig("practical", { enabled: false, level: "architecture-first" });
-    const { stdout } = runFocusHook(PRACTICAL_HOOK, cwd, {
+    const { stdout } = runPromptContextHook(cwd, {
+      CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: DISABLED_CONTEXT,
       CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: config,
     });
     expect(stdout.trim()).toBe("");
@@ -190,9 +206,12 @@ describe("practical-focus-watch.js", () => {
       level: "architecture-first",
       injectEveryPrompt: false,
     });
-    const env = { CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: config };
-    const first = runFocusHook(PRACTICAL_HOOK, cwd, env);
-    const second = runFocusHook(PRACTICAL_HOOK, cwd, env);
+    const env = {
+      CLAUDE_SKILLS_CONTEXT_FOCUS_CONFIG: DISABLED_CONTEXT,
+      CLAUDE_SKILLS_PRACTICAL_FOCUS_CONFIG: config,
+    };
+    const first = runPromptContextHook(cwd, env);
+    const second = runPromptContextHook(cwd, env);
     expect(first.stdout.trim()).not.toBe("");
     expect(second.stdout.trim()).toBe("");
   });

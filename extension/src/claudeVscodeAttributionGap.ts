@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { countV2HookRuns } from "./runRecording";
+import { countV2HookRuns } from "./runsStore";
 import { listTranscriptFiles } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 

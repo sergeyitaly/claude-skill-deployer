@@ -1,5 +1,5 @@
 import { tokenCostUsd, hourlyRateUsd } from "./costRates";
-import { ConfidenceLevel } from "./attributionConfidence";
+import { ConfidenceLevel } from "./attributionQuality";
 import { CostEstimateTier, estimateSessionCostUsd, tierForSkill } from "./skillCost";
 import { Manifest } from "./skillOps";
 import { SkillUsageStat } from "./usageStats";

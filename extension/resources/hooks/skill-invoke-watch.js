@@ -309,7 +309,7 @@ function parseHookPayload(agent) {
   return null;
 }
 
-const MAX_STATE_KEYS = 3000;
+const MAX_STATE_KEYS = 500;
 const MAX_STATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function dedupeKey(sessionId, skill, toolUseId) {

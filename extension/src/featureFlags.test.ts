@@ -6,8 +6,8 @@ vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: (section: string) => ({
       get: <T>(key: string, defaultValue: T): T => {
-        if (section === "claudeSkills.features" && key === "multiAgent") {
-          return true as T;
+        if (section === "claudeSkills.features" && key === "autoOptimizer") {
+          return false as T;
         }
         return defaultValue;
       },
@@ -21,17 +21,17 @@ describe("featureFlags + project profile", () => {
   });
 
   it("isFeatureEnabled respects tier override when applyTier is on", () => {
-    setActiveProjectProfileContext({ multiAgent: false }, true);
-    expect(isFeatureEnabled("multiAgent")).toBe(false);
+    setActiveProjectProfileContext({ autoOptimizer: true }, true);
+    expect(isFeatureEnabled("autoOptimizer")).toBe(true);
   });
 
   it("isFeatureEnabled uses VS Code settings when tier does not specify key", () => {
-    setActiveProjectProfileContext({ attributionCollector: false }, true);
-    expect(isFeatureEnabled("multiAgent")).toBe(true);
+    setActiveProjectProfileContext({ communityBenchmarks: false }, true);
+    expect(isFeatureEnabled("autoOptimizer")).toBe(false);
   });
 
   it("isFeatureEnabled ignores tier when applyTier is off", () => {
-    setActiveProjectProfileContext({ multiAgent: false }, false);
-    expect(isFeatureEnabled("multiAgent")).toBe(true);
+    setActiveProjectProfileContext({ autoOptimizer: true }, false);
+    expect(isFeatureEnabled("autoOptimizer")).toBe(false);
   });
 });

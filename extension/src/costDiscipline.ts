@@ -4,7 +4,6 @@ import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
 import { bootstrapWorkspaceForHostAgent, formatHostBootstrapLog } from "./hostAgentBootstrap";
 import { applyBudgetTierGating } from "./budgetTierGating";
 import { pruneIrrelevantPersonalSkills, relevantInstallOnlyEnabled } from "./branchSkillBootstrap";
-import { isFeatureEnabled } from "./featureFlags";
 import { listEffectiveEnabledSkills, loadManifest } from "./skillOps";
 import { listInstalledSkills } from "./usageStats";
 import { readTaskFocusLimits } from "./taskFocusConfig";
@@ -57,7 +56,7 @@ export function runCostDisciplinePass(
   const budget = applyBudgetTierGating(target, manifest);
 
   let prunedIrrelevant: string[] = [];
-  if (relevantInstallOnlyEnabled() && isFeatureEnabled("taskSkillFocus")) {
+  if (relevantInstallOnlyEnabled()) {
     const installedCount = listInstalledSkills(target).length;
     if (installedCount > pruneThreshold()) {
       prunedIrrelevant = pruneIrrelevantPersonalSkills(libraryDir, target, manifest);
@@ -68,10 +67,7 @@ export function runCostDisciplinePass(
     }
   }
 
-  const shouldPropagate =
-    budget.disabled.length > 0 ||
-    prunedIrrelevant.length > 0 ||
-    isFeatureEnabled("taskSkillFocus");
+  const shouldPropagate = true;
   let mirroredArtifacts: string[] = [];
   let agentPathsUpdated = 0;
   if (shouldPropagate) {

@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { saveBranchProfile } from "./branchProfiles";
-import { isFeatureEnabled } from "./featureFlags";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import {
   detectRelevantSkills,
@@ -47,9 +46,6 @@ const FLAVOR_HINTS: Record<Exclude<BranchSkillFlavor, "general">, string[]> = {
 };
 
 export function branchSkillBootstrapEnabled(): boolean {
-  if (!isFeatureEnabled("branchProfiles")) {
-    return false;
-  }
   return vscode.workspace.getConfiguration("claudeSkills.branchBootstrap").get<boolean>("enabled", true);
 }
 
@@ -176,9 +172,7 @@ export function bootstrapBranchSkillSet(
   };
   writeTaskSkillProposals(target, proposalFile);
 
-  if (isFeatureEnabled("taskSkillFocus")) {
-    applyTaskSkillFocus(target, plan.skills, "task-skill-proposals", proposalFile.generatedAt);
-  }
+  applyTaskSkillFocus(target, plan.skills, "task-skill-proposals", proposalFile.generatedAt);
 
   saveBranchProfile(target, libraryDir);
   propagateCostDisciplineToAgents(libraryDir, target);

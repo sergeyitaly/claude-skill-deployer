@@ -7,13 +7,13 @@ import { buildCostAttribution, resolveDisplayAttribution } from "./costAttributi
 import { calculateTrend, predictWeeklyCostFromTrend } from "./costPredictor";
 import { generateOptimizationSuggestions } from "./costOptimizer";
 import { runCostPipelineSync } from "./costPipeline";
-import { assessAttributionHealth } from "./attributionHealth";
-import { formatConfidenceBadge } from "./attributionConfidence";
+import { assessAttributionHealth } from "./attributionQuality";
+import { formatConfidenceBadge } from "./attributionQuality";
 import { fetchVcsIdentity, parseGitRemote, pickAndStoreVcsToken } from "./vcsReportDelivery";
 import { formatCompactUsd } from "./skillCost";
 import { loadManifest } from "./skillOps";
-import { readSkillStatsIndex } from "./runsIndex";
-import { isUsageRunRecord } from "./runRecording";
+import { readSkillStatsIndex } from "./runsStore";
+import { isUsageRunRecord } from "./runsStore";
 import {
   enrichUsageStatsWithAttribution,
   formatCrossAgentUsageBrief,
@@ -184,7 +184,7 @@ export function ghPrimaryEmail(cwd: string): string | undefined {
   return undefined;
 }
 
-/** Resolve recipient: stored secret → settings → GitHub/GitLab API → gh CLI → git config. */
+/** Resolve recipient: stored secret â†’ settings â†’ GitHub/GitLab API â†’ gh CLI â†’ git config. */
 export async function resolveReportRecipient(
   context: vscode.ExtensionContext,
   target: string,
@@ -552,7 +552,7 @@ async function pickSmtpPreset(): Promise<{ host: string; port: number; hint: str
   return { host: host.trim(), port: Number.isFinite(port) ? port : 587, hint: "" };
 }
 
-/** One-time wizard: git token → your email, SMTP → send informative weekly usage mail. */
+/** One-time wizard: git token â†’ your email, SMTP â†’ send informative weekly usage mail. */
 export async function configureWeeklyReportEmail(
   context: vscode.ExtensionContext,
   target: string | undefined

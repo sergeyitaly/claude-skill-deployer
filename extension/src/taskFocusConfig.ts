@@ -27,10 +27,6 @@ export function readTaskFocusLimits(): TaskFocusLimits {
   };
 }
 
-/** When on, show 2–3 skill-set options and wait for user approval before auto-apply/focus. */
-export function taskSkillSetApprovalEnabled(): boolean {
-  return readTaskFocusLimits().approveSkillSets;
-}
 
 export interface CapActiveSkillsOptions {
   maxActiveSkills: number;

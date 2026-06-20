@@ -10,7 +10,7 @@ import {
 } from "./branchProfiles";
 import { isSkillEffectivelyEnabled, listSkillStatuses, loadManifest, SkillStatus } from "./skillOps";
 import { loadTeamSkillsProfile, teamProfileRelativePath } from "./teamBranchProfiles";
-import { isFeatureEnabled } from "./featureFlags";
+
 import { compareSkillsForSort, formatRoiDescription, skillRoiMetrics, SkillSortMode } from "./skillRoi";
 import { computeUsageStats } from "./usageStats";
 import * as vscode from "vscode";
@@ -477,7 +477,7 @@ export class SkillsProvider implements vscode.TreeDataProvider<SkillsTreeNode> {
     const sortMode = vscode.workspace
       .getConfiguration("claudeSkills.search")
       .get<SkillSortMode>("sortBy", "relevance");
-    const costAware = isFeatureEnabled("costAwareSearch");
+    const costAware = true;
     const usageMap = new Map(
       target && costAware
         ? computeUsageStats(target, manifest).map((s) => [s.name, s])

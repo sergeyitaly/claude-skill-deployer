@@ -20,25 +20,17 @@ export const PROFILE_TYPE_BADGE: Record<ProjectProfileType, string> = {
 
 /** Key tier features surfaced in UI (order matters). */
 export const TIER_FEATURE_KEYS = [
-  "multiAgent",
-  "attributionCollector",
-  "costIntelligence",
-  "sessionSkillAdaptation",
   "autoOptimizer",
-  "taskSkillFocus",
-  "taskDriftReproposal",
+  "communityBenchmarks",
+  "prCostEstimate",
 ] as const satisfies readonly FeatureKey[];
 
 export type TierUiFeatureKey = (typeof TIER_FEATURE_KEYS)[number];
 
 export const TIER_FEATURE_LABELS: Record<TierUiFeatureKey, string> = {
-  multiAgent: "Multi-agent sync",
-  attributionCollector: "Attribution collector",
-  costIntelligence: "Cost intelligence",
-  sessionSkillAdaptation: "Session skill adaptation",
   autoOptimizer: "Auto-optimizer",
-  taskSkillFocus: "Task skill focus",
-  taskDriftReproposal: "Task drift re-proposal",
+  communityBenchmarks: "Community benchmarks",
+  prCostEstimate: "PR cost estimate",
 };
 
 /**

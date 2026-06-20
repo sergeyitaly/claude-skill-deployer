@@ -41,6 +41,23 @@ Each release includes:
 
 ---
 
+## [1.0.81] — 2026-06-20
+
+**Theme:** Simplification — ~50% reduction in code surface, hooks, flags, and caching modules.
+
+**Highlights:**
+
+- **Hook consolidation** — `context-focus-watch.js`, `practical-focus-watch.js`, `session-size-watch.js` merged into single `prompt-context-watch.js`; one composed message per `UserPromptSubmit` instead of three
+- **Attribution consolidation** — 6 attribution modules (`attributionConfidence`, `attributionHealth`, `attributionTrust`, `attributionTrustConfig`, `attributionStrategy`, `systemMode`) merged into `attributionQuality.ts`; `attributionReset.ts` inlined into `costAttribution.ts`
+- **Cache consolidation** — `teamEconomicsCache` + `dashboardSnapshotCache` → `dashboardCache.ts`; `runRecording` + `runsIndex` + `learningStateIndex` → `runsStore.ts`
+- **Feature flag reduction** — 21 flags → 3 (`autoOptimizer`, `communityBenchmarks`, `prCostEstimate`); 18 always-on flags replaced with direct code
+- **Command module migration complete** — 6 old command files deleted; all commands registered via new `commandsXxx.ts` pattern
+- **Dead hook removal** — `session-apply.js`, `task-skill-focus.js`, `file-split-advisor.js`, `skill-gap-detector.js`, `commit-cost-record.js` deleted
+- **Auto-optimizer simplified** — removed auto-apply timer and rate limiter; optimizer now suggest-only until user clicks Apply; `autoOptimizerRateLimit.ts` deleted
+- **Single MCP log path** — `terminal-watch.js` and `appendToolUse` now write only to workspace-scoped `<cwd>/.claude/mcp-usage.jsonl`; `TelemetryScope` setting removed
+- **Task proposals approval removed** — approval workflow (`options[]`, `selectedOptionId`, `approvalStatus`) removed from proposals JSON; `taskSkillSetApproval.ts` deleted
+- **VSIX artifacts removed** — 7 old `.vsix` files deleted from repo; `*.vsix` already in `.gitignore`
+
 ## [1.0.77] — 2026-06-19
 
 **Summary:** Two bug fixes discovered during live benchmarking — `archiveSkill` Windows EPERM on temp-dir cross-directory rename, and `terminal-watch.js` misidentifying `cd` as the CLI name when commands are prefixed with `cd "path";`.

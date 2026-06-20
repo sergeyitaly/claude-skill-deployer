@@ -40,7 +40,7 @@ vi.mock("vscode", () => ({
 }));
 
 vi.mock("./featureFlags", () => ({
-  isFeatureEnabled: (key: string) => key === "taskSkillFocus",
+  isFeatureEnabled: () => true,
 }));
 
 const workspaces: string[] = [];

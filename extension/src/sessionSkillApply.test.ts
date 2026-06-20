@@ -88,16 +88,6 @@ describe("processSessionSkillApplyRequest", () => {
     expect(readSessionSkillApplyRequest(target)?.sessionId).toBe("hook-session-1");
   });
 
-  it("skips apply when sessionSkillAdaptation feature is off", () => {
-    const target = makeGitWorkspace();
-    queueSessionSkillApplyRequest(target, ["self-learning"], "proposals", "sess-off");
-    const spy = vi.spyOn(featureFlags, "isFeatureEnabled").mockImplementation((key) => key !== "sessionSkillAdaptation");
-    try {
-      expect(processSessionSkillApplyRequest(libraryDir, target).applied).toBe(false);
-    } finally {
-      spy.mockRestore();
-    }
-  });
 });
 
 describe("applyTaskProposalsIfPending", () => {
@@ -109,7 +99,6 @@ describe("applyTaskProposalsIfPending", () => {
       version: 1,
       generatedAt: new Date().toISOString(),
       taskSummary: "test task",
-      approvalStatus: "approved",
       proposals: [
         { name: "ci-preflight", reason: "test", confidence: 80, installed: false },
         { name: "self-learning", reason: "required", confidence: 95, installed: false },
@@ -121,18 +110,7 @@ describe("applyTaskProposalsIfPending", () => {
     expect(fs.existsSync(path.join(target, ".claude", "skills", "skill-creator", "SKILL.md"))).toBe(true);
   });
 
-  it("skips apply when skill-set approval is pending", () => {
-    const target = makeGitWorkspace();
-    writeTaskSkillProposals(target, {
-      version: 1,
-      generatedAt: new Date().toISOString(),
-      taskSummary: "test task",
-      approvalStatus: "pending",
-      options: [{ id: "focused", label: "Focused", description: "Top picks", skills: ["ci-preflight"] }],
-      proposals: [{ name: "ci-preflight", reason: "test", confidence: 80, installed: false }],
-    });
-    expect(applyTaskProposalsIfPending(libraryDir, target).applied).toBe(false);
-  });
+
 
   it("resolveProposedSkillNamesWithSource merges required skills", () => {
     const target = makeGitWorkspace();

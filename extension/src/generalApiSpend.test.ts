@@ -9,8 +9,8 @@ import { ParsedTranscript } from "./transcriptParsers";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { appendSkillRun } from "./runRecording";
-import { invalidateLearningCache } from "./learningStateIndex";
+import { appendSkillRun } from "./runsStore";
+import { invalidateLearningCache } from "./runsStore";
 
 describe("residualGeneralApiTokens", () => {
   it("returns session minus hook tokens", () => {

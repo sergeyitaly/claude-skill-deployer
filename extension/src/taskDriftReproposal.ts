@@ -5,13 +5,11 @@ import * as vscode from "vscode";
 import { enabledAgents, loadAgentsManifest } from "./agentOps";
 import { Manifest } from "./skillOps";
 import { writeJsonAtomic, readJsonFile } from "./fileWriteCoordination";
-import { isFeatureEnabled } from "./featureFlags";
-import { readCachedEnrichedRuns } from "./learningStateIndex";
-import { isV2HookRun } from "./runRecording";
+import { readCachedEnrichedRuns } from "./runsStore";
+import { isV2HookRun } from "./runsStore";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import {
   computeTaskSkillProposals,
-  computeTaskSkillSetOptions,
   filterProposalsByMinConfidence,
   rankAllTaskSkillProposals,
   readTaskSkillProposals,
@@ -19,7 +17,7 @@ import {
   TaskSkillProposalsFile,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
-import { readTaskFocusLimits, taskSkillSetApprovalEnabled } from "./taskFocusConfig";
+import { readTaskFocusLimits } from "./taskFocusConfig";
 import { claudeParser, cursorParser, listTranscriptFiles } from "./transcriptParsers";
 import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
@@ -102,7 +100,7 @@ export interface TaskDriftResult {
 
 export function readTaskDriftSettings(): TaskDriftSettings {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.skillFeedback");
-  const enabled = isFeatureEnabled("taskDriftReproposal");
+  const enabled = true;
   let minOffProfileInvokes = cfg.get<number>("taskDriftMinOffProfileInvokes", 2);
   let cooldownMinutes = cfg.get<number>("taskDriftCooldownMinutes", 30);
   const sessionSizeLevel = cfg.get<"warn" | "critical">("taskDriftSessionSizeLevel", "warn");
@@ -380,10 +378,6 @@ export function refreshProposalsForDrift(
 
   const allRanked = rankAllTaskSkillProposals(target, manifest, basePrompt);
   const boostedRanked = boostOffProfileSkills(allRanked, evaluation.offProfileSkills, installed);
-  const options = taskSkillSetApprovalEnabled()
-    ? computeTaskSkillSetOptions(boostedRanked, limits)
-    : undefined;
-
   const triggerLabel = evaluation.triggers.join("+");
   const data: TaskSkillProposalsFile = {
     version: 1,
@@ -391,9 +385,6 @@ export function refreshProposalsForDrift(
     taskSummary: `Task drift refresh (${triggerLabel})`,
     promptExcerpt: basePrompt.slice(0, 240),
     proposals: merged,
-    options,
-    approvalStatus: taskSkillSetApprovalEnabled() ? "pending" : "approved",
-    selectedOptionId: taskSkillSetApprovalEnabled() ? undefined : options?.[0]?.id,
   };
   writeTaskSkillProposals(target, data);
   return { refreshed: true, file: data };

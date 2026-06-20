@@ -4,11 +4,10 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { enabledAgents, loadAgentsManifest } from "./agentOps";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
-import { isFeatureEnabled } from "./featureFlags";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
-import { readCachedEnrichedRuns } from "./learningStateIndex";
-import { isV2HookRun } from "./runRecording";
+import { readCachedEnrichedRuns } from "./runsStore";
+import { isV2HookRun } from "./runsStore";
 import {
   applyTaskSkillFocus,
   readTaskActiveSkills,
@@ -56,7 +55,7 @@ function expandHome(p: string): string {
 
 export function readTaskSkillUnderuseSettings(): TaskSkillUnderuseSettings {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.skillFeedback");
-  const enabled = isFeatureEnabled("taskSkillFocus") && cfg.get<boolean>("taskSkillUnderusePromote", true);
+  const enabled = cfg.get<boolean>("taskSkillUnderusePromote", true);
   let cooldownMinutes = cfg.get<number>("taskSkillUnderuseCooldownMinutes", DEFAULT_COOLDOWN_MINUTES);
   let maxPromote = cfg.get<number>("taskSkillUnderuseMaxPromote", DEFAULT_MAX_PROMOTE);
   let minProposalConfidence = cfg.get<number>("taskSkillUnderuseMinConfidence", DEFAULT_MIN_CONFIDENCE);

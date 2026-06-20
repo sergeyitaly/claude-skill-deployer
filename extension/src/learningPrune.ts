@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CollectorState } from "./collectorState";
-import { invalidateLearningCache } from "./learningStateIndex";
+import { invalidateLearningCache } from "./runsStore";
 
 const DEFAULT_RUNS_RETENTION_DAYS = 90;
 const MAX_PROCESSED_SESSIONS = 2000;

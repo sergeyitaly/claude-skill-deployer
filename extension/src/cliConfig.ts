@@ -29,18 +29,10 @@ export interface CliConfigFile {
   };
 }
 
-const CLI_RELEVANT_FEATURES: FeatureKey[] = [
-  "sessionSkillAdaptation",
-  "autoApplyTaskProposals",
-  "deterministicTaskProposals",
-  "taskSkillFocus",
-  "taskDriftReproposal",
-  "branchProfiles",
-  "multiAgent",
-  "budgetControls",
-  "skillSetResolver",
-  "contextFocus",
-  "practicalFocus",
+const ALWAYS_ON_CLI_FEATURES = [
+  "sessionSkillAdaptation", "autoApplyTaskProposals", "deterministicTaskProposals",
+  "taskSkillFocus", "taskDriftReproposal", "branchProfiles", "multiAgent",
+  "budgetControls", "skillSetResolver", "contextFocus", "practicalFocus",
 ];
 
 export function cliConfigPath(target: string): string {
@@ -50,10 +42,8 @@ export function cliConfigPath(target: string): string {
 /** Mirror extension feature toggles + enabled agents for headless Claude CLI / generate_skills.py. */
 export function buildCliConfig(libraryDir: string, target?: string): CliConfigFile {
   const features = target ? effectiveFeatureMap(target) : {};
-  for (const key of CLI_RELEVANT_FEATURES) {
-    if (!(key in features)) {
-      features[key] = isFeatureEnabled(key);
-    }
+  for (const key of ALWAYS_ON_CLI_FEATURES) {
+    if (!(key in features)) features[key] = true;
   }
   for (const key of Object.keys(DEFAULTS) as FeatureKey[]) {
     if (!(key in features)) {

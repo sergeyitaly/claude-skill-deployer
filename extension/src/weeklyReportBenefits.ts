@@ -12,7 +12,7 @@ import {
   TIER_FEATURE_KEYS,
   tierFeatureEnabled,
 } from "./projectProfileDisplay";
-import { isUsageRunRecord, isV2HookRun } from "./runRecording";
+import { isUsageRunRecord, isV2HookRun } from "./runsStore";
 import { formatCompactUsd } from "./skillCost";
 import {
   buildScenarioResult,
@@ -113,16 +113,14 @@ export function compareTierBenefitsFromProfile(profile: ProjectProfileFile): Tie
     multiAgentSyncEnabled: true,
     featuresEnabledCount: countEnabledFeatures(DEFAULTS),
   });
-  const costIntel = profile.enabledFeatures.costIntelligence ?? DEFAULTS.costIntelligence;
-  const attribution = profile.enabledFeatures.attributionCollector ?? DEFAULTS.attributionCollector;
   const current = buildScenarioResult({
     id: "manual-tier",
     label: "Current tier",
     profileType: profile.profileType,
     enabledFeatures: profile.enabledFeatures,
     pipelineP50Ms: 0,
-    pipelineSkipped: !(costIntel || attribution),
-    multiAgentSyncEnabled: profile.enabledFeatures.multiAgent ?? DEFAULTS.multiAgent,
+    pipelineSkipped: false,
+    multiAgentSyncEnabled: true,
     featuresEnabledCount: countEnabledFeatures(profile.enabledFeatures),
     confidencePct: Math.round(profile.confidence * 100),
     rationale: profile.rationale,
@@ -136,13 +134,9 @@ function enabledTierFeatureLines(profile: ProjectProfileFile): string[] {
     return ["- Tier presets active — minimal feature stack (low overhead mode)"];
   }
   const labels: Record<(typeof TIER_FEATURE_KEYS)[number], string> = {
-    multiAgent: "Multi-agent sync",
-    attributionCollector: "Attribution collector",
-    costIntelligence: "Cost intelligence",
-    sessionSkillAdaptation: "Session skill adaptation",
     autoOptimizer: "Auto-optimizer",
-    taskSkillFocus: "Task skill focus",
-    taskDriftReproposal: "Task drift re-proposal",
+    communityBenchmarks: "Community benchmarks",
+    prCostEstimate: "PR cost estimate",
   };
   return on.map((key) => `- ${labels[key]} — enabled for this project tier`);
 }

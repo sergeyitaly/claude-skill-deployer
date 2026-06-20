@@ -1,4 +1,4 @@
-﻿import * as vscode from "vscode";
+import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
 import {
   buildCostAttribution,
@@ -15,13 +15,12 @@ import {
 import { calculateTrend, formatTrendLabel } from "./costPredictor";
 import { loadCostProfile } from "./costProfiles";
 import { listArchivedSkills } from "./skillArchival";
-import { assessAttributionHealth } from "./attributionHealth";
-import { assessSkillCostConfidence, formatConfidenceBadge } from "./attributionConfidence";
-import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml } from "./attributionTrust";
-import { resolveAttributionStrategy, formatAttributionStrategyLine } from "./attributionStrategy";
+import { assessAttributionHealth } from "./attributionQuality";
+import { assessSkillCostConfidence, formatConfidenceBadge } from "./attributionQuality";
+import { buildGlobalTrustBadge, buildSkillTrustLine, formatGlobalTrustBannerHtml } from "./attributionQuality";
+import { resolveAttributionStrategy, formatAttributionStrategyLine } from "./attributionQuality";
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
-import { formatBenchmarkLine } from "./communityBenchmarks";
-import { isFeatureEnabled } from "./featureFlags";
+
 import { readProjectProfile } from "./projectProfile";
 import { formatProjectProfileDashboardHtml } from "./projectProfileDisplay";
 import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
@@ -31,15 +30,15 @@ import {
   summarizeSkillCostsFromRuns,
   topSkillsFromRuns,
 } from "./skillCostFromRuns";
-import { computeEfficiencyMetrics, formatEfficiencyPanelHtml, TelemetryScope } from "./efficiencyMetrics";
+import { computeEfficiencyMetrics, formatEfficiencyPanelHtml } from "./efficiencyMetrics";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import {
   getOrComputeTeamEconomicsBundle,
   TEAM_ECONOMICS_SLOT_ID,
   TeamEconomicsCachePayload,
   tryReadValidTeamEconomicsCache,
-} from "./teamEconomicsCache";
-import { buildSystemModeContext } from "./systemMode";
+} from "./dashboardCache";
+import { buildSystemModeContext } from "./attributionQuality";
 import { CostPipelineResult, runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage, AgentCreditRow } from "./agentOps";
@@ -58,7 +57,7 @@ import {
   DashboardSnapshotPayload,
   tryReadValidDashboardSnapshot,
   writeDashboardSnapshot,
-} from "./dashboardSnapshotCache";
+} from "./dashboardCache";
 
 function escapeHtml(v: string): string {
   return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -66,7 +65,7 @@ function escapeHtml(v: string): string {
 
 function bar(cost: number, maxCost: number, width = 10): string {
   const len = maxCost > 0 ? Math.round((cost / maxCost) * width) : 0;
-  return "\u2588".repeat(len) + "\u2591".repeat(width - len);
+  return "█".repeat(len) + "░".repeat(width - len);
 }
 
 function hintForSkill(skill: string, suggestions: OptimizationSuggestion[], usageStats: ReturnType<typeof computeUsageStats>): string {
@@ -371,11 +370,8 @@ export function buildDashboardMainBodyHtml(
     hookStatus.attribution.agents.filter((a) => a.applicable).map((a) => [a.agent, a.configured])
   );
   const equalSplitWarn = equalSplitCluster ? formatEqualSplitWarning(equalSplitCluster, true) : null;
-  const archived = isFeatureEnabled("skillArchival") ? listArchivedSkills(target) : [];
-  const telemetryScope = vscode.workspace
-    .getConfiguration("claudeSkills.telemetry")
-    .get<TelemetryScope>("scope", "hybrid");
-  const efficiencyMetrics = computeEfficiencyMetrics(target, 14, telemetryScope);
+  const archived = listArchivedSkills(target);
+  const efficiencyMetrics = computeEfficiencyMetrics(target, 14);
 
   const agentRows = agentUsage
     .map((row) => {
@@ -426,7 +422,6 @@ export function buildDashboardMainBodyHtml(
         pricingNote,
         hintForSkill(row.skill, suggestions, usageStats),
         agentBreakdown,
-        isFeatureEnabled("communityBenchmarks") ? formatBenchmarkLine(row.skill) : undefined,
       ]
         .filter(Boolean)
         .join(" | ");
@@ -628,7 +623,7 @@ function resolveTeamEconomicsPanels(
   staleEqualSplit: boolean,
   options?: CostDashboardOptions
 ): string {
-  const teamSharing = isFeatureEnabled("teamCostSharing") && !staleEqualSplit;
+  const teamSharing = !staleEqualSplit;
   if (!showPerSkill || !teamSharing) {
     return "";
   }
@@ -742,9 +737,9 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
         : "Est. spend";
 
   const lines = [
-    "╔══════════════════════════════════════════════════════════════╗",
-    "║  Claude Skills - Cost Intelligence Dashboard                 ║",
-    "╠══════════════════════════════════════════════════════════════╣",
+    "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—",
+    "â•‘  Claude Skills - Cost Intelligence Dashboard                 â•‘",
+    "â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£",
     "",
     `  Last 14 days (${sessionSpendLabel.toLowerCase()}): ${formatCompactUsd(credit.totalCost)} | ${formatTokenCount(credit.totalTokens)}`,
   ];
@@ -805,7 +800,7 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
         `  ${i + 1}. ${row.skill.padEnd(24)} ${formatCompactUsd(row.cost).padStart(8)} (${pct}%)  ${bar(row.cost, maxTop)}`
       );
       if (hint) {
-        lines.push(`     └─ ${hint.action}`);
+        lines.push(`     â””â”€ ${hint.action}`);
       }
     });
     lines.push(
@@ -816,6 +811,6 @@ export function formatCostDashboardText(target: string, libraryDir: string): str
     );
   }
 
-  lines.push("", "╚══════════════════════════════════════════════════════════════╝");
+  lines.push("", "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•");
   return lines.join("\n");
 }

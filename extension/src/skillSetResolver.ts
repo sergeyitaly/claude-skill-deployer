@@ -5,9 +5,8 @@ import {
   shouldSyncWorkspaceToAll,
 } from "./agentOps";
 import { saveBranchProfile } from "./branchProfiles";
-import { assessAttributionHealth } from "./attributionHealth";
+import { assessAttributionHealth } from "./attributionQuality";
 import { buildCostAttribution, resolveDisplayAttribution, SkillAttributionMap } from "./costAttribution";
-import { isFeatureEnabled } from "./featureFlags";
 import { archiveSkill } from "./skillArchival";
 import { detectRelevantSkills, generateForWorkspace, loadManifest, Manifest } from "./skillOps";
 import { tierForSkill } from "./skillCost";
@@ -119,7 +118,7 @@ function readUsageRules(cfg: vscode.WorkspaceConfiguration): SkillSetUsageRules 
 export function readSkillSetResolverConfig(): SkillSetResolverConfig {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.skillSetResolver");
   const inspected = cfg.inspect<boolean>("enabled");
-  const tierDefault = isFeatureEnabled("skillSetResolver");
+  const tierDefault = true;
   const enabled =
     inspected?.workspaceFolderValue ??
     inspected?.workspaceValue ??
@@ -209,7 +208,7 @@ export function evaluateUsageRemoval(
   if (rules.removeIdleSkills && metrics.daysSinceLastUse !== null && metrics.daysSinceLastUse >= rules.unusedIdleDays) {
     if (!rules.requireReliableAttribution || attributionReliable) {
       if (metrics.attributedCost >= rules.minAttributedCostUsd || metrics.runs === 0) {
-        return `idle ${metrics.daysSinceLastUse}d (≥${rules.unusedIdleDays}d)`;
+        return `idle ${metrics.daysSinceLastUse}d (â‰¥${rules.unusedIdleDays}d)`;
       }
     }
   }
@@ -272,7 +271,7 @@ export function planSkillSetResolution(
   const metricsBySkill = buildSkillUsageMetrics(stats, attribution);
   const protectedSet = new Set(config.protectedSkills);
   const useArchive =
-    config.usageRules.archiveInsteadOfRemove && isFeatureEnabled("skillArchival");
+    config.usageRules.archiveInsteadOfRemove;
 
   const reasons: Record<string, string> = {};
   const toInstall: string[] = [];
@@ -467,9 +466,7 @@ export function executeSkillSetResolution(
     }
   }
 
-  if (isFeatureEnabled("branchProfiles")) {
-    saveBranchProfile(target, libraryDir);
-  }
+  saveBranchProfile(target, libraryDir);
 
   return { plan, installed, removed, archived, dryRun: false };
 }
@@ -482,7 +479,7 @@ export async function runScheduledSkillSetResolver(
   refresh: () => void,
   propagate: () => void
 ): Promise<void> {
-  if (!target || !isFeatureEnabled("skillSetResolver")) {
+  if (!target) {
     return;
   }
   const config = readSkillSetResolverConfig();

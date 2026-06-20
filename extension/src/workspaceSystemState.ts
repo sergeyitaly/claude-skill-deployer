@@ -1,7 +1,7 @@
 import * as path from "node:path";
-import { assessAttributionHealth } from "./attributionHealth";
+import { assessAttributionHealth } from "./attributionQuality";
 import { detectAgentCapabilities, AgentCapabilitiesSnapshot } from "./agentCapabilities";
-import { buildSystemModeContext } from "./systemMode";
+import { buildSystemModeContext } from "./attributionQuality";
 import { getWorkspaceHookStatus } from "./hookOps";
 import {
   profileInitRequestPending,
@@ -10,7 +10,7 @@ import {
 } from "./profileInit";
 import { writeJsonAtomic, readJsonFile } from "./fileWriteCoordination";
 import { markPipelineAnalyzed, PipelineCycleTimestamps, readPipelineCycle } from "./pipelineCycle";
-import { SystemMode } from "./systemMode";
+import { SystemMode } from "./attributionQuality";
 
 export type ProfileInitState = "idle" | "pending" | "applied" | "failed";
 export type AttributionStatus = "healthy" | "degraded" | "broken";

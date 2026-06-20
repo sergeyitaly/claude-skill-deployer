@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { invalidateLearningCache } from "./learningStateIndex";
-import { RunAgent } from "./runRecording";
+import { invalidateLearningCache } from "./runsStore";
+import { RunAgent } from "./runsStore";
 
 export const FEEDBACK_LOG_RELATIVE = path.join(".claude", "learning", "skill-feedback.jsonl");
 

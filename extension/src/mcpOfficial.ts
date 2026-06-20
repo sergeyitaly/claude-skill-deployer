@@ -388,6 +388,48 @@ export function refreshFilesystemAllowedDirs(
   }
 }
 
+/**
+ * Ensures the filesystem MCP server is active on every extension startup.
+ * Unlike enableOfficialFilesystemServer, this is silent — it always refreshes
+ * allowed-dirs.json with the current workspace dirs, re-adds the server entry
+ * to any agent config that lost it, and only logs. No VS Code notifications.
+ * Call unconditionally at activation so the server is always present regardless
+ * of whether another tool or the user removed the entry from an agent config.
+ */
+export async function ensureFilesystemMcpActive(
+  extensionPath: string,
+  workspaceDirs: string[],
+  log: (msg: string) => void
+): Promise<void> {
+  try {
+    // Binary is synced by syncFilesystemServerBinary() earlier in activation.
+    // Re-deploy only if somehow missing (edge case: first activation race).
+    if (!fs.existsSync(FILESYSTEM_SERVER_PATH)) {
+      copyFilesystemServer(extensionPath);
+      log("Filesystem MCP server: binary deployed.");
+    }
+    // Always refresh allowed dirs to keep the current workspace included.
+    writeAllowedDirsConfig(workspaceDirs);
+
+    // Silently re-add the entry to any enabled agent config that is missing it.
+    const agentIds = enabledMcpAgentIds();
+    const added: FilesystemMcpAgentId[] = [];
+    for (const agentId of agentIds) {
+      if (!isAgentFilesystemMcpServerEnabled(agentId)) {
+        await enableAgentMcp(agentId, FILESYSTEM_SERVER_PATH);
+        added.push(agentId);
+      }
+    }
+    if (added.length > 0) {
+      log(`Filesystem MCP server: registered for ${added.map((id) => AGENT_DISPLAY_NAMES[id]).join(", ")}.`);
+    } else {
+      log("Filesystem MCP server: active — all agents already configured.");
+    }
+  } catch (e) {
+    log(`Filesystem MCP server: ensure-active error — ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 export async function disableOfficialFilesystemServer(
   log: (msg: string) => void,
   onStatusChanged?: () => void

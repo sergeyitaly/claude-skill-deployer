@@ -1,5 +1,5 @@
 import { loadManifest, listSkillStatuses } from "./skillOps";
-import { readCachedEnrichedRuns } from "./learningStateIndex";
+import { readCachedEnrichedRuns } from "./runsStore";
 
 let warmed = false;
 let warming = false;

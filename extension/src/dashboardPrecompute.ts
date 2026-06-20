@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { yieldToEventLoop } from "./eventLoop";
-import { tryReadValidDashboardSnapshot } from "./dashboardSnapshotCache";
+import { tryReadValidDashboardSnapshot } from "./dashboardCache";
 import { CostPipelineResult } from "./costPipeline";
 
 const inflightDashboardPrecompute = new Map<string, Promise<void>>();

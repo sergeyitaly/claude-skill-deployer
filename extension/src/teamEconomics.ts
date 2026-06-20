@@ -3,9 +3,8 @@ import { SkillAttributionMap } from "./costAttribution";
 import { computeAuthorAttribution, SkillAuthorAttribution } from "./teamCostSharing";
 import { computeSkillRoi, RoiBand, SkillRoiMetrics, sumRoiValue } from "./skillRoi";
 import { Manifest } from "./skillOps";
-import { readCachedEnrichedRuns } from "./learningStateIndex";
+import { readCachedEnrichedRuns } from "./runsStore";
 import { computeUsageStats } from "./usageStats";
-import { isFeatureEnabled } from "./featureFlags";
 
 export interface RepoCostRollup {
   repoPath: string;
@@ -88,21 +87,19 @@ export function buildTeamEconomicsSnapshot(
   }
 
   const bySkillOwner: TeamEconomicsSnapshot["bySkillOwner"] = [];
-  if (isFeatureEnabled("teamCostSharing")) {
-    const owners = skillOwners ?? computeAuthorAttribution(target, attribution);
-    const authorMap = new Map<string, { costUsd: number; skills: string[] }>();
-    for (const row of owners) {
-      const cost = skillTotalCost(row.skill, attribution);
-      const prev = authorMap.get(row.author) ?? { costUsd: 0, skills: [] };
-      prev.costUsd += cost;
-      prev.skills.push(row.skill);
-      authorMap.set(row.author, prev);
-    }
-    for (const [author, data] of authorMap) {
-      bySkillOwner.push({ author, costUsd: data.costUsd, skills: data.skills.sort() });
-    }
-    bySkillOwner.sort((a, b) => b.costUsd - a.costUsd);
+  const owners = skillOwners ?? computeAuthorAttribution(target, attribution);
+  const authorMap = new Map<string, { costUsd: number; skills: string[] }>();
+  for (const row of owners) {
+    const cost = skillTotalCost(row.skill, attribution);
+    const prev = authorMap.get(row.author) ?? { costUsd: 0, skills: [] };
+    prev.costUsd += cost;
+    prev.skills.push(row.skill);
+    authorMap.set(row.author, prev);
   }
+  for (const [author, data] of authorMap) {
+    bySkillOwner.push({ author, costUsd: data.costUsd, skills: data.skills.sort() });
+  }
+  bySkillOwner.sort((a, b) => b.costUsd - a.costUsd);
 
   return {
     workspaceCostUsd,

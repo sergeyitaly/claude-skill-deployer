@@ -1,24 +1,15 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { SkillItem } from "./skillsProvider";
 import {
   copySkill,
   generateForWorkspace,
   globalSkillsDir,
   installLibraryToGlobal,
   loadManifest,
-  disableWorkspaceSkill,
-  enableWorkspaceSkill,
-  isSkillCommittedOnBranch,
   setSkillOverride,
 } from "./skillOps";
-import { SkillItem } from "./skillsProvider";
-import {
-  ensureLearningDir,
-  formatTokenCount,
-  listInstalledSkills,
-} from "./usageStats";
-import { computeSkillInefficiencyStats } from "./skillFeedback";
 import {
   formatAgentInstallSummary,
   generateForAllAgents,
@@ -29,32 +20,43 @@ import {
   shouldSyncWorkspaceToAll,
 } from "./agentOps";
 import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
+import { ensureLearningDir, formatTokenCount } from "./usageStats";
+import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
 import { clearBudgetTrackingForSkill } from "./budgetOps";
-import { readTaskSkillProposals, resolveTaskSkillProposals, ensureWorkspaceTaskProposals } from "./taskSkillProposals";
-import { applyProposedSkillsLocally, applyTaskProposalsIfPending } from "./sessionSkillApply";
-import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
-import { promptTaskSkillSetApproval } from "./taskSkillSetApproval";
 import { listOutdatedSkills, upgradeOutdatedSkills } from "./skillLifecycle";
 import { refreshSkillsCatalog } from "./profileInit";
+import { SkillSortMode } from "./skillRoi";
+import { listArchivedSkills, restoreArchivedSkill } from "./skillArchival";
 import {
   planSkillSetResolution,
   formatSkillSetResolverPlan,
   executeSkillSetResolution,
 } from "./skillSetResolver";
-import { listArchivedSkills, restoreArchivedSkill } from "./skillArchival";
 import { formatCompactUsd, sumInstallCostEstimate, tierForSkill } from "./skillCost";
-import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
-import { recordError } from "./analytics";
-import { ExtensionSharedContext } from "./extensionSharedContext";
 
-export function registerSkillCommands(shared: ExtensionSharedContext): void {
-  const {
-    context, libraryDir, log, getWorkspaceTarget,
-    refreshAll, maybeRevealOutputPanel, revealOutputPanel,
-    applyProposalSkillNames,
-  } = shared;
+// ---------------------------------------------------------------------------
+// Deps
+// ---------------------------------------------------------------------------
 
-  context.subscriptions.push(
+export interface SkillsCommandDeps {
+  context: vscode.ExtensionContext;
+  libraryDir: string;
+  getTarget: () => string | undefined;
+  log: (line: string) => void;
+  refreshAll: () => void;
+  revealOutputPanel: () => void;
+  maybeRevealOutputPanel: () => void;
+  refreshProvider: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Command registrations
+// ---------------------------------------------------------------------------
+
+export function registerSkillsCommands(deps: SkillsCommandDeps): vscode.Disposable[] {
+  const { context, libraryDir, getTarget, log, refreshAll, revealOutputPanel, maybeRevealOutputPanel, refreshProvider } = deps;
+
+  return [
     vscode.commands.registerCommand("claudeSkills.installLibraryToGlobal", async () => {
       const syncAll = shouldSyncGlobalToAll();
       maybeRevealOutputPanel();
@@ -87,12 +89,14 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
       log(`\n=== Install skill library -> all enabled agents ===`);
       log(formatAgentInstallSummary(results));
       const installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
-      void notifyUserSuccess(`Claude Skills: installed ${installed} skill(s) across enabled agents.`);
+      void notifyUserSuccess(
+        `Claude Skills: installed ${installed} skill(s) across enabled agents.`
+      );
       refreshAll();
     }),
 
     vscode.commands.registerCommand("claudeSkills.generateForWorkspace", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -110,7 +114,11 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
         }
         installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
       } else {
-        const results = generateForWorkspace(libraryDir, target, { all: false, force: false, dryRun: false });
+        const results = generateForWorkspace(libraryDir, target, {
+          all: false,
+          force: false,
+          dryRun: false,
+        });
         log(`\n=== Install relevant skills -> ${path.join(target, ".claude", "skills")} ===`);
         if (results.length === 0) {
           log("No relevant skills detected for this workspace.");
@@ -129,7 +137,7 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.generateAllForWorkspace", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -143,7 +151,11 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
         log(formatAgentInstallSummary(results));
         installed = results.filter((r) => r.status === "installed" || r.status === "written").length;
       } else {
-        const results = generateForWorkspace(libraryDir, target, { all: true, force: false, dryRun: false });
+        const results = generateForWorkspace(libraryDir, target, {
+          all: true,
+          force: false,
+          dryRun: false,
+        });
         log(`\n=== Install ALL skills -> ${path.join(target, ".claude", "skills")} ===`);
         for (const r of results) {
           log(`${r.skill}: ${r.status}`);
@@ -158,12 +170,16 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.previewForWorkspace", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
-      const results = generateForWorkspace(libraryDir, target, { all: false, force: false, dryRun: true });
+      const results = generateForWorkspace(libraryDir, target, {
+        all: false,
+        force: false,
+        dryRun: true,
+      });
       revealOutputPanel();
       log(`\n=== Preview (dry run) for ${target} ===`);
       if (results.length === 0) {
@@ -184,7 +200,7 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.installSkillToWorkspace", async (item?: SkillItem) => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -249,7 +265,7 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.disableSkillLocally", async (item?: SkillItem) => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target || !item) {
         return;
       }
@@ -264,7 +280,7 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.enableSkillLocally", async (item?: SkillItem) => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target || !item) {
         return;
       }
@@ -283,74 +299,14 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
       if (!item) {
         return;
       }
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       const filePath = item.resolveSkillFilePath(globalSkillsDir(), target);
       const doc = await vscode.workspace.openTextDocument(filePath);
       await vscode.window.showTextDocument(doc, { preview: true });
     }),
 
-    vscode.commands.registerCommand("claudeSkills.applyTaskSkillProposals", async () => {
-      const target = getWorkspaceTarget();
-      if (!target) {
-        void notifyUserWarn("Claude Skills: open a workspace folder first.");
-        return;
-      }
-      const manifest = loadManifest(libraryDir);
-      const proposals = resolveTaskSkillProposals(target, manifest);
-      const toInstall = proposals.filter((p) => !p.installed);
-      if (toInstall.length === 0) {
-        void notifyUserSuccess(
-          "Claude Skills: no uninstalled suggested skills — run skill-feedback-adaptation on a new task first."
-        );
-        return;
-      }
-      const installed = await applyProposalSkillNames(
-        target,
-        proposals.map((p) => p.name)
-      );
-      refreshAll();
-      if (installed.length > 0) {
-        void notifyUserSuccess(
-          `Claude Skills: installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`
-        );
-      } else {
-        void notifyUserSuccess("Claude Skills: could not install suggested skills.");
-      }
-    }),
-
-    vscode.commands.registerCommand("claudeSkills.chooseTaskSkillSet", async () => {
-      const target = getWorkspaceTarget();
-      if (!target) {
-        void notifyUserWarn("Claude Skills: open a workspace folder first.");
-        return;
-      }
-      let file = readTaskSkillProposals(target);
-      if (!file?.options?.length) {
-        ensureWorkspaceTaskProposals(target, loadManifest(libraryDir));
-        file = readTaskSkillProposals(target);
-      }
-      if (!file?.options?.length) {
-        void notifyUserWarn(
-          "Claude Skills: no task skill options yet — describe a new task in chat or run skill-feedback-adaptation."
-        );
-        return;
-      }
-      const approved = await promptTaskSkillSetApproval(target, log, { force: true });
-      if (!approved) {
-        return;
-      }
-      const focusApply = applyTaskSkillFocusFromProposals(libraryDir, target);
-      if (focusApply.applied && focusApply.focus) {
-        propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { forceAgentSync: true });
-        refreshAll();
-        void notifyUserSuccess(
-          `Claude Skills: ${focusApply.focus.activeSkills.length} skill(s) active for this task.`
-        );
-      }
-    }),
-
     vscode.commands.registerCommand("claudeSkills.upgradeOutdatedSkills", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -376,7 +332,7 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.refreshSkillCatalog", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -384,11 +340,40 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
       const catalog = refreshSkillsCatalog(target, libraryDir);
       maybeRevealOutputPanel();
       log(`\n=== Skill catalog refreshed ===\n${catalog.skills.length} skill(s) -> .claude/learning/skills-catalog.json`);
-      void notifyUserSuccess(`Claude Skills: refreshed skill catalog (${catalog.skills.length} skills).`);
+      void notifyUserSuccess(
+        `Claude Skills: refreshed skill catalog (${catalog.skills.length} skills).`
+      );
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.cycleSkillSort", async () => {
+      const cfg = vscode.workspace.getConfiguration("claudeSkills.search");
+      const modes: SkillSortMode[] = ["relevance", "lowest_cost", "highest_roi", "best_value"];
+      const current = cfg.get<SkillSortMode>("sortBy", "relevance");
+      const next = modes[(modes.indexOf(current) + 1) % modes.length];
+      await cfg.update("sortBy", next, vscode.ConfigurationTarget.Workspace);
+      refreshProvider();
+      void notifyUserSuccess(`Claude Skills: skill sort -> ${next}`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.restoreArchivedSkill", async () => {
+      const target = getTarget();
+      if (!target) {
+        return;
+      }
+      const archived = listArchivedSkills(target);
+      if (archived.length === 0) {
+        void notifyUserSuccess("No archived skills to restore.", log);
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(archived, { title: "Restore archived skill" });
+      if (pick && restoreArchivedSkill(target, pick, libraryDir)) {
+        refreshAll();
+        void notifyUserSuccess(`Restored skill: ${pick}`, log);
+      }
     }),
 
     vscode.commands.registerCommand("claudeSkills.previewSkillSetResolver", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -403,7 +388,7 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.runSkillSetResolver", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -441,21 +426,28 @@ export function registerSkillCommands(shared: ExtensionSharedContext): void {
       );
     }),
 
-    vscode.commands.registerCommand("claudeSkills.restoreArchivedSkill", async () => {
-      const target = getWorkspaceTarget();
+    vscode.commands.registerCommand("claudeSkills.syncWorkspaceToAgents", async () => {
+      const target = getTarget();
       if (!target) {
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
-      const archived = listArchivedSkills(target);
-      if (archived.length === 0) {
-        void notifyUserSuccess("No archived skills to restore.");
+      if (!shouldSyncWorkspaceToAll(libraryDir)) {
+        vscode.window.showWarningMessage(
+          "Claude Skills: enable claudeSkills.agents.syncWorkspaceToAll (solo-dev mirrors to the running IDE only)."
+        );
         return;
       }
-      const pick = await vscode.window.showQuickPick(archived, { title: "Restore archived skill" });
-      if (pick && restoreArchivedSkill(target, pick, libraryDir)) {
-        refreshAll();
-        void notifyUserSuccess(`Restored skill: ${pick}`);
-      }
-    })
-  );
+      maybeRevealOutputPanel();
+      log("\n=== Sync workspace skills to all enabled agents ===");
+      const { agentPathsUpdated } = propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        forceAgentSync: true,
+        saveBranchProfile: false,
+      });
+      void notifyUserSuccess(
+        `Claude Skills: synced workspace skills to ${agentPathsUpdated} agent path(s) — see output.`
+      );
+      refreshAll();
+    }),
+  ];
 }

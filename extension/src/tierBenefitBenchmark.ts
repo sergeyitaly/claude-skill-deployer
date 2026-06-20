@@ -4,15 +4,9 @@ import { estimateMonthlyOverhead, TIER_MONTHLY_OVERHEAD_USD } from "./projectPro
 
 /** Team-oriented capability weights (sum = 1). */
 export const TEAM_CAPABILITY_WEIGHTS: Partial<Record<FeatureKey, number>> = {
-  multiAgent: 0.22,
-  attributionCollector: 0.18,
-  costIntelligence: 0.15,
-  teamCostSharing: 0.12,
-  sessionSkillAdaptation: 0.1,
-  branchProfiles: 0.08,
-  autoOptimizer: 0.05,
-  taskSkillFocus: 0.05,
-  costAwareSearch: 0.05,
+  autoOptimizer: 0.80,
+  communityBenchmarks: 0.12,
+  prCostEstimate: 0.08,
 };
 
 export const FULL_STACK_OVERHEAD_USD = TIER_MONTHLY_OVERHEAD_USD["team-multi-agent"];

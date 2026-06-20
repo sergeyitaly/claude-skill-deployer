@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./featureFlags", () => ({
-  isFeatureEnabled: (key: string) => key !== "multiAgent",
+  isFeatureEnabled: () => true,
 }));
 
 vi.mock("./agentSkillProfiles", () => ({
@@ -49,22 +49,19 @@ afterEach(() => {
 describe("pruneExcessAgentMirrors", () => {
   const libraryDir = path.join(__dirname, "..", "skills_library");
 
-  it("removes kiro and copilot mirrors but keeps cursor on host-only tier", () => {
+  it("retains all agent mirrors in full multi-agent mode", () => {
     const target = makeWorkspace(libraryDir);
     expect(fs.existsSync(path.join(target, ".kiro", "skills", "alpha-skill", "SKILL.md"))).toBe(true);
-    expect(fs.existsSync(path.join(target, ".github", "instructions", "alpha-skill.instructions.md"))).toBe(true);
 
     const pruned = pruneExcessAgentMirrors(target, libraryDir);
-    expect(pruned.some((p) => p.agent === "kiro")).toBe(true);
-    expect(pruned.some((p) => p.agent === "copilot")).toBe(true);
-    expect(pruned.some((p) => p.agent === "cursor")).toBe(false);
-
+    // All agents are in mirror set when multiAgent is always on — nothing pruned
+    expect(pruned.some((p) => p.agent === "kiro")).toBe(false);
+    expect(pruned.some((p) => p.agent === "copilot")).toBe(false);
     expect(fs.existsSync(path.join(target, ".cursor", "skills", "alpha-skill", "SKILL.md"))).toBe(true);
-    expect(fs.existsSync(path.join(target, ".kiro", "skills"))).toBe(false);
-    expect(fs.existsSync(path.join(target, ".github", "instructions"))).toBe(false);
+    expect(fs.existsSync(path.join(target, ".kiro", "skills", "alpha-skill", "SKILL.md"))).toBe(true);
   });
 
-  it("removes extension-managed kiro and copilot hooks and empty .kiro root", () => {
+  it("does not remove agent hooks when all agents are enabled", () => {
     const target = makeWorkspace(libraryDir);
     const kiroHooks = path.join(target, ".kiro", "hooks");
     const copilotHooks = path.join(target, ".github", "hooks");
@@ -74,9 +71,8 @@ describe("pruneExcessAgentMirrors", () => {
     fs.writeFileSync(path.join(copilotHooks, "claude-skills-skill-invoke.json"), "{}", "utf-8");
 
     const pruned = pruneExcessAgentMirrors(target, libraryDir);
-    expect(pruned.some((p) => p.kind === "hook" && p.agent === "kiro")).toBe(true);
-    expect(pruned.some((p) => p.kind === "hook" && p.agent === "copilot")).toBe(true);
-    expect(fs.existsSync(path.join(target, ".kiro"))).toBe(false);
-    expect(fs.existsSync(copilotHooks)).toBe(false);
+    expect(pruned.some((p) => p.kind === "hook" && p.agent === "kiro")).toBe(false);
+    expect(pruned.some((p) => p.kind === "hook" && p.agent === "copilot")).toBe(false);
+    expect(fs.existsSync(path.join(kiroHooks, "claude-skills-skill-invoke.kiro.hook"))).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-﻿import * as fs from "node:fs";
+import * as fs from "node:fs";
 import { readEnrichedRuns } from "./usageStats";
 import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
 
@@ -24,25 +24,8 @@ import { formatCompactUsd } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
 import { computeHaceMetrics, HaceMetrics } from "./haceMetrics";
 
-export type TelemetryScope = "workspace" | "global" | "hybrid";
-
-/**
- * Returns the effective MCP log path based on scope.
- * - "global": always read from ~/.claude/learning/mcp-usage.jsonl (default).
- * - "workspace": read from <target>/.claude/mcp-usage.jsonl.
- * - "hybrid" (default): use workspace log if it exists, else fall back to global.
- */
-function resolveMcpLogPath(target: string, scope: TelemetryScope): string | undefined {
-  if (scope === "global") return undefined;
-  const wsPath = workspaceMcpLogPath(target);
-  if (scope === "workspace") return wsPath;
-  // hybrid: prefer workspace log if it has data
-  try {
-    if (fs.existsSync(wsPath) && fs.statSync(wsPath).size > 0) return wsPath;
-  } catch {
-    // fall through
-  }
-  return undefined;
+function workspaceMcpLog(target: string): string {
+  return workspaceMcpLogPath(target);
 }
 
 export interface CostPerSkillRow {
@@ -83,8 +66,7 @@ export interface EfficiencyMetrics {
 
 export function computeEfficiencyMetrics(
   target: string,
-  daysBack = 14,
-  telemetryScope: TelemetryScope = "hybrid"
+  daysBack = 14
 ): EfficiencyMetrics {
   const cutoff = Date.now() - daysBack * 86_400_000;
   const skillSummary = summarizeSkillCostsFromRuns(target, daysBack);
@@ -148,26 +130,15 @@ export function computeEfficiencyMetrics(
     .sort((a, b) => b.ts.localeCompare(a.ts))
     .slice(0, 8);
 
-  const mcp = summarizeMcpUsage(daysBack, resolveMcpLogPath(target, telemetryScope));
-  // Pass the same resolved log path so cross-session analysis respects the telemetry scope.
-  // Falls back to the global log (undefined) for "global" scope, which provides
-  // cross-project intelligence — intentional when the user explicitly opts into global scope.
-  const crossSessionLogPath = telemetryScope === "global"
-    ? undefined
-    : resolveMcpLogPath(target, telemetryScope);
-  const crossSession = summarizeCrossSessionPatterns(30, crossSessionLogPath);
+  const wsLogPath = workspaceMcpLog(target);
+  const mcp = summarizeMcpUsage(daysBack, wsLogPath);
+  const crossSession = summarizeCrossSessionPatterns(30, wsLogPath);
 
   // Write auto-remediation hints at most once per 30 s — avoids redundant file I/O
   // when the dashboard is opened repeatedly or on every cost-pipeline tick.
   // Read log entries once for both CLI KPI and hint writing.  The logCache in
   // readMcpUsageLog makes the second call a no-op when summarizeMcpUsage already
-  // read the file.  Skip the read entirely for idle workspaces (no workspace-local
-  // log and no filesystem MCP calls) to avoid touching the potentially large
-  // global ~/.claude/learning/mcp-usage.jsonl unnecessarily.
-  const mcpLogPath = resolveMcpLogPath(target, telemetryScope);
-  const allEntries = (mcpLogPath !== undefined || mcp.totalCalls > 0)
-    ? readMcpUsageLog(mcpLogPath ?? undefined)
-    : [];
+  const allEntries = mcp.totalCalls > 0 ? readMcpUsageLog(wsLogPath) : [];
 
   // Pre-filter to the same daysBack window used by summarizeMcpUsage so
   // computeCliKpi can skip its own date-parse pass (daysBack: 0 = no re-filter).
@@ -598,7 +569,7 @@ function buildCostPanelsHtml(metrics: EfficiencyMetrics, m: McpUsageSummary): st
 
 export function formatEfficiencyPanelHtml(metrics: EfficiencyMetrics): string {
   const hasMcp = metrics.mcp.totalCalls > 0;
-  if (!metrics.costPerSkill.length && !metrics.costPerAgent.length && !metrics.recentSessions.length && !hasMcp) {
+  if (!metrics.costPerSkill.length && !metrics.costPerAgent.length && !metrics.recentSessions.length && !hasMcp && metrics.hace.noData) {
     return "";
   }
 

@@ -1,4 +1,4 @@
-﻿import * as fs from "node:fs";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { AgentId } from "./agentOps";
@@ -8,13 +8,12 @@ import { generateOptimizationSuggestions, OptimizationSuggestion, OptimizationTy
 import { isFeatureEnabled } from "./featureFlags";
 import { archiveSkill, archivalRules, candidatesForArchival } from "./skillArchival";
 import { computeSkillRoi, RoiBand } from "./skillRoi";
-import { upgradeSkillsWithLowRoi, upgradeSkillInWorkspace, lifecycleAutoUpgradeOnLowRoiEnabled } from "./skillLifecycle";
-import { autoApplySlotsRemaining, recordAutoApplies } from "./autoOptimizerRateLimit";
+import { upgradeSkillInWorkspace, lifecycleAutoUpgradeOnLowRoiEnabled } from "./skillLifecycle";
 import { tokenCostUsd } from "./costRates";
 import { setSkillOverride, loadManifest } from "./skillOps";
 import { computeUsageStats } from "./usageStats";
-import { assessAttributionHealth } from "./attributionHealth";
-import { buildSystemModeContext } from "./systemMode";
+import { assessAttributionHealth } from "./attributionQuality";
+import { buildSystemModeContext } from "./attributionQuality";
 import { evaluatePipelineStatus, readPipelineCycle } from "./pipelineCycle";
 import {
   applyOptimizerSafetyCaps,
@@ -61,39 +60,13 @@ export function setAgentPreference(target: string, skill: string, agent: AgentId
   writeSettings(target, settings);
 }
 
-export function isAutoOptimizeEnabled(): boolean {
-  return vscode.workspace.getConfiguration("claudeSkills.optimizer").get<boolean>("autoApply", false);
-}
-
 export function isAutoDetectOnPipelineEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.optimizer").get<boolean>("autoDetectOnPipeline", true);
 }
 
-const optimizeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const AUTO_DETECT_DELAY_MS = 5000;
-
-/** Debounced detect → auto-adjust after pipeline or hook activity. */
-export function scheduleAutoOptimizePass(target: string, libraryDir: string, delayMs = AUTO_DETECT_DELAY_MS): void {
-  if (!isFeatureEnabled("autoOptimizer") || !isAutoOptimizeEnabled() || !isAutoDetectOnPipelineEnabled()) {
-    return;
-  }
-  const key = path.resolve(target);
-  const existing = optimizeTimers.get(key);
-  if (existing) {
-    clearTimeout(existing);
-  }
-  optimizeTimers.set(
-    key,
-    setTimeout(() => {
-      optimizeTimers.delete(key);
-      void runAutoOptimizePass(target, libraryDir);
-    }, delayMs)
-  );
-}
-
-/** Detect expensive/unused skills and auto-apply when `autoApply` is on. */
+/** Detect expensive/unused skills — results are shown in the dashboard for user review. */
 export async function runAutoOptimizePass(target: string, libraryDir: string): Promise<ApplyResult | null> {
-  if (!isFeatureEnabled("autoOptimizer") || !isAutoOptimizeEnabled()) {
+  if (!isFeatureEnabled("autoOptimizer")) {
     return null;
   }
 
@@ -104,18 +77,12 @@ export async function runAutoOptimizePass(target: string, libraryDir: string): P
 
   const health = assessAttributionHealth(target, libraryDir);
   const modeCtx = buildSystemModeContext(health, target, status.cycle);
-  if (!modeCtx.canAutoApplyOptimizations) {
+  if (!modeCtx.canSuggestOptimizations) {
     return null;
   }
 
-  // Include archive/upgrade suggestion types in the auto-apply pass when the
-  // corresponding features are enabled. These unify what were separate runArchivalPass
-  // and upgradeSkillsWithLowRoi calls so each skill is touched only once per cycle.
-  const autoArchiveEnabled = isFeatureEnabled("skillArchival") && archivalRules().auto_archive;
   const autoUpgradeEnabled = lifecycleAutoUpgradeOnLowRoiEnabled();
-
   const allowedTypes = new Set<OptimizationType>(["disable", "unused"]);
-  if (autoArchiveEnabled) allowedTypes.add("archive");
   if (autoUpgradeEnabled) allowedTypes.add("upgrade");
 
   const suggestions = generateOptimizationSuggestions(target, libraryDir).filter(
@@ -154,20 +121,12 @@ export async function applyOptimizationSuggestions(
   const usageStats = computeUsageStats(target, manifest);
   suggestions = applyOptimizerSafetyCaps(suggestions, target, usageStats);
 
-  if (auto && !isAutoOptimizeEnabled()) {
-    return result;
-  }
-
   if (auto && !modeCtx.canAutoApplyOptimizations) {
     return result;
   }
 
   if (auto) {
-    const slots = autoApplySlotsRemaining(target);
-    if (slots <= 0) {
-      return result;
-    }
-    suggestions = capAutoApplySuggestions(suggestions).slice(0, slots);
+    suggestions = capAutoApplySuggestions(suggestions);
   }
 
   if (!auto && !directApply && suggestions.length > 0) {
@@ -272,10 +231,6 @@ export async function applyOptimizationSuggestions(
     }
   }
 
-  if (auto && result.applied.length > 0) {
-    recordAutoApplies(target, result.applied.length);
-  }
-
   return result;
 }
 
@@ -295,9 +250,6 @@ export async function applySingleOptimizationSuggestion(
 }
 
 export async function runArchivalPass(target: string, libraryDir: string): Promise<string[]> {
-  if (!isFeatureEnabled("skillArchival")) {
-    return [];
-  }
   const manifest = loadManifest(libraryDir);
   const stats = computeUsageStats(target, manifest);
   const costPerUse = new Map<string, number>();

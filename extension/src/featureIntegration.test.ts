@@ -14,7 +14,7 @@ import {
   missingAgentMirrorSkills,
 } from "./agentOps";
 import { formatCostDashboardHtml } from "./costDashboard";
-import { assessAttributionHealth } from "./attributionHealth";
+import { assessAttributionHealth } from "./attributionQuality";
 import { buildCostAttribution } from "./costAttribution";
 import { computeUsageStats } from "./usageStats";
 import { loadManifest } from "./skillOps";
@@ -161,7 +161,7 @@ describe("feature integration (live workspace)", () => {
 
   it("has cost-control hook scripts in resources", () => {
     const hooksDir = path.join(__dirname, "..", "resources", "hooks");
-    for (const name of ["hookPlatform.js", "budget-watch.js", "session-size-watch.js", "context-focus-watch.js", "practical-focus-watch.js", "task-drift-watch.js", "official-skills-watch.js"]) {
+    for (const name of ["hookPlatform.js", "budget-watch.js", "prompt-context-watch.js", "task-drift-watch.js", "official-skills-watch.js"]) {
       expect(fs.existsSync(path.join(hooksDir, name))).toBe(true);
     }
   });

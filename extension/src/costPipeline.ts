@@ -9,13 +9,12 @@ import {
   writePipelineTrace,
 } from "./pipelineCycle";
 import { notePipelineRun } from "./pipelineCircuitBreaker";
-import { refreshRunsIndex } from "./runsIndex";
+import { refreshRunsIndex } from "./runsStore";
 import { loadManifest } from "./skillOps";
 import { refreshWorkspaceSystemState, readWorkspaceSystemState, WorkspaceSystemState } from "./workspaceSystemState";
-import { SystemMode } from "./systemMode";
-import { isFeatureEnabled } from "./featureFlags";
-import { scheduleAutoOptimizePass } from "./autoOptimizer";
-import { queueTeamEconomicsPrecompute } from "./teamEconomicsCache";
+import { SystemMode } from "./attributionQuality";
+
+import { queueTeamEconomicsPrecompute } from "./dashboardCache";
 import { queueDashboardSnapshotPrecompute } from "./dashboardPrecompute";
 import { maybePromoteIgnoredSkillsOnUnderuse } from "./taskSkillUnderuse";
 
@@ -67,21 +66,6 @@ export function runCostPipelineSync(
   libraryDir: string,
   opts?: CostPipelineRunOptions
 ): CostPipelineResult {
-  if (!isFeatureEnabled("costIntelligence") && !isFeatureEnabled("attributionCollector")) {
-    const cycle = readPipelineCycle(target);
-    const state = readWorkspaceSystemState(target) ?? refreshWorkspaceSystemState(target, libraryDir);
-    return {
-      ready: false,
-      fresh: false,
-      cycle,
-      systemMode: state.systemMode,
-      state,
-      circuitOpen: isPipelineCircuitOpen(cycle),
-      skipped: true,
-      processedSessions: 0,
-    };
-  }
-
   const budget = notePipelineRun(target);
   setPipelineCircuitState(target, budget.tripped, budget.runsLastMinute);
   if (budget.tripped) {
@@ -112,7 +96,6 @@ export function runCostPipelineSync(
     writePipelineTrace(target, trace);
 
     const status = evaluatePipelineStatus(target, readPipelineCycle(target));
-    scheduleAutoOptimizePass(target, libraryDir);
     queueTeamEconomicsPrecompute(target, libraryDir);
     queueDashboardSnapshotPrecompute(target, libraryDir, {
       ready: status.ready,
@@ -152,7 +135,7 @@ export function runCostPipelineSync(
   }
 }
 
-/** collect (optional) → index → analyze — single entry point for cost consumers. */
+/** collect (optional) â†’ index â†’ analyze — single entry point for cost consumers. */
 export async function runCostPipeline(
   target: string,
   libraryDir: string,

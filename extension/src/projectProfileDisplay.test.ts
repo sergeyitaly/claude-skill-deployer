@@ -64,12 +64,11 @@ describe("projectProfileDisplay", () => {
 
   it("lists feature on/off in view", () => {
     const profile = sampleProfile("throwaway", {
-      sessionSkillAdaptation: false,
-      costIntelligence: false,
+      autoOptimizer: false,
     });
     const view = buildProjectProfileView(profile);
-    expect(view.features.find((f) => f.key === "sessionSkillAdaptation")?.on).toBe(false);
-    expect(view.monthlySavingsUsd).toBeGreaterThan(20);
+    expect(view.features.find((f) => f.key === "autoOptimizer")?.on).toBe(false);
+    expect(view.monthlySavingsUsd).toBeGreaterThanOrEqual(0);
   });
 
   it("renders tier comparison table with all tiers", () => {

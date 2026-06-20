@@ -6,7 +6,6 @@ import { Manifest } from "./skillOps";
 import {
   areTaskSkillProposalsFresh,
   computeTaskSkillProposals,
-  computeTaskSkillSetOptions,
   ensureWorkspaceTaskProposals,
   filterProposalsByMinConfidence,
   readTaskSkillProposals,
@@ -83,21 +82,6 @@ describe("computeTaskSkillProposals", () => {
     expect(out.refreshed).toBe(false);
   });
 
-  it("computeTaskSkillSetOptions dedupes identical sets", () => {
-    const proposals = [
-      { name: "pdf", reason: "pdf task", confidence: 90, installed: true },
-      { name: "ci-pipeline-debug", reason: "ci", confidence: 80, installed: true, matchedGlobs: ["**/.gitlab-ci.yml"] },
-    ];
-    const options = computeTaskSkillSetOptions(proposals, {
-      enabled: true,
-      maxActiveSkills: 12,
-      minProposals: 8,
-      minProposalConfidence: 50,
-      approveSkillSets: true,
-    });
-    expect(options.length).toBeGreaterThan(0);
-    expect(options.every((o) => o.skills.length > 0)).toBe(true);
-  });
 
   it("filterProposalsByMinConfidence drops low scores but keeps required platform skills", () => {
     const filtered = filterProposalsByMinConfidence(

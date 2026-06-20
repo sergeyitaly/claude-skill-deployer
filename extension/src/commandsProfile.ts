@@ -1,11 +1,6 @@
 import * as vscode from "vscode";
+import { agentCapabilityLines } from "./agentOps";
 import {
-  agentCapabilityLines,
-  shouldSyncWorkspaceToAll,
-} from "./agentOps";
-import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
-import {
-  agentProfilesFeatureActive,
   detectHostAgentId,
   formatAgentSkillSetsReport,
   hostAgentLabel,
@@ -29,13 +24,13 @@ import {
 import {
   buildProjectProfile,
   buildProjectProfileWithRemoteProbe,
+  effectiveLockedTier,
   PROFILE_TYPE_LABELS,
   ProjectProfileFile,
   projectProfileApplyTierEnabled,
   readProjectProfile,
   refreshProjectProfileContext,
   setLockedProjectProfileTier,
-  effectiveLockedTier,
   writeProjectProfile,
 } from "./projectProfile";
 import {
@@ -47,35 +42,55 @@ import {
   applyUserProjectPlan,
   buildProjectPlanQuickPickItems,
   formatDetectedTierSummary,
-  maybePromptProjectTierOnFirstDetect,
 } from "./projectProfilePrompt";
 import { setActiveProjectProfileContext } from "./activeProjectProfile";
-import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
+import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
 import {
   applyLocalProfileInit,
   promptForPosition,
   readUserPosition,
-  refreshSkillsCatalog,
   startProfileInitFlow,
 } from "./profileInit";
-import { notifyUserSuccess, notifyUserWarn, notifySuggestion } from "./userNotify";
+import { formatPrepareClaudeCliSummary, prepareForClaudeCli } from "./prepareClaudeCli";
+import { notifySuggestion, notifyUserSuccess, notifyUserWarn } from "./userNotify";
 import { recordError } from "./analytics";
-import { ExtensionSharedContext } from "./extensionSharedContext";
 
-export function registerProfileCommands(shared: ExtensionSharedContext): void {
+// ---------------------------------------------------------------------------
+// Deps
+// ---------------------------------------------------------------------------
+
+export interface ProfileCommandDeps {
+  context: vscode.ExtensionContext;
+  libraryDir: string;
+  getTarget: () => string | undefined;
+  log: (line: string) => void;
+  refreshAll: (opts?: { workspaceState?: boolean; forceTree?: boolean }) => void;
+  revealOutputPanel: () => void;
+  maybeRevealOutputPanel: () => void;
+  refreshProjectTierStatusBar: (target: string | undefined) => void;
+  cleanupExcessAgentMirrorsForTier: (target: string) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Command registrations
+// ---------------------------------------------------------------------------
+
+export function registerProfileCommands(deps: ProfileCommandDeps): vscode.Disposable[] {
   const {
-    context, libraryDir, log, getWorkspaceTarget,
-    refreshAll, revealOutputPanel, maybeRevealOutputPanel,
+    context,
+    libraryDir,
+    getTarget,
+    log,
+    refreshAll,
+    revealOutputPanel,
+    maybeRevealOutputPanel,
+    refreshProjectTierStatusBar,
     cleanupExcessAgentMirrorsForTier,
-  } = shared;
+  } = deps;
 
-  // Helper used only in this domain.
-  const refreshProjectTierStatusBar = (target?: string) =>
-    void vscode.commands.executeCommand("claudeSkills.refresh");
-
-  context.subscriptions.push(
+  return [
     vscode.commands.registerCommand("claudeSkills.saveBranchProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -96,7 +111,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.saveAgentSkillSet", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -117,7 +132,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.switchAgentSkillSet", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -126,12 +141,14 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
       if (!result) {
         return;
       }
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { saveBranchProfile: false });
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: false,
+      });
       refreshAll();
     }),
 
     vscode.commands.registerCommand("claudeSkills.showAgentSkillSets", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         return;
       }
@@ -140,7 +157,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.exportTeamBranchProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -152,11 +169,13 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
       }
       maybeRevealOutputPanel();
       log(`\n=== Export team branch profile ===\n${formatTeamProfileReport(target)}`);
-      void notifyUserSuccess(`Claude Skills: wrote team profile (.claude/skills-profile.json) — commit to git.`);
+      void notifyUserSuccess(
+        `Claude Skills: wrote team profile (.claude/skills-profile.json) — commit to git.`
+      );
     }),
 
     vscode.commands.registerCommand("claudeSkills.applyTeamBranchProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -174,9 +193,8 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.showTeamBranchProfiles", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
-        void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
       }
       revealOutputPanel();
@@ -184,7 +202,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.setPosition", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -196,7 +214,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.initProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -208,12 +226,14 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
       }
       maybeRevealOutputPanel();
       await startProfileInitFlow(context.extensionPath, libraryDir, target, branch, log);
-      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, { saveBranchProfile: false });
+      propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
+        saveBranchProfile: false,
+      });
       refreshAll();
     }),
 
     vscode.commands.registerCommand("claudeSkills.prepareForClaudeCli", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -234,7 +254,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.applyLocalProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -266,7 +286,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.applyBranchProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -302,32 +322,8 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
       log("Agent paths defined in skills_library/agents.json");
     }),
 
-    vscode.commands.registerCommand("claudeSkills.syncWorkspaceToAgents", async () => {
-      const target = getWorkspaceTarget();
-      if (!target) {
-        void notifyUserWarn("Claude Skills: open a workspace folder first.");
-        return;
-      }
-      if (!shouldSyncWorkspaceToAll(libraryDir)) {
-        vscode.window.showWarningMessage(
-          "Claude Skills: enable claudeSkills.agents.syncWorkspaceToAll (solo-dev mirrors to the running IDE only)."
-        );
-        return;
-      }
-      maybeRevealOutputPanel();
-      log("\n=== Sync workspace skills to all enabled agents ===");
-      const { agentPathsUpdated } = propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
-        forceAgentSync: true,
-        saveBranchProfile: false,
-      });
-      void notifyUserSuccess(
-        `Claude Skills: synced workspace skills to ${agentPathsUpdated} agent path(s) — see output.`
-      );
-      refreshAll();
-    }),
-
     vscode.commands.registerCommand("claudeSkills.showBranchProfiles", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         void notifyUserWarn("Claude Skills: open a workspace folder first.");
         return;
@@ -353,7 +349,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.showProjectProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         return;
       }
@@ -369,7 +365,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.detectProjectProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         return;
       }
@@ -417,7 +413,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
     }),
 
     vscode.commands.registerCommand("claudeSkills.chooseProjectProfile", async () => {
-      const target = getWorkspaceTarget();
+      const target = getTarget();
       if (!target) {
         return;
       }
@@ -460,6 +456,7 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
         projectProfileApplyTierEnabled(target)
       );
       cleanupExcessAgentMirrorsForTier(target);
+      refreshProjectTierStatusBar(target);
       refreshAll({ workspaceState: false, forceTree: true });
       if (lockedProfile) {
         revealOutputPanel();
@@ -473,6 +470,6 @@ export function registerProfileCommands(shared: ExtensionSharedContext): void {
           }
         });
       }
-    })
-  );
+    }),
+  ];
 }

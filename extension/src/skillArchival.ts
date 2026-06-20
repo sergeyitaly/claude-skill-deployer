@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { isFeatureEnabled } from "./featureFlags";
 import { copySkill } from "./skillOps";
 import { isValidSkillName } from "./skillLint";
 import { SkillUsageStat } from "./usageStats";
@@ -91,9 +90,6 @@ export function candidatesForArchival(
   /** Optional ROI band per skill — enables efficiency-based archival when archive_on_low_roi is set. */
   roiBandBySkill?: Map<string, RoiBand>
 ): string[] {
-  if (!isFeatureEnabled("skillArchival")) {
-    return [];
-  }
   const rules = archivalRules();
   const out: string[] = [];
   const seen = new Set<string>();

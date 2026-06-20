@@ -1,6 +1,5 @@
 import { BudgetConfig, budgetUsagePercent, readBudgetConfig } from "./budgetConfig";
 import { disableHighTierSkills } from "./budgetOps";
-import { isFeatureEnabled } from "./featureFlags";
 import { Manifest, readSkillOverrides, setSkillOverride } from "./skillOps";
 import { readTaskActiveSkills } from "./taskSkillFocus";
 import { readTodayCostUsd } from "./todayCostSnapshot";
@@ -25,10 +24,6 @@ export function applyBudgetTierGating(
   config: BudgetConfig = readBudgetConfig()
 ): BudgetTierGatingResult {
   void manifest;
-  if (!isFeatureEnabled("budgetControls")) {
-    return { disabled: [] };
-  }
-
   const todayCost = readTodayCostUsd();
   const pct = budgetUsagePercent(todayCost, config);
   const active = activeSkillSet(target);

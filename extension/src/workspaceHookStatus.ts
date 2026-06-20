@@ -100,10 +100,7 @@ export function formatHookStatusPanelHtml(status: WorkspaceHookStatus): string {
       <span>CLI loop guard <span class="agent-id">(PostToolUse)</span></span>
       <span class="hook-badge ${g.cliLoopGuard ? "hook-on" : "hook-off"}">${g.cliLoopGuard ? "on" : "off"}</span>
     </div>`,
-    `<div class="hook-row">
-      <span>File split advisor <span class="agent-id">(PostToolUse)</span></span>
-      <span class="hook-badge ${g.fileSplitAdvisor ? "hook-on" : "hook-off"}">${g.fileSplitAdvisor ? "on" : "off"}</span>
-    </div>`,
+
   ].join("");
   const degradedBanner = g.degraded
     ? `<div class="warn" style="margin-top:0.5rem">
@@ -146,7 +143,6 @@ export function formatHookStatusPlain(status: WorkspaceHookStatus): string {
   const guardParts = [
     g.dirCacheGuard ? "dir-cache: on" : "dir-cache: off",
     g.cliLoopGuard ? "cli-loop: on" : "cli-loop: off",
-    g.fileSplitAdvisor ? "file-split: on" : "file-split: off",
   ];
   const guardsSummary = `Guards (${guardParts.join(", ")})${g.degraded ? " ⚠ DEGRADED — hook server not running" : ""}`;
 

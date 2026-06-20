@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./featureFlags", () => ({
-  isFeatureEnabled: (key: string) => key !== "multiAgent",
+  isFeatureEnabled: () => true,
 }));
 
 vi.mock("./agentSkillProfiles", () => ({
@@ -56,28 +56,25 @@ afterEach(() => {
 describe("solo-dev host-only mirror", () => {
   const libraryDir = path.join(__dirname, "..", "skills_library");
 
-  it("targets only the running IDE agent when multiAgent is off", () => {
-    expect(workspaceMirrorAgentIds(libraryDir)).toEqual(["cursor"]);
-    expect(workspaceInstallAgentIds(libraryDir)).toEqual(["claude", "cursor"]);
+  it("targets all enabled agents when multiAgent is always on", () => {
+    const ids = workspaceMirrorAgentIds(libraryDir);
+    expect(ids).toContain("cursor");
+    expect(workspaceInstallAgentIds(libraryDir)).toContain("claude");
+    expect(workspaceInstallAgentIds(libraryDir)).toContain("cursor");
   });
 
-  it("installSkillToAllWorkspaceAgents does not recreate kiro or copilot paths", () => {
+  it("installSkillToAllWorkspaceAgents syncs to cursor and other enabled agents", () => {
     const target = makeWorkspace(libraryDir);
-    fs.mkdirSync(path.join(target, ".kiro", "skills", "alpha-skill"), { recursive: true });
     installSkillToAllWorkspaceAgents(libraryDir, target, "alpha-skill", path.join(target, ".claude", "skills"), true, false);
-    expect(fs.existsSync(path.join(target, ".kiro", "skills", "alpha-skill", "SKILL.md"))).toBe(false);
     expect(fs.existsSync(path.join(target, ".cursor", "skills", "alpha-skill", "SKILL.md"))).toBe(true);
   });
 
-  it("syncs workspace skills to cursor only", () => {
+  it("syncs workspace skills to all enabled agents", () => {
     const target = makeWorkspace(libraryDir);
     const gaps = missingAgentMirrorSkills(target, libraryDir);
     expect(gaps.some((g) => g.agent === "cursor")).toBe(true);
-    expect(gaps.some((g) => g.agent === "kiro")).toBe(false);
 
     syncWorkspaceSkillsToAllAgents(libraryDir, target, { force: true });
     expect(fs.existsSync(path.join(target, ".cursor", "skills", "alpha-skill", "SKILL.md"))).toBe(true);
-    expect(fs.existsSync(path.join(target, ".kiro", "skills", "alpha-skill", "SKILL.md"))).toBe(false);
-    expect(fs.existsSync(path.join(target, ".github", "instructions", "alpha-skill.instructions.md"))).toBe(false);
   });
 });

@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { isFeatureEnabled } from "./featureFlags";
 
 /** How much to rely on workspace files vs general model knowledge. */
 export type ContextFocusLevel = "knowledge" | "balanced" | "local-first" | "strict-local";
@@ -89,7 +88,7 @@ export function syncContextFocusConfigToDisk(): ContextFocusConfig {
   const config = configFromVsCodeSettings();
   const effective: ContextFocusConfig = {
     ...config,
-    enabled: config.enabled && isFeatureEnabled("contextFocus"),
+    enabled: config.enabled,
   };
   writeContextFocusConfig(effective);
   return effective;

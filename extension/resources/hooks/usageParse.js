@@ -209,7 +209,40 @@ function computeTodayUsageAcrossProjects() {
 
 // ---- Incremental scan cache (avoids re-reading full transcripts on every hook invocation) ----
 
-const USAGE_CACHE_PATH = path.join(os.homedir(), ".claude", "learning", "usage-today-cache.json");
+// Per-day cache path — avoids a single ever-growing 40 KB blob for all-time history.
+function todayCachePath() {
+  const today = new Date().toISOString().slice(0, 10);
+  return path.join(os.homedir(), ".claude", "learning", `usage-today-cache.${today}.json`);
+}
+
+// Returns the sum of immediate project-subdir mtimes — cheap O(N subdirs) fingerprint.
+function projectsDirFingerprint(projectsDir) {
+  try {
+    return fs.readdirSync(projectsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .reduce((sum, e) => {
+        try { return sum + fs.statSync(path.join(projectsDir, e.name)).mtimeMs; } catch { return sum; }
+      }, 0)
+      .toString();
+  } catch { return ""; }
+}
+
+// Delete usage-today-cache files older than 7 days (runs only when a full rescan happens).
+function cleanupStaleDayCaches() {
+  const dir = path.join(os.homedir(), ".claude", "learning");
+  const cutoffMs = Date.now() - 7 * 86400_000;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (/^usage-today-cache\.\d{4}-\d{2}-\d{2}\.json$/.test(f)) {
+        const fp = path.join(dir, f);
+        try { if (fs.statSync(fp).mtimeMs < cutoffMs) fs.unlinkSync(fp); } catch {}
+      }
+    }
+    // Remove old single-file cache left by previous versions
+    const legacy = path.join(dir, "usage-today-cache.json");
+    try { fs.unlinkSync(legacy); } catch {}
+  } catch {}
+}
 
 function readCacheFile(file) {
   try { return JSON.parse(fs.readFileSync(file, "utf-8")); } catch { return null; }
@@ -271,38 +304,57 @@ function readFileFrom(file, offset) {
 
 /**
  * Incrementally-cached version of computeTodayUsageAcrossProjects.
- * Reads only bytes appended since the previous call; unchanged files
- * are served from a small JSON cache at ~/.claude/learning/usage-today-cache.json.
+ * Uses a per-day cache file and a projectsDir mtime fingerprint to skip the
+ * expensive recursive transcript walk on the vast majority of prompt-submit calls.
  */
 function computeTodayUsageAcrossProjectsCached() {
   const today = new Date().toISOString().slice(0, 10);
   const projectsDir = path.join(os.homedir(), ".claude", "projects");
+  const cacheFile = todayCachePath();
 
-  let cache = readCacheFile(USAGE_CACHE_PATH) || {};
-  if (cache.date !== today) cache = { date: today, files: {} };
+  let cache = readCacheFile(cacheFile) || {};
+  if (cache.date !== today) cache = { date: today, files: {}, dirFingerprint: "" };
   const fileCache = cache.files || {};
   const updatedFiles = {};
   let dirty = false;
 
-  for (const file of listTranscriptFiles(projectsDir)) {
-    let currentSize;
-    try { currentSize = fs.statSync(file).size; } catch { continue; }
+  const currentFingerprint = projectsDirFingerprint(projectsDir);
+  const needsRescan = currentFingerprint !== (cache.dirFingerprint || "");
 
-    const cached = fileCache[file];
-    if (cached && cached.size === currentSize) {
-      updatedFiles[file] = cached;
-      continue;
+  if (!needsRescan && Object.keys(fileCache).length > 0) {
+    // Fast path: no new project dirs detected — check only known files for size changes.
+    for (const [file, cached] of Object.entries(fileCache)) {
+      let currentSize;
+      try { currentSize = fs.statSync(file).size; } catch { continue; }
+      if (cached && cached.size === currentSize) { updatedFiles[file] = cached; continue; }
+      const offset = (cached && currentSize > cached.size) ? cached.size : 0;
+      const chunk = readFileFrom(file, offset);
+      const existingByModel = offset > 0 ? (cached.byModel || {}) : {};
+      const byModel = parseUsageLines(chunk, today, existingByModel);
+      updatedFiles[file] = { size: currentSize, byModel };
+      dirty = true;
     }
-
-    const offset = (cached && currentSize > cached.size) ? cached.size : 0;
-    const content = readFileFrom(file, offset);
-    const existingByModel = offset > 0 ? (cached.byModel || {}) : {};
-    const byModel = parseUsageLines(content, today, existingByModel);
-    updatedFiles[file] = { size: currentSize, byModel };
-    dirty = true;
+  } else {
+    // Slow path: full rescan (first run or project dir structure changed).
+    for (const file of listTranscriptFiles(projectsDir)) {
+      let currentSize;
+      try { currentSize = fs.statSync(file).size; } catch { continue; }
+      const cached = fileCache[file];
+      if (cached && cached.size === currentSize) { updatedFiles[file] = cached; continue; }
+      const offset = (cached && currentSize > cached.size) ? cached.size : 0;
+      const chunk = readFileFrom(file, offset);
+      const existingByModel = offset > 0 ? (cached.byModel || {}) : {};
+      const byModel = parseUsageLines(chunk, today, existingByModel);
+      updatedFiles[file] = { size: currentSize, byModel };
+      dirty = true;
+    }
+    dirty = true; // always persist updated fingerprint after rescan
+    cleanupStaleDayCaches();
   }
 
-  if (dirty) writeCacheFile(USAGE_CACHE_PATH, { date: today, files: updatedFiles });
+  if (dirty || needsRescan) {
+    writeCacheFile(cacheFile, { date: today, files: updatedFiles, dirFingerprint: currentFingerprint });
+  }
 
   let totalTokenCount = 0;
   let totalCostUsd = 0;
