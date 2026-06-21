@@ -193,7 +193,7 @@ function extractSkillName(toolName: unknown, toolInput: unknown): string | null 
   }
   if (
     ["read", "fs_read", "fileread", "filereadtool", "readtool",
-     "mcp__filesystem__read_file", "mcp__filesystem__search_in_file"].includes(tool)
+     "mcp__filesystem__read_file", "mcp__filesystem__search_in_file", "mcp__filesystem__search_files"].includes(tool)
   ) {
     for (const p of collectToolPaths(toolInput)) {
       const skill = skillFromPath(p);

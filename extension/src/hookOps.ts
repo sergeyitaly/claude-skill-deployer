@@ -39,7 +39,7 @@ const COPILOT_BUDGET_HOOK_FILE = "claude-skills-budget.json";
 const COPILOT_PROFILE_INIT_HOOK_FILE = `${ATTRIBUTION_HOOK_MARKER}-profile-init.json`;
 
 const OFFICIAL_SKILLS_SESSION_MATCHER = "startup|resume|clear";
-const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread|mcp__filesystem__read_file|mcp__filesystem__search_in_file";
+const ATTRIBUTION_HOOK_MATCHER = "Skill|Read|read|fs_read|fileread|mcp__filesystem__read_file|mcp__filesystem__search_in_file|mcp__filesystem__search_files";
 
 // Hook name → URL path segments used to detect and generate curl commands
 const HOOK_SKILL_INVOKE = "skill-invoke";
@@ -848,7 +848,7 @@ function kiroAttributionHookPayload(target: string): KiroHookFile {
     enabled: true,
     when: {
       type: "postToolUse",
-      toolTypes: ["Skill", "skill", "read", "fs_read", "fileread", "mcp__filesystem__read_file", "mcp__filesystem__search_in_file"],
+      toolTypes: ["Skill", "skill", "read", "fs_read", "fileread", "mcp__filesystem__read_file", "mcp__filesystem__search_in_file", "mcp__filesystem__search_files"],
     },
     then: {
       type: "runCommand",

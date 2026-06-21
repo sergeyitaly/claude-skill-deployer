@@ -48,6 +48,40 @@ Each release includes:
 
 ---
 
+## [1.0.88] - 2026-06-21
+
+**Summary:** Prediction accuracy fixes — false-positive proposals eliminated, hook matcher gap closed, Executive Summary guidance corrected.
+
+**Theme:** Signal quality — removing noise so that when learning data accumulates, precision metrics reflect reality.
+
+### Fixed
+
+- **`infra-cost-guard` proposed at 75% confidence from session warning text** (`taskSkillProposals.ts`) — Hook-injected session-size messages (`"Long session (warn) — tighten skill set..."`) were included verbatim in `promptExcerpt` and tokenized. The word `"warn"` appeared 4× (one per repeated hook warning), each scoring +15 against `infra-cost-guard`'s description for a total of 60 pts → 75% confidence. Three-part fix: (1) added `"warn"`, `"long"`, `"tighten"`, `"context"`, `"session"` to `LOW_SIGNAL_TASK_TOKENS`; (2) deduplicated tokens with `[...new Set(tokenize(promptText))]` so each word scores once; (3) added two-signal requirement — proposals with score < 40 and fewer than 2 independent signal types are now filtered out.
+
+- **`mcp__filesystem__search_files` absent from attribution hook matcher** (`hookOps.ts`, `hookHandlers.ts`) — `ATTRIBUTION_HOOK_MATCHER` and Kiro `toolTypes` included `mcp__filesystem__search_in_file` but not `mcp__filesystem__search_files`. Skill invocations via `search_files` (e.g. searching for `SKILL.md`) fired the hook but were not matched, silently dropping runs. Both arrays and the `extractSkillName` handler extended to include `mcp__filesystem__search_files`. Migration function auto-updates live hook configs on next workspace load.
+
+- **Executive Summary "Top Action" shows wrong advice when learning loop is empty** (`costDashboard.ts`) — When attribution hooks are freshly installed (confidence ~35%) but no `runs.jsonl` data exists yet, the panel showed `"Reset attribution → +20 API pts"`. Reset is a no-op when there is nothing to reset. Added a pre-check: when `learningRate < 5%` AND `precision < 5%` AND `attribution ≥ 30%`, the action now reads `"Invoke skills in agent sessions → learning loop begins"`.
+
+- **`mcp-agent-hints.md` missing — CHANGELOG.md read 14× per session** — File did not exist, so agents had no cache guidance. `CHANGELOG.md` (105 KB) was loaded in full on every analysis cycle, wasting ~53k tokens (~$0.16/cycle). Created `.claude/learning/mcp-agent-hints.md` with rules: use `search_in_file` for version lookups in CHANGELOG.md, cache `extension/src/` and root directory listings within a task.
+
+### Changed
+
+- `ATTRIBUTION_HOOK_MATCHER` constant: `...mcp__filesystem__search_in_file` → `...mcp__filesystem__search_in_file|mcp__filesystem__search_files`
+- Kiro `.kiro.hook` `toolTypes` array: added `"mcp__filesystem__search_files"` to keep parity with Claude/Cursor matchers
+
+### Before / After
+
+| Metric | Before | After |
+|---|---|---|
+| `infra-cost-guard` proposal confidence | 75% (false positive) | Filtered out |
+| Proposals with single weak signal | Pass at score ≥ 20 | Filtered: score < 40 + signalTypes < 2 |
+| Hook matcher coverage | `read_file`, `search_in_file` | + `search_files` |
+| Kiro toolTypes count | 7 | 8 |
+| Executive Summary guidance (empty state) | "Reset attribution" | "Invoke skills → learning begins" |
+| CHANGELOG.md reads per session | 14× full (105 KB each) | search_in_file only |
+
+---
+
 ## [1.0.87] - 2026-06-21
 
 **Summary:** Learning loop unblocked — `runs.jsonl` now populates from MCP file reads; General API cost corrected from $9/M blended to per-type rates.

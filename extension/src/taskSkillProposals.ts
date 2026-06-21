@@ -107,6 +107,9 @@ export function writeTaskSkillProposals(target: string, data: TaskSkillProposals
  * that appear in virtually every skill description and name, producing false positives.
  */
 const LOW_SIGNAL_TASK_TOKENS = new Set([
+  // Hook-injected session-warning words — these appear in promptExcerpt from cost-control hooks
+  // and create false positives (e.g. "warn" → infra-cost-guard at 75% confidence).
+  "warn", "long", "tighten", "context", "session",
   // Domain-specific low-signal words
   "skill", "skills", "task", "work", "file", "code", "set",
   // Common English stop words (3 chars)
@@ -201,24 +204,30 @@ function scoreSkillForTask(
 ): { confidence: number; reason: string } | null {
   let score = 0;
   const reasons: string[] = [];
+  let signalTypes = 0;
 
   for (const token of tokens) {
     if (LOW_SIGNAL_TASK_TOKENS.has(token)) {
       continue;
     }
+    let tokenHit = false;
     if (skillName.includes(token)) {
       score += 25;
       reasons.push(`name matches "${token}"`);
+      tokenHit = true;
     }
     if (description.toLowerCase().includes(token)) {
       score += 15;
       reasons.push(`description mentions "${token}"`);
+      tokenHit = true;
     }
     const hints = TASK_KEYWORD_HINTS[token];
     if (hints?.includes(skillName)) {
       score += 30;
       reasons.push(`task keyword "${token}" maps to this skill`);
+      tokenHit = true;
     }
+    if (tokenHit) signalTypes++;
   }
 
   // Only award the glob bonus for specific globs — catch-all patterns like **/*
@@ -227,6 +236,7 @@ function scoreSkillForTask(
   if (specificGlobs.length > 0) {
     score += 20;
     reasons.push(`workspace files match ${specificGlobs.slice(0, 2).join(", ")}`);
+    signalTypes++;
   }
 
   if (installed) {
@@ -237,12 +247,21 @@ function scoreSkillForTask(
   if (recentSkills.last7days.has(skillName)) {
     score += 25;
     reasons.push("used in last 7 days");
+    signalTypes++;
   } else if (recentSkills.last30days.has(skillName)) {
     score += 15;
     reasons.push("used in last 30 days");
+    signalTypes++;
   }
 
   if (score < 20) {
+    return null;
+  }
+
+  // Require 2+ independent signal types for low-confidence proposals.
+  // Prevents single weak text matches (e.g. "warn" in session hook messages → infra-cost-guard)
+  // from producing noisy proposals that hurt precision.
+  if (score < 40 && signalTypes < 2) {
     return null;
   }
 
@@ -269,7 +288,9 @@ export function rankAllTaskSkillProposals(
 ): TaskSkillProposal[] {
   const detected = detectRelevantSkills(target, manifest);
   const installed = new Set(listInstalledSkillNames(target));
-  const tokens = tokenize(promptText);
+  // Deduplicate tokens — each word scored only once, preventing repeated hook-message
+  // phrases (e.g. "Long session (warn)..." × 4) from inflating a single token's score.
+  const tokens = [...new Set(tokenize(promptText))];
 
   const proposals = new Map<string, TaskSkillProposal>();
   const recentSkills = buildRecentSkills(target);

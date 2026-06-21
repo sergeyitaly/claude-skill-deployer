@@ -179,12 +179,21 @@ function buildExecutiveSummaryHtml(
   const attrClass  = pct >= 80 ? "roi-high" : pct >= 50 ? "roi-medium" : "roi-low";
 
   // Top action: derive from lowest sub-score
-  let topAction = "Run attribution reset → +20 API pts";
   const bd = apiScore.breakdown;
-  if ((bd.attribution ?? 100) < 50) topAction = "Reset attribution → +20 API pts";
-  else if ((bd.precision ?? 100) < 40) topAction = "Stop-word proposals reduced → precision improving";
-  else if ((bd.learningRate ?? 100) < 30) topAction = "Invoke more skills to boost learning rate";
-  else if ((bd.skillEfficiency ?? 100) < 30) topAction = "Archive unused skills → raise ROI score";
+  let topAction = "Run attribution reset → +20 API pts";
+  // When hooks are installed but no invocations recorded yet, guide user toward actual skill use
+  // rather than suggesting a reset (which would be a no-op with no data).
+  if ((bd.learningRate ?? 100) < 5 && (bd.precision ?? 100) < 5 && (bd.attribution ?? 100) >= 30) {
+    topAction = "Invoke skills in agent sessions → learning loop begins";
+  } else if ((bd.attribution ?? 100) < 50) {
+    topAction = "Reset attribution → +20 API pts";
+  } else if ((bd.precision ?? 100) < 40) {
+    topAction = "Stop-word proposals reduced → precision improving";
+  } else if ((bd.learningRate ?? 100) < 30) {
+    topAction = "Invoke more skills to boost learning rate";
+  } else if ((bd.skillEfficiency ?? 100) < 30) {
+    topAction = "Archive unused skills → raise ROI score";
+  }
 
   return `<div class="panel" style="background:var(--vscode-editor-inactiveSelectionBackground,rgba(0,0,0,.04));border-left:3px solid var(--vscode-focusBorder,#007acc)">
   <h2 style="margin-top:0">Executive Summary</h2>
