@@ -85,6 +85,41 @@ describe("installAttributionHooks", () => {
     expect(fs.existsSync(path.join(target, ".claude", "hooks", "skill-invoke-watch.js"))).toBe(false);
     expect(fs.existsSync(path.join(target, ".cursor", "hooks", "skill-invoke-watch.js"))).toBe(false);
   });
+
+  it("replaces stale-port skill-invoke hook (e.g. old 51710 → current 4895)", () => {
+    const target = makeWorkspace();
+    // Pre-populate settings.json with a PostToolUse hook pointing to the old port
+    const settingsDir = path.join(target, ".claude");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const staleSettings = {
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: "Skill|Read|read|fs_read|fileread",
+            hooks: [
+              {
+                type: "command",
+                command: `curl -sf -X POST -H "Content-Type: application/json" --data @- "http://127.0.0.1:51710/hook/skill-invoke?agent=claude&cwd=\${CLAUDE_PROJECT_DIR}" || true`,
+                timeout: 8,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    fs.writeFileSync(path.join(settingsDir, "settings.json"), JSON.stringify(staleSettings), "utf-8");
+
+    installAttributionHooks(EXTENSION_PATH, target);
+
+    const updated = JSON.parse(
+      fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8")
+    ) as { hooks?: { PostToolUse?: { hooks: { command: string }[] }[] } };
+    const cmds = updated.hooks?.PostToolUse?.flatMap((m) => m.hooks.map((h) => h.command)) ?? [];
+    // Stale port must be gone
+    expect(cmds.some((c) => c.includes("51710"))).toBe(false);
+    // Current port must be present
+    expect(cmds.some((c) => c.includes("4895") && c.includes("/hook/skill-invoke"))).toBe(true);
+  });
 });
 
 describe("installCostControlHooks", () => {

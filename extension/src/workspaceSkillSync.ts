@@ -15,6 +15,7 @@ import {
   costControlHooksActive,
   HookInstallStatus,
   installAttributionHooks,
+  installCostControlHooks,
   installOfficialSkillsSessionHook,
   refreshAttributionHookScripts,
   refreshCostControlHookScripts,
@@ -84,6 +85,22 @@ export function ensureAttributionHooksActive(
   const status = installAttributionHooks(extensionPath, target);
   if (status === "installed" || status === "updated") {
     log(`Attribution v2 hooks ${status} (claude/cursor/kiro/copilot as enabled).`);
+  }
+  return status;
+}
+
+/** Idempotent: auto-install session-size and budget hooks when not yet active. */
+export function ensureCostControlHooksActive(
+  extensionPath: string,
+  target: string,
+  log: (line: string) => void
+): HookInstallStatus | undefined {
+  if (costControlHooksActive(target)) {
+    return undefined;
+  }
+  const status = installCostControlHooks(extensionPath, target);
+  if (status === "installed" || status === "updated") {
+    log(`Cost control hooks ${status} (session-size + budget warnings enabled).`);
   }
   return status;
 }
@@ -309,6 +326,11 @@ function runHooksAndLint(
   const attrStatus = ensureAttributionHooksActive(extensionPath, target, log);
   if (attrStatus === "installed" || attrStatus === "updated") {
     result.hooksStatus = attrStatus;
+  }
+
+  const costStatus = ensureCostControlHooksActive(extensionPath, target, log);
+  if (costStatus === "installed" || costStatus === "updated") {
+    result.hooksStatus = result.hooksStatus ?? costStatus;
   }
 
   if (syncHooksOnSkillChangeEnabled() && listInstalledSkills(target).length > 0) {

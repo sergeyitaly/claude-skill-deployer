@@ -150,6 +150,8 @@ const SKILL_FILE_PATTERNS = [
 const SKILL_DENYLIST = new Set([
   "claude", "cursor", "api", "claude-api", "unknown", "base",
   "context", "skill", "skills", "kiro", "copilot",
+  // Common filenames falsely detected as skill names via the skills_library path pattern
+  "manifest", "package", "readme", "changelog", "license",
 ]);
 
 function plausibleSkillName(name: unknown): name is string {

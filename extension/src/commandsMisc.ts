@@ -1,5 +1,8 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { isFeatureEnabled, featureFlagLines, FeatureKey, FEATURE_DESCRIPTIONS } from "./featureFlags";
+import { readCachedEnrichedRuns } from "./runsStore";
 import { pickWorkspaceTarget, workspaceFolderLabel } from "./workspaceTarget";
 import { scanForIssues, repairIssues } from "./errorRecovery";
 import { showOnboardingTour } from "./onboarding";
@@ -101,6 +104,33 @@ export function registerMiscCommands(deps: MiscCommandDeps): vscode.Disposable[]
     vscode.commands.registerCommand("claudeSkills.startOnboardingTour", async () => {
       recordFeatureUse("onboarding");
       await showOnboardingTour(context);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.exportTelemetry", async () => {
+      const target = getTarget();
+      if (!target) {
+        void notifyUserWarn("Claude Skills: open a workspace folder first.");
+        return;
+      }
+      const runs = readCachedEnrichedRuns(target);
+      if (runs.length === 0) {
+        void vscode.window.showWarningMessage("Claude Skills: no telemetry recorded yet — run some skills first.");
+        return;
+      }
+      const header = "timestamp,skill,agent,tokens,cost_usd,success,session_id,model,source";
+      const rows = runs.map((r) => {
+        const model = String((r.metadata as Record<string, unknown>)?.model ?? "").replace(/,/g, ";");
+        const source = String((r.metadata as Record<string, unknown>)?.source ?? "").replace(/,/g, ";");
+        return [
+          r.ts, r.skill, r.agent, r.tokens, r.cost.toFixed(6),
+          r.success ? "true" : "false", r.session_id, model, source,
+        ].join(",");
+      });
+      const csv = [header, ...rows].join("\n") + "\n";
+      const date = new Date().toISOString().slice(0, 10);
+      const outPath = path.join(target, `skill-telemetry-${date}.csv`);
+      fs.writeFileSync(outPath, csv, "utf-8");
+      void notifyUserSuccess(`Claude Skills: exported ${runs.length} row(s) → skill-telemetry-${date}.csv`);
     }),
   ];
 }

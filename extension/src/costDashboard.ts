@@ -31,6 +31,7 @@ import {
   topSkillsFromRuns,
 } from "./skillCostFromRuns";
 import { computeEfficiencyMetrics, formatEfficiencyPanelHtml } from "./efficiencyMetrics";
+import { computeApiScore } from "./agentPerformanceIndex";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import {
   getOrComputeTeamEconomicsBundle,
@@ -320,7 +321,7 @@ export function buildDashboardMainBodyHtml(
   libraryDir: string,
   pipeline: CostPipelineResult,
   options?: { enrichTokens?: boolean }
-): { mainBodyHtml: string; canApplyOptimizations: boolean } {
+): DashboardSnapshotPayload {
   if (options?.enrichTokens !== false) {
     enrichV2HookRunTokens(target, libraryDir);
   }
@@ -372,6 +373,7 @@ export function buildDashboardMainBodyHtml(
   const equalSplitWarn = equalSplitCluster ? formatEqualSplitWarning(equalSplitCluster, true) : null;
   const archived = listArchivedSkills(target);
   const efficiencyMetrics = computeEfficiencyMetrics(target, 14);
+  const apiScore = computeApiScore(target, manifest);
 
   const agentRows = agentUsage
     .map((row) => {
@@ -567,6 +569,23 @@ export function buildDashboardMainBodyHtml(
     }
   </div>
 
+  <div class="panel">
+  <h2>Agent Performance Index</h2>
+  <div class="stat-grid" style="margin-bottom:10px">
+    <div class="stat-pill" title="Composite AI agent quality score (0–100): Precision · Attribution · Efficiency · Learning · Completion · Correction">
+      <b>API Score</b>
+      <span class="val roi-${apiScore.score >= 65 ? "high" : apiScore.score >= 35 ? "medium" : "low"}">${apiScore.score}/100 (${apiScore.grade})</span>
+    </div>
+    <div class="stat-pill"><b>Precision</b><span class="val">${apiScore.breakdown.precision}%</span></div>
+    <div class="stat-pill"><b>Attribution</b><span class="val">${apiScore.breakdown.attribution}%</span></div>
+    <div class="stat-pill"><b>Efficiency</b><span class="val">${apiScore.breakdown.skillEfficiency}%</span></div>
+    <div class="stat-pill"><b>Learning</b><span class="val">${apiScore.breakdown.learningRate}%</span></div>
+    <div class="stat-pill"><b>Completion</b><span class="val">${apiScore.breakdown.taskCompletion}%</span></div>
+    <div class="stat-pill"><b>Correction</b><span class="val">${apiScore.breakdown.humanCorrection}%</span></div>
+  </div>
+  <p class="note">Weights: Precision 25% · Attribution 20% · Efficiency 15% · Learning 15% · Completion 15% · Correction 10%. Target: ≥65 (B).</p>
+</div>
+
   ${formatEfficiencyPanelHtml(efficiencyMetrics)}
 
   ${
@@ -589,7 +608,7 @@ export function buildDashboardMainBodyHtml(
 
   ${archived.length > 0 ? `<div class="panel"><h2>Archived</h2><p class="note">${archived.map(escapeHtml).join(", ")}</p></div>` : ""}`;
 
-  return { mainBodyHtml, canApplyOptimizations };
+  return { mainBodyHtml, canApplyOptimizations, apiScore };
 }
 
 export function buildAndCacheDashboardSnapshot(

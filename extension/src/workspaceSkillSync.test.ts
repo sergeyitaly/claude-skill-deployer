@@ -65,7 +65,7 @@ describe("propagateWorkspaceSkillChange", () => {
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
   });
 
-  it("does not install cost-control copilot hooks when only attribution is active", () => {
+  it("auto-installs cost-control hooks during propagation (Phase 3 behaviour)", () => {
     const target = makeWorkspace();
     fs.mkdirSync(path.join(target, ".claude", "skills", "alpha-skill"), { recursive: true });
     fs.writeFileSync(path.join(target, ".claude", "skills", "alpha-skill", "SKILL.md"), "# Alpha\n", "utf-8");
@@ -74,8 +74,8 @@ describe("propagateWorkspaceSkillChange", () => {
       forceAgentSync: true,
     });
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
-    expect(costControlHooksActive(target)).toBe(false);
-    expect(fs.existsSync(path.join(target, ".github", "hooks", "claude-skills-budget.json"))).toBe(false);
+    // Cost control hooks are now auto-installed alongside attribution hooks.
+    expect(costControlHooksActive(target)).toBe(true);
   });
 
   it("refreshes cost-control hooks on all agents when cost control is active", () => {

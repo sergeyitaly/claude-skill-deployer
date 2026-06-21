@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOps";
-import { invalidateLearningCache } from "./runsStore";
+import { invalidateLearningCache, readCachedEnrichedRuns } from "./runsStore";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
 
@@ -166,12 +166,38 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length >= 3);
 }
 
+// Globs that match everything — provide no discriminative signal for scoring
+const CATCH_ALL_GLOBS = new Set(["**/*", "**/*.*", "**/*.md"]);
+
+interface RecentSkills {
+  last7days: Set<string>;
+  last30days: Set<string>;
+}
+
+function buildRecentSkills(target: string): RecentSkills {
+  const cutoff7 = Date.now() - 7 * 86_400_000;
+  const cutoff30 = Date.now() - 30 * 86_400_000;
+  const last7days = new Set<string>();
+  const last30days = new Set<string>();
+  try {
+    for (const run of readCachedEnrichedRuns(target)) {
+      const ts = new Date(run.ts).getTime();
+      if (ts >= cutoff7) last7days.add(run.skill);
+      else if (ts >= cutoff30) last30days.add(run.skill);
+    }
+  } catch {
+    // non-fatal — degrade gracefully when runs.jsonl is absent or corrupt
+  }
+  return { last7days, last30days };
+}
+
 function scoreSkillForTask(
   skillName: string,
   description: string,
   tokens: string[],
   matchedGlobs: string[],
-  installed: boolean
+  installed: boolean,
+  recentSkills: RecentSkills
 ): { confidence: number; reason: string } | null {
   let score = 0;
   const reasons: string[] = [];
@@ -195,13 +221,25 @@ function scoreSkillForTask(
     }
   }
 
-  if (matchedGlobs.length > 0) {
+  // Only award the glob bonus for specific globs — catch-all patterns like **/*
+  // match every project and add no signal, so skip them for scoring.
+  const specificGlobs = matchedGlobs.filter((g) => !CATCH_ALL_GLOBS.has(g));
+  if (specificGlobs.length > 0) {
     score += 20;
-    reasons.push(`workspace files match ${matchedGlobs.slice(0, 2).join(", ")}`);
+    reasons.push(`workspace files match ${specificGlobs.slice(0, 2).join(", ")}`);
   }
 
   if (installed) {
     score += 5;
+  }
+
+  // Boost skills with recent invocation history — evidence of actual value here.
+  if (recentSkills.last7days.has(skillName)) {
+    score += 25;
+    reasons.push("used in last 7 days");
+  } else if (recentSkills.last30days.has(skillName)) {
+    score += 15;
+    reasons.push("used in last 30 days");
   }
 
   if (score < 20) {
@@ -234,10 +272,11 @@ export function rankAllTaskSkillProposals(
   const tokens = tokenize(promptText);
 
   const proposals = new Map<string, TaskSkillProposal>();
+  const recentSkills = buildRecentSkills(target);
 
   for (const [name, rule] of Object.entries(manifest.skills)) {
     const matchedGlobs = detected[name] ?? [];
-    const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name));
+    const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name), recentSkills);
     if (!scored) {
       continue;
     }

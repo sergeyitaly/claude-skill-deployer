@@ -41,6 +41,39 @@ Each release includes:
 
 ---
 
+## [1.0.84] - 2026-06-21
+
+**Summary:** Production readiness improvements — attribution stale-port fix, proposal history boost, cost-control hooks auto-enabled, profile/manifest cleanup, Agent Performance Index, and audit CSV export.
+
+**Theme:** Observability → Adaptive Intelligence (API Score: 32 → ≥55)
+
+### Fixed
+
+- **Attribution stale-port hook replaced on re-install** — `ensurePostToolHookRegistered` (`hookOps.ts`) previously detected any hook containing `/hook/skill-invoke` and returned early, leaving a dead port 51710 command in `.claude/settings.json` from pre-1.0.83 installs. The PostToolUse hook never reached the extension server (port 4895), causing equal-split mis-attribution (20% confidence). The function now replaces stale-port commands in-place before the early-return check. After running **Reset Mis-attributed Cost Data**, attribution confidence rises from 20% toward 74%+.
+- **`manifest` false skill attribution removed** — Files named `manifest` (e.g. `skills_library/manifest.json`) matched the skill-invoke hook's path pattern and were recorded as `skill: "manifest"` runs, appearing as rank-3 in the top-skills dashboard at $0.133. Added `"manifest"`, `"package"`, `"readme"`, `"changelog"`, `"license"` to `SKILL_DENYLIST` in `hookHandlers.ts`.
+- **Archived skills no longer applied from profile** — `processSessionSkillApplyRequest` in `sessionSkillApply.ts` now filters the profile skill list against the library manifest before applying. Skills removed from `manifest.json` in prior releases (e.g. `adx-schema-check`, `algorithmic-art`) are silently skipped; required platform skills are always kept.
+
+### Changed
+
+- **Proposal engine — history boost** (`taskSkillProposals.ts`) — `scoreSkillForTask` now reads recent invocations from `runs.jsonl` via `buildRecentSkills(target)` and applies +25 (used in last 7 days) or +15 (last 30 days) to the confidence score. Catch-all globs (`**/*`, `**/*.*`, `**/*.md`) no longer contribute the +20 glob bonus — they provide zero discriminative signal. Combined effect: proposals for skills already proven useful in this workspace surface higher; universal-glob skills stop inflating the list.
+- **Cost control hooks auto-installed on workspace sync** (`workspaceSkillSync.ts`) — `ensureCostControlHooksActive` added alongside `ensureAttributionHooksActive` in `propagateWorkspaceSkillChange`. Session-size and daily-budget warning hooks now install automatically on first workspace open instead of requiring a manual command-palette invocation.
+- **`profile.local.json` updated** — Removed 4 archived skills (`adx-schema-check`, `algorithmic-art`, `brand-guidelines`, `canvas-design`) and 2 merged skills (`ci-pipeline-debug`, `ci-preflight`). Added `github-actions-ci`, `vscode-extension-publishing`, `mcp-server-creation`, `vitest-extension-testing`.
+
+### Added
+
+- **Agent Performance Index (API Score)** (`agentPerformanceIndex.ts`) — New 0–100 composite KPI displayed as a dedicated panel in the cost dashboard above Efficiency Metrics. Sub-scores: Precision 25%, Attribution 20%, Skill Efficiency 15%, Learning Rate 15%, Task Completion 15%, Human Correction 10%. Grades A–F. Also persisted in `dashboard-snapshot.json` for external tooling.
+- **Audit export command** — `Claude Skills: Export Skill Telemetry (CSV)` (command: `claudeSkills.exportTelemetry`) writes a CSV file (`skill-telemetry-YYYY-MM-DD.csv`) to the workspace root with columns: `timestamp, skill, agent, tokens, cost_usd, success, session_id, model, source`. Enables compliance export and external analysis.
+
+### Tests
+
+- +10 new tests (463 total, up from 453)
+- `hookOps.test.ts`: stale-port skill-invoke hook replaced on re-install
+- `taskSkillProposals.test.ts`: history boost ≥25 for 7-day runs; no boost for 35-day runs; catch-all glob adds no score
+- `agentPerformanceIndex.test.ts`: 5 tests covering empty workspace, high attribution, learning rate, feedback penalty, perfect-inputs path
+- `workspaceSkillSync.test.ts`: updated stale assertion — cost control hooks now auto-install during propagation
+
+---
+
 ## [1.0.83] - 2026-06-21
 
 **Summary:** MCP `edit_file` CRLF fix for Windows YAML files, proposal engine stop-word filter, skill library cleanup, and 2 new skills.

@@ -646,6 +646,21 @@ function ensurePostToolHookRegistered(
     return true;
   });
 
+  // Replace stale-port hooks: if a hook targets /hook/<hookName> but its command
+  // no longer matches the canonical URL (e.g. old port 51710 vs current 4895),
+  // update it in-place so the hook reaches the running extension server.
+  let replacedStale = false;
+  for (const entry of settings.hooks.PostToolUse) {
+    for (let i = 0; i < entry.hooks.length; i++) {
+      const h = entry.hooks[i];
+      if (h.command.includes(`/hook/${hookName}`) && h.command !== command) {
+        entry.hooks[i] = { ...h, command };
+        replacedStale = true;
+      }
+    }
+  }
+  if (replacedStale) return true;
+
   if (hasPostToolHook(settings, hookName)) {
     return removedLegacy || migrateAttributionHookMatcher(settings);
   }

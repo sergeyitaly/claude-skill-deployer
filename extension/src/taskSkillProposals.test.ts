@@ -134,4 +134,89 @@ describe("computeTaskSkillProposals", () => {
     expect(tfProposal!.confidence).toBeGreaterThan(25);
     expect(tfProposal!.reason).toMatch(/terraform|pipeline/i);
   });
+
+  it("skill used in last 7 days gets ≥25 confidence boost over unused skill", () => {
+    const makeRun = (skillName: string, daysAgo: number) => ({
+      ts: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+      timestamp: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+      skill: skillName,
+      action: "skill_invoke",
+      agent: "claude",
+      tokens: 1000,
+      cost: 0.01,
+      rc: 0,
+      success: true,
+      session_id: "test-session",
+      project: "test",
+      branch: null,
+      metadata: { source: "skill-invoke-hook-v2", invoked: true },
+    });
+
+    const withHistory = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-hist7-"));
+    fs.mkdirSync(path.join(withHistory, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(withHistory, ".claude", "learning", "runs.jsonl"),
+      JSON.stringify(makeRun("terraform-plan-review", 2)) + "\n",
+      "utf-8"
+    );
+
+    const noHistory = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-nohist-"));
+
+    const scoreWith = computeTaskSkillProposals(withHistory, manifest, "fix plan")
+      .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
+    const scoreWithout = computeTaskSkillProposals(noHistory, manifest, "fix plan")
+      .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
+
+    expect(scoreWith - scoreWithout).toBeGreaterThanOrEqual(25);
+  });
+
+  it("skill used 35 days ago gets no recent usage boost", () => {
+    const makeRun = (skillName: string, daysAgo: number) => ({
+      ts: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+      timestamp: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+      skill: skillName,
+      action: "skill_invoke",
+      agent: "claude",
+      tokens: 1000,
+      cost: 0.01,
+      rc: 0,
+      success: true,
+      session_id: "test-session",
+      project: "test",
+      branch: null,
+      metadata: { source: "skill-invoke-hook-v2", invoked: true },
+    });
+
+    const staleHistory = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-stale-"));
+    fs.mkdirSync(path.join(staleHistory, ".claude", "learning"), { recursive: true });
+    fs.writeFileSync(
+      path.join(staleHistory, ".claude", "learning", "runs.jsonl"),
+      JSON.stringify(makeRun("terraform-plan-review", 35)) + "\n",
+      "utf-8"
+    );
+
+    const noHistory = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-nohist2-"));
+
+    const scoreStale = computeTaskSkillProposals(staleHistory, manifest, "fix plan")
+      .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
+    const scoreNone = computeTaskSkillProposals(noHistory, manifest, "fix plan")
+      .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
+
+    // 35-day-old run is outside the 30-day window — no boost applied
+    expect(scoreStale).toBe(scoreNone);
+  });
+
+  it("catch-all-only glob (**/*) does not add score — must come from tokens or history", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-catchall-"));
+    // theme-factory has only **/* as its detect_glob; prompt has no theme-related tokens
+    const proposals = computeTaskSkillProposals(
+      target,
+      manifest,
+      "debug terraform plan failure"
+    );
+    // terraform-plan-review must appear (specific glob *.tf + token match)
+    expect(proposals.find((p) => p.name === "terraform-plan-review")).toBeDefined();
+    // theme-factory must NOT appear — only catch-all glob, no token match, no history
+    expect(proposals.find((p) => p.name === "theme-factory")).toBeUndefined();
+  });
 });

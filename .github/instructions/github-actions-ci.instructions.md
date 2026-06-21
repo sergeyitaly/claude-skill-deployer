@@ -1,19 +1,10 @@
 ---
-name: github-actions-ci
-description: Debug GitHub Actions pipeline failures and reproduce CI stages locally. Use when asked to debug CI, fix a failing workflow, reproduce a job with act, or run a pre-flight check before pushing.
-user-invocable: true
-allowed-tools:
-  - mcp__claude-skills-cli__run_command
-  - mcp__claude-skills-cli__list_available_clis
-  - mcp__filesystem__read_file
-  - mcp__filesystem__write_file
-  - mcp__filesystem__list_directory
-  - mcp__filesystem__search_files
-  - Glob
-  - Grep
-  - Edit
-  - Bash
+applyTo:
+  - **/.github/workflows/*.yml
+  - **/.github/workflows/*.yaml
 ---
+
+# github-actions-ci
 
 # GitHub Actions CI
 

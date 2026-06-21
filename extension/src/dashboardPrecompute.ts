@@ -176,6 +176,7 @@ export interface DashboardSnapshotFingerprint extends TeamEconomicsCacheFingerpr
 export interface DashboardSnapshotPayload {
   mainBodyHtml: string;
   canApplyOptimizations: boolean;
+  apiScore?: { score: number; grade: string; breakdown: Record<string, number> };
 }
 
 interface DashboardSnapshotFile {
@@ -184,6 +185,7 @@ interface DashboardSnapshotFile {
   fingerprint: DashboardSnapshotFingerprint;
   mainBodyHtml: string;
   canApplyOptimizations: boolean;
+  apiScore?: { score: number; grade: string; breakdown: Record<string, number> };
 }
 
 export function dashboardSnapshotPath(target: string): string {
@@ -239,6 +241,7 @@ export function writeDashboardSnapshot(
     version: 1, computedAt: new Date().toISOString(),
     fingerprint, mainBodyHtml: payload.mainBodyHtml,
     canApplyOptimizations: payload.canApplyOptimizations,
+    apiScore: payload.apiScore,
   } as DashboardSnapshotFile);
 }
 

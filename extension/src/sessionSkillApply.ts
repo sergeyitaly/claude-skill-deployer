@@ -10,6 +10,7 @@ import {
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
 import { listInstalledSkills } from "./usageStats";
+import { loadManifest } from "./skillOps";
 import {
   readTaskSkillProposals,
   resolveProposalSkillNames,
@@ -317,7 +318,19 @@ export function processSessionSkillApplyRequest(
     return { applied: false, request: req };
   }
 
-  const skills = mergeWithRequiredPlatformSkills(req.skills);
+  const allSkills = mergeWithRequiredPlatformSkills(req.skills);
+  // Filter out skills removed from the library manifest (e.g. archived in a prior release).
+  // Required platform skills are always kept regardless of manifest state.
+  const required = new Set(profileInitRequiredSkills());
+  let manifestSkills: Set<string> | undefined;
+  try {
+    manifestSkills = new Set(Object.keys(loadManifest(libraryDir).skills));
+  } catch {
+    // If manifest is unreadable, skip filtering rather than dropping all skills.
+  }
+  const skills = manifestSkills
+    ? allSkills.filter((s) => required.has(s) || manifestSkills!.has(s))
+    : allSkills;
   const result = applyProposedSkillsLocally(libraryDir, target, skills);
   writeSessionApplyState(target, {
     version: 1,
