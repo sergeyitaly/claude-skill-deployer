@@ -223,6 +223,53 @@ describe("Filesystem MCP server benchmark", () => {
   });
 
   // -------------------------------------------------------------------------
+  // CRLF compatibility — edit_file must succeed on Windows-style line endings
+  // -------------------------------------------------------------------------
+
+  it("edit_file succeeds on a CRLF file with LF old_string", async () => {
+    const crlfFile = path.join(tmpDir, "crlf-test.yml");
+    // Write file with Windows CRLF line endings (as Git on Windows would check it out)
+    fs.writeFileSync(crlfFile, "name: CI\r\non:\r\n  push:\r\n    branches: [main]\r\n", "utf-8");
+
+    const res = await client.call("tools/call", {
+      name: "edit_file",
+      arguments: {
+        path: crlfFile,
+        // old_string uses LF only — simulates what arrives from JSON transport
+        old_string: "name: CI\non:\n  push:\n    branches: [main]\n",
+        new_string: "name: CI\non:\n  push:\n    branches: [main, dev]\n",
+      },
+    });
+
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    expect(((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text).toMatch(/Edited:/);
+
+    // Result file should still have CRLF line endings (original preserved)
+    const result = fs.readFileSync(crlfFile, "utf-8");
+    expect(result).toContain("\r\n");
+    expect(result).toContain("branches: [main, dev]");
+  });
+
+  it("edit_file succeeds on a pure LF file (unchanged behaviour)", async () => {
+    const lfFile = path.join(tmpDir, "lf-test.yml");
+    fs.writeFileSync(lfFile, "name: CI\non:\n  push:\n    branches: [main]\n", "utf-8");
+
+    const res = await client.call("tools/call", {
+      name: "edit_file",
+      arguments: {
+        path: lfFile,
+        old_string: "branches: [main]",
+        new_string: "branches: [main, dev]",
+      },
+    });
+
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const result = fs.readFileSync(lfFile, "utf-8");
+    expect(result).not.toContain("\r\n");
+    expect(result).toContain("branches: [main, dev]");
+  });
+
+  // -------------------------------------------------------------------------
   // Performance
   // -------------------------------------------------------------------------
 
@@ -312,4 +359,3 @@ describe("Filesystem MCP server benchmark", () => {
     expect(elapsed).toBeLessThan(500);
   });
 });
-

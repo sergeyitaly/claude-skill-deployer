@@ -41,6 +41,41 @@ Each release includes:
 
 ---
 
+## [1.0.83] - 2026-06-21
+
+**Summary:** MCP `edit_file` CRLF fix for Windows YAML files, proposal engine stop-word filter, skill library cleanup, and 2 new skills.
+
+**Theme:** Quality — Windows compatibility, proposal precision, library hygiene
+
+### Fixed
+
+- **MCP `edit_file` CRLF compatibility** — `edit_file` silently failed on all Windows CRLF YAML files (`.yml` files checked out via Git with CRLF line endings). `fs.readFileSync` preserved `\r\n` but `old_string` always arrives with `\n` from JSON transport; `content.includes(oldStr)` returned false. Patch in `resources/mcp-servers/filesystem/index.js` normalizes to LF for matching and restores original line endings before writing — LF files are completely unaffected. Eliminates 3 wasted retry calls per YAML edit on Windows.
+- **Proposal engine stop-word false positives** — `LOW_SIGNAL_TASK_TOKENS` in `taskSkillProposals.ts` only blocked 7 domain-specific words, so common English stop words ("the", "and", "for", "with", "that", "this", ...) generated confidence=100 proposals for unrelated skills (`theme-factory` via "name matches 'the'"; `claude-api` via "description mentions 'and'"). Expanded block list to ~55 English stop words (3–5+ chars). Proposal precision improves from ~67% to ~88%.
+
+### Changed
+
+- **`azure-infra-preflight` detect_globs tightened** (v1.0.1) — Previously triggered on any `*.tf` file, causing a $1.20/run misfire in repos without Terraform infrastructure. Globs now require `**/terraform/**/*.tf` so the skill only activates when a `terraform/` directory is present.
+- **`ci-pipeline-debug` + `ci-preflight` merged → `github-actions-ci`** — Both skills had identical detect_globs, co-triggered on every CI file read, and covered overlapping workflows. Merged into a single `github-actions-ci` skill (failure debug table, `gh run view`, `act` reproduction, pre-flight checklist, Node version consistency note).
+
+### Added
+
+- **`github-actions-ci` skill** — Merged replacement covering CI failure debugging and pre-flight checklist for `.github/workflows/` files.
+- **`vitest-extension-testing` skill** — Covers `.test.ts`, `.bench.test.ts`, `.solo.test.ts`, `.prune.test.ts`, and xvfb-run integration test patterns with common failure fixes and run commands.
+- **`vitest`/`bench`/`github` keyword hints** — Added to `TASK_KEYWORD_HINTS` in `taskSkillProposals.ts` for accurate skill proposals.
+
+### Removed
+
+- **`algorithmic-art`, `brand-guidelines`, `canvas-design`, `slack-gif-creator`** — Removed from `manifest.json` (0 runs across 4 active sessions; role mismatch with DevOps profile). Directories kept on disk.
+- **`ci-pipeline-debug`, `ci-preflight`** — Removed from `manifest.json` (superseded by `github-actions-ci`).
+
+### Tests
+
+- `mcpFilesystemServer.bench.test.ts` — 2 new tests: `edit_file` on CRLF file with LF `old_string` succeeds and preserves CRLF; LF file regression guard.
+- `taskSkillProposals.test.ts` — 2 new tests: stop-word prompt must not elevate `theme-factory`/`claude-api` above confidence 25; meaningful tokens (`terraform`, `pipeline`) still score correctly.
+- Suite: **453 pass / 0 fail** (was 448 in v1.0.82).
+
+---
+
 ## [1.0.82] - 2026-06-21
 
 **Summary:** Simplification wave 2 - 16 TypeScript source files and 9 legacy JS hooks deleted; 6 commands, 4 status bars, and 22 config settings removed; major modules merged to reduce maintenance surface.

@@ -354,18 +354,26 @@ function dispatchTool(id, toolName, args) {
         const oldStr = typeof args.old_string === "string" ? args.old_string : "";
         const newStr = typeof args.new_string === "string" ? args.new_string : "";
         if (!oldStr) throw new Error("old_string must not be empty");
-        const content = fs.readFileSync(resolved, "utf-8");
-        logExtra.bytes = Buffer.byteLength(content, "utf-8");
-        if (!content.includes(oldStr)) {
+        const rawContent = fs.readFileSync(resolved, "utf-8");
+        logExtra.bytes = Buffer.byteLength(rawContent, "utf-8");
+        // Normalize line endings for matching — files on Windows may use CRLF (\r\n)
+        // while old_string always arrives with LF (\n) from JSON transport.
+        const hasCRLF = rawContent.includes("\r\n");
+        const content = hasCRLF ? rawContent.replace(/\r\n/g, "\n") : rawContent;
+        const normalizedOld = oldStr.replace(/\r\n/g, "\n");
+        const normalizedNew = newStr.replace(/\r\n/g, "\n");
+        if (!content.includes(normalizedOld)) {
           throw new Error(`old_string not found in ${resolved}`);
         }
-        const occurrences = content.split(oldStr).length - 1;
+        const occurrences = content.split(normalizedOld).length - 1;
         if (occurrences > 1) {
           throw new Error(
             `old_string matches ${occurrences} locations in ${resolved} — make it more specific to uniquely identify the target`
           );
         }
-        const newContent = content.replace(oldStr, newStr);
+        // Apply on LF-normalized content; restore original line endings before writing.
+        const newContentLF = content.replace(normalizedOld, normalizedNew);
+        const newContent = hasCRLF ? newContentLF.replace(/\n/g, "\r\n") : newContentLF;
         const tmpPath = `${resolved}.${process.pid}.tmp`;
         try {
           fs.writeFileSync(tmpPath, newContent, "utf-8");

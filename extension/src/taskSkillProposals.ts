@@ -101,8 +101,29 @@ export function writeTaskSkillProposals(target: string, data: TaskSkillProposals
   ensureGitExcludeEntry(target, PROPOSALS_FILE_RELATIVE);
 }
 
-/** Tokens too generic to score (e.g. \"skills\" matching every *skill* name). */
-const LOW_SIGNAL_TASK_TOKENS = new Set(["skill", "skills", "task", "work", "file", "code", "set"]);
+/**
+ * Tokens that contribute zero confidence when matched against skill names or descriptions.
+ * Includes domain-specific low-signal words and common English stop words (3+ chars)
+ * that appear in virtually every skill description and name, producing false positives.
+ */
+const LOW_SIGNAL_TASK_TOKENS = new Set([
+  // Domain-specific low-signal words
+  "skill", "skills", "task", "work", "file", "code", "set",
+  // Common English stop words (3 chars)
+  "the", "and", "for", "not", "are", "was", "but", "can", "all",
+  "has", "its", "had", "let", "may", "nor", "per", "use", "via",
+  "who", "you", "any", "our", "out", "new",
+  // Common English stop words (4+ chars)
+  "that", "this", "with", "from", "into", "also", "each", "have",
+  "been", "will", "some", "such", "then", "than", "when", "your",
+  "they", "them", "what", "more", "only", "over", "both", "very",
+  "just", "most", "here", "used", "adds", "uses", "runs", "gets",
+  "make", "made", "take", "list", "read",
+  // Common English stop words (5+ chars)
+  "which", "their", "about", "these", "those", "where", "there",
+  "after", "being", "using", "given", "based", "other", "under",
+  "build", "built", "where", "local", "right",
+]);
 
 /** Keyword hints mapped to likely skill names (subset of library). */
 const TASK_KEYWORD_HINTS: Record<string, string[]> = {
@@ -110,7 +131,7 @@ const TASK_KEYWORD_HINTS: Record<string, string[]> = {
   deploy: ["deployment-practical", "azure-deploy", "ci-preflight"],
   pipeline: ["ci-pipeline-debug", "ci-preflight", "gitlab-pipeline-ops"],
   gitlab: ["gitlab-pipeline-ops", "ci-pipeline-debug", "ci-preflight"],
-  github: ["ci-pipeline-debug", "ci-preflight"],
+  github: ["ci-pipeline-debug", "ci-preflight", "github-actions-ci"],
   azure: ["azure-resource-ops", "azure-rbac-diagnostics", "deployment-practical"],
   kusto: ["adx-schema-check"],
   kql: ["adx-schema-check"],
@@ -122,6 +143,8 @@ const TASK_KEYWORD_HINTS: Record<string, string[]> = {
   spreadsheet: ["xlsx"],
   playwright: ["webapp-testing"],
   test: ["webapp-testing", "ci-preflight"],
+  vitest: ["vitest-extension-testing"],
+  bench: ["vitest-extension-testing"],
   mcp: ["mcp-builder"],
   drawio: ["drawio-diagrams"],
   diagram: ["drawio-diagrams"],

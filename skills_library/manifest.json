@@ -24,10 +24,12 @@
       "detect_globs": ["**/*.kql", "**/adx*", "**/*adx*"],
       "cost_estimate": "medium"
     },
-    "ci-pipeline-debug": {
-      "description": "CI pipeline failure debugging (GitLab/GitHub/Azure DevOps)",
-      "detect_globs": ["**/.gitlab-ci.yml", "**/.gitlab/ci/*.yml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/azure-pipelines.yml"],
-      "cost_estimate": "high"
+    "github-actions-ci": {
+      "description": "GitHub Actions CI/CD — debug pipeline failures, reproduce lint/test/validate stages locally before pushing",
+      "detect_globs": ["**/.github/workflows/*.yml", "**/.github/workflows/*.yaml"],
+      "cost_estimate": "medium",
+      "version": "1.0.0",
+      "changelog": "Merged ci-pipeline-debug and ci-preflight"
     },
     "aidlc-tracker": {
       "description": "AI-DLC methodology phase/stage tracking",
@@ -38,11 +40,6 @@
       "description": "AI-DLC document generation (inception/construction/operations/verification)",
       "detect_globs": ["**/docs/aidlc/**", "**/aidlc-docs/**", "**/AIDLC/**", "**/.aidlc-docs/**"],
       "cost_estimate": "high"
-    },
-    "ci-preflight": {
-      "description": "Reproduce CI pipeline lint/test/validate stages locally before pushing",
-      "detect_globs": ["**/.gitlab-ci.yml", "**/.gitlab/ci/*.yml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/azure-pipelines.yml"],
-      "cost_estimate": "medium"
     },
     "deployment-practical": {
       "description": "Deployment-first delivery: concrete architecture and IaC over theoretical advice; first-try deploy checklists",
@@ -111,11 +108,6 @@
       "detect_globs": ["**/*"],
       "cost_estimate": "low"
     },
-    "algorithmic-art": {
-      "description": "Create algorithmic/generative art with p5.js using seeded randomness and interactive parameter exploration",
-      "detect_globs": ["**/*"],
-      "cost_estimate": "medium"
-    },
     "brand-guidelines": {
       "description": "Apply Anthropic's official brand colors and typography to artifacts and designs",
       "detect_globs": ["**/*"],
@@ -178,11 +170,6 @@
       "detect_globs": ["**/*"],
       "cost_estimate": "medium"
     },
-    "slack-gif-creator": {
-      "description": "Create animated GIFs optimized for Slack with constraints and validation tools",
-      "detect_globs": ["**/*"],
-      "cost_estimate": "medium"
-    },
     "theme-factory": {
       "description": "Apply or generate themes (colors/fonts) for artifacts - slides, docs, HTML pages",
       "detect_globs": ["**/*"],
@@ -205,15 +192,23 @@
     },
     "azure-infra-preflight": {
       "description": "Pre-flight checklist before any Azure Terraform deploy — verify az login, detect SSH key type, check target resource group, validate Terraform version, and write subscription context",
-      "detect_globs": ["**/*.tf", "**/*.tfvars", "**/azure-pipelines.yml", "**/*azure*.yml", "**/*azure*.yaml"],
+      "detect_globs": ["**/terraform/**/*.tf", "**/*.tfvars", "**/azure-pipelines.yml", "**/*azure*.yml", "**/*azure*.yaml"],
       "cost_estimate": "medium",
-      "version": "1.0.0"
+      "version": "1.0.1",
+      "changelog": "Tightened detect_globs: requires terraform/ directory to avoid misfiring on repos without Terraform"
     },
     "infra-cost-guard": {
       "description": "Estimate and gate on infrastructure running costs before deploying — detect expensive resource types in Terraform plan or live resource list, calculate hourly/daily/monthly estimates, warn before apply",
-      "detect_globs": ["**/*.tf", "**/*.tfvars", "**/main.tf", "**/outputs.tf"],
+      "detect_globs": ["**/terraform/**/*.tf", "**/*.tfvars", "**/main.tf", "**/outputs.tf"],
       "cost_estimate": "medium",
       "version": "1.0.0"
+    },
+    "vitest-extension-testing": {
+      "description": "Run, debug, and interpret Vitest tests in the claude-skills-deployer VS Code extension — covers .test.ts, .bench.test.ts, .solo.test.ts patterns and xvfb-run integration",
+      "detect_globs": ["**/vitest.config.ts", "**/*.bench.test.ts", "**/*.solo.test.ts", "**/src/**/*.test.ts"],
+      "cost_estimate": "low",
+      "version": "1.0.0",
+      "changelog": "New skill — covers extension Vitest test workflows"
     }
   }
 }

@@ -26,6 +26,14 @@ const manifest: Manifest = {
       description: "PDF files",
       detect_globs: ["**/*.pdf"],
     },
+    "theme-factory": {
+      description: "Apply or generate themes for artifacts and designs",
+      detect_globs: ["**/*"],
+    },
+    "claude-api": {
+      description: "Reference for the Claude API and Anthropic SDK models and pricing",
+      detect_globs: ["**/*"],
+    },
   },
 };
 
@@ -82,7 +90,6 @@ describe("computeTaskSkillProposals", () => {
     expect(out.refreshed).toBe(false);
   });
 
-
   it("filterProposalsByMinConfidence drops low scores but keeps required platform skills", () => {
     const filtered = filterProposalsByMinConfidence(
       [
@@ -95,5 +102,36 @@ describe("computeTaskSkillProposals", () => {
     expect(filtered.map((p) => p.name)).toContain("ci-pipeline-debug");
     expect(filtered.map((p) => p.name)).toContain("self-learning");
     expect(filtered.map((p) => p.name)).not.toContain("drawio-diagrams");
+  });
+
+  it("stop-word tokens do not generate proposals for unrelated skills", () => {
+    // A prompt composed entirely of stop words should not score theme-factory or claude-api
+    // as high-confidence proposals — they only match via universal globs, not meaningful tokens.
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-stopword-"));
+    const proposals = computeTaskSkillProposals(
+      target,
+      manifest,
+      "Read and follow the profile-init skill immediately and do not wait for the user"
+    );
+    const themeProposal = proposals.find((p) => p.name === "theme-factory");
+    const claudeApiProposal = proposals.find((p) => p.name === "claude-api");
+    // Neither should score above 25 from stop-word-only matches
+    expect(themeProposal?.confidence ?? 0).toBeLessThan(26);
+    expect(claudeApiProposal?.confidence ?? 0).toBeLessThan(26);
+    // Reason must not reference stop words as signal
+    expect(themeProposal?.reason ?? "").not.toMatch(/matches "the"|mentions "and"/);
+  });
+
+  it("meaningful tokens still score correctly after stop-word filtering", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-meaningful-"));
+    const proposals = computeTaskSkillProposals(
+      target,
+      manifest,
+      "Debug terraform plan and fix the pipeline failure"
+    );
+    const tfProposal = proposals.find((p) => p.name === "terraform-plan-review");
+    expect(tfProposal).toBeDefined();
+    expect(tfProposal!.confidence).toBeGreaterThan(25);
+    expect(tfProposal!.reason).toMatch(/terraform|pipeline/i);
   });
 });
