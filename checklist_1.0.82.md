@@ -7,12 +7,12 @@
 - [x] Delete `src/weeklyReport.ts` and `weeklyReportBenefits.ts`
 - [x] Delete `src/vcsReportDelivery.ts`
 - [x] Delete `src/tierBenefitBenchmark.ts`
-- [ ] ~~Delete `src/generalApiSpend.ts`~~ — **VERIFIED: used by attributionCollector, attributionQuality, costDashboard — merge logic first before removing**
-- [ ] Delete `src/dashboardCache.ts`
+- [x] ~~Delete `src/generalApiSpend.ts`~~ — merged into costAttribution.ts, deleted
+- [x] Delete `src/dashboardCache.ts` — merged into dashboardPrecompute.ts, deleted
 - [ ] ~~Delete `src/v2TokenEnrichment.ts`~~ — **KEEP** (used by attributionCollector + costDashboard)
 - [ ] ~~Delete `src/v2TokenEnrichment.test.ts`~~ — **KEEP** (paired with above)
 - [x] Delete `weeklyReport.test.ts`, `weeklyReportBenefits.test.ts`, `tierBenefitBenchmark.test.ts`
-- [ ] Delete `projectProfileDisplay.ts` — move display to projectProfile.ts
+- [x] Delete `projectProfileDisplay.ts` — display merged into projectProfile.ts
 - [x] Remove weekly report commands: `configureWeeklyReportEmail`, `sendWeeklyReport`
 - [ ] Remove benchmark commands: `estimatePRCost`, `runCostPipeline` (consolidate)
 
@@ -34,18 +34,18 @@
 - [ ] Update `efficiencyMetrics.test.ts` with HACE cases
 
 ### 🔀 Remove Legacy JS Hooks
-- [ ] Verify all hooks work via `hookHandlers.ts` HTTP endpoints
-- [ ] Delete `resources/hooks/task-drift-watch.js`
-- [ ] Delete `resources/hooks/budget-watch.js`
-- [ ] Delete `resources/hooks/prompt-context-watch.js`
-- [ ] Delete `resources/hooks/skill-invoke-watch.js` — **REPLACE** with HTTP handler
-- [ ] Delete `resources/hooks/official-skills-watch.js`
-- [ ] Delete `resources/hooks/profile-init-watch.js`
-- [ ] Delete `resources/hooks/branch-sync.js` (unused)
-- [ ] Delete `resources/hooks/usageParse.js` (unused)
-- [ ] Delete `resources/hooks/hookPlatform.js` (unused)
-- [ ] **KEEP** `resources/hooks/terminal-watch.js` — still needed for native terminal logging
-- [ ] Remove/update tests that directly test deleted hook files: `focusHooks.test.ts`, `skillInvokeHook.test.ts`
+- [x] Verify all hooks work via `hookHandlers.ts` HTTP endpoints (confirmed by hookOps.test.ts)
+- [x] Delete `resources/hooks/task-drift-watch.js`
+- [x] Delete `resources/hooks/budget-watch.js`
+- [x] Delete `resources/hooks/prompt-context-watch.js`
+- [x] Delete `resources/hooks/skill-invoke-watch.js`
+- [x] Delete `resources/hooks/official-skills-watch.js`
+- [x] Delete `resources/hooks/profile-init-watch.js`
+- [x] Delete `resources/hooks/branch-sync.js`
+- [x] Delete `resources/hooks/usageParse.js`
+- [x] Delete `resources/hooks/hookPlatform.js`
+- [x] **KEEP** `resources/hooks/terminal-watch.js` — still needed for native terminal logging
+- [x] Deleted `focusHooks.test.ts`, `skillInvokeHook.test.ts`; updated `featureIntegration.test.ts`, `cursorSkillAttribution.test.ts`
 
 ### 🔀 Consolidate Task Learning
 - [ ] Merge `taskDriftReproposal.ts` + `taskSkillUnderuse.ts` → `taskScope.ts`
@@ -149,7 +149,9 @@ claudeSkills.features.
 
 ### 📦 Build Verification
 - [x] `npm run compile` — no TypeScript errors
-- [ ] `npm run package` — VSIX builds successfully
+- [x] `npm run compile` — clean (also after every phase)
+- [x] `npm run test` — 448/449 pass (1 parallel timeout is pre-existing flake, passes in isolation)
+- [x] `npm run package` — VSIX builds successfully (4.26 MB, 608 files)
 - [ ] Manual smoke test in VS Code
 
 ---
