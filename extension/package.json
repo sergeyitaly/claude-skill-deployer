@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.84",
+  "version": "1.0.85",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -199,7 +199,7 @@
       },
       {
         "command": "claudeSkills.enableCliMcpServer",
-        "title": "Enable CLI MCP Server (az, aws, git, kubectlÃ¢â‚¬Â¦)",
+        "title": "Enable CLI MCP Server (az, aws, git, kubectlÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦)",
         "icon": "$(terminal)",
         "category": "Claude Skills"
       },
@@ -444,6 +444,24 @@
         "category": "Claude Skills"
       },
       {
+        "command": "claudeSkills.toggleMcpForce",
+        "title": "Toggle MCP-Force Mode",
+        "icon": "$(lock)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.manageMcpServers",
+        "title": "Manage MCP Servers (Filesystem / CLI)",
+        "icon": "$(server)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.manageEfficiencyGuards",
+        "title": "Manage Efficiency Guards (CLI Loop / Dir Cache)",
+        "icon": "$(shield)",
+        "category": "Claude Skills"
+      },
+      {
         "command": "claudeSkills.repairData",
         "title": "Repair Claude Skills Data",
         "icon": "$(wrench)",
@@ -538,9 +556,9 @@
             ],
             "default": "minimal",
             "enumDescriptions": [
-              "No toasts Ã¢â‚¬â€ errors and confirmations only. Work is logged to the output channel.",
-              "Quiet default Ã¢â‚¬â€ background auto-apply and suggestions log only; command success uses output/status bar.",
-              "All notifications Ã¢â‚¬â€ previous behavior including auto-apply and suggestion toasts."
+              "No toasts ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â errors and confirmations only. Work is logged to the output channel.",
+              "Quiet default ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â background auto-apply and suggestions log only; command success uses output/status bar.",
+              "All notifications ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â previous behavior including auto-apply and suggestion toasts."
             ],
             "description": "How chatty the extension is with VS Code notification toasts."
           },
@@ -556,10 +574,17 @@
             "maximum": 168,
             "description": "Hours between background extension update checks."
           },
-          "claudeSkills.officialSkillsCheckOnSession": {
-            "type": "boolean",
-            "default": true,
-            "description": "When skills_library/ exists, install a Claude Code SessionStart hook that checks anthropics/skills for updates and prompts skill-official-updater."
+          "claudeSkills.featureMode": {
+            "type": "string",
+            "default": "professional",
+            "enum": ["starter", "professional", "power", "team"],
+            "enumDescriptions": [
+              "ðŸŸ¢ Starter â€” Skills, cost display, cost-control hooks, profile init",
+              "ðŸ”µ Professional â€” + Attribution, API Score, Optimization, Prediction (default)",
+              "ðŸ”¬ Power User â€” + Governance, Adaptation tracking, advanced export",
+              "ðŸ‘¥ Team â€” + Team telemetry, reporting, and skill provenance"
+            ],
+            "markdownDescription": "**Feature Mode** â€” controls which panels and capabilities are visible in the dashboard. Start with **Professional** (default). Upgrade to **Power** or **Team** as your team grows.\n\nSee the [v1.1 documentation](https://github.com/sergeyitaly/claude-skill-deployer) for the full feature map."
           },
           "claudeSkills.cliMcp.extraClis": {
             "type": "array",
@@ -572,7 +597,7 @@
           "claudeSkills.mcpForce.enableOnStartup": {
             "type": "boolean",
             "default": false,
-            "description": "Automatically enable MCP Force Mode (permissions.deny + CLAUDE.md block) on extension startup. Requires the filesystem MCP server to be healthy Ã¢â‚¬â€ silently skipped if MCP is not yet configured. Disable via 'Claude Skills: Disable MCP Force Mode'."
+            "description": "Automatically enable MCP Force Mode (permissions.deny + CLAUDE.md block) on extension startup. Requires the filesystem MCP server to be healthy ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â silently skipped if MCP is not yet configured. Disable via 'Claude Skills: Disable MCP Force Mode'."
           },
           "claudeSkills.preferLocalSkillOverrides": {
             "type": "boolean",
@@ -664,7 +689,7 @@
             "type": "number",
             "default": 0,
             "minimum": 0,
-            "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget Ãƒâ€” 30, or 30-day workspace spend if daily budget is off."
+            "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget ÃƒÆ’Ã¢â‚¬â€ 30, or 30-day workspace spend if daily budget is off."
           },
           "claudeSkills.skillFeedback.taskSkillUnderusePromote": {
             "type": "boolean",
@@ -720,7 +745,7 @@
               "Prefer general LLM knowledge; read workspace files when editing or when asked about this repo.",
               "Verify repo-specific facts in files; use general knowledge for concepts (recommended default).",
               "Read and cite workspace files before claiming how this project works; load only task-relevant skills.",
-              "Only assert facts from read files, user input, or tool output Ã¢â‚¬â€ say uncertain rather than guess."
+              "Only assert facts from read files, user input, or tool output ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â say uncertain rather than guess."
             ],
             "default": "balanced",
             "description": "How strongly to prioritize verified local workspace context over general model knowledge."
@@ -763,7 +788,7 @@
             "default": 50,
             "minimum": 0,
             "maximum": 100,
-            "description": "Inject low-trust prompt when workspace attribution confidence is below this percent (0Ã¢â‚¬â€œ100)."
+            "description": "Inject low-trust prompt when workspace attribution confidence is below this percent (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“100)."
           }
         }
       },
@@ -781,7 +806,7 @@
               "deploy-ready"
             ],
             "enumDescriptions": [
-              "Trade-offs and theory are fine Ã¢â‚¬â€ early design discussions.",
+              "Trade-offs and theory are fine ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â early design discussions.",
               "Mix theory with concrete next steps tied to this repo.",
               "Concrete architecture and IaC aligned with repo patterns; read infra before advising (recommended when enabling).",
               "Every answer must be first-try deployable: exact commands, prereqs, validation, rollback."
@@ -892,7 +917,7 @@
           "claudeSkills.projectProfile.promptOnFirstDetect": {
             "type": "boolean",
             "default": true,
-            "description": "On first workspace open (no project-profile.json yet), ask how you plan to use AI agents Ã¢â‚¬â€ e.g. multi-agent team vs solo Ã¢â‚¬â€ instead of silently applying auto-detect."
+            "description": "On first workspace open (no project-profile.json yet), ask how you plan to use AI agents ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â e.g. multi-agent team vs solo ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â instead of silently applying auto-detect."
           },
           "claudeSkills.projectProfile.probeRemoteGit": {
             "type": "boolean",
@@ -1078,7 +1103,7 @@
             "default": 12,
             "minimum": 4,
             "maximum": 30,
-            "description": "Maximum skills kept enabled for the current task (8Ã¢â‚¬â€œ12 recommended)."
+            "description": "Maximum skills kept enabled for the current task (8ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“12 recommended)."
           },
           "claudeSkills.taskFocus.minProposals": {
             "type": "number",
@@ -1092,7 +1117,7 @@
             "default": 50,
             "minimum": 0,
             "maximum": 100,
-            "description": "Only propose task skills at or above this confidence (0Ã¢â‚¬â€œ100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
+            "description": "Only propose task skills at or above this confidence (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
           }
         }
       },
@@ -1128,7 +1153,7 @@
             "default": 2,
             "minimum": 1,
             "maximum": 5,
-            "description": "Prune irrelevant personal installs when installed count exceeds maxActiveSkills Ãƒâ€” this multiplier."
+            "description": "Prune irrelevant personal installs when installed count exceeds maxActiveSkills ÃƒÆ’Ã¢â‚¬â€ this multiplier."
           },
           "claudeSkills.costDiscipline.propagateToAllAgents": {
             "type": "boolean",
@@ -1262,7 +1287,7 @@
           "claudeSkills.telemetry.enabled": {
             "type": "boolean",
             "default": false,
-            "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only Ã¢â‚¬â€ no network upload unless you add your own exporter."
+            "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no network upload unless you add your own exporter."
           }
         }
       },
@@ -1343,7 +1368,7 @@
           "claudeSkills.skillSetResolver.usageRules.removeIdleSkills": {
             "type": "boolean",
             "default": false,
-            "description": "Remove skills idle for at least unusedIdleDays with attributed cost Ã¢â€°Â¥ minAttributedCostUsd."
+            "description": "Remove skills idle for at least unusedIdleDays with attributed cost ÃƒÂ¢Ã¢â‚¬Â°Ã‚Â¥ minAttributedCostUsd."
           },
           "claudeSkills.skillSetResolver.usageRules.unusedIdleDays": {
             "type": "number",
@@ -1666,3 +1691,4 @@
     }
   ]
 }
+

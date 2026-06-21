@@ -9,6 +9,25 @@ import { showOnboardingTour } from "./onboarding";
 import { showOnboardingWizard } from "./onboardingWizard";
 import { recordFeatureUse } from "./analytics";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
+import {
+  isMcpForceActive,
+  enableMcpForcePermissions,
+  injectMcpForceClaude,
+  removeMcpForceClaudeBlock,
+} from "./mcpForce";
+import {
+  isCliLoopGuardConfigured,
+  installCliLoopGuardHook,
+  removeCliLoopGuardHook,
+  isDirCacheGuardConfigured,
+  installDirCacheGuardHook,
+  removeDirCacheGuardHook,
+} from "./hookOps";
+import {
+  getFilesystemMcpServerStatus,
+  enableOfficialFilesystemServer,
+  disableOfficialFilesystemServer,
+} from "./mcpOfficial";
 
 export interface MiscCommandDeps {
   context: vscode.ExtensionContext;
@@ -104,6 +123,70 @@ export function registerMiscCommands(deps: MiscCommandDeps): vscode.Disposable[]
     vscode.commands.registerCommand("claudeSkills.startOnboardingTour", async () => {
       recordFeatureUse("onboarding");
       await showOnboardingTour(context);
+    }),
+
+    // ── Phase 9: Toggle commands (replaces enable/disable pairs) ────────────
+
+    vscode.commands.registerCommand("claudeSkills.toggleMcpForce", async () => {
+      const target = getTarget();
+      if (!target) { void notifyUserWarn("Claude Skills: open a workspace folder first."); return; }
+      const active = isMcpForceActive(target);
+      if (active) {
+        removeMcpForceClaudeBlock(target);
+        void notifyUserSuccess("Claude Skills: MCP-Force Mode disabled (native file tools restored).");
+      } else {
+        const perm = enableMcpForcePermissions(target);
+        if (perm.ok) injectMcpForceClaude(target);
+        void notifyUserSuccess("Claude Skills: MCP-Force Mode enabled (native file tools blocked).");
+      }
+      refreshAll();
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.manageMcpServers", async () => {
+      const status = getFilesystemMcpServerStatus();
+      const fsLabel = status.enabled ? "Filesystem MCP  ✓ Enabled" : "Filesystem MCP  ✗ Disabled";
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: fsLabel, action: "filesystem", enabled: status.enabled },
+        ],
+        { title: "Manage MCP Servers — click to toggle", canPickMany: false }
+      );
+      if (!pick) return;
+      if (pick.action === "filesystem") {
+        if (pick.enabled) {
+          await disableOfficialFilesystemServer(log);
+          void notifyUserSuccess("Claude Skills: Filesystem MCP server disabled.");
+        } else {
+          await enableOfficialFilesystemServer(context.extensionPath, [], log);
+          void notifyUserSuccess("Claude Skills: Filesystem MCP server enabled.");
+        }
+        refreshAll();
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.manageEfficiencyGuards", async () => {
+      const target = getTarget();
+      if (!target) { void notifyUserWarn("Claude Skills: open a workspace folder first."); return; }
+      const cliOn = isCliLoopGuardConfigured(target);
+      const dirOn = isDirCacheGuardConfigured(target);
+      const picks = await vscode.window.showQuickPick(
+        [
+          { label: `CLI Loop Guard  ${cliOn ? "✓ On" : "✗ Off"}`, description: "Auto-correct CLI command failures", picked: cliOn, id: "cli" },
+          { label: `Dir Cache Guard ${dirOn ? "✓ On" : "✗ Off"}`, description: "Block redundant list_directory scans", picked: dirOn, id: "dir" },
+        ],
+        { title: "Manage Efficiency Guards — select to enable", canPickMany: true }
+      );
+      if (!picks) return;
+      const wantCli = picks.some((p) => p.id === "cli");
+      const wantDir = picks.some((p) => p.id === "dir");
+      if (wantCli !== cliOn) {
+        wantCli ? installCliLoopGuardHook(target) : removeCliLoopGuardHook(target);
+      }
+      if (wantDir !== dirOn) {
+        wantDir ? installDirCacheGuardHook(target) : removeDirCacheGuardHook(target);
+      }
+      void notifyUserSuccess(`Claude Skills: CLI Loop Guard ${wantCli ? "on" : "off"} · Dir Cache Guard ${wantDir ? "on" : "off"}.`);
+      refreshAll();
     }),
 
     vscode.commands.registerCommand("claudeSkills.exportTelemetry", async () => {

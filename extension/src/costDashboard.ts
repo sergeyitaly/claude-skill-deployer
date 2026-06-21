@@ -32,6 +32,12 @@ import {
 } from "./skillCostFromRuns";
 import { computeEfficiencyMetrics, formatEfficiencyPanelHtml } from "./efficiencyMetrics";
 import { computeApiScore } from "./agentPerformanceIndex";
+import { buildLearningTimeline, formatLearningTimelineHtml } from "./learningTimeline";
+import { readAdaptationLog, formatAdaptationTimelineHtml } from "./adaptationLog";
+import { isFeatureAvailable } from "./featureMode";
+import { readCachedEnrichedRuns } from "./runsStore";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { computeSkillRoi, formatRoiDashboardLine, upgradeRoiConfidenceFromRuns } from "./skillRoi";
 import {
   getOrComputeTeamEconomicsBundle,
@@ -154,6 +160,168 @@ function setupChecklistHtml(
     "<li>Work in any enabled agent for a few sessions, then reopen this dashboard</li>",
   ].filter(Boolean);
   return `<div class="panel"><h2>Setup checklist</h2><p class="note">Agent totals are valid. Per-skill breakdown needs:</p><ul>${items.join("")}</ul><p class="note">${escapeHtml(health.summary)}</p></div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Executive Summary
+// ---------------------------------------------------------------------------
+
+function buildExecutiveSummaryHtml(
+  target: string,
+  apiScore: ReturnType<typeof computeApiScore>,
+  attrConfidence: number,
+  roiBand: string,
+  netRoi: number,
+  todayCost: number
+): string {
+  const pct = Math.round(attrConfidence * 100);
+  const scoreClass = apiScore.score >= 65 ? "roi-high" : apiScore.score >= 35 ? "roi-medium" : "roi-low";
+  const attrClass  = pct >= 80 ? "roi-high" : pct >= 50 ? "roi-medium" : "roi-low";
+
+  // Top action: derive from lowest sub-score
+  let topAction = "Run attribution reset → +20 API pts";
+  const bd = apiScore.breakdown;
+  if ((bd.attribution ?? 100) < 50) topAction = "Reset attribution → +20 API pts";
+  else if ((bd.precision ?? 100) < 40) topAction = "Stop-word proposals reduced → precision improving";
+  else if ((bd.learningRate ?? 100) < 30) topAction = "Invoke more skills to boost learning rate";
+  else if ((bd.skillEfficiency ?? 100) < 30) topAction = "Archive unused skills → raise ROI score";
+
+  return `<div class="panel" style="background:var(--vscode-editor-inactiveSelectionBackground,rgba(0,0,0,.04));border-left:3px solid var(--vscode-focusBorder,#007acc)">
+  <h2 style="margin-top:0">Executive Summary</h2>
+  <div class="stat-grid">
+    <div class="stat-pill" title="Agent Performance Index — composite 0-100 score">
+      <b>API Score</b>
+      <span class="val ${scoreClass}">${apiScore.score} (${apiScore.grade})</span>
+    </div>
+    <div class="stat-pill" title="Per-skill cost attribution confidence">
+      <b>Attribution</b>
+      <span class="val ${attrClass}">${pct}%</span>
+    </div>
+    <div class="stat-pill" title="Proposal precision — skills proposed vs actually used">
+      <b>Prediction</b>
+      <span class="val">${bd.precision ?? 0}%</span>
+    </div>
+    <div class="stat-pill" title="Skill ROI vs spend">
+      <b>ROI</b>
+      <span class="val roi-${roiBand.toLowerCase()}">${netRoi}x ${roiBand}</span>
+    </div>
+    <div class="stat-pill" title="Approximate AI spend today">
+      <b>Today</b>
+      <span class="val">${todayCost > 0 ? formatCompactUsd(todayCost) : "—"}</span>
+    </div>
+    <div class="stat-pill" title="Highest-impact improvement available">
+      <b>Top Action</b>
+      <span class="val" style="font-size:10px">${escapeHtml(topAction)}</span>
+    </div>
+  </div>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Prediction Intelligence
+// ---------------------------------------------------------------------------
+
+function buildPredictionIntelligenceHtml(
+  target: string,
+  manifest: ReturnType<typeof loadManifest>
+): string {
+  let proposals: { name: string; confidence: number }[] = [];
+  try {
+    const pf = path.join(target, ".claude", "learning", "task-skill-proposals.json");
+    proposals = (JSON.parse(fs.readFileSync(pf, "utf-8")) as { proposals?: typeof proposals }).proposals ?? [];
+  } catch { /* no proposals yet */ }
+
+  const runs = readCachedEnrichedRuns(target);
+  const usedSkills = new Map<string, number>();
+  for (const r of runs) usedSkills.set(r.skill, (usedSkills.get(r.skill) ?? 0) + 1);
+
+  const proposedNames = new Set(proposals.map((p) => p.name));
+  let hits = 0;
+  for (const name of usedSkills.keys()) if (proposedNames.has(name)) hits++;
+  const precision = proposedNames.size > 0 ? Math.round((hits / proposedNames.size) * 100) : 0;
+  const recall    = usedSkills.size > 0     ? Math.round((hits / usedSkills.size) * 100)    : 0;
+  const f1 = precision + recall > 0 ? Math.round((2 * precision * recall) / (precision + recall)) : 0;
+
+  const overPredicted = proposals
+    .filter((p) => !usedSkills.has(p.name))
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 5);
+
+  const accurateRows = [...usedSkills.entries()]
+    .filter(([name]) => proposedNames.has(name))
+    .map(([name, uses]) => ({ name, uses, proposed: proposals.filter((p) => p.name === name).length }))
+    .slice(0, 3);
+
+  const overRows = overPredicted.map((p) => `<tr>
+    <td><b>${escapeHtml(p.name)}</b></td><td>${p.confidence}%</td><td>—</td><td class="roi-low">0%</td>
+  </tr>`).join("");
+
+  const accRows = accurateRows.map((r) => `<tr>
+    <td><b>${escapeHtml(r.name)}</b></td><td>—</td><td>${r.uses}</td>
+    <td class="roi-high">${r.proposed > 0 ? Math.round((r.uses / r.proposed) * 100) : 100}%</td>
+  </tr>`).join("");
+
+  return `<div class="stat-grid" style="margin-bottom:10px">
+  <div class="stat-pill"><b>Precision</b><span class="val">${precision}%</span></div>
+  <div class="stat-pill"><b>Recall</b><span class="val">${recall}%</span></div>
+  <div class="stat-pill"><b>F1</b><span class="val">${f1}%</span></div>
+  <div class="stat-pill"><b>Goal</b><span class="val">F1 ≥ 65%</span></div>
+</div>
+${accRows ? `<p class="note" style="margin:4px 0 2px"><b>Most accurate</b></p>
+<table style="width:100%;font-size:12px;border-collapse:collapse">
+  <tr><th style="text-align:left">Skill</th><th>Conf</th><th>Uses</th><th>Prec</th></tr>
+  ${accRows}
+</table>` : ""}
+${overRows ? `<p class="note" style="margin:8px 0 2px"><b>Over-predicted (0 uses)</b></p>
+<table style="width:100%;font-size:12px;border-collapse:collapse">
+  <tr><th style="text-align:left">Skill</th><th>Conf</th><th>Uses</th><th>Prec</th></tr>
+  ${overRows}
+</table>
+<p class="note" style="margin-top:4px">Catch-all glob cap (v1.0.84) reduces false positives going forward.</p>` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// Governance Panel
+// ---------------------------------------------------------------------------
+
+function buildGovernancePanelHtml(target: string): string {
+  const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
+  const mcpFile  = path.join(target, ".claude", "mcp-usage.jsonl");
+  const trustFile = path.join(target, ".claude", "learning", "attribution-trust.json");
+
+  let runsSize = 0, mcpSize = 0, attrPct = 0, runCount = 0;
+  try { const s = fs.statSync(runsFile); runsSize = s.size; } catch { /* */ }
+  try { const s = fs.statSync(mcpFile); mcpSize = s.size; } catch { /* */ }
+  try {
+    const t = JSON.parse(fs.readFileSync(trustFile, "utf-8")) as { scorePct?: number };
+    attrPct = Math.round((t.scorePct ?? 0) * 100);
+  } catch { /* */ }
+  try {
+    runCount = fs.readFileSync(runsFile, "utf-8").split("\n").filter(Boolean).length;
+  } catch { /* */ }
+
+  const kb = (b: number) => b >= 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} B`;
+
+  const checks = [
+    { ok: true,  label: "Telemetry is local-only (no cloud egress)" },
+    { ok: true,  label: "No prompt content stored in runs.jsonl" },
+    { ok: attrPct >= 80, label: `Attribution confidence ≥80% (current: ${attrPct}%)` },
+    { ok: false, label: "Skill provenance (author + signedAt) not configured" },
+    { ok: false, label: "Audit export not scheduled" },
+  ];
+
+  const checkItems = checks.map((c) =>
+    `<li>${c.ok ? "☑" : "☐"} ${escapeHtml(c.label)}</li>`
+  ).join("");
+
+  return `<div class="stat-grid" style="margin-bottom:8px">
+  <div class="stat-pill"><b>runs.jsonl</b><span class="val">${runCount} records · ${kb(runsSize)}</span></div>
+  <div class="stat-pill"><b>mcp-usage.jsonl</b><span class="val">${kb(mcpSize)}</span></div>
+  <div class="stat-pill"><b>Attribution</b><span class="val ${attrPct >= 80 ? "roi-high" : "roi-low"}">${attrPct}%</span></div>
+  <div class="stat-pill"><b>Provenance</b><span class="val roi-low">Not configured</span></div>
+</div>
+<p class="note" style="margin:4px 0 2px"><b>Compliance checklist</b></p>
+<ul style="font-size:12px;margin:4px 0">${checkItems}</ul>`;
 }
 
 export interface CostDashboardOptions {
@@ -462,7 +630,32 @@ export function buildDashboardMainBodyHtml(
         ? "Session spend (mixed)"
         : "Est. spend";
 
+  // ── Today's cost (for executive summary) ──────────────────────────────────
+  const todayCredit = computeEnabledAgentsCreditUsage(libraryDir, 1, target);
+  const todayCost   = todayCredit.totalCost;
+
+  // ── Team economics (for executive summary ROI) ─────────────────────────────
+  let execRoiBand = "MEDIUM", execNetRoi = 0;
+  try {
+    const teamCacheFile = path.join(target, ".claude", "learning", "team-economics-cache.json");
+    const tc = JSON.parse(fs.readFileSync(teamCacheFile, "utf-8")) as { teamEconomics?: { netRoiBand?: string; netRoi?: number } };
+    execRoiBand = tc.teamEconomics?.netRoiBand ?? "MEDIUM";
+    execNetRoi  = tc.teamEconomics?.netRoi ?? 0;
+  } catch { /* */ }
+
+  // ── Learning timeline ──────────────────────────────────────────────────────
+  const timelineEvents = buildLearningTimeline(target, 30);
+  const adaptationEvents = readAdaptationLog(target);
+
+  // ── Prediction ─────────────────────────────────────────────────────────────
+  const predictionHtml = isFeatureAvailable("prediction") ? buildPredictionIntelligenceHtml(target, manifest) : "";
+
+  // ── Governance ─────────────────────────────────────────────────────────────
+  const governanceHtml = isFeatureAvailable("governance") ? buildGovernancePanelHtml(target) : "";
+
   const mainBodyHtml = `
+  ${buildExecutiveSummaryHtml(target, apiScore, systemState.attribution.confidence, execRoiBand, execNetRoi, todayCost)}
+
   ${formatGlobalTrustBannerHtml(globalTrust)} · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}
 
   ${modeCtx.banner ? `<div class="warn"><b>${escapeHtml(systemState.systemMode)}</b> — ${escapeHtml(modeCtx.banner)}</div>` : ""}
@@ -606,7 +799,42 @@ export function buildDashboardMainBodyHtml(
     }</ul>
   </div>
 
-  ${archived.length > 0 ? `<div class="panel"><h2>Archived</h2><p class="note">${archived.map(escapeHtml).join(", ")}</p></div>` : ""}`;
+  ${archived.length > 0 ? `<div class="panel"><h2>Archived</h2><p class="note">${archived.map(escapeHtml).join(", ")}</p></div>` : ""}
+
+  <details open>
+    <summary style="cursor:pointer;font-weight:600;padding:6px 0;font-size:13px;list-style:none">
+      &#9654; Learning <span class="note" style="font-weight:normal">(${timelineEvents.filter(e => e.type === "invoked").length} invocations recorded)</span>
+    </summary>
+    <div class="panel" style="margin-top:6px">
+      ${formatLearningTimelineHtml(timelineEvents)}
+    </div>
+    ${adaptationEvents.length > 0 ? `<div class="panel" style="margin-top:6px">
+      <h2 style="margin-top:0">Adaptation Timeline</h2>
+      ${formatAdaptationTimelineHtml(adaptationEvents)}
+    </div>` : ""}
+  </details>
+
+  ${predictionHtml ? `<details>
+    <summary style="cursor:pointer;font-weight:600;padding:6px 0;font-size:13px;list-style:none">
+      &#9654; Prediction Intelligence
+    </summary>
+    <div class="panel" style="margin-top:6px">
+      ${predictionHtml}
+    </div>
+  </details>` : ""}
+
+  <details>
+    <summary style="cursor:pointer;font-weight:600;padding:6px 0;font-size:13px;list-style:none">
+      &#9654; Telemetry &amp; Export
+    </summary>
+    <div class="panel" style="margin-top:6px">
+      ${governanceHtml}
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="btn-export-telemetry" class="action-btn" title="Export skill telemetry to CSV">Export Telemetry CSV</button>
+        <button id="btn-clear-mcp-logs" class="action-btn secondary">Clear MCP Logs</button>
+      </div>
+    </div>
+  </details>`;
 
   return { mainBodyHtml, canApplyOptimizations, apiScore };
 }

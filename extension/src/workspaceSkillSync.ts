@@ -21,6 +21,7 @@ import {
   refreshCostControlHookScripts,
 } from "./hookOps";
 import { measureSync, recordPerf } from "./perfTelemetry";
+import { appendAdaptationEvent } from "./adaptationLog";
 import { flashSyncDone, hideSyncStatus, showSyncing } from "./syncFeedback";
 import { runWhenIdle } from "./userInteraction";
 import { workspaceUsesOfficialSkillUpdater } from "./officialSkillsSync";
@@ -101,6 +102,7 @@ export function ensureCostControlHooksActive(
   const status = installCostControlHooks(extensionPath, target);
   if (status === "installed" || status === "updated") {
     log(`Cost control hooks ${status} (session-size + budget warnings enabled).`);
+    appendAdaptationEvent(target, { type: "cost_control_enabled", description: "Cost control hooks enabled (session-size + daily budget warnings)" });
   }
   return status;
 }
@@ -326,6 +328,7 @@ function runHooksAndLint(
   const attrStatus = ensureAttributionHooksActive(extensionPath, target, log);
   if (attrStatus === "installed" || attrStatus === "updated") {
     result.hooksStatus = attrStatus;
+    appendAdaptationEvent(target, { type: "hooks_installed", description: "Attribution v2 hooks installed (per-skill cost tracking enabled)" });
   }
 
   const costStatus = ensureCostControlHooksActive(extensionPath, target, log);

@@ -1,54 +1,44 @@
 import * as vscode from "vscode";
-import { loadManifest, listSkillStatuses } from "./skillOps";
-import {
-  listInstalledSkills,
-  computeUsageStats,
-  computeCrossAgentUsage,
-  formatTokenCount,
-  runAgentLabel,
-} from "./usageStats";
+import { loadManifest } from "./skillOps";
+import { formatTokenCount } from "./usageStats";
 import { formatCompactUsd } from "./skillCost";
 import { budgetUsagePercent, configFromVsCodeSettings } from "./budgetConfig";
 import { localDateKey } from "./localDate";
-import { getCurrentBranch } from "./branchProfiles";
-import { agentProfilesFeatureActive, detectHostAgentId, hostAgentLabel } from "./agentSkillProfiles";
-
 import { budgetProgressBar, remainingDailyBudgetUsd, writeTodayCostSnapshot } from "./todayCostSnapshot";
 import { spendPrefixForCreditSummary, DayUsage } from "./usageCost";
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
-import { computeSkillInefficiencyStats } from "./skillFeedback";
-import { readProjectProfile } from "./projectProfile";
-import {
-  formatProjectProfileStatusBarText,
-  formatProjectProfileStatusBarTooltip,
-} from "./projectProfile";
+import { computeApiScore } from "./agentPerformanceIndex";
+import { Manifest } from "./skillOps";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Module-level state — initialised once from extension.ts activate()
 // ---------------------------------------------------------------------------
 
-let _statusBarItem: vscode.StatusBarItem | undefined;
-let _usageStatusBarItem: vscode.StatusBarItem | undefined;
+let _apiScoreStatusBarItem: vscode.StatusBarItem | undefined;  // was _statusBarItem
 let _creditStatusBarItem: vscode.StatusBarItem | undefined;
+let _attributionAlertBarItem: vscode.StatusBarItem | undefined; // new — conditional
 
+// Kept for interface compatibility; hidden on init
+let _usageStatusBarItem: vscode.StatusBarItem | undefined;
 let _projectTierStatusBarItem: vscode.StatusBarItem | undefined;
 let _workspaceFolderStatusBarItem: vscode.StatusBarItem | undefined;
 
 let _getTarget: (() => string | undefined) | undefined;
 let _libraryDir = "";
 
-
-
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
 export interface StatusBarItems {
-  statusBarItem: vscode.StatusBarItem;
-  usageStatusBarItem: vscode.StatusBarItem;
+  statusBarItem: vscode.StatusBarItem;           // repurposed as API Score bar
+  usageStatusBarItem: vscode.StatusBarItem;      // hidden in v1.1
   creditStatusBarItem: vscode.StatusBarItem;
-  projectTierStatusBarItem: vscode.StatusBarItem;
-  workspaceFolderStatusBarItem: vscode.StatusBarItem;
+  projectTierStatusBarItem: vscode.StatusBarItem; // hidden in v1.1
+  workspaceFolderStatusBarItem: vscode.StatusBarItem; // hidden in v1.1
+  attributionAlertBarItem?: vscode.StatusBarItem; // new in v1.1
 }
 
 export function initStatusBars(
@@ -56,46 +46,83 @@ export function initStatusBars(
   libraryDir: string,
   getTarget: () => string | undefined,
 ): void {
-  _statusBarItem              = items.statusBarItem;
+  _apiScoreStatusBarItem      = items.statusBarItem;
   _usageStatusBarItem         = items.usageStatusBarItem;
   _creditStatusBarItem        = items.creditStatusBarItem;
   _projectTierStatusBarItem   = items.projectTierStatusBarItem;
   _workspaceFolderStatusBarItem = items.workspaceFolderStatusBarItem;
+  _attributionAlertBarItem    = items.attributionAlertBarItem;
   _libraryDir = libraryDir;
   _getTarget  = getTarget;
+
+  // Hide bars retired in v1.1 — info moved to Executive Summary in dashboard
+  _usageStatusBarItem?.hide();
+  _projectTierStatusBarItem?.hide();
+  _workspaceFolderStatusBarItem?.hide();
 }
 
 // ---------------------------------------------------------------------------
-// Refresh functions
+// Bar 1: API Score (replaces skills-count bar)
 // ---------------------------------------------------------------------------
 
-export function refreshStatusBar(): void {
-  if (!_statusBarItem || !_getTarget) return;
+export function refreshApiScoreStatusBar(): void {
+  if (!_apiScoreStatusBarItem || !_getTarget) return;
   const target = _getTarget();
   if (!target) {
-    _statusBarItem.hide();
+    _apiScoreStatusBarItem.hide();
     return;
   }
-  const statuses = listSkillStatuses(_libraryDir, target);
-  const pending = statuses.filter((s) => s.isRelevant && !s.installedInWorkspace);
-  const branch = getCurrentBranch(target);
-  const branchSuffix = branch ? ` [${branch}]` : "";
-  const hostSuffix = agentProfilesFeatureActive() ? ` · ${hostAgentLabel(detectHostAgentId())}` : "";
-  if (pending.length === 0) {
-    _statusBarItem.text = `$(check) Claude Skills${branchSuffix}${hostSuffix}`;
-    _statusBarItem.tooltip =
-      `All relevant Claude skills are installed for this workspace${branch ? ` (branch: ${branch})` : ""}${hostSuffix ? `\nActive IDE profile: ${hostAgentLabel(detectHostAgentId())}` : ""}.`;
-  } else {
-    _statusBarItem.text = `$(lightbulb) Claude Skills: ${pending.length} suggested${branchSuffix}${hostSuffix}`;
-    _statusBarItem.tooltip =
-      `${pending.length} relevant skill(s) not yet installed:\n` +
-      pending.map((s) => `- ${s.name}`).join("\n") +
-      (branch ? `\n\nBranch: ${branch} (skill profile stored in ~/.claude/learning/branch-profiles.json).` : "") +
-      "\n\nClick to install.";
+
+  let apiScore = { score: 0, grade: "F" as string, breakdown: {} as Record<string, number> };
+  try {
+    const manifest = loadManifest(_libraryDir);
+    apiScore = computeApiScore(target, manifest);
+  } catch {
+    // Manifest may not be ready on first activation
+    _apiScoreStatusBarItem.text = "$(cloud-download) CSM Setup";
+    _apiScoreStatusBarItem.tooltip = "Claude Skills Manager: click to run Setup Wizard.";
+    _apiScoreStatusBarItem.command = "claudeSkills.startOnboarding";
+    _apiScoreStatusBarItem.show();
+    return;
   }
-  _statusBarItem.command = "claudeSkills.generateForWorkspace";
-  _statusBarItem.show();
+
+  const { score, grade } = apiScore;
+  const icon = score >= 80 ? "$(sparkle)" : score >= 50 ? "$(graph)" : "$(warning)";
+  _apiScoreStatusBarItem.text = `${icon} API ${grade} (${score})`;
+
+  const topIssue = getTopIssueFromBreakdown(apiScore.breakdown);
+  _apiScoreStatusBarItem.tooltip =
+    `Agent Performance Index: ${score}/100 (${grade}).\n` +
+    `Attribution: ${apiScore.breakdown.attribution ?? 0}% · Prediction: ${apiScore.breakdown.precision ?? 0}% · ` +
+    `Learning: ${apiScore.breakdown.learningRate ?? 0}%\n` +
+    (topIssue ? `Top issue: ${topIssue}\n` : "") +
+    `\nClick to open the Intelligence Dashboard.`;
+  _apiScoreStatusBarItem.command = score >= 50 ? "claudeSkills.showCostDashboard" : "claudeSkills.startOnboarding";
+  _apiScoreStatusBarItem.show();
 }
+
+/** @deprecated Use refreshApiScoreStatusBar — kept as alias for callers in extension.ts */
+export function refreshStatusBar(): void {
+  refreshApiScoreStatusBar();
+}
+
+function getTopIssueFromBreakdown(breakdown: Record<string, number>): string {
+  const weights: [string, string][] = [
+    ["attribution",     "Attribution low — run Reset Mis-attributed Cost Data"],
+    ["precision",       "Prediction precision low — stop-word or catch-all proposals"],
+    ["learningRate",    "Learning rate low — more skill invocations needed"],
+    ["skillEfficiency", "ROI low — archive unused skills"],
+    ["taskCompletion",  "Skill failures detected — check runs.jsonl"],
+  ];
+  for (const [key, msg] of weights) {
+    if ((breakdown[key] ?? 100) < 50) return msg;
+  }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// Bar 2: Cost Today (simplified — token count moved to tooltip)
+// ---------------------------------------------------------------------------
 
 export function refreshCreditStatusBar(target?: string): void {
   if (!_creditStatusBarItem) return;
@@ -113,85 +140,81 @@ export function refreshCreditStatusBar(target?: string): void {
   writeTodayCostSnapshot(totalCost, totalTokens);
 
   if (totalTokens === 0) {
-    _creditStatusBarItem.text = "$(credit-card) Claude: no usage today";
+    _creditStatusBarItem.text = "$(credit-card) —";
     _creditStatusBarItem.tooltip =
-      "No recorded Claude Code token usage today. Estimates use published API rates for reference (Pro/Max plans are flat-rate).\n\nClick for the full usage report.";
+      "No AI usage recorded today.\n\nClick for the full usage report.";
   } else {
-    const budgetSuffix =
-      config.dailyBudgetUsd > 0 && pct !== null
-        ? ` | ${budgetProgressBar(pct)} ${Math.round(pct)}% of ${formatCompactUsd(config.dailyBudgetUsd)}`
-        : "";
-    const costLabel = spendPrefix === "API" ? "API" : spendPrefix === "Mixed" ? "Mixed" : "Est.";
-    _creditStatusBarItem.text = `$(credit-card) ${costLabel} ${formatCompactUsd(totalCost)} today | ${formatTokenCount(totalTokens)}${budgetSuffix}`;
     const remaining = remainingDailyBudgetUsd(config);
+    const overBudget = pct !== null && pct >= 80;
+    const icon = overBudget ? "$(warning)" : "$(credit-card)";
+    const costLabel = spendPrefix === "API" ? "" : spendPrefix === "Mixed" ? "~" : "~";
+    // Simplified: only show cost; token detail in tooltip
+    if (overBudget && config.dailyBudgetUsd > 0) {
+      _creditStatusBarItem.text = `${icon} ${costLabel}${formatCompactUsd(totalCost)} / ${formatCompactUsd(config.dailyBudgetUsd)}`;
+    } else {
+      _creditStatusBarItem.text = `${icon} ${costLabel}${formatCompactUsd(totalCost)}`;
+    }
     const basisNote =
       spendPrefix === "API"
-        ? "Priced from transcript usage at published API rates."
+        ? "API-measured (transcript usage lines)."
         : spendPrefix === "Mixed"
-          ? "Mix of API usage lines and size-based estimates."
-          : "Size-based estimate — no usage metadata in today's transcripts.";
+          ? "Mix of API usage + size estimates."
+          : "Size-based estimate. Not an actual bill.";
     _creditStatusBarItem.tooltip =
-      `${costLabel} usage today: ${formatTokenCount(totalTokens)} tokens (~${formatCompactUsd(totalCost)}).` +
-      (remaining !== null ? ` ~${formatCompactUsd(remaining)} budget remaining.` : "") +
-      ` ${basisNote} Not an actual bill.\n\nClick for the full usage report.`;
+      `Today: ${formatCompactUsd(totalCost)} · ${formatTokenCount(totalTokens)} tokens.\n` +
+      (remaining !== null ? `Budget remaining: ~${formatCompactUsd(remaining)}.\n` : "") +
+      `${basisNote}\n\nClick for full usage report.`;
   }
-  _creditStatusBarItem.command = "claudeSkills.showUsageStats";
+  _creditStatusBarItem.command = "claudeSkills.showCostDashboard";
   _creditStatusBarItem.show();
 }
 
+// ---------------------------------------------------------------------------
+// Bar 3: Attribution Alert (conditional — only when confidence < 80%)
+// ---------------------------------------------------------------------------
 
-
-export function refreshUsageStatusBar(): void {
-  if (!_usageStatusBarItem || !_getTarget) return;
-  const target = _getTarget();
+export function refreshAttributionAlertBar(target?: string): void {
+  if (!_attributionAlertBarItem) return;
   if (!target) {
-    _usageStatusBarItem.hide();
+    _attributionAlertBarItem.hide();
     return;
   }
-  const manifest = loadManifest(_libraryDir);
-  const stats = computeUsageStats(target, manifest);
-  const tracked = stats.filter((s) => s.runs > 0);
-  const issues = stats.filter((s) => s.rating === "needs-attention" || s.rating === "unused").length;
-  const inefficient = computeSkillInefficiencyStats(target, listInstalledSkills(target)).length;
 
-  if (tracked.length === 0 && inefficient === 0) {
-    _usageStatusBarItem.text = "$(graph) Skill usage: no data";
-    _usageStatusBarItem.tooltip =
-      "No recorded skill runs yet (.claude/learning/runs.jsonl). Use the self-learning skill to start tracking outcomes.\n\nClick for the full report.";
-  } else {
-    const active = stats.filter((s) => s.rating === "active").length;
-    const parts: string[] = [];
-    if (tracked.length > 0) parts.push(`${active} active`);
-    if (issues > 0) parts.push(`${issues} to review`);
-    if (inefficient > 0) parts.push(`${inefficient} inefficient`);
-    _usageStatusBarItem.text = `$(graph) Skill usage: ${parts.join(", ")}`;
-    const cross = computeCrossAgentUsage(stats);
-    let tooltip = "Click for the per-skill usage and KPI report.";
-    if (cross.activeAgents.length > 1) {
-      tooltip += `\nAgents with skill invocations: ${cross.activeAgents.map(runAgentLabel).join(", ")}.`;
-    }
-    if (cross.multiAgentSkills.length > 0) {
-      tooltip += `\n${cross.multiAgentSkills.length} skill(s) used across multiple agents on this workspace.`;
-    }
-    _usageStatusBarItem.tooltip = tooltip;
+  const trustFile = path.join(target, ".claude", "learning", "attribution-trust.json");
+  let scorePct = 1.0;
+  try {
+    const raw = JSON.parse(fs.readFileSync(trustFile, "utf-8")) as { scorePct?: number };
+    scorePct = raw.scorePct ?? 1.0;
+  } catch {
+    _attributionAlertBarItem.hide();
+    return;
   }
-  _usageStatusBarItem.command = "claudeSkills.showUsageStats";
-  _usageStatusBarItem.show();
+
+  const pct = Math.round(scorePct * 100);
+  if (pct >= 80) {
+    _attributionAlertBarItem.hide();
+    return;
+  }
+
+  const icon = pct < 30 ? "$(error)" : "$(warning)";
+  const urgency = pct < 30 ? "!" : "";
+  _attributionAlertBarItem.text = `${icon} ATTR ${pct}%${urgency}`;
+  _attributionAlertBarItem.tooltip =
+    pct < 30
+      ? `Attribution broken (${pct}%). Run Reset Mis-attributed Cost Data immediately.\nPer-skill costs are unreliable until fixed.\n\nClick to reset.`
+      : `Attribution confidence ${pct}% (target: ≥80%).\nPer-skill costs may not be fully reliable.\n\nClick to reset mis-attributed data.`;
+  _attributionAlertBarItem.command = "claudeSkills.resetAttribution";
+  _attributionAlertBarItem.show();
 }
 
-export function refreshProjectTierStatusBar(target?: string): void {
-  if (!_projectTierStatusBarItem) return;
-  if (!target) {
-    _projectTierStatusBarItem.hide();
-    return;
-  }
-  const profile = readProjectProfile(target);
-  if (!profile) {
-    _projectTierStatusBarItem.hide();
-    return;
-  }
-  _projectTierStatusBarItem.text = formatProjectProfileStatusBarText(profile);
-  _projectTierStatusBarItem.tooltip = formatProjectProfileStatusBarTooltip(profile);
-  _projectTierStatusBarItem.command = "claudeSkills.chooseProjectProfile";
-  _projectTierStatusBarItem.show();
+// ---------------------------------------------------------------------------
+// Legacy no-ops — kept so callers in extension.ts don't break
+// ---------------------------------------------------------------------------
+
+export function refreshUsageStatusBar(): void {
+  _usageStatusBarItem?.hide();
+}
+
+export function refreshProjectTierStatusBar(_target?: string): void {
+  _projectTierStatusBarItem?.hide();
 }

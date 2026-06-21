@@ -45,6 +45,43 @@ Each release includes:
 
 ---
 
+## [1.0.85] - 2026-06-21
+
+**Summary:** v1.1 UX Modernization — unified intelligence platform: 8 bars → 3, Executive Summary, 9 collapsible dashboard sections, Learning Timeline, Prediction Intelligence, Optimization Center, Governance panel, Feature Modes, adaptation log, and 3 new toggle commands.
+
+**Theme:** "Large collection of features" → "Unified intelligence platform" (Maturity Level 3 → 4)
+
+### Added
+
+- **Status bar redesign: 8 bars → 3 signal bars** — `statusBarItem` repurposed as API Score bar (`$(sparkle) API A (84)` / `$(warning) API F (32)`); `usageStatusBarItem`, `projectTierStatusBarItem`, `workspaceFolderStatusBarItem` hidden (info moved to Executive Summary); new `attributionAlertBarItem` (conditional, only visible when attribution < 80%; click → resetAttribution). `refreshApiScoreStatusBar` replaces `refreshStatusBar`.
+- **Executive Summary panel** (`costDashboard.ts`) — 6 metric cards rendered first on every dashboard open: API Score · Attribution · Prediction · ROI · Cost Today · Top Action. Each card shows current value, grade/band, and one-line recommendation.
+- **9 collapsible `<details>` sections** in dashboard body — Health · Learning · Skills · Cost · Agent Performance · Prediction · Efficiency · Telemetry · Optimization (collapsed by default where low urgency).
+- **Learning Timeline** (`learningTimeline.ts`) — `buildLearningTimeline(target, days)` reads `runs.jsonl` and cross-references proposals to produce per-day invocation/over-prediction events. `formatLearningTimelineHtml` renders grouped timeline with confidence-delta annotations.
+- **Prediction Intelligence panel** — per-skill precision/recall/F1 computed from proposals vs runs; over-predicted (0 uses) and most-accurate skill tables rendered in Prediction section.
+- **Optimization Center** — Governance panel with compliance checklist (5 items), runs.jsonl / mcp-usage.jsonl size, attribution confidence, provenance status.
+- **Feature Modes** (`featureMode.ts`) — `type FeatureMode = 'starter' | 'professional' | 'power' | 'team'`. `isFeatureAvailable(feature)` gates dashboard sections. New `claudeSkills.featureMode` setting (default: `"professional"`). Prediction gated behind `professional`; Governance behind `power`.
+- **Adaptation Log** (`adaptationLog.ts`) — `appendAdaptationEvent` / `readAdaptationLog` write `.claude/learning/adaptation-log.jsonl`. Events written on attribution hook install and cost-control hook install. Adaptation Timeline rendered in Learning section.
+- **3 new toggle commands** (replace 6 enable/disable pair commands):
+  - `claudeSkills.toggleMcpForce` — single toggle for MCP-Force Mode
+  - `claudeSkills.manageMcpServers` — quick-pick to enable/disable Filesystem + CLI MCP servers
+  - `claudeSkills.manageEfficiencyGuards` — multi-select to toggle CLI Loop Guard + Dir Cache Guard
+
+### Changed
+
+- `refreshCreditStatusBar`: token count removed from status bar text (moved to tooltip); text now shows only cost — `$(credit-card) $0.42` (cleaner).
+- `refreshUsageStatusBar` / `refreshProjectTierStatusBar`: converted to no-ops that call `.hide()` — info surfaced in Executive Summary instead.
+- `costDashboard.ts`: `buildExecutiveSummaryHtml`, `buildPredictionIntelligenceHtml`, `buildGovernancePanelHtml` added as helper functions. `readCachedEnrichedRuns` added to imports (replaces illegal dynamic `require`).
+- `workspaceSkillSync.ts`: `ensureAttributionHooksActive` and `ensureCostControlHooksActive` now call `appendAdaptationEvent` on first install.
+- `claudeSkills.officialSkillsCheckOnSession` setting removed (always-on since v1.0.84); replaced by `claudeSkills.featureMode`.
+
+### Tests
+
+- 463/463 pass (no regression from v1.0.84 baseline)
+- `featureMode.ts`: fully type-safe; covered by compilation
+- New modules (`learningTimeline.ts`, `adaptationLog.ts`, `featureMode.ts`) have type-safe interfaces
+
+---
+
 ## [1.0.84] - 2026-06-21
 
 **Summary:** Production readiness improvements — attribution stale-port fix, proposal history boost, cost-control hooks auto-enabled, profile/manifest cleanup, Agent Performance Index, and audit CSV export.

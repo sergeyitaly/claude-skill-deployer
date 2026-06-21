@@ -205,6 +205,7 @@ import {
   refreshStatusBar,
   refreshCreditStatusBar,
   refreshProjectTierStatusBar,
+  refreshAttributionAlertBar,
   StatusBarItems,
 } from "./statusBarManager";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
@@ -590,6 +591,10 @@ export function activate(context: vscode.ExtensionContext) {
 workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
    context.subscriptions.push(workspaceFolderStatusBarItem);
 
+   // v1.1: attribution alert bar — conditional, only visible when attribution < 80%
+   const attributionAlertBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
+   context.subscriptions.push(attributionAlertBarItem);
+
    mcpHealthStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 93);
    context.subscriptions.push(mcpHealthStatusBarItem);
 
@@ -604,9 +609,9 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
        statusBarItem,
        usageStatusBarItem,
        creditStatusBarItem,
-
        projectTierStatusBarItem,
        workspaceFolderStatusBarItem,
+       attributionAlertBarItem,
      } satisfies StatusBarItems,
      libraryDir,
      getWorkspaceTarget,
@@ -786,6 +791,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     refreshStatusBar();
     refreshCreditStatusBar(target);
     refreshProjectTierStatusBar(target);
+    refreshAttributionAlertBar(target);
     refreshWorkspaceFolderStatusBar();
     refreshMcpStatusBars(getWorkspaceTarget());
     refreshCliMcpStatusBar();
