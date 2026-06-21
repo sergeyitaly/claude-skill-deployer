@@ -4,11 +4,13 @@ import * as path from "node:path";
 import { AgentId, loadAgentsManifest } from "./agentOps";
 import { computeCreditUsageFromRoots } from "./usageCost";
 import { tokenCostUsd } from "./costRates";
-import { countV2HookRuns, isCollectorTranscriptRun, isUsageRunRecord } from "./runsStore";
+import { countV2HookRuns, isCollectorTranscriptRun, isUsageRunRecord, readCachedEnrichedRuns, isV2HookRun, sessionHasV2HookRuns, RunAgent } from "./runsStore";
 import { collectorStatePath, LEGACY_COLLECTOR_STATE_PATH } from "./collectorState";
 import { pruneBackupFiles, pruneRunsJsonl } from "./learningPrune";
 import { invalidateLearningCache } from "./runsStore";
 import { readRunRecords, RunRecord } from "./usageStats";
+import { claudeParser, cursorParser, listTranscriptFiles, ParsedTranscript } from "./transcriptParsers";
+import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
 
 /** Prefer hook/self-learning stored cost; fall back to blended estimate when missing. */
 export function costForRunRecord(rec: RunRecord): number {
@@ -500,4 +502,99 @@ export function resetMisattributedData(target: string): ResetResult {
   pruneBackupFiles(learningDir, ".bak-");
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// General API spend (moved from generalApiSpend.ts)
+// ---------------------------------------------------------------------------
+
+
+
+function expandHome(p: string): string {
+  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
+export function hookTokensForSession(target: string, sessionId: string, agent?: RunAgent): number {
+  return readCachedEnrichedRuns(target)
+    .filter(r => isV2HookRun(r) && r.session_id === sessionId && (!agent || r.agent === agent))
+    .reduce((sum, r) => sum + Math.max(0, r.tokens ?? 0), 0);
+}
+
+export function residualGeneralApiTokens(sessionTokens: number, hookTokens: number): number {
+  return Math.max(0, sessionTokens - hookTokens);
+}
+
+export function generalApiTokensForSession(parsed: ParsedTranscript, target: string): number {
+  const hookTokens = hookTokensForSession(target, parsed.sessionId, parsed.agent);
+  if (hookTokens > 0 || sessionHasV2HookRuns(target, parsed.sessionId)) {
+    return residualGeneralApiTokens(parsed.tokens, hookTokens);
+  }
+  return parsed.activeSkills.length === 0 ? parsed.tokens : 0;
+}
+
+export interface GeneralApiAgentRow {
+  tokens: number;
+  cost: number;
+  sessions: number;
+}
+
+export interface GeneralApiSpendSummary {
+  daysBack: number;
+  totalTokens: number;
+  totalCost: number;
+  sessionCount: number;
+  byAgent: Partial<Record<AgentId, GeneralApiAgentRow>>;
+  legacyUnattributedTokens: number;
+}
+
+function parserForAgent(agent: AgentId) {
+  if (agent === "claude") return claudeParser;
+  if (agent === "cursor") return cursorParser;
+  return null;
+}
+
+export function computeGeneralApiSpend(
+  target: string,
+  libraryDir: string,
+  daysBack = 14
+): GeneralApiSpendSummary {
+  const windowStartMs = Date.now() - daysBack * 86_400_000;
+  const byAgent: Partial<Record<AgentId, GeneralApiAgentRow>> = {};
+  const seenSessions = new Set<string>();
+  let totalTokens = 0;
+  let sessionCount = 0;
+
+  const agents = loadAgentsManifest(libraryDir).agents;
+  for (const [agentId, def] of Object.entries(agents)) {
+    if (!def.supportsUsageTranscripts) continue;
+    const parser = parserForAgent(agentId as AgentId);
+    if (!parser) continue;
+    for (const root of def.transcriptRoots) {
+      for (const file of listTranscriptFiles(expandHome(root))) {
+        if (!transcriptFileMatchesWorkspace(file, target)) continue;
+        let mtime = 0;
+        try { mtime = fs.statSync(file).mtimeMs; } catch { continue; }
+        if (mtime < windowStartMs) continue;
+        let content = "";
+        try { content = fs.readFileSync(file, "utf-8"); } catch { continue; }
+        const parsed = parser.parseFile(file, content);
+        if (!parsed || parsed.tokens <= 0) continue;
+        const sessionKey = `${parsed.agent}|${parsed.sessionId}|${file}`;
+        if (seenSessions.has(sessionKey)) continue;
+        seenSessions.add(sessionKey);
+        const general = generalApiTokensForSession(parsed, target);
+        if (general <= 0) continue;
+        const agent = parsed.agent;
+        const row = byAgent[agent] ?? { tokens: 0, cost: 0, sessions: 0 };
+        row.tokens += general; row.cost += tokenCostUsd(general); row.sessions += 1;
+        byAgent[agent] = row;
+        totalTokens += general; sessionCount += 1;
+      }
+    }
+  }
+
+  const built = buildCostAttribution(target, libraryDir);
+  const legacyUnattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
+  return { daysBack, totalTokens, totalCost: tokenCostUsd(totalTokens), sessionCount, byAgent, legacyUnattributedTokens };
 }

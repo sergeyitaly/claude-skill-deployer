@@ -37,7 +37,7 @@ import {
   formatProjectProfileNotifyMessage,
   formatProjectProfileSummaryBlock,
   formatProjectProfileTierComparisonTable,
-} from "./projectProfileDisplay";
+} from "./projectProfile";
 import {
   applyUserProjectPlan,
   buildProjectPlanQuickPickItems,

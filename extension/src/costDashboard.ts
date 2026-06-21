@@ -22,7 +22,7 @@ import { resolveAttributionStrategy, formatAttributionStrategyLine } from "./att
 import { enrichV2HookRunTokens } from "./v2TokenEnrichment";
 
 import { readProjectProfile } from "./projectProfile";
-import { formatProjectProfileDashboardHtml } from "./projectProfileDisplay";
+import { formatProjectProfileDashboardHtml } from "./projectProfile";
 import { ESTIMATE_DISCLAIMER, ESTIMATE_DISCLAIMER_SHORT, tokenCostUsd } from "./costRates";
 import { formatCompactUsd } from "./skillCost";
 import {
@@ -37,14 +37,14 @@ import {
   TEAM_ECONOMICS_SLOT_ID,
   TeamEconomicsCachePayload,
   tryReadValidTeamEconomicsCache,
-} from "./dashboardCache";
+} from "./dashboardPrecompute";
 import { buildSystemModeContext } from "./attributionQuality";
 import { CostPipelineResult, runCostPipelineSync } from "./costPipeline";
 import { formatCapabilitiesSummary } from "./agentCapabilities";
 import { computeEnabledAgentsCreditUsage, computePerAgentCreditUsage, AgentCreditRow } from "./agentOps";
 import { computeUsageStats, formatTokenCount } from "./usageStats";
 import { formatModelLabel, spendPrefixForCreditSummary, totalTokensForModelUsage } from "./usageCost";
-import { computeGeneralApiSpend } from "./generalApiSpend";
+import { computeGeneralApiSpend } from "./costAttribution";
 import { getWorkspaceHookStatus } from "./hookOps";
 import {
   formatHookStatusPanelHtml,
@@ -57,7 +57,7 @@ import {
   DashboardSnapshotPayload,
   tryReadValidDashboardSnapshot,
   writeDashboardSnapshot,
-} from "./dashboardCache";
+} from "./dashboardPrecompute";
 
 function escapeHtml(v: string): string {
   return v.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

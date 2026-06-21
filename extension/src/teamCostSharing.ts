@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
-import { invalidateTeamEconomicsCache } from "./dashboardCache";
-import { invalidateDashboardSnapshot } from "./dashboardCache";
+import { invalidateTeamEconomicsCache } from "./dashboardPrecompute";
+import { invalidateDashboardSnapshot } from "./dashboardPrecompute";
 
 export interface SkillAuthorAttribution {
   skill: string;

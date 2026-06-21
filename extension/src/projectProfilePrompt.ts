@@ -20,7 +20,7 @@ import {
   formatPlanEconomicsForTier,
   formatProjectProfileNotifyMessage,
   PROFILE_TYPE_BADGE,
-} from "./projectProfileDisplay";
+} from "./projectProfile";
 import { notificationLevel } from "./userNotify";
 
 const PROMPTED_KEY_PREFIX = "claudeSkills.projectProfilePrompted:";

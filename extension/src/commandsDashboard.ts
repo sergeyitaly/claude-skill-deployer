@@ -18,9 +18,9 @@ import { generateOptimizationSuggestions, formatSuggestionsReport, OptimizationT
 import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from "./autoOptimizer";
 import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
 import { readPipelineCycle } from "./pipelineCycle";
-import { tryReadValidDashboardSnapshot } from "./dashboardCache";
+import { tryReadValidDashboardSnapshot } from "./dashboardPrecompute";
 import { recordFeatureUse } from "./analytics";
-import { getOrComputeTeamEconomicsBundle } from "./dashboardCache";
+import { getOrComputeTeamEconomicsBundle } from "./dashboardPrecompute";
 import { buildSystemModeContext } from "./attributionQuality";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
 import { loadManifest } from "./skillOps";

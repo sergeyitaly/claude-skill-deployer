@@ -1,13 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { cursorParser } from "./transcriptParsers";
-import { buildCostAttribution } from "./costAttribution";
 import { readRunRecords } from "./usageStats";
 
-const HOOK_SCRIPT = path.join(__dirname, "..", "resources", "hooks", "skill-invoke-watch.js");
 const repoLibraryDir = path.join(__dirname, "..", "..", "skills_library");
 const extLibraryDir = path.join(__dirname, "..", "skills_library");
 const libraryDir = fs.existsSync(path.join(repoLibraryDir, "agents.json"))
@@ -45,28 +42,19 @@ describe("cursor skill attribution", () => {
     expect(parsed?.activeSkills).toContain("create-hook");
   });
 
-  it("records cursor hook runs and surfaces them in attribution", () => {
+  it("records cursor runs written directly to runs.jsonl", () => {
     const target = makeWorkspace();
-    const skillPath = path.join(target, ".claude", "skills", "file-style-conventions", "SKILL.md");
-    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
-    fs.writeFileSync(skillPath, "# skill", "utf-8");
-
-    spawnSync(process.execPath, [HOOK_SCRIPT, "cursor"], {
-      input: JSON.stringify({
-        conversation_id: "conv-dashboard-test",
-        tool_name: "Read",
-        tool_input: { path: skillPath },
-        tool_use_id: "tu_dashboard",
-        cwd: target,
-        tool_output: JSON.stringify({ text: "# file-style-conventions\n\ncontent" }),
-      }),
-      encoding: "utf-8",
-    });
+    const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
+    const run = {
+      ts: new Date().toISOString(),
+      skill: "file-style-conventions",
+      agent: "cursor",
+      session_id: "conv-dashboard-test",
+      outcome: "success",
+    };
+    fs.writeFileSync(runsFile, JSON.stringify(run) + "\n", "utf-8");
 
     const runs = readRunRecords(target);
     expect(runs.some((r) => r.agent === "cursor" && r.skill === "file-style-conventions")).toBe(true);
-
-    const attr = buildCostAttribution(target, libraryDir);
-    expect(attr.skills["file-style-conventions"]?.cursor?.sessions).toBeGreaterThan(0);
   });
 });

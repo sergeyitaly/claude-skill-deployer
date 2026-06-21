@@ -14,7 +14,7 @@ import { loadManifest } from "./skillOps";
 import { refreshWorkspaceSystemState, readWorkspaceSystemState, WorkspaceSystemState } from "./workspaceSystemState";
 import { SystemMode } from "./attributionQuality";
 
-import { queueTeamEconomicsPrecompute } from "./dashboardCache";
+import { queueTeamEconomicsPrecompute } from "./dashboardPrecompute";
 import { queueDashboardSnapshotPrecompute } from "./dashboardPrecompute";
 import { maybePromoteIgnoredSkillsOnUnderuse } from "./taskSkillUnderuse";
 

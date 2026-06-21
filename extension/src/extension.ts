@@ -164,7 +164,7 @@ import {
   formatProjectProfileStatusBarTooltip,
   formatProjectProfileSummaryBlock,
   formatProjectProfileTierComparisonTable,
-} from "./projectProfileDisplay";
+} from "./projectProfile";
 import {
   applyUserProjectPlan,
   buildProjectPlanQuickPickItems,
@@ -209,13 +209,13 @@ import {
 } from "./statusBarManager";
 import { generateOptimizationSuggestions, formatSuggestionsReport } from "./costOptimizer";
 import { formatCostDashboardHtml, formatCostDashboardText, formatTeamEconomicsPanelsHtml, getOrBuildDashboardMainBody } from "./costDashboard";
-import { tryReadValidDashboardSnapshot } from "./dashboardCache";
+import { tryReadValidDashboardSnapshot } from "./dashboardPrecompute";
 import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from "./autoOptimizer";
 import { checkPredictiveCostAlert } from "./costPredictor";
 
 import { isFeatureEnabled, featureFlagLines, FeatureKey, FEATURE_DESCRIPTIONS } from "./featureFlags";
 import { checkEmergencyCutoff, resetEmergencyCutoff } from "./emergencyCutoff";
-import { getOrComputeTeamEconomicsBundle } from "./dashboardCache";
+import { getOrComputeTeamEconomicsBundle } from "./dashboardPrecompute";
 import { yieldToEventLoop } from "./eventLoop";
 import { listArchivedSkills, restoreArchivedSkill } from "./skillArchival";
 import { SkillSortMode } from "./skillRoi";

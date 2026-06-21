@@ -5,7 +5,7 @@ import { AgentId, computeEnabledAgentsCreditUsage, loadAgentsManifest } from "./
 import { assessClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 import { buildCostAttribution, resolveDisplayAttribution, SkillAttributionMap } from "./costAttribution";
 import { topExpensiveSkills } from "./costOptimizer";
-import { computeGeneralApiSpend } from "./generalApiSpend";
+import { computeGeneralApiSpend } from "./costAttribution";
 import { getWorkspaceHookStatus, WorkspaceHookStatus } from "./hookOps";
 import { readCachedEnrichedRuns, countCachedV2HookRuns } from "./runsStore";
 import { isPipelineCircuitOpen, isPipelineFresh, isPipelineReadyForOptimizer, PipelineCycleTimestamps, pipelineStaleSummary } from "./pipelineCycle";

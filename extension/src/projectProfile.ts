@@ -6,6 +6,7 @@ import { AgentId } from "./agentOps";
 import { detectGitFromFilesystem, getGitRepository } from "./branchProfiles";
 import { setActiveProjectProfileContext } from "./activeProjectProfile";
 import { DEFAULTS, FeatureKey } from "./featureFlags";
+import { formatCompactUsd } from "./skillCost";
 import { ensureLearningDir } from "./usageStats";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import {
@@ -967,20 +968,7 @@ export function formatProjectProfileSummary(profile: ProjectProfileFile): string
   return lines.join("\n");
 }
 
-export function formatProjectProfileStatusBarText(profile: ProjectProfileFile): string {
-  return `Project: ${PROFILE_TYPE_LABELS[profile.profileType]}`;
-}
 
-export function formatProjectProfileStatusBarTooltip(profile: ProjectProfileFile): string {
-  const on = (k: FeatureKey) => profile.enabledFeatures[k] ?? DEFAULTS[k];
-  const features = [
-    on("autoOptimizer") ? "Auto Optimizer" : null,
-    on("communityBenchmarks") ? "Community Benchmarks" : null,
-    on("prCostEstimate") ? "PR Cost Estimate" : null,
-  ].filter((f): f is string => Boolean(f));
-  
-  return `Profile: ${profile.profileType}\nCost Tracking: ${profile.costTracking}\nFeatures: ${features.length > 0 ? features.join(", ") : "None"}`;
-}
 
 export function effectiveFeatureMap(target: string): Record<string, boolean> {
   const profile = readProjectProfile(target);
@@ -1008,4 +996,213 @@ export function hostOnlyMirrorModeForTarget(target: string): boolean {
     return true;
   }
   return effectiveFeatureMap(target).multiAgent === false;
+}
+
+// ---------------------------------------------------------------------------
+// Display helpers (moved from projectProfileDisplay.ts)
+// ---------------------------------------------------------------------------
+
+export const PROFILE_TYPE_BADGE: Record<ProjectProfileType, string> = {
+  "solo-dev": "SOLO DEV",
+  "team-multi-agent": "TEAM MULTI-AGENT",
+  "budget-sensitive": "BUDGET-SENSITIVE",
+  enterprise: "ENTERPRISE",
+  throwaway: "THROWAWAY",
+};
+
+export const TIER_FEATURE_KEYS = [
+  "autoOptimizer",
+  "communityBenchmarks",
+  "prCostEstimate",
+] as const satisfies readonly FeatureKey[];
+
+export type TierUiFeatureKey = (typeof TIER_FEATURE_KEYS)[number];
+
+export const TIER_FEATURE_LABELS: Record<TierUiFeatureKey, string> = {
+  autoOptimizer: "Auto-optimizer",
+  communityBenchmarks: "Community benchmarks",
+  prCostEstimate: "PR cost estimate",
+};
+
+export const TIER_MONTHLY_OVERHEAD_USD: Record<ProjectProfileType, number> = {
+  "team-multi-agent": 28,
+  "budget-sensitive": 18,
+  "solo-dev": 9,
+  enterprise: 11,
+  throwaway: 2,
+};
+
+const FULL_STACK_OVERHEAD_USD = TIER_MONTHLY_OVERHEAD_USD["team-multi-agent"];
+
+export interface ProjectProfileView {
+  badge: string;
+  label: string;
+  tierFeaturesApplied: boolean;
+  features: { key: FeatureKey; label: string; on: boolean }[];
+  monthlyOverheadUsd: number;
+  monthlySavingsUsd: number;
+  confidencePct: number;
+  rationale: string;
+}
+
+export function tierFeatureEnabled(profile: ProjectProfileFile, key: FeatureKey): boolean {
+  return profile.enabledFeatures[key] ?? DEFAULTS[key];
+}
+
+export function estimateMonthlyOverhead(profileType: ProjectProfileType): number {
+  return TIER_MONTHLY_OVERHEAD_USD[profileType] ?? FULL_STACK_OVERHEAD_USD;
+}
+
+export function estimateMonthlySavings(profile: ProjectProfileFile): number {
+  const overhead = estimateMonthlyOverhead(profile.profileType);
+  return Math.max(0, FULL_STACK_OVERHEAD_USD - overhead);
+}
+
+export function buildProjectProfileView(profile: ProjectProfileFile): ProjectProfileView {
+  return {
+    badge: PROFILE_TYPE_BADGE[profile.profileType],
+    label: PROFILE_TYPE_LABELS[profile.profileType],
+    tierFeaturesApplied: projectProfileApplyTierEnabled(),
+    features: TIER_FEATURE_KEYS.map((key) => ({
+      key,
+      label: TIER_FEATURE_LABELS[key],
+      on: tierFeatureEnabled(profile, key),
+    })),
+    monthlyOverheadUsd: estimateMonthlyOverhead(profile.profileType),
+    monthlySavingsUsd: estimateMonthlySavings(profile),
+    confidencePct: Math.round(profile.confidence * 100),
+    rationale: profile.rationale,
+  };
+}
+
+export function formatProjectProfileStatusBarText(profile: ProjectProfileFile): string {
+  const view = buildProjectProfileView(profile);
+  const icon =
+    profile.profileType === "team-multi-agent" ? "$(organization)"
+    : profile.profileType === "throwaway" ? "$(zap)"
+    : profile.profileType === "budget-sensitive" ? "$(credit-card)"
+    : "$(person)";
+  return view.monthlySavingsUsd >= 1
+    ? `${icon} ${view.badge} · saves ~${formatCompactUsd(view.monthlySavingsUsd)}/mo`
+    : `${icon} ${view.badge}`;
+}
+
+export function formatProjectProfileStatusBarTooltip(profile: ProjectProfileFile): string {
+  const view = buildProjectProfileView(profile);
+  const lines = [
+    `Project type detected: ${view.badge}`,
+    formatRepoEvidence(profile.detectedFrom),
+    view.rationale,
+    "",
+    `Tier presets: ${view.tierFeaturesApplied ? "ON (applied to this workspace)" : "OFF (VS Code settings only)"}`,
+    `Confidence: ${view.confidencePct}%`,
+  ];
+  if (profile.userPlan) lines.push(`Plan: ${profile.userPlan.replace(/-/g, " ")}`);
+  lines.push(
+    "", "Features:",
+    ...view.features.map((f) => `  ${f.label}: ${f.on ? "ON" : "OFF"}`),
+    "", `Estimated extension overhead: ~${formatCompactUsd(view.monthlyOverheadUsd)}/month`
+  );
+  if (view.monthlySavingsUsd >= 1) {
+    lines.push(`Estimated savings vs full stack: ~${formatCompactUsd(view.monthlySavingsUsd)}/month`);
+  } else {
+    lines.push("Full stack enabled for this project tier.");
+  }
+  lines.push("", "Click to view details or change tier.");
+  return lines.join("\n");
+}
+
+export function formatProjectProfileSummaryBlock(profile: ProjectProfileFile): string {
+  const view = buildProjectProfileView(profile);
+  const s = profile.detectedFrom;
+  const lines = [
+    `=== Project tier: ${view.badge} ===`,
+    formatRepoEvidence(s),
+    view.rationale,
+    "", `Tier presets: ${view.tierFeaturesApplied ? "ON" : "OFF"}`,
+    `Confidence: ${view.confidencePct}%`,
+    "", "Features:",
+    ...view.features.map((f) => `  ${f.on ? "[ON] " : "[OFF]"} ${f.label}`),
+    "", `Estimated extension overhead: ~${formatCompactUsd(view.monthlyOverheadUsd)}/month`,
+  ];
+  if (view.monthlySavingsUsd >= 1)
+    lines.push(`Estimated savings vs full stack: ~${formatCompactUsd(view.monthlySavingsUsd)}/month`);
+  lines.push(
+    "", `AI tools: ${profile.detectedFrom.aiTools.join(", ")}`,
+    `Team size (30d): ${profile.detectedFrom.teamSize}`,
+    `Cost tracking: ${profile.costTracking}`
+  );
+  return lines.join("\n");
+}
+
+export function formatProjectProfileDashboardHtml(profile: ProjectProfileFile): string {
+  const view = buildProjectProfileView(profile);
+  const featureRows = view.features
+    .map((f) => `<li><span class="hook-badge ${f.on ? "hook-on" : "hook-off"}">${f.on ? "ON" : "OFF"}</span> ${f.label}</li>`)
+    .join("");
+  const savingsLine = view.monthlySavingsUsd >= 1
+    ? `<p class="note">Estimated savings vs full stack: <b>~${formatCompactUsd(view.monthlySavingsUsd)}/month</b> (extension tokens + background work)</p>`
+    : `<p class="note">Full stack enabled for this tier — all key features ON.</p>`;
+  const s = profile.detectedFrom;
+  const repoStats = `${s.trackedFileCount} files · ${effectiveBranchCount(s)} branches · ${s.commitsTotal} commits`;
+  const remoteStats = s.remoteOriginUrl ? `${s.remoteBranchCount} remote branches · ${s.remoteProbeSource}` : "no origin";
+  return `
+  <div class="panel">
+    <h2>Project tier</h2>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>Detected</b><span class="val">${view.badge}</span></div>
+      <div class="stat-pill"><b>Repo</b><span class="val">${repoStats}</span></div>
+      <div class="stat-pill"><b>Origin</b><span class="val">${remoteStats}</span></div>
+      <div class="stat-pill"><b>Tier presets</b><span class="val">${view.tierFeaturesApplied ? "ON" : "off"}</span></div>
+      <div class="stat-pill"><b>Overhead</b><span class="val">~${formatCompactUsd(view.monthlyOverheadUsd)}/mo</span></div>
+      ${view.monthlySavingsUsd >= 1
+        ? `<div class="stat-pill"><b>Saves</b><span class="val roi-high">~${formatCompactUsd(view.monthlySavingsUsd)}/mo</span></div>`
+        : `<div class="stat-pill"><b>Stack</b><span class="val">full</span></div>`}
+      <div class="stat-pill"><b>Confidence</b><span class="val">${view.confidencePct}%</span></div>
+    </div>
+    <p class="note">${view.rationale}</p>
+    ${savingsLine}
+    <ul class="hook-list">${featureRows}</ul>
+  </div>`;
+}
+
+export function formatPlanEconomicsForTier(tier: ProjectProfileType): string {
+  const overhead = estimateMonthlyOverhead(tier);
+  const savings = Math.max(0, FULL_STACK_OVERHEAD_USD - overhead);
+  const badge = PROFILE_TYPE_BADGE[tier];
+  return savings >= 1
+    ? `${badge} · ~${formatCompactUsd(overhead)}/mo overhead · saves ~${formatCompactUsd(savings)}/mo vs full stack`
+    : `${badge} · ~${formatCompactUsd(overhead)}/mo overhead · full feature stack`;
+}
+
+export function formatPlanEconomicsLine(profile: ProjectProfileFile): string {
+  return formatPlanEconomicsForTier(profile.profileType);
+}
+
+const TIER_COMPARISON_ORDER: ProjectProfileType[] = [
+  "throwaway", "solo-dev", "budget-sensitive", "enterprise", "team-multi-agent",
+];
+
+export function formatProjectProfileTierComparisonTable(
+  target: string,
+  currentType?: ProjectProfileType
+): string {
+  const lines = [
+    "=== Compare project tiers (estimated extension overhead) ===",
+    "Baseline: TEAM MULTI-AGENT full stack (~$28/mo extension tokens + background work)",
+    "",
+  ];
+  for (const tier of TIER_COMPARISON_ORDER) {
+    const marker = tier === currentType ? "  <- current" : "";
+    lines.push(`  ${formatPlanEconomicsForTier(tier)}${marker}`);
+  }
+  lines.push("", "Run \"Choose Project Profile Tier\" to apply a plan.");
+  return lines.join("\n");
+}
+
+export function formatProjectProfileNotifyMessage(profile: ProjectProfileFile): string {
+  const view = buildProjectProfileView(profile);
+  return view.monthlySavingsUsd >= 1
+    ? `Project type: ${view.badge}. Tier presets ON — est. savings ~${formatCompactUsd(view.monthlySavingsUsd)}/mo vs full stack.`
+    : `Project type: ${view.badge}. Tier presets ON — full feature stack for multi-agent teams.`;
 }

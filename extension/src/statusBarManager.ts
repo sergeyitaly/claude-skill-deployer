@@ -21,7 +21,7 @@ import { readProjectProfile } from "./projectProfile";
 import {
   formatProjectProfileStatusBarText,
   formatProjectProfileStatusBarTooltip,
-} from "./projectProfileDisplay";
+} from "./projectProfile";
 
 // ---------------------------------------------------------------------------
 // Module-level state — initialised once from extension.ts activate()

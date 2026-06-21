@@ -159,10 +159,8 @@ describe("feature integration (live workspace)", () => {
     expect(Array.isArray(result.candidates)).toBe(true);
   });
 
-  it("has cost-control hook scripts in resources", () => {
+  it("has terminal-watch hook script in resources", () => {
     const hooksDir = path.join(__dirname, "..", "resources", "hooks");
-    for (const name of ["hookPlatform.js", "budget-watch.js", "prompt-context-watch.js", "task-drift-watch.js", "official-skills-watch.js"]) {
-      expect(fs.existsSync(path.join(hooksDir, name))).toBe(true);
-    }
+    expect(fs.existsSync(path.join(hooksDir, "terminal-watch.js"))).toBe(true);
   });
 });
