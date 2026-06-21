@@ -18,6 +18,10 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.84** | Production readiness — attribution fix, proposal history boost, API Score, cost hooks auto-on, audit export |
+| **1.0.83** | Quality — Windows CRLF fix, stop-word proposal filter, skill library cleanup, 2 new skills |
+| **1.0.82** | Simplification wave 2 — 16 TS files deleted, 9 JS hooks removed, 22 settings removed |
+| **1.0.81** | Simplification wave 1 — ~50% code surface reduction |
 | **1.0.77** | Bug fixes â€” archiveSkill Windows EPERM, terminal-watch CLI name extraction for chained commands |
 | **1.0.76** | Native bash telemetry â€” terminal-watch hook, auto-registration, Azure E2E benchmark, telemetry dashboard |
 | **1.0.75** | CLI KPI Phase 1 â€” success rate, retry count, P50/P95 duration, recovery rate across all CLI MCP calls |

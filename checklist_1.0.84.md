@@ -106,16 +106,6 @@ API = Precision×25 + AttributionCoverage×20 + SkillEfficiency×15 +
       LearningRate×15 + TaskCompletionRate×15 + HumanCorrectionRate×10
 ```
 
-Each sub-score is 0–100 before weighting.
-
-Sub-score definitions:
-- **Precision**: (skills used that were also in last proposal) / (total skills used) × 100
-- **Attribution**: `attribution-trust.json → scorePct × 100` (already 0–100)
-- **SkillEfficiency**: clamp(netRoi / 50 × 100, 0, 100) from team-economics-cache.json
-- **LearningRate**: clamp(v2HookRuns / 30 × 100, 0, 100) — grows as telemetry accumulates
-- **TaskCompletion**: successRate from skill-stats (all 100% today → 100)
-- **HumanCorrection**: 100 if skill-feedback.jsonl is empty/absent; decreases by 10 per entry
-
 ### Tasks
 - [x] Created `extension/src/agentPerformanceIndex.ts` with `computeApiScore`
   — 6 sub-scores, weighted composite, A–F grade
@@ -150,8 +140,8 @@ Allow teams to export skill telemetry for compliance, external analysis, or hand
 
 | Area | Before (v1.0.83) | Target (v1.0.84) | Change |
 |---|---|---|---|
-| Attribution Confidence | 20% | ≥74% | +54 pts (hook fix + reset) |
-| Proposal Precision | ~24% F1 | ~40% F1 | +16 pts (history boost + glob cap) |
+| Attribution Confidence | 20% | ≥74% (after Reset + hook fix) | +54 pts |
+| Proposal Precision | ~24% F1 | ~40% F1 | +16 pts |
 | Cost control hooks | OFF | ON | Enabled in activation |
 | "manifest" false attribution | Inflating cost data | Excluded | Denylist |
 | Archived skills in profile | 4 dead entries | 0 | Manifest-filtered |
