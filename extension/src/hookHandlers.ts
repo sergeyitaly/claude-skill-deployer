@@ -191,7 +191,10 @@ function extractSkillName(toolName: unknown, toolInput: unknown): string | null 
       if (plausibleSkillName(ti[k])) return String(ti[k]).toLowerCase();
     }
   }
-  if (["read", "fs_read", "fileread", "filereadtool", "readtool"].includes(tool)) {
+  if (
+    ["read", "fs_read", "fileread", "filereadtool", "readtool",
+     "mcp__filesystem__read_file", "mcp__filesystem__search_in_file"].includes(tool)
+  ) {
     for (const p of collectToolPaths(toolInput)) {
       const skill = skillFromPath(p);
       if (skill) return skill;

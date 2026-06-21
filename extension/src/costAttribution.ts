@@ -587,7 +587,12 @@ export function computeGeneralApiSpend(
         if (general <= 0) continue;
         const agent = parsed.agent;
         const row = byAgent[agent] ?? { tokens: 0, cost: 0, sessions: 0 };
-        row.tokens += general; row.cost += tokenCostUsd(general); row.sessions += 1;
+        // Prorate the accurate per-type cost to the general-API token portion.
+        // Falls back to blended rate only when transcript has no usage lines (size-estimated sessions).
+        const generalCost = parsed.cost > 0 && parsed.tokens > 0
+          ? parsed.cost * (general / parsed.tokens)
+          : tokenCostUsd(general);
+        row.tokens += general; row.cost += generalCost; row.sessions += 1;
         byAgent[agent] = row;
         totalTokens += general; sessionCount += 1;
       }
@@ -596,5 +601,6 @@ export function computeGeneralApiSpend(
 
   const built = buildCostAttribution(target, libraryDir);
   const legacyUnattributedTokens = Object.values(built.unattributed).reduce((s, t) => s + (t ?? 0), 0);
-  return { daysBack, totalTokens, totalCost: tokenCostUsd(totalTokens), sessionCount, byAgent, legacyUnattributedTokens };
+  const totalCost = Object.values(byAgent).reduce((s, r) => s + (r?.cost ?? 0), 0);
+  return { daysBack, totalTokens, totalCost, sessionCount, byAgent, legacyUnattributedTokens };
 }

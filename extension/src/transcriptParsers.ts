@@ -1,11 +1,14 @@
 import * as fs from "node:fs";
 import { AgentId } from "./agentOps";
 import { isPlausibleSkillName, skillNamesFromText } from "./skillPathUtils";
+import { estimateUsageCostFromRaw } from "./costRates";
 
 export interface ParsedTranscript {
   agent: AgentId;
   sessionId: string;
   tokens: number;
+  /** Accurately computed cost from per-type token rates (input/output/cacheWrite/cacheRead). */
+  cost: number;
   /** Skills with evidence of actual invocation (not merely enabled/listed). */
   activeSkills: string[];
   filePath: string;
@@ -70,8 +73,9 @@ export function parseActiveSkills(content: string): string[] {
   return [...active].sort();
 }
 
-function sumClaudeUsageLines(content: string): number {
-  let total = 0;
+function sumClaudeUsageLines(content: string): { tokens: number; cost: number } {
+  let tokens = 0;
+  let cost = 0;
   for (const line of content.split("\n")) {
     if (!line.includes('"usage"')) {
       continue;
@@ -79,22 +83,23 @@ function sumClaudeUsageLines(content: string): number {
     try {
       const parsed = JSON.parse(line) as {
         sessionId?: string;
-        message?: { usage?: Record<string, number> };
+        message?: { usage?: Record<string, number>; model?: string };
       };
       const u = parsed.message?.usage;
       if (!u) {
         continue;
       }
-      total +=
+      tokens +=
         (u.input_tokens ?? 0) +
         (u.output_tokens ?? 0) +
         (u.cache_creation_input_tokens ?? 0) +
         (u.cache_read_input_tokens ?? 0);
+      cost += estimateUsageCostFromRaw(u, parsed.message?.model);
     } catch {
       // skip
     }
   }
-  return total;
+  return { tokens, cost };
 }
 
 function extractSessionId(content: string, fallback: string): string {
@@ -122,7 +127,7 @@ export const claudeParser: TranscriptParser = {
         return null;
       }
     }
-    const tokens = sumClaudeUsageLines(content);
+    const { tokens, cost } = sumClaudeUsageLines(content);
     if (tokens === 0 && content.length < 100) {
       return null;
     }
@@ -131,6 +136,7 @@ export const claudeParser: TranscriptParser = {
       agent: "claude",
       sessionId: extractSessionId(content, base),
       tokens: tokens || Math.round(content.length / 4),
+      cost,
       activeSkills: parseActiveSkills(content),
       filePath,
     };
@@ -175,6 +181,7 @@ export const cursorParser: TranscriptParser = {
       agent: "cursor",
       sessionId: base,
       tokens,
+      cost: 0,
       activeSkills: parseActiveSkills(content),
       filePath,
     };

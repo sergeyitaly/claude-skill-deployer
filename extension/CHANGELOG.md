@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.87** | Learning loop unblocked — runs.jsonl populates from MCP reads; General API cost corrected to per-type rates |
 | **1.0.86** | Quality audit — 6 critical bugs fixed, attribution score accurate, prediction noise eliminated, adaptation log wired |
 | **1.0.85** | v1.1 UX Modernization — 3-bar status, Executive Summary, Learning Timeline, Prediction Intelligence, Feature Modes |
 | **1.0.84** | Production readiness — attribution fix, proposal history boost, API Score, cost hooks auto-on, audit export |
@@ -44,6 +45,44 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.87] - 2026-06-21
+
+**Summary:** Learning loop unblocked — `runs.jsonl` now populates from MCP file reads; General API cost corrected from $9/M blended to per-type rates.
+
+**Theme:** Adaptive intelligence — making Learning Timeline, Prediction, and Optimization Center genuinely data-driven.
+
+### Fixed
+
+- **`runs.jsonl` never populated when using MCP filesystem tools** (`hookOps.ts`, `hookHandlers.ts`) — `ATTRIBUTION_HOOK_MATCHER` was `"Skill|Read|read|fs_read|fileread"`, which doesn't match `mcp__filesystem__read_file`. Projects using MCP Force Mode or CLAUDE.md-mandated MCP tools never recorded skill invocations because the hook never fired. Matcher extended to include `mcp__filesystem__read_file` and `mcp__filesystem__search_in_file`. `extractSkillName` handler updated to match. Kiro `toolTypes` array updated. Live `.claude/settings.json` patched immediately without requiring a hook reinstall.
+
+- **General API cost inflated ~9.8× by blended $9/M rate** (`transcriptParsers.ts`, `costAttribution.ts`) — `tokenCostUsd(totalTokens)` applied Sonnet's 50/50 blended rate ($9/M = avg of $3/M input + $15/M output) to ALL token types, including cache reads at $0.3/M. In practice, long Claude sessions are dominated by cheap cache reads, causing $952 actual hook-measured spend to show as $9,164 in the General API panel. `ParsedTranscript` now carries a `cost` field computed from actual per-type rates per usage line (using `estimateUsageCostFromRaw`). `computeGeneralApiSpend` prorates this accurate cost to the general-API token portion rather than re-applying the blended rate.
+
+### Impact on metrics (post-fix)
+
+| Metric | Before v1.0.87 | After v1.0.87 |
+|---|---|---|
+| runs.jsonl (MCP workspaces) | Always empty | Populates on skill file reads |
+| General API cost | ~$9,164 (blended $9/M) | ~$936 (matches hook-measured) |
+| Learning Timeline | Empty (no invocations) | Entries appear as skills are read |
+| Prediction F1 | 0% (no data) | Improves as invocations accumulate |
+| API Score Precision | 0% | Improves as proposals convert |
+| API Score Learning | 0% | Grows with each session |
+
+### How the fix works end-to-end
+
+```
+Agent reads .claude/skills/self-learning/SKILL.md
+  ↓ PostToolUse fires (matcher now includes mcp__filesystem__read_file)
+  ↓ curl → http://127.0.0.1:4895/hook/skill-invoke
+  ↓ extractSkillName("mcp__filesystem__read_file", {path: "...SKILL.md"})
+       → skillFromPath() matches /\.claude\/skills\/([a-z][a-z0-9-]*)/ → "self-learning"
+  ↓ appendSkillRun(cwd, { skill: "self-learning", invoked: true, source: "skill-invoke-hook-v2" })
+  ↓ runs.jsonl grows → skill-stats.json updated → Learning Timeline shows entry
+  ↓ Prediction precision computable → API Score Precision > 0%
+```
 
 ---
 
