@@ -37,7 +37,10 @@ function readSettingsHooks(target: string): { postToolUse: boolean; preToolUse: 
     ) as { hooks?: Record<string, { hooks?: { command?: string }[] }[]> };
     const hasInvoke = (entries: { hooks?: { command?: string }[] }[] | undefined): boolean =>
       (entries ?? []).some((entry) =>
-        (entry.hooks ?? []).some((h) => (h.command ?? "").includes("skill-invoke-watch.js"))
+        (entry.hooks ?? []).some((h) =>
+          (h.command ?? "").includes("skill-invoke-watch.js") ||
+          (h.command ?? "").includes("/hook/skill-invoke")
+        )
       );
     return {
       postToolUse: hasInvoke(raw.hooks?.PostToolUse),

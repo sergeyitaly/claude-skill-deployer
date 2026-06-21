@@ -190,7 +190,7 @@ export function refreshAttributionAlertBar(target?: string): void {
     return;
   }
 
-  const pct = Math.round(scorePct * 100);
+  const pct = Math.round(scorePct);
   if (pct >= 80) {
     _attributionAlertBarItem.hide();
     return;

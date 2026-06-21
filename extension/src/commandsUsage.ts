@@ -40,6 +40,7 @@ import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { resetMisattributedData } from "./costAttribution";
 import { runCostPipelineSync } from "./costPipeline";
 import { recordError } from "./analytics";
+import { appendAdaptationEvent } from "./adaptationLog";
 
 // ---------------------------------------------------------------------------
 // Panel state
@@ -238,6 +239,10 @@ export function registerUsageCommands(deps: UsageCommandDeps): vscode.Disposable
         return;
       }
       const result = resetMisattributedData(target);
+      appendAdaptationEvent(target, {
+        type: "attribution_reset",
+        description: `Attribution data reset — removed ${result.removedRuns} transcript estimate row(s), kept ${result.keptRuns} hook/self-learning run(s)`,
+      });
       await AttributionCollector.getInstance(target, libraryDir).collect(true);
       runCostPipelineSync(target, libraryDir);
       persistCostAttribution(target, libraryDir);

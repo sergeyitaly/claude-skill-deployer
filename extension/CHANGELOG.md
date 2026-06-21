@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.86** | Quality audit — 6 critical bugs fixed, attribution score accurate, prediction noise eliminated, adaptation log wired |
+| **1.0.85** | v1.1 UX Modernization — 3-bar status, Executive Summary, Learning Timeline, Prediction Intelligence, Feature Modes |
 | **1.0.84** | Production readiness — attribution fix, proposal history boost, API Score, cost hooks auto-on, audit export |
 | **1.0.83** | Quality — Windows CRLF fix, stop-word proposal filter, skill library cleanup, 2 new skills |
 | **1.0.82** | Simplification wave 2 — 16 TS files deleted, 9 JS hooks removed, 22 settings removed |
@@ -42,6 +44,34 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.86] - 2026-06-21
+
+**Summary:** E2E production validation — 6 critical bugs fixed, prediction noise eliminated, adaptation log wired, false hook warning resolved, vitest skill lint fixed.
+
+**Theme:** Quality audit & intelligence accuracy
+
+### Fixed
+
+- **Attribution subscore double-multiplication** (`agentPerformanceIndex.ts`, `statusBarManager.ts`, `costDashboard.ts`) — `scorePct` is stored as integer 0–100; multiplying by 100 again clamped everything to 100% and inflated API Score from 32 (F) to 45 (D). Now reads the value directly. API Score is now accurate.
+- **Attribution alert never showed** (`statusBarManager.ts`) — same `* 100` bug made `pct` = 3500, always ≥ 80, so the alert bar was always hidden even when attribution was broken. Now shows correctly when < 80%.
+- **False "Attribution PostToolUse hook not configured" warning** (`claudeVscodeAttributionGap.ts`) — hook detection only checked for `skill-invoke-watch.js` in the command string; the current hook uses a curl POST to `/hook/skill-invoke`. Detection now recognizes both forms; warning no longer fires when hook is properly configured.
+- **Catch-all glob proposals polluting prediction** (`taskSkillProposals.ts`) — fallback proposal loop added skills matched only by `**/*`, `**/*.*`, or `**/*.md` at 55% confidence, bypassing the per-skill scorer that already filtered catch-alls. Skills matched only by catch-all globs are now skipped in the fallback path. Reduces over-prediction from 12 noise proposals to 0–2 specific-match proposals per session.
+- **Adaptation log not written on attribution reset** (`commandsUsage.ts`) — `appendAdaptationEvent` was never called from the Reset Mis-attributed Cost Data flow. Now records an `attribution_reset` event with before/after counts.
+- **vitest-extension-testing SKILL.md missing YAML frontmatter** (`.claude/skills/vitest-extension-testing/SKILL.md`) — caused infinite SKILL lint error loop on every cost-control hook refresh cycle. Frontmatter block added with correct globs.
+
+### Impact on metrics (post-fix)
+
+| Metric | Before v1.0.86 | After v1.0.86 |
+|---|---|---|
+| API Score (actual) | 45/100 D (inflated) | 32/100 F (correct) |
+| Attribution subscore | 100% (wrong) | 35% (correct) |
+| Attribution alert bar | Always hidden | Shown when < 80% |
+| Hook warning | False positive | Cleared |
+| Proposals per session | 12 (noise) | 2–4 (specific) |
+| Adaptation log | Empty | Records resets |
 
 ---
 

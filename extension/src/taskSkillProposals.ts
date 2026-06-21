@@ -293,9 +293,14 @@ export function rankAllTaskSkillProposals(
     if (proposals.has(name)) {
       continue;
     }
+    // Only add skills matched by specific globs — catch-all patterns provide no signal
+    const specificGlobs = globs.filter((g) => !CATCH_ALL_GLOBS.has(g));
+    if (specificGlobs.length === 0) {
+      continue;
+    }
     proposals.set(name, {
       name,
-      reason: `Workspace files match ${globs.slice(0, 2).join(", ")}`,
+      reason: `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}`,
       confidence: installed.has(name) ? 55 : 65,
       installed: installed.has(name),
       matchedGlobs: globs,

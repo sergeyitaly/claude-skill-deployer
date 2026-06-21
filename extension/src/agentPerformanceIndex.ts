@@ -62,7 +62,7 @@ function precisionScore(target: string): number {
 function attributionScore(target: string): number {
   const trustFile = path.join(target, ".claude", "learning", "attribution-trust.json");
   const trust = readJsonSafe<{ scorePct?: number }>(trustFile);
-  return clamp(Math.round((trust?.scorePct ?? 0) * 100));
+  return clamp(Math.round(trust?.scorePct ?? 0));
 }
 
 // ── Sub-score: Skill Efficiency ───────────────────────────────────────────────

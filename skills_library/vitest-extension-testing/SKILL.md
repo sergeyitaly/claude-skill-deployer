@@ -1,3 +1,12 @@
+---
+name: vitest-extension-testing
+description: Run, debug, and interpret Vitest results in the claude-skills-deployer extension (extension/ directory). Use for unit tests, bench tests, solo tests, and integration tests.
+globs:
+  - "extension/**/*.test.ts"
+  - "extension/**/*.bench.test.ts"
+  - "extension/vitest.config.ts"
+---
+
 # Vitest Extension Testing
 
 Use when running, debugging, or interpreting Vitest test results in the claude-skills-deployer extension (`extension/` directory).

@@ -294,7 +294,7 @@ function buildGovernancePanelHtml(target: string): string {
   try { const s = fs.statSync(mcpFile); mcpSize = s.size; } catch { /* */ }
   try {
     const t = JSON.parse(fs.readFileSync(trustFile, "utf-8")) as { scorePct?: number };
-    attrPct = Math.round((t.scorePct ?? 0) * 100);
+    attrPct = Math.round(t.scorePct ?? 0);
   } catch { /* */ }
   try {
     runCount = fs.readFileSync(runsFile, "utf-8").split("\n").filter(Boolean).length;
