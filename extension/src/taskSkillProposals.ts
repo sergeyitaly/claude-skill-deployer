@@ -4,6 +4,8 @@ import { detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOp
 import { invalidateLearningCache, readCachedEnrichedRuns } from "./runsStore";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
+import { computeAllSkillPenalties, historicalSuccess } from "./proposalOutcome";
+import { getOrComputeRepoAffinity } from "./repoAffinity";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
 export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -200,7 +202,10 @@ function scoreSkillForTask(
   tokens: string[],
   matchedGlobs: string[],
   installed: boolean,
-  recentSkills: RecentSkills
+  recentSkills: RecentSkills,
+  affinityBoost: number = 0,
+  penalty: number = 0,
+  target: string = ""
 ): { confidence: number; reason: string } | null {
   let score = 0;
   const reasons: string[] = [];
@@ -254,6 +259,29 @@ function scoreSkillForTask(
     signalTypes++;
   }
 
+  // GAP 3: repository affinity boost — tech-stack fingerprint for this repo
+  if (affinityBoost > 0) {
+    score += affinityBoost;
+    reasons.push(`repo stack match (+${affinityBoost})`);
+    signalTypes++;
+  }
+
+  // GAP 4: historical success weighting — replace binary recent-use with calibrated boost
+  if (target) {
+    const hist = historicalSuccess(target, skillName);
+    if (hist.invocations >= 3) {
+      const histBoost = Math.round(hist.successRate * 30);
+      if (histBoost > 0) {
+        score += histBoost;
+        reasons.push(`${hist.invocations} prior invocations (${Math.round(hist.successRate * 100)}% success)`);
+        signalTypes++;
+      }
+    }
+  }
+
+  // GAP 4: non-use penalty — skills consistently proposed but ignored lose confidence
+  score -= penalty;
+
   if (score < 20) {
     return null;
   }
@@ -265,7 +293,7 @@ function scoreSkillForTask(
     return null;
   }
 
-  const confidence = Math.min(100, score);
+  const confidence = Math.min(100, Math.max(0, score));
   const reason = reasons.slice(0, 2).join("; ") || "Relevant to task context";
   return { confidence, reason };
 }
@@ -291,13 +319,17 @@ export function rankAllTaskSkillProposals(
   // Deduplicate tokens — each word scored only once, preventing repeated hook-message
   // phrases (e.g. "Long session (warn)..." × 4) from inflating a single token's score.
   const tokens = [...new Set(tokenize(promptText))];
+  // GAP 3: repo affinity — cached 24h, provides skill boosts from detected tech stack
+  const affinity = getOrComputeRepoAffinity(target);
+  // GAP 4: non-use penalties from past sessions where skills were proposed but not invoked
+  const penalties = computeAllSkillPenalties(target);
 
   const proposals = new Map<string, TaskSkillProposal>();
   const recentSkills = buildRecentSkills(target);
 
   for (const [name, rule] of Object.entries(manifest.skills)) {
     const matchedGlobs = detected[name] ?? [];
-    const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name), recentSkills);
+    const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name), recentSkills, affinity.skillBoosts[name] ?? 0, penalties[name] ?? 0, target);
     if (!scored) {
       continue;
     }
@@ -395,6 +427,14 @@ export function resolveTaskSkillProposals(
       : [];
   }
   return computeTaskSkillProposals(target, manifest, promptText, saved?.taskSummary);
+}
+
+/** Check whether a skill is currently in the proposal set and return its confidence. */
+export function isSkillProposed(target: string, skillName: string): { proposed: boolean; confidence: number } {
+  const saved = readTaskSkillProposals(target);
+  if (!saved) return { proposed: false, confidence: 0 };
+  const prop = saved.proposals.find(p => p.name === skillName);
+  return prop ? { proposed: true, confidence: prop.confidence } : { proposed: false, confidence: 0 };
 }
 
 function listInstalledSkillNames(target: string): string[] {

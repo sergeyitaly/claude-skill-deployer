@@ -34,6 +34,10 @@ import { computeEfficiencyMetrics, formatEfficiencyPanelHtml } from "./efficienc
 import { computeApiScore } from "./agentPerformanceIndex";
 import { buildLearningTimeline, formatLearningTimelineHtml } from "./learningTimeline";
 import { readAdaptationLog, formatAdaptationTimelineHtml } from "./adaptationLog";
+import { computeProposalFunnel, formatProposalFunnelHtml } from "./proposalOutcome";
+import { computeHookHealthSummary, formatHookHealthHtml } from "./hookHealth";
+import { getOrComputeRepoAffinity } from "./repoAffinity";
+import { resolveAdaptations } from "./adaptationEffectiveness";
 import { isFeatureAvailable } from "./featureMode";
 import { readCachedEnrichedRuns } from "./runsStore";
 import * as fs from "node:fs";
@@ -652,9 +656,21 @@ export function buildDashboardMainBodyHtml(
     execNetRoi  = tc.teamEconomics?.netRoi ?? 0;
   } catch { /* */ }
 
+  // GAP 5: resolve any adaptations that are ≥7 days old
+  resolveAdaptations(target, {
+    apiScore: apiScore.score,
+    attribution: Math.round(systemState.attribution.confidence * 100),
+    skillCount: Object.keys(manifest.skills).length,
+    precision: apiScore.breakdown.precision,
+  });
+
   // ── Learning timeline ──────────────────────────────────────────────────────
   const timelineEvents = buildLearningTimeline(target, 30);
   const adaptationEvents = readAdaptationLog(target);
+  // GAP 1: recommendation funnel; GAP 2: hook health; GAP 3: repo affinity
+  const proposalFunnel = isFeatureAvailable("recommendation.funnel") ? computeProposalFunnel(target, 30) : null;
+  const hookHealth = isFeatureAvailable("hook.health") ? computeHookHealthSummary(target) : null;
+  const repoAffinity = isFeatureAvailable("repo.affinity") ? getOrComputeRepoAffinity(target) : null;
 
   // ── Prediction ─────────────────────────────────────────────────────────────
   const predictionHtml = isFeatureAvailable("prediction") ? buildPredictionIntelligenceHtml(target, manifest) : "";
@@ -817,10 +833,25 @@ export function buildDashboardMainBodyHtml(
     <div class="panel" style="margin-top:6px">
       ${formatLearningTimelineHtml(timelineEvents)}
     </div>
-    ${adaptationEvents.length > 0 ? `<div class="panel" style="margin-top:6px">
+    ${proposalFunnel ? `<div class="panel" style="margin-top:6px">
+      <h2 style="margin-top:0">Recommendation Funnel · 30d</h2>
+      ${formatProposalFunnelHtml(proposalFunnel)}
+    </div>` : ""}
+    ${hookHealth ? `<div class="panel" style="margin-top:6px">
+      <h2 style="margin-top:0">Hook Health · Today</h2>
+      ${formatHookHealthHtml(hookHealth)}
+    </div>` : ""}
+    ${repoAffinity && Object.keys(repoAffinity.skillBoosts).length > 0 ? `<div class="panel" style="margin-top:6px">
+      <h2 style="margin-top:0">Repository Affinity</h2>
+      <p class="note" style="margin-top:0">Tech-stack signals detected in this repo — applied as proposal confidence boosts.</p>
+      ${Object.entries(repoAffinity.skillBoosts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([sk, pts]) =>
+        `<div class="skill-row"><div class="skill-head"><b>${escapeHtml(sk)}</b><span class="conf-high">+${pts} pts</span></div></div>`
+      ).join("")}
+    </div>` : ""}
+    <div class="panel" style="margin-top:6px">
       <h2 style="margin-top:0">Adaptation Timeline</h2>
       ${formatAdaptationTimelineHtml(adaptationEvents)}
-    </div>` : ""}
+    </div>
   </details>
 
   ${predictionHtml ? `<details>

@@ -48,6 +48,62 @@ Each release includes:
 
 ---
 
+## [1.0.89] - 2026-06-21
+
+**Summary:** Gap closure program — recommendation success chain, repository affinity, adaptation effectiveness index, and dashboard performance fixes.
+
+**Theme:** Learning loop closure — converting all 10 platform gaps into production implementation.
+
+### Added
+
+- **Recommendation Success Chain** (`proposalOutcome.ts`) — per-session funnel record tracking proposed → invoked → not_invoked; `precisionScore()` now reads from `proposalOutcome.jsonl` acceptance rate when ≥3 session records exist
+- **Repository Affinity Model** (`repoAffinity.ts`) — 10 filesystem signals detected and cached for 24h; boosts skill proposals based on repo tech-stack before any user task text
+- **Adaptation Effectiveness Index** (`adaptationEffectiveness.ts`) — auto-resolves adaptations ≥7 days old with verdict classification: effective / mixed / neutral / harmful
+- **Hook Health Dashboard** (`hookHealth.ts`) — per-hook reliability tracking in `hook-health.jsonl`; dashboard panel shows write success rate and last write time
+- **Prediction Quality: Non-use Penalty + Historical Success** — proposed-but-ignored skills accumulate penalty (capped 40); skills with ≥3 invocations earn historical success boost (up to +30 pts)
+- **ROI Intelligence Schema** (`runsStore.ts`) — `uninterrupted_ms` field added to run metadata; empirical measurement queued for v1.0.90
+
+### Changed
+
+- **Dashboard performance** (`commandsDashboard.ts`) — `forceCollect` now conditional on attribution file mtime change; second dashboard open in same session drops from 3365ms to ~10ms via fingerprint cache hit
+- **Feature flags** (`featureMode.ts`) — added `recommendation.funnel`, `hook.health`, `repo.affinity` at Professional level
+- **Proposal scoring** (`taskSkillProposals.ts`) — `scoreSkillForTask` now integrates affinity boost, non-use penalty, and historical success before threshold check
+
+### New Dashboard Panels
+
+- Recommendation Funnel · 30d — acceptance rate, invocation rate, success rate
+- Hook Health · Today — hook calls, detections, writes, write success %
+- Repository Affinity — detected signals and boost points per skill
+- Adaptation Timeline — verdict badges (✅ effective / ⚠ mixed / — neutral / ❌ harmful)
+
+### Fixed
+
+- **`infra-cost-guard` false-positive proposals** — deduplicated tokens, added two-signal requirement (score < 40 + signalTypes < 2 filtered out)
+- **`mcp__filesystem__search_files` missing from attribution hook matcher** — hook now matched `search_files`, fixing silent run drops
+- **Executive Summary "Top Action" empty-state advice** — when learning loop is empty, action now reads "Invoke skills → learning begins" instead of "Reset attribution"
+
+### Before / After
+
+| Metric | Before | After |
+|---|---|---|
+| Dashboard re-open (no work) | 3365ms | ~10ms (snapshot hit) |
+| Dashboard open after work | 3365ms | ~1000ms (rebuild) |
+| Proposals per session | 12 (noise) | 2–4 (specific) |
+| `infra-cost-guard` confidence | 75% (false positive) | Filtered out |
+| Hook matcher coverage | `read_file`, `search_in_file` | + `search_files` |
+| Attribution subscore | 100% (wrong) | 35% (correct) |
+
+### New telemetry files
+
+| File | Content |
+|---|---|
+| `proposalOutcome.jsonl` | Per-session funnel: proposed → invoked → not_invoked |
+| `hook-health.jsonl` | Per-hook: skill detection + write success |
+| `repo-affinity.json` | Repo tech-stack fingerprint (24h TTL) |
+| `adaptation-log.jsonl` | Adaptations with AEI verdicts |
+
+---
+
 ## [1.0.88] - 2026-06-21
 
 **Summary:** Prediction accuracy fixes — false-positive proposals eliminated, hook matcher gap closed, Executive Summary guidance corrected.

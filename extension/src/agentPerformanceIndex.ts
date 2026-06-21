@@ -39,8 +39,33 @@ function readJsonSafe<T>(file: string): T | undefined {
 }
 
 // ── Sub-score: Precision ──────────────────────────────────────────────────────
-// Ratio of skills-in-last-proposals that were actually invoked.
+// Uses proposalOutcome.jsonl acceptance rate when available (GAP 1), falling back to
+// the simple proposals-vs-used ratio when no session outcome data exists yet.
 function precisionScore(target: string): number {
+  const outcomeFile = path.join(target, ".claude", "learning", "proposalOutcome.jsonl");
+  if (fs.existsSync(outcomeFile)) {
+    try {
+      const lines = fs.readFileSync(outcomeFile, "utf-8").split("\n").filter(Boolean);
+      if (lines.length >= 3) {
+        let totalProposed = 0;
+        let totalInvoked = 0;
+        for (const line of lines) {
+          try {
+            const r = JSON.parse(line) as { event?: string; skills_proposed_count?: number; skills_invoked_count?: number };
+            if (r.event === "session_end") {
+              totalProposed += r.skills_proposed_count ?? 0;
+              totalInvoked += r.skills_invoked_count ?? 0;
+            }
+          } catch { /* skip */ }
+        }
+        if (totalProposed > 0) {
+          return clamp(Math.round((totalInvoked / totalProposed) * 100));
+        }
+      }
+    } catch { /* fall through to legacy */ }
+  }
+
+  // Legacy: single-proposal snapshot ratio
   const proposalsFile = path.join(target, ".claude", "learning", "task-skill-proposals.json");
   const proposed = readJsonSafe<{ proposals?: { name: string }[] }>(proposalsFile);
   if (!proposed?.proposals?.length) return 0;

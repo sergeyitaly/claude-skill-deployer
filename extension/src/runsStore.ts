@@ -42,6 +42,14 @@ export interface RunMetadata {
   cache_hit?: boolean;
   source?: string;
   invoked?: boolean;
+  /** GAP 1: was this skill in the proposal set at time of invocation? */
+  proposed?: boolean;
+  proposal_confidence?: number;
+  /** GAP 1: outcome signal for success chain */
+  outcome?: "success" | "failure" | "unknown";
+  outcome_signal?: string;
+  /** GAP 6: uninterrupted agent work time in ms (time until next user prompt) */
+  uninterrupted_ms?: number;
   [key: string]: unknown;
 }
 

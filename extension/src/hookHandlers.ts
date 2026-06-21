@@ -25,6 +25,8 @@ import {
 } from "./sessionSkillApply";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branchProfiles";
+import { appendHookHealth } from "./hookHealth";
+import { recordSessionProposalOutcome } from "./proposalOutcome";
 
 export interface HookRequest {
   hookName: string;
@@ -266,23 +268,42 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
     : new Set();
   const notInActiveProfile = activeSet.size > 0 && !activeSet.has(skill);
 
-  appendSkillRun(cwd, {
-    skill,
-    agent: req.agent as RunAgent,
-    tokens,
-    success: true,
-    action: "skill_invoke",
-    session_id: sessionId,
-    metadata: {
-      source: "skill-invoke-hook-v2",
-      invoked: true,
-      tool_name: String(toolName),
-      tool_use_id: toolUseId || undefined,
-      hook_agent: req.agent,
-      model,
-      ...(notInActiveProfile ? { not_in_active_profile: true } : {}),
-    },
-  });
+  // Check if this skill was in the current proposal set (GAP 1: recommendation success chain)
+  let proposedFlag = false;
+  let proposalConfidence = 0;
+  try {
+    const pf = path.join(cwd, ".claude", "learning", "task-skill-proposals.json");
+    const pfData = JSON.parse(fs.readFileSync(pf, "utf-8")) as { proposals?: Array<{ name: string; confidence: number }> };
+    const prop = pfData.proposals?.find(p => p.name === skill);
+    if (prop) { proposedFlag = true; proposalConfidence = prop.confidence; }
+  } catch { /* non-fatal — proposals file may not exist */ }
+
+  let wroteRuns = false;
+  try {
+    appendSkillRun(cwd, {
+      skill,
+      agent: req.agent as RunAgent,
+      tokens,
+      success: true,
+      action: "skill_invoke",
+      session_id: sessionId,
+      metadata: {
+        source: "skill-invoke-hook-v2",
+        invoked: true,
+        proposed: proposedFlag,
+        proposal_confidence: proposalConfidence > 0 ? proposalConfidence : undefined,
+        tool_name: String(toolName),
+        tool_use_id: toolUseId || undefined,
+        hook_agent: req.agent,
+        model,
+        ...(notInActiveProfile ? { not_in_active_profile: true } : {}),
+      },
+    });
+    wroteRuns = true;
+  } catch { /* non-fatal */ }
+
+  // GAP 2: record hook health for learning loop diagnostics
+  appendHookHealth(cwd, { event: "hook_fired", skill, wrote_runs: wroteRuns, agent: req.agent, session_id: sessionId });
 
   const now = new Date().toISOString();
   state[key] = now;

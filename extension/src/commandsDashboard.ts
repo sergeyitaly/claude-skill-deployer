@@ -110,9 +110,15 @@ export function registerDashboardCommands(deps: DashboardCommandDeps): vscode.Di
         return;
       }
       ensureLearningDir(target);
+      // GAP 8: only force-collect when attribution has changed since last cycle —
+      // avoids invalidating the dashboard snapshot fingerprint on every open.
+      const lastCycle = readPipelineCycle(target);
+      const { attributionFileFingerprint } = await import("./pipelineCycle.js");
+      const attrNow = attributionFileFingerprint(target);
+      const attrChanged = attrNow.mtimeMs !== (lastCycle.attributionMtime ?? 0);
       const pipeline = await runCostPipeline(target, libraryDir, {
         collect: true,
-        forceCollect: true,
+        forceCollect: attrChanged,
       });
       persistCostAttribution(target, libraryDir);
       const dashboardNonce = crypto.randomBytes(16).toString("base64");

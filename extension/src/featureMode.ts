@@ -11,12 +11,15 @@ const FEATURE_MAP: Record<string, FeatureMode> = {
   "profile.init":     "starter",
 
   // Professional (+ all starter)
-  "attribution":      "professional",
-  "api.score":        "professional",
-  "optimization":     "professional",
-  "prediction":       "professional",
-  "learning.timeline":"professional",
-  "roi.matrix":       "professional",
+  "attribution":           "professional",
+  "api.score":             "professional",
+  "optimization":          "professional",
+  "prediction":            "professional",
+  "learning.timeline":     "professional",
+  "roi.matrix":            "professional",
+  "recommendation.funnel": "professional",
+  "hook.health":           "professional",
+  "repo.affinity":         "professional",
 
   // Power user (+ all professional)
   "governance":       "power",

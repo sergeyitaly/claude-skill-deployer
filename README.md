@@ -417,4 +417,4 @@ Auto-enable on startup: `claudeSkills.mcpForce.enableOnStartup: true`
 
 ---
 
-**Current version:** 1.0.88 (`serhiivoinolovych.claude-skill-deployer`)
+**Current version:** 1.0.89 (`serhiivoinolovych.claude-skill-deployer`)
