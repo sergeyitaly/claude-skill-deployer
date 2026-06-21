@@ -36,10 +36,7 @@ import { reconcileCursorCosts } from "./cursorUsageImport";
 import { formatCompactUsd } from "./skillCost";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
-import {
-  configureWeeklyReportEmail,
-  deliverWeeklyReport,
-} from "./weeklyReport";
+
 import { resetMisattributedData } from "./costAttribution";
 import { runCostPipelineSync } from "./costPipeline";
 import { recordError } from "./analytics";
@@ -224,33 +221,7 @@ export function registerUsageCommands(deps: UsageCommandDeps): vscode.Disposable
       }
     }),
 
-    vscode.commands.registerCommand("claudeSkills.configureWeeklyReportEmail", async () => {
-      const target = getTarget();
-      const message = await configureWeeklyReportEmail(context, target);
-      maybeRevealOutputPanel();
-      log(`\n=== Configure weekly report email ===\n${message}`);
-      void notifyUserSuccess(message.split("\n")[0] ?? message, log);
-    }),
 
-    vscode.commands.registerCommand("claudeSkills.sendWeeklyReport", async () => {
-      const target = getTarget();
-      if (!target) {
-        void notifyUserWarn("Claude Skills: open a workspace folder first.");
-        return;
-      }
-      maybeRevealOutputPanel();
-      log("\n=== Send weekly AI usage report ===");
-      const result = await deliverWeeklyReport(context, target, libraryDir);
-      if (result.email.ok) {
-        log(`Email sent to ${result.email.to}`);
-        void notifyUserSuccess(`Claude Skills: weekly report emailed to ${result.email.to}.`);
-      } else {
-        log(`Email failed: ${result.email.error ?? "n/a"}`);
-        vscode.window.showWarningMessage(
-          result.email.error ?? "Weekly report could not be sent. Run Configure Weekly Report Email."
-        );
-      }
-    }),
 
     vscode.commands.registerCommand("claudeSkills.resetAttribution", async () => {
       const target = getTarget();

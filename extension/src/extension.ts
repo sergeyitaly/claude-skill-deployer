@@ -304,12 +304,7 @@ import {
   revertMcpForcePermissions,
 } from "./mcpForce";
 import { checkAndShowKpiAlert } from "./kpiAlert";
-import {
-  configureWeeklyReportEmail,
-  deliverWeeklyReport,
-  readWeeklyReportConfig,
-  startWeeklyReportScheduler,
-} from "./weeklyReport";
+
 import {
   executeSkillSetResolution,
   formatSkillSetResolverPlan,
@@ -358,10 +353,7 @@ let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 let usageStatusBarItem: vscode.StatusBarItem;
 let creditStatusBarItem: vscode.StatusBarItem;
-let trustStatusBarItem: vscode.StatusBarItem;
-let budgetModeStatusBarItem: vscode.StatusBarItem;
-let contextFocusStatusBarItem: vscode.StatusBarItem;
-let practicalFocusStatusBarItem: vscode.StatusBarItem;
+
 let projectTierStatusBarItem: vscode.StatusBarItem;
 let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let mcpHealthStatusBarItem: vscode.StatusBarItem;
@@ -591,17 +583,6 @@ export function activate(context: vscode.ExtensionContext) {
   creditStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
   context.subscriptions.push(creditStatusBarItem);
 
-  trustStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97.5);
-  context.subscriptions.push(trustStatusBarItem);
-
-  budgetModeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
-  context.subscriptions.push(budgetModeStatusBarItem);
-
-  contextFocusStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
-  context.subscriptions.push(contextFocusStatusBarItem);
-
-  practicalFocusStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
-  context.subscriptions.push(practicalFocusStatusBarItem);
 
   projectTierStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97.25);
   context.subscriptions.push(projectTierStatusBarItem);
@@ -623,10 +604,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
        statusBarItem,
        usageStatusBarItem,
        creditStatusBarItem,
-       trustStatusBarItem,
-       budgetModeStatusBarItem,
-       contextFocusStatusBarItem,
-       practicalFocusStatusBarItem,
+
        projectTierStatusBarItem,
        workspaceFolderStatusBarItem,
      } satisfies StatusBarItems,
@@ -811,12 +789,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     refreshWorkspaceFolderStatusBar();
     refreshMcpStatusBars(getWorkspaceTarget());
     refreshCliMcpStatusBar();
-    // Removed from status bar: usage, trust badge, budget mode, context focus, practical focus
     usageStatusBarItem.hide();
-    trustStatusBarItem.hide();
-    budgetModeStatusBarItem.hide();
-    contextFocusStatusBarItem.hide();
-    practicalFocusStatusBarItem.hide();
     if (target && opts.workspaceState && shouldSyncWorkspaceToAll() && agentMirrorsNeedSync(target, libraryDir)) {
       const synced = syncWorkspaceSkillsToAllAgents(libraryDir, target);
       if (synced.length > 0) {
@@ -1152,7 +1125,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         void checkPredictiveCostAlert(target, libraryDir);
       }
     }, 8000);
-    startWeeklyReportScheduler(context, getWorkspaceTarget, libraryDir, log);
+
     startSkillSetResolverScheduler(context, getWorkspaceTarget, libraryDir, log, refreshAll, () => {
       const target = getWorkspaceTarget();
       if (target) {
@@ -1258,12 +1231,10 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     }),
     ...registerBudgetCommands({
       context,
-      libraryDir,
       getTarget: getWorkspaceTarget,
       log,
       refreshAll,
       maybeRevealOutputPanel,
-      applyBudgetSettings,
     }),
     ...registerProfileCommands({
       context,

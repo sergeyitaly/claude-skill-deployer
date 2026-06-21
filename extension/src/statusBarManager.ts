@@ -8,21 +8,11 @@ import {
   runAgentLabel,
 } from "./usageStats";
 import { formatCompactUsd } from "./skillCost";
-import {
-  configFromVsCodeSettings as contextFocusFromSettings,
-  CONTEXT_FOCUS_LABELS,
-} from "./contextFocusConfig";
-import {
-  configFromVsCodeSettings as practicalFocusFromSettings,
-  PRACTICAL_FOCUS_LABELS,
-} from "./practicalFocusConfig";
-import { BudgetMode, budgetUsagePercent, configFromVsCodeSettings } from "./budgetConfig";
+import { budgetUsagePercent, configFromVsCodeSettings } from "./budgetConfig";
 import { localDateKey } from "./localDate";
 import { getCurrentBranch } from "./branchProfiles";
 import { agentProfilesFeatureActive, detectHostAgentId, hostAgentLabel } from "./agentSkillProfiles";
-import { assessAttributionHealth } from "./attributionQuality";
-import { getWorkspaceHookStatus } from "./hookOps";
-import { buildGlobalTrustBadge, formatGlobalTrustStatusBar } from "./attributionQuality";
+
 import { budgetProgressBar, remainingDailyBudgetUsd, writeTodayCostSnapshot } from "./todayCostSnapshot";
 import { spendPrefixForCreditSummary, DayUsage } from "./usageCost";
 import { computeEnabledAgentsCreditUsage } from "./agentOps";
@@ -40,22 +30,14 @@ import {
 let _statusBarItem: vscode.StatusBarItem | undefined;
 let _usageStatusBarItem: vscode.StatusBarItem | undefined;
 let _creditStatusBarItem: vscode.StatusBarItem | undefined;
-let _trustStatusBarItem: vscode.StatusBarItem | undefined;
-let _budgetModeStatusBarItem: vscode.StatusBarItem | undefined;
-let _contextFocusStatusBarItem: vscode.StatusBarItem | undefined;
-let _practicalFocusStatusBarItem: vscode.StatusBarItem | undefined;
+
 let _projectTierStatusBarItem: vscode.StatusBarItem | undefined;
 let _workspaceFolderStatusBarItem: vscode.StatusBarItem | undefined;
 
 let _getTarget: (() => string | undefined) | undefined;
 let _libraryDir = "";
 
-export const BUDGET_MODE_CYCLE: BudgetMode[] = ["economy", "normal", "unlimited"];
-export const BUDGET_MODE_LABEL: Record<BudgetMode, string> = {
-  economy: "Economy",
-  normal: "Normal",
-  unlimited: "Unlimited",
-};
+
 
 // ---------------------------------------------------------------------------
 // Init
@@ -65,10 +47,6 @@ export interface StatusBarItems {
   statusBarItem: vscode.StatusBarItem;
   usageStatusBarItem: vscode.StatusBarItem;
   creditStatusBarItem: vscode.StatusBarItem;
-  trustStatusBarItem: vscode.StatusBarItem;
-  budgetModeStatusBarItem: vscode.StatusBarItem;
-  contextFocusStatusBarItem: vscode.StatusBarItem;
-  practicalFocusStatusBarItem: vscode.StatusBarItem;
   projectTierStatusBarItem: vscode.StatusBarItem;
   workspaceFolderStatusBarItem: vscode.StatusBarItem;
 }
@@ -81,10 +59,6 @@ export function initStatusBars(
   _statusBarItem              = items.statusBarItem;
   _usageStatusBarItem         = items.usageStatusBarItem;
   _creditStatusBarItem        = items.creditStatusBarItem;
-  _trustStatusBarItem         = items.trustStatusBarItem;
-  _budgetModeStatusBarItem    = items.budgetModeStatusBarItem;
-  _contextFocusStatusBarItem  = items.contextFocusStatusBarItem;
-  _practicalFocusStatusBarItem = items.practicalFocusStatusBarItem;
   _projectTierStatusBarItem   = items.projectTierStatusBarItem;
   _workspaceFolderStatusBarItem = items.workspaceFolderStatusBarItem;
   _libraryDir = libraryDir;
@@ -165,72 +139,7 @@ export function refreshCreditStatusBar(target?: string): void {
   _creditStatusBarItem.show();
 }
 
-export function refreshTrustStatusBar(target?: string): void {
-  if (!_trustStatusBarItem) return;
-  if (!target) {
-    _trustStatusBarItem.hide();
-    return;
-  }
-  const health = assessAttributionHealth(target, _libraryDir);
-  const hookStatus = getWorkspaceHookStatus(target, _libraryDir);
-  const badge = buildGlobalTrustBadge(health, hookStatus);
-  _trustStatusBarItem.text = formatGlobalTrustStatusBar(badge);
-  _trustStatusBarItem.tooltip = `${badge.label} (${badge.scorePct}%)\n\n${badge.detail}\n\nTranscripts and split attribution are probabilistic — not an API invoice.\n\nClick for the usage report.`;
-  _trustStatusBarItem.command = "claudeSkills.showUsageStats";
-  _trustStatusBarItem.show();
-}
 
-export function refreshBudgetModeStatusBar(): void {
-  if (!_budgetModeStatusBarItem) return;
-  const manifest = loadManifest(_libraryDir);
-  const config = configFromVsCodeSettings(manifest);
-  const mode = config.mode;
-  const icon = mode === "economy" ? "$(leaf)" : mode === "unlimited" ? "$(rocket)" : "$(shield)";
-  _budgetModeStatusBarItem.text = `${icon} ${BUDGET_MODE_LABEL[mode]}`;
-  _budgetModeStatusBarItem.tooltip =
-    `Budget mode: ${BUDGET_MODE_LABEL[mode]}. Daily cap: ${config.dailyBudgetUsd > 0 ? formatCompactUsd(config.dailyBudgetUsd) : "off"}. ` +
-    `${config.highTierSkills.length} high-tier skill(s) tracked.\n\nClick to cycle mode (Economy -> Normal -> Unlimited).`;
-  _budgetModeStatusBarItem.command = "claudeSkills.cycleBudgetMode";
-  _budgetModeStatusBarItem.show();
-}
-
-export function refreshContextFocusStatusBar(): void {
-  if (!_contextFocusStatusBarItem) return;
-  const config = contextFocusFromSettings();
-  if (!config.enabled) {
-    _contextFocusStatusBarItem.text = "$(eye-closed) Focus: off";
-    _contextFocusStatusBarItem.tooltip =
-      "Context focus is disabled. Enable in settings to inject grounding that balances local workspace context vs general LLM knowledge.\n\nClick to cycle focus level.";
-    _contextFocusStatusBarItem.command = "claudeSkills.cycleContextFocusLevel";
-    _contextFocusStatusBarItem.show();
-    return;
-  }
-  const label = CONTEXT_FOCUS_LABELS[config.level];
-  _contextFocusStatusBarItem.text = `$(target) ${label}`;
-  _contextFocusStatusBarItem.tooltip =
-    `Context focus: ${label}. ${config.autoEscalateOnSessionSize ? "Auto-tightens on large sessions." : "Fixed level."}\n\nClick to cycle (Knowledge-forward -> Balanced -> Local-first -> Strict local).`;
-  _contextFocusStatusBarItem.command = "claudeSkills.cycleContextFocusLevel";
-  _contextFocusStatusBarItem.show();
-}
-
-export function refreshPracticalFocusStatusBar(): void {
-  if (!_practicalFocusStatusBarItem) return;
-  const config = practicalFocusFromSettings();
-  if (!config.enabled) {
-    _practicalFocusStatusBarItem.text = "$(light-bulb) Practical: off";
-    _practicalFocusStatusBarItem.tooltip =
-      "Practical/deployment focus is off. Enable to favor concrete architecture and first-try deploy steps over theoretical advice.\n\nClick to enable (starts at Architecture-first).";
-    _practicalFocusStatusBarItem.command = "claudeSkills.cyclePracticalFocusLevel";
-    _practicalFocusStatusBarItem.show();
-    return;
-  }
-  const label = PRACTICAL_FOCUS_LABELS[config.level];
-  _practicalFocusStatusBarItem.text = `$(rocket) ${label}`;
-  _practicalFocusStatusBarItem.tooltip =
-    `Practical focus: ${label}. Favors provisionable architecture over hand-wavy theory.\n\nClick to cycle (Exploratory -> Balanced -> Architecture-first -> Deploy-ready).`;
-  _practicalFocusStatusBarItem.command = "claudeSkills.cyclePracticalFocusLevel";
-  _practicalFocusStatusBarItem.show();
-}
 
 export function refreshUsageStatusBar(): void {
   if (!_usageStatusBarItem || !_getTarget) return;

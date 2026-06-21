@@ -8,7 +8,7 @@ import {
   computeCliKpi,
   readMcpUsageLog,
 } from "./mcpUsageLog";
-import { computeHaceMetrics, HaceMetrics } from "./haceMetrics";
+import { computeHaceMetrics, HaceMetrics } from "./efficiencyMetrics";
 
 // ---------------------------------------------------------------------------
 // Module-level state — initialised once from extension.ts activate()

@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { readEnrichedRuns } from "./usageStats";
 import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
 
@@ -22,7 +24,176 @@ import {
 } from "./mcpUsageLog";
 import { formatCompactUsd } from "./skillCost";
 import { formatTokenCount } from "./usageStats";
-import { computeHaceMetrics, HaceMetrics } from "./haceMetrics";
+import { encodeWorkspacePath } from "./workspaceTranscripts";
+
+// ---------------------------------------------------------------------------
+// HACE — Human-AI Collaboration Efficiency (moved from haceMetrics.ts)
+// ---------------------------------------------------------------------------
+
+export interface HaceTurn {
+  humanTs:      number;
+  responseTs:   number;
+  responseSecs: number;
+  promptChars:  number;
+  outputTokens: number;
+  hasThinking:  boolean;
+  isCorrection: boolean;
+}
+
+export interface HaceMetrics {
+  noData:              boolean;
+  sessions:            number;
+  totalTurns:          number;
+  avgResponseSecs:     number;
+  thinkingRate:        number;
+  correctionRate:      number;
+  turnsPerMinute:      number;
+  promptClarityScore:  number;
+  taskVelocityScore:   number;
+  accuracyScore:       number;
+  cliEfficiencyScore:  number;
+  haceScore:           number;
+  grade:               string;
+}
+
+interface RawEntry {
+  type?:       string;
+  timestamp?:  string;
+  uuid?:       string;
+  requestId?:  string;
+  message?: {
+    role?:    string;
+    content?: Array<{ type: string; text?: string; thinking?: string }>;
+    usage?:   { output_tokens?: number };
+  };
+}
+
+function sessionFilesForWorkspace(target: string, cutoffMs: number): string[] {
+  const root = path.join(os.homedir(), ".claude", "projects");
+  const encoded = encodeWorkspacePath(target).toLowerCase();
+  const projectDir = path.join(root, encoded);
+  try {
+    return fs.readdirSync(projectDir)
+      .filter(f => f.endsWith(".jsonl"))
+      .map(f => path.join(projectDir, f))
+      .filter(f => { try { return fs.statSync(f).mtimeMs >= cutoffMs; } catch { return false; } });
+  } catch {
+    try {
+      const dirs = fs.readdirSync(root, { withFileTypes: true });
+      const match = dirs.find(d => d.isDirectory() && d.name.toLowerCase() === encoded);
+      if (!match) return [];
+      const pd = path.join(root, match.name);
+      return fs.readdirSync(pd)
+        .filter(f => f.endsWith(".jsonl"))
+        .map(f => path.join(pd, f))
+        .filter(f => { try { return fs.statSync(f).mtimeMs >= cutoffMs; } catch { return false; } });
+    } catch { return []; }
+  }
+}
+
+const CORRECTION_MAX_CHARS  = 80;
+const CORRECTION_MIN_TOKENS = 250;
+const MAX_RESPONSE_SECS     = 300;
+const VELOCITY_TARGET       = 2.0;
+
+function parseSessionFile(filePath: string): HaceTurn[] {
+  let lines: string[];
+  try { lines = fs.readFileSync(filePath, "utf-8").split("\n"); }
+  catch { return []; }
+  const turns: HaceTurn[] = [];
+  let humanTs = 0, promptChars = 0, responseTs = 0, outputTokens = 0, hasThinking = false;
+  const seenReqIds = new Set<string>();
+  let prevOutputTokens = 0;
+  function commitTurn() {
+    if (humanTs === 0 || responseTs === 0) return;
+    const secs = Math.min((responseTs - humanTs) / 1000, MAX_RESPONSE_SECS);
+    if (secs < 0) return;
+    const isCorrection = promptChars < CORRECTION_MAX_CHARS && prevOutputTokens > CORRECTION_MIN_TOKENS;
+    turns.push({ humanTs, responseTs, responseSecs: secs, promptChars, outputTokens, hasThinking, isCorrection });
+    prevOutputTokens = outputTokens;
+    humanTs = 0; promptChars = 0; responseTs = 0; outputTokens = 0; hasThinking = false;
+    seenReqIds.clear();
+  }
+  for (const raw of lines) {
+    if (!raw.trim()) continue;
+    let e: RawEntry;
+    try { e = JSON.parse(raw) as RawEntry; } catch { continue; }
+    const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
+    if (!ts) continue;
+    if (e.type === "user" && e.message?.role === "user") {
+      const content = e.message.content ?? [];
+      if (!content.some(c => c.type === "tool_result")) {
+        const chars = content.reduce((n, c) => n + (c.text?.length ?? 0), 0);
+        if (chars > 0) { commitTurn(); humanTs = ts; promptChars = chars; }
+      }
+    }
+    if (e.type === "assistant" && e.message?.role === "assistant" && humanTs > 0) {
+      if (responseTs === 0) responseTs = ts;
+      const reqId = e.requestId ?? e.uuid ?? "";
+      if (!seenReqIds.has(reqId)) {
+        seenReqIds.add(reqId);
+        const usage = e.message.usage;
+        if (usage?.output_tokens) outputTokens = Math.max(outputTokens, usage.output_tokens);
+      }
+      if (!hasThinking && e.message.content?.some(c => c.type === "thinking")) hasThinking = true;
+    }
+  }
+  commitTurn();
+  return turns;
+}
+
+function haceClamp(v: number): number { return Math.max(0, Math.min(100, Math.round(v))); }
+function haceGrade(score: number): string {
+  if (score >= 85) return "A";
+  if (score >= 70) return "B";
+  if (score >= 55) return "C";
+  if (score >= 40) return "D";
+  return "F";
+}
+
+export function computeHaceMetrics(
+  target: string,
+  cliSuccessRate: number,
+  daysBack = 14,
+): HaceMetrics {
+  const cutoffMs = Date.now() - daysBack * 86_400_000;
+  const files = sessionFilesForWorkspace(target, cutoffMs);
+  const allTurns: HaceTurn[] = [];
+  const sessionDurations: number[] = [];
+  for (const f of files) {
+    const turns = parseSessionFile(f);
+    if (turns.length === 0) continue;
+    allTurns.push(...turns);
+    const first = turns[0].humanTs;
+    const last  = turns[turns.length - 1].responseTs;
+    if (last > first) sessionDurations.push((last - first) / 60_000);
+  }
+  if (allTurns.length === 0) {
+    return { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0,
+      correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0,
+      accuracyScore: 0, cliEfficiencyScore: haceClamp(cliSuccessRate), haceScore: 0, grade: "—" };
+  }
+  const n = allTurns.length;
+  const thinkingTurns   = allTurns.filter(t => t.hasThinking).length;
+  const correctionTurns = allTurns.filter(t => t.isCorrection).length;
+  const totalResponseSec = allTurns.reduce((s, t) => s + t.responseSecs, 0);
+  const totalDurMin     = sessionDurations.reduce((s, d) => s + d, 0);
+  const thinkingRate    = thinkingTurns / n;
+  const correctionRate  = correctionTurns / n;
+  const avgResponseSecs = totalResponseSec / n;
+  const turnsPerMinute  = totalDurMin > 0 ? n / totalDurMin : 0;
+  const promptClarityScore = haceClamp((1 - thinkingRate) * 100);
+  const taskVelocityScore  = haceClamp(Math.min(turnsPerMinute / VELOCITY_TARGET, 1) * 100);
+  const accuracyScore      = haceClamp((1 - correctionRate) * 100);
+  const cliEfficiencyScore = haceClamp(cliSuccessRate);
+  const haceScore = haceClamp(
+    0.30 * promptClarityScore + 0.25 * taskVelocityScore +
+    0.25 * accuracyScore      + 0.20 * cliEfficiencyScore
+  );
+  return { noData: false, sessions: files.length, totalTurns: n, avgResponseSecs, thinkingRate,
+    correctionRate, turnsPerMinute, promptClarityScore, taskVelocityScore, accuracyScore,
+    cliEfficiencyScore, haceScore, grade: haceGrade(haceScore) };
+}
 
 function workspaceMcpLog(target: string): string {
   return workspaceMcpLogPath(target);

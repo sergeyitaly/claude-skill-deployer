@@ -246,27 +246,9 @@
         "category": "Claude Skills"
       },
       {
-        "command": "claudeSkills.cycleBudgetMode",
-        "title": "Cycle Budget Mode (Economy / Normal / Unlimited)",
-        "icon": "$(settings-gear)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.cycleContextFocusLevel",
-        "title": "Cycle Context Focus Level (Knowledge / Balanced / Local / Strict)",
-        "icon": "$(target)",
-        "category": "Claude Skills"
-      },
-      {
         "command": "claudeSkills.openContextFocusSettings",
         "title": "Open Context Focus Settings",
         "icon": "$(settings)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.cyclePracticalFocusLevel",
-        "title": "Cycle Practical Focus (Theory / Architecture / Deploy-ready)",
-        "icon": "$(rocket)",
         "category": "Claude Skills"
       },
       {
@@ -438,12 +420,6 @@
         "category": "Claude Skills"
       },
       {
-        "command": "claudeSkills.estimatePRCost",
-        "title": "Estimate PR Review Cost",
-        "icon": "$(git-pull-request)",
-        "category": "Claude Skills"
-      },
-      {
         "command": "claudeSkills.restoreArchivedSkill",
         "title": "Restore Archived Skill",
         "icon": "$(history)",
@@ -471,18 +447,6 @@
         "command": "claudeSkills.resetAttribution",
         "title": "Reset Mis-attributed Cost Data",
         "icon": "$(debug-restart)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.configureWeeklyReportEmail",
-        "title": "Configure Weekly Report Email",
-        "icon": "$(key)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.sendWeeklyReport",
-        "title": "Send Weekly AI Usage Report",
-        "icon": "$(mail)",
         "category": "Claude Skills"
       },
       {
@@ -561,7 +525,11 @@
           },
           "claudeSkills.notificationLevel": {
             "type": "string",
-            "enum": ["silent", "minimal", "normal"],
+            "enum": [
+              "silent",
+              "minimal",
+              "normal"
+            ],
             "default": "minimal",
             "enumDescriptions": [
               "No toasts Ã¢â‚¬â€ errors and confirmations only. Work is logged to the output channel.",
@@ -589,7 +557,9 @@
           },
           "claudeSkills.cliMcp.extraClis": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": [],
             "description": "Additional CLI names to append to the default allow-list for the Claude Skills CLI MCP server (e.g. [\"pnpm\", \"cargo\", \"make\"]). Use allowedClis in cli-config.json to replace the list entirely."
           },
@@ -689,32 +659,6 @@
             "default": 0,
             "minimum": 0,
             "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget Ãƒâ€” 30, or 30-day workspace spend if daily budget is off."
-          },
-          "claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes": {
-            "type": "number",
-            "default": 2,
-            "minimum": 1,
-            "description": "Refresh task-skill-proposals.json when this many skill invokes occur outside the active task set (not_in_active_profile in runs.jsonl)."
-          },
-          "claudeSkills.skillFeedback.taskDriftSessionSizeLevel": {
-            "type": "string",
-            "enum": [
-              "warn",
-              "critical"
-            ],
-            "default": "warn",
-            "description": "Refresh proposals when any session transcript reaches this size (from session-size-watch.json)."
-          },
-          "claudeSkills.skillFeedback.taskDriftCooldownMinutes": {
-            "type": "number",
-            "default": 30,
-            "minimum": 5,
-            "description": "Minimum minutes between automatic task-drift skill re-proposals."
-          },
-          "claudeSkills.skillFeedback.taskDriftNotifyUser": {
-            "type": "boolean",
-            "default": true,
-            "description": "Show a background notification when task scope drift triggers a skill set refresh."
           },
           "claudeSkills.skillFeedback.taskSkillUnderusePromote": {
             "type": "boolean",
@@ -822,11 +766,6 @@
         "title": "Practical / Deployment Focus",
         "order": 1.6,
         "properties": {
-          "claudeSkills.practicalFocus.enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Inject deployment-first guidance via hook Ã¢â‚¬â€ concrete architecture and first-try deploy steps instead of theoretical advice."
-          },
           "claudeSkills.practicalFocus.level": {
             "type": "string",
             "enum": [
@@ -1224,52 +1163,10 @@
         "title": "Optimizer",
         "order": 6,
         "properties": {
-          "claudeSkills.optimizer.agentSavingsRatio": {
-            "type": "number",
-            "default": 0.7,
-            "minimum": 0,
-            "maximum": 1,
-            "description": "Suggest agent switch when alternate agent cost is below this fraction of Claude cost."
-          },
           "claudeSkills.optimizer.autoApply": {
             "type": "boolean",
             "default": false,
             "description": "Automatically disable expensive rarely-used skills and apply safe optimizations (disable/unused only, max 3 per 30 min)."
-          },
-          "claudeSkills.optimizer.autoDetectOnPipeline": {
-            "type": "boolean",
-            "default": true,
-            "description": "When autoApply is on, run detect Ã¢â€ â€™ auto-adjust after each cost pipeline sync (debounced ~5s), not only on the 30-minute timer."
-          },
-          "claudeSkills.optimizer.disableCostPerUseUsd": {
-            "type": "number",
-            "default": 1,
-            "minimum": 0,
-            "description": "Suggest disabling a skill when attributed cost per use exceeds this (USD)."
-          },
-          "claudeSkills.optimizer.disableMaxRuns": {
-            "type": "number",
-            "default": 5,
-            "minimum": 1,
-            "description": "Pair with disableCostPerUseUsd Ã¢â‚¬â€ only suggest disable when runs are below this count."
-          },
-          "claudeSkills.optimizer.unusedIdleDays": {
-            "type": "number",
-            "default": 7,
-            "minimum": 1,
-            "description": "Suggest disabling skills with no usage for at least this many days."
-          },
-          "claudeSkills.optimizer.unusedMinCostUsd": {
-            "type": "number",
-            "default": 0.5,
-            "minimum": 0,
-            "description": "Minimum attributed cost before idle-day unused suggestions appear."
-          },
-          "claudeSkills.optimizer.weeklyBudgetUsd": {
-            "type": "number",
-            "default": 0,
-            "minimum": 0,
-            "description": "Weekly spend cap for predictive alerts (0 = daily budget x 7)."
           }
         }
       },
@@ -1352,28 +1249,6 @@
         }
       },
       {
-        "id": "benchmarks",
-        "title": "Benchmarks",
-        "order": 10,
-        "properties": {
-          "claudeSkills.benchmarks.downloadUrl": {
-            "type": "string",
-            "default": "",
-            "description": "Optional HTTPS endpoint to download community benchmarks weekly."
-          },
-          "claudeSkills.benchmarks.optIn": {
-            "type": "boolean",
-            "default": false,
-            "description": "Opt in to anonymized benchmark upload."
-          },
-          "claudeSkills.benchmarks.uploadUrl": {
-            "type": "string",
-            "default": "",
-            "description": "Optional HTTPS endpoint for anonymized benchmark upload."
-          }
-        }
-      },
-      {
         "id": "telemetry",
         "title": "Telemetry",
         "order": 11,
@@ -1382,64 +1257,6 @@
             "type": "boolean",
             "default": false,
             "description": "Send anonymous local health metrics (activation counts, feature usage) to ~/.claude/learning/health-metrics.json only Ã¢â‚¬â€ no network upload unless you add your own exporter."
-          }
-        }
-      },
-      {
-        "id": "weeklyReport",
-        "title": "Weekly Report",
-        "order": 12,
-        "properties": {
-          "claudeSkills.weeklyReport.dayOfWeek": {
-            "type": "number",
-            "default": 1,
-            "minimum": 0,
-            "maximum": 6,
-            "description": "Day to send the report (0=Sunday, 1=Monday, ...)."
-          },
-          "claudeSkills.weeklyReport.emailSubject": {
-            "type": "string",
-            "default": "Weekly Claude Skills Benefits Report",
-            "description": "Email subject prefix. Body includes extension benefits from runs.jsonl and project-profile.json plus AI spend."
-          },
-          "claudeSkills.weeklyReport.emailTo": {
-            "type": "string",
-            "default": "",
-            "description": "Override email recipient. Empty = discovered via Configure Weekly Report Email (GitHub/GitLab token)."
-          },
-          "claudeSkills.weeklyReport.enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Send a weekly AI agent usage report (off until you run Configure Weekly Report Email; requires VS Code open at scheduled time)."
-          },
-          "claudeSkills.weeklyReport.hour": {
-            "type": "number",
-            "default": 9,
-            "minimum": 0,
-            "maximum": 23,
-            "description": "Local hour to send the weekly report."
-          },
-          "claudeSkills.weeklyReport.minute": {
-            "type": "number",
-            "default": 0,
-            "minimum": 0,
-            "maximum": 59,
-            "description": "Local minute to send the weekly report."
-          },
-          "claudeSkills.weeklyReport.smtpHost": {
-            "type": "string",
-            "default": "",
-            "description": "SMTP host for direct email (or set CLAUDE_SKILLS_SMTP_HOST)."
-          },
-          "claudeSkills.weeklyReport.smtpPort": {
-            "type": "number",
-            "default": 587,
-            "description": "SMTP port (TLS)."
-          },
-          "claudeSkills.weeklyReport.smtpUser": {
-            "type": "string",
-            "default": "",
-            "description": "SMTP username (or CLAUDE_SKILLS_SMTP_USER)."
           }
         }
       },
@@ -1655,16 +1472,6 @@
           "group": "3_usage"
         },
         {
-          "command": "claudeSkills.configureWeeklyReportEmail",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
-          "command": "claudeSkills.sendWeeklyReport",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
           "command": "claudeSkills.showCostDashboard",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
@@ -1771,21 +1578,6 @@
         },
         {
           "command": "claudeSkills.disableDirCacheGuard",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
-          "command": "claudeSkills.cycleBudgetMode",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
-          "command": "claudeSkills.cycleContextFocusLevel",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
-          "command": "claudeSkills.cyclePracticalFocusLevel",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
         }
