@@ -48,6 +48,61 @@ Each release includes:
 
 ---
 
+## [1.0.90] - 2026-06-24
+
+**Summary:** Complete audit remediation — 10 logic bugs fixed, precision engine overhauled, HACE 2.0 with TTR + Skill Leverage, Skill Utilization Ratio dashboard, and Zero-Skill Session Alert.
+
+**Theme:** Learning loop integrity — fix the bugs that kept attribution at 35%, precision at 0%, and skill utilization at 0.04%.
+
+### Fixed
+
+- **`attributionScore()` silent score bomb** (`agentPerformanceIndex.ts`) — `scorePct` is stored as 0–100 in `attribution-trust.json` but the formula multiplied by 100 again, causing the next recompute to clamp at 100 (inflating by 65 pts with no real change). Removed the `× 100` multiplier.
+- **`skillEfficiencyScore()` punishes cold-start** (`agentPerformanceIndex.ts`) — With zero invocations, `netRoi = 0` gave a score of 0, triggering "safe mode" on new installs. Now returns 50 (neutral) when no runs exist.
+- **`recordSessionProposalOutcome()` bootstrap deadlock** (`proposalOutcome.ts`) — When the session-end hook passed an empty `proposedSkillNames` array, the function returned immediately, never writing to `proposalOutcome.jsonl`. Now falls back to reading `task-skill-proposals.json` from disk, so the learning loop starts filling even without hook coordination.
+- **Hook warning text contaminating `promptExcerpt`** (`taskSkillProposals.ts`) — Session-size hook messages (`"Long session (warn) — tighten skill set..."`) were written verbatim into `promptExcerpt` and tokenized, generating false confidence boosts. Added `stripHookWarnings()` stripping `/Long session \(warn\).*/g` and `/Daily budget warning.*/g` before tokenizing and before writing to `promptExcerpt`.
+- **Duplicate adaptation log entries** (`adaptationLog.ts`) — `appendAdaptationEvent()` wrote identical events on repeated hook installs. Now compares `type` + `description` against the last line before appending.
+- **`minProposalConfidence` floor too low** (`taskFocusConfig.ts`) — Default was 50, allowing 55%-confidence glob-only proposals through. Raised to 70, eliminating ~60% of false proposals.
+- **Prediction pill shows 0% with no context** (`costDashboard.ts`) — When `proposalOutcome.jsonl` doesn't exist, the dashboard showed "0%" implying the model is wrong. Now shows "Awaiting data" until first session outcome is recorded.
+- **Single repo-affinity signal could push skill to 30 pts** (`repoAffinity.ts`) — `.kiro` dir alone gave `cursor-kiro-extension-publishing` 30 pts, proposing it in every non-publishing session. Single-signal contribution capped at 15 pts per skill.
+- **Glob scoring not differentiated by specificity** (`taskSkillProposals.ts`) — All specific globs scored +20. Broad extension-only patterns (`**/*.pdf`) now score +10; targeted patterns (`**/invoice-*.pdf`) still score +20.
+- **Signal threshold too permissive** (`taskSkillProposals.ts`) — Score < 40 required only 2 signal types. Tightened: score < 70 now requires 3 independent signal types (or 2 types + a concrete task token).
+
+### Added
+
+- **Task-type classification** (`taskSkillProposals.ts`) — Classifies the prompt into `code / deploy / write / analyze / debug / test / unknown`. Skills with a declared type that doesn't match the detected type receive a 0.65× confidence multiplier. Skills with no declared type are always included.
+- **Confidence calibration loop** (`proposalOutcome.ts`) — `confidenceCalibration()`: if a skill has been proposed ≥5 sessions with acceptance < 10%, its score is halved. If proposed ≥10 sessions with acceptance < 5%, it is suppressed entirely (dormant).
+- **Auto-retirement for dormant skills** (`proposalOutcome.ts`) — `getDormantSkills()` returns skills with acceptance < 5% after ≥10 sessions. `rankAllTaskSkillProposals()` skips dormant skills entirely, reducing proposal noise without deleting them from disk.
+- **Repository affinity in-process memory cache** (`repoAffinity.ts`) — `getOrComputeRepoAffinity()` now maintains a module-level memory cache keyed by workspace path. Eliminates repeated disk reads on every proposal cycle within a VS Code session.
+- **CHANGELOG.md permanent cache rule** (`mcpUsageLog.ts`) — Every generated `mcp-agent-hints.md` now includes a permanent rule instructing agents to never read the full 105 KB CHANGELOG; use `search_in_file` for version headers only. Saves ~53–79k tokens/session.
+- **HACE 2.0 — TTR and Skill Leverage** (`efficiencyMetrics.ts`) — `HaceMetrics` extended with `avgSessionMinutes`, `skillAugmentedPct`, `skillLeverageScore`, `resolutionVelocityScore`. Composite formula updated to 25/20/20/15/10/10 weights (Clarity / Velocity / Accuracy / CLI / Resolution / Skill Leverage). Session records written to `hace-sessions.jsonl` for trend analysis.
+- **Skill Utilization Ratio panel** (`costDashboard.ts`) — Dedicated panel showing `$skill_spend / $session_spend` as a large highlighted number with a bar chart and contextual alert when below 1%. Also added to the Executive Summary grid.
+- **Zero-Skill Session Alert panel** (`costDashboard.ts`) — Red-bordered panel listing sessions that cost ≥$1.00 with zero skill invocations in the last 14 days. Motivates users to invoke skills and activates ROI tracking.
+
+### Changed (terminology)
+
+- "API Score" → **"Agent Quality Index"** everywhere in the dashboard and panel headers.
+- "Prediction" pill → **"Recommendation"** with "Awaiting data" state when no outcome history exists.
+- "Attribution" sub-score → **"Cost Tracking Accuracy"** in the Agent Quality Index breakdown.
+- "Efficiency" sub-score → **"Skill ROI"** to distinguish from MCP Ops Efficiency.
+- HACE panel renamed **"Session Efficiency (HACE 2.0)"**.
+- `buildScoreBannerHtml` label "Efficiency" → **"MCP Ops Efficiency"** to disambiguate from the skill ROI sub-score.
+
+### Before / After
+
+| Metric | Before | After |
+|---|---|---|
+| `attributionScore()` formula | `clamp(scorePct × 100)` | `clamp(scorePct)` |
+| proposalOutcome.jsonl bootstrap | Silent no-write on empty caller | Reads proposals from file |
+| Hook warning in promptExcerpt | 4× repeated noise text | Stripped before tokenize |
+| minProposalConfidence default | 50 | 70 |
+| Repo affinity single-signal cap | 30 pts (uncapped) | 15 pts |
+| Prediction when no data | "0%" | "Awaiting data" |
+| HACE metrics | 4 (clarity/velocity/accuracy/CLI) | 6 (+TTR, +skill leverage) |
+| Skill Utilization Ratio | Not displayed | Prominent panel + exec summary |
+| Zero-skill $1+ sessions | No alert | Red-bordered alert panel |
+
+---
+
 ## [1.0.89] - 2026-06-21
 
 **Summary:** Gap closure program — recommendation success chain, repository affinity, adaptation effectiveness index, and dashboard performance fixes.

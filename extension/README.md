@@ -12,16 +12,42 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
-## What's new in 1.0.82
+## What's new in 1.0.90
 
-### Simplification — dead features removed, modules consolidated
+### Learning loop integrity — 10 bugs fixed, precision engine overhauled
 
-**Removed entirely:**
-- **Weekly report** — `weeklyReport.ts`, `weeklyReportBenefits.ts`, `vcsReportDelivery.ts`, `tierBenefitBenchmark.ts` deleted. Commands `Configure Weekly Report Email` and `Send Weekly AI Usage Report` removed. All 12 `weeklyReport.*` settings and 4 `benchmarks.*` settings removed. Export CSV from the cost dashboard instead.
-- **Cycle commands** — `Cycle Budget Mode`, `Cycle Context Focus Level`, `Cycle Practical Focus Level` removed. Change these via VS Code Settings (`claudeSkills.budget.mode`, `claudeSkills.contextFocus.level`, `claudeSkills.practicalFocus.level`).
-- **4 status bars** — trust badge, budget mode, context focus, and practical focus bars removed. Remaining: usage stats, skills count, project tier, workspace folder, MCP health.
-- **9 legacy JS hooks** — `budget-watch.js`, `prompt-context-watch.js`, `task-drift-watch.js`, `skill-invoke-watch.js`, `profile-init-watch.js`, `official-skills-watch.js`, `branch-sync.js`, `usageParse.js`, `hookPlatform.js` deleted. Only `terminal-watch.js` is kept for native terminal telemetry. All hook logic runs via HTTP endpoints in `hookHandlers.ts`.
-- **Config settings** — `practicalFocus.enabled` removed (inferred), `skillFeedback.taskDrift*` (4 settings) consolidated, `optimizer.*` fine-tuning (6 settings) removed — only `optimizer.autoApply` remains.
+This release fixes the root causes that kept attribution at 35%, prediction precision at 0%, and skill utilization at 0.04%. Every change traces directly to a finding from the full architecture audit.
+
+**Critical bug fixes:**
+- **Attribution score formula fixed** — `scorePct` was being multiplied by 100 again (already stored as 0–100). Next recompute would have silently jumped from 35 → 100 with no real improvement.
+- **Learning loop bootstrap deadlock broken** — `recordSessionProposalOutcome()` was silently returning without writing when the hook passed an empty skill list. Now reads proposals from disk as a fallback. `proposalOutcome.jsonl` now populates from the first session.
+- **Hook warning text stripped from proposals** — Session-size hook messages (`"Long session (warn)…"`) were contaminating `promptExcerpt` and boosting unrelated skills. Stripped before tokenizing.
+- **Cold-start no longer triggers safe mode** — `skillEfficiencyScore()` returned 0 when no runs existed, falsely activating "safe mode" on new installs. Returns neutral 50 until first invocation.
+- **Duplicate adaptation log entries** — `appendAdaptationEvent()` deduplicates against the last line before writing.
+
+**Precision improvements (+27% expected):**
+- `minProposalConfidence` raised 50 → 70 (+15%)
+- Glob specificity: `**/*.ext` scores 10 pts; targeted patterns score 20 pts (+10%)
+- Task-type classification: prompt classified into `code / deploy / write / analyze / debug / test`; mismatched skills get 0.65× multiplier (+15%)
+- Signal threshold tightened: score < 70 requires 3 independent signal types (was 2 for score < 40) (+5%)
+- Repo affinity single-signal capped at 15 pts (was 30 from one `.kiro` dir) (+7%)
+- Confidence calibration: skills proposed ≥5× with <10% acceptance get score halved; ≥10× with <5% acceptance are auto-retired from proposals (+8%)
+
+**New dashboard panels:**
+- **Skill Utilization Ratio** — `$skill_spend / $session_spend` shown as a large number with bar chart. Alerts when below 1% (currently 0.04%).
+- **Zero-Skill Session Alert** — Lists sessions that cost ≥$1.00 with zero skill invocations in the last 14 days.
+
+**HACE 2.0 — Session Efficiency:**
+- Added Time-to-Resolution (TTR) and Skill Leverage to the composite score
+- New formula: 25% Clarity + 20% Velocity + 20% Accuracy + 15% CLI + 10% Resolution + 10% Skill Leverage
+- Panel renamed "Session Efficiency (HACE 2.0)" with TTR and skill leverage rows visible
+
+**Terminology cleanup:**
+- "API Score" → "Agent Quality Index"
+- "Prediction" → "Recommendation" (shows "Awaiting data" until `proposalOutcome.jsonl` exists)
+- "Attribution" sub-score → "Cost Tracking Accuracy"
+- "Efficiency" sub-score → "Skill ROI"
+- "MCP Efficiency" label → "MCP Ops Efficiency"
 
 **Modules merged (files deleted):**
 - `haceMetrics.ts` → inline in `efficiencyMetrics.ts`
