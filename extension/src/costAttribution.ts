@@ -500,6 +500,13 @@ export function resetMisattributedData(target: string): ResetResult {
   invalidateLearningCache(target);
   pruneBackupFiles(learningDir, "pre-reset-");
   pruneBackupFiles(learningDir, ".bak-");
+  // Also prune the global legacy directory — backups accumulate there because
+  // LEGACY_COLLECTOR_STATE_PATH lives in ~/.claude/learning/, not in the workspace.
+  const legacyDir = path.dirname(LEGACY_COLLECTOR_STATE_PATH);
+  if (legacyDir !== learningDir) {
+    pruneBackupFiles(legacyDir, "pre-reset-");
+    pruneBackupFiles(legacyDir, ".bak-");
+  }
 
   return result;
 }

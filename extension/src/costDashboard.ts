@@ -31,6 +31,7 @@ import {
   topSkillsFromRuns,
 } from "./skillCostFromRuns";
 import { computeEfficiencyMetrics, formatEfficiencyPanelHtml } from "./efficiencyMetrics";
+import { computeHaceMetrics, formatHacePanelHtml } from "./haceMetrics";
 import { computeApiScore } from "./agentPerformanceIndex";
 import { buildLearningTimeline, formatLearningTimelineHtml } from "./learningTimeline";
 import { readAdaptationLog, formatAdaptationTimelineHtml } from "./adaptationLog";

@@ -1,21 +1,30 @@
 /** Shared skill name extraction from agent skill/instruction file paths. */
 
 const DENYLIST = new Set([
-  "claude",
-  "cursor",
-  "api",
-  "claude-api",
-  "unknown",
-  "base",
-  "context",
-  "skill",
-  "skills",
-  "kiro",
-  "copilot",
+  // Agent/platform names
+  "claude", "cursor", "api", "claude-api", "unknown", "base", "context",
+  "skill", "skills", "kiro", "copilot",
+  // Common transcript parsing artifacts: single verbs, programming terms, abbreviations
+  "run", "runs", "verify", "name", "code", "test", "init", "exec", "call",
+  "load", "save", "read", "list", "get", "set", "put", "use", "log",
+  "npy", "json", "yaml", "text", "data", "type", "file", "path", "args",
+  "true", "false", "null", "none", "self",
+  // Package manager / build tool artifacts (transcript parsing captures these as skill names)
+  "nnpm", "npm", "npx", "pnpm", "yarn", "bun", "node", "deno",
+  "pip", "pip3", "pip2", "conda", "venv", "poetry",
+  "make", "rake", "gulp", "grunt",
 ]);
 
+/** Single-letter prefix followed only by digits — e.g. "n199", "n189", "n379". */
+const ARTIFACT_PATTERN = /^[a-z]\d+$/;
+
 export function isPlausibleSkillName(name: string): boolean {
-  return /^[a-z][a-z0-9-]*$/.test(name) && name.length >= 3 && !DENYLIST.has(name);
+  if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) return false;
+  if (name.length < 3) return false;
+  if (DENYLIST.has(name)) return false;
+  // Reject "n199"-style transcript artifacts (single letter + digits only)
+  if (ARTIFACT_PATTERN.test(name)) return false;
+  return true;
 }
 
 const SKILL_FILE_PATTERNS = [

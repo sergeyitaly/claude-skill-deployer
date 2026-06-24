@@ -31,8 +31,10 @@ describe("computeApiScore", () => {
     const target = makeWorkspace();
     const result = computeApiScore(target, manifest);
     expect(result.grade).toBe("F");
-    // Task completion defaults to 100 when no runs exist; everything else is low
-    expect(result.breakdown.taskCompletion).toBe(100);
+    // taskCompletion and humanCorrection return NO_DATA (exposed as 0) when no runs/feedback exist —
+    // they are excluded from the composite so they don't inflate empty-state scores.
+    expect(result.breakdown.taskCompletion).toBe(0);
+    expect(result.breakdown.humanCorrection).toBe(0);
     expect(result.breakdown.learningRate).toBe(0);
     expect(result.breakdown.attribution).toBe(0);
   });

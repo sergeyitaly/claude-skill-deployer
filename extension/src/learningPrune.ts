@@ -58,21 +58,31 @@ export function pruneRunsJsonl(filePath: string, retentionDays = DEFAULT_RUNS_RE
   return removed;
 }
 
-/** Keep only the newest N `*.pre-reset-*.bak` / `*.bak-*` siblings in a directory. */
+const BACKUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Keep only the newest N backup files AND delete any older than 7 days.
+ * Matches `*.pre-reset-*.bak` and `*.bak-*` siblings in a directory.
+ */
 export function pruneBackupFiles(dir: string, prefix: string, maxKeep = MAX_BACKUP_FILES): void {
   if (!fs.existsSync(dir)) {
     return;
   }
+  const cutoffMs = Date.now() - BACKUP_MAX_AGE_MS;
   const matches = fs
     .readdirSync(dir)
     .filter((name) => name.includes(prefix) && (name.endsWith(".bak") || name.includes(".bak-")))
     .map((name) => ({ name, mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
-  for (const extra of matches.slice(maxKeep)) {
-    try {
-      fs.rmSync(path.join(dir, extra.name), { force: true });
-    } catch {
-      // ignore
+  for (const entry of matches) {
+    const tooOld = entry.mtime < cutoffMs;
+    const overCount = matches.indexOf(entry) >= maxKeep;
+    if (tooOld || overCount) {
+      try {
+        fs.rmSync(path.join(dir, entry.name), { force: true });
+      } catch {
+        // ignore
+      }
     }
   }
 }

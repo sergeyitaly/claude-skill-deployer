@@ -21,7 +21,7 @@
     },
     "adx-schema-check": {
       "description": "ADX/Kusto schema vs. code cross-check",
-      "detect_globs": ["**/*.kql", "**/adx*", "**/*adx*"],
+      "detect_globs": ["**/*.kql", "**/adx/**", "**/*kusto*", "**/adx-schema*"],
       "cost_estimate": "medium"
     },
     "github-actions-ci": {
@@ -150,7 +150,7 @@
     },
     "pdf": {
       "description": "Read, extract, merge, split, watermark, fill, encrypt, and OCR PDF files",
-      "detect_globs": ["**/*.pdf"],
+      "detect_globs": ["**/pdf/**/*.pdf", "**/reports/**/*.pdf", "**/pdf*.py", "**/pdf*.ts", "**/pdf*.js", "**/generate*pdf*", "**/*pdf*generator*"],
       "cost_estimate": "medium"
     },
     "pptx": {

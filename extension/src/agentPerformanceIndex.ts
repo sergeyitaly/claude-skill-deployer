@@ -12,6 +12,9 @@ export interface ApiBreakdown extends Record<string, number> {
   humanCorrection: number;
 }
 
+/** Sentinel: sub-score has no data yet and should be excluded from composite. */
+const NO_DATA = -1;
+
 export interface ApiScore {
   score: number;
   grade: "A" | "B" | "C" | "D" | "F";
@@ -92,13 +95,13 @@ function attributionScore(target: string): number {
 
 // ── Sub-score: Skill Efficiency ───────────────────────────────────────────────
 // Maps net ROI from team-economics-cache.json onto 0–100.
-// ROI of 50x → 100. Cold-start (no runs yet) returns 50 (neutral) to avoid
-// "safe mode" triggering on new installs with zero invocations.
+// Returns NO_DATA when no runs exist — a new install has no ROI evidence.
 function skillEfficiencyScore(target: string): number {
+  const runs = readCachedEnrichedRuns(target);
+  if (runs.length === 0) return NO_DATA;
   const cacheFile = path.join(target, ".claude", "learning", "team-economics-cache.json");
   const cache = readJsonSafe<{ teamEconomics?: { netRoi?: number } }>(cacheFile);
   const roi = cache?.teamEconomics?.netRoi ?? 0;
-  if (roi === 0 && readCachedEnrichedRuns(target).length === 0) return 50;
   return clamp(Math.round((roi / 50) * 100));
 }
 
@@ -116,23 +119,27 @@ function learningRateScore(target: string): number {
 
 // ── Sub-score: Task Completion ────────────────────────────────────────────────
 // Percentage of skill runs that succeeded (rc === 0).
+// Returns NO_DATA when no runs exist — excluded from composite to avoid
+// false-perfect scores on new installs with zero invocations.
 function taskCompletionScore(target: string): number {
   const runs = readCachedEnrichedRuns(target);
-  if (runs.length === 0) return 100;
+  if (runs.length === 0) return NO_DATA;
   const successes = runs.filter((r) => r.success).length;
   return clamp(Math.round((successes / runs.length) * 100));
 }
 
 // ── Sub-score: Human Correction ──────────────────────────────────────────────
 // 100 when no feedback corrections exist; decreases by 10 per correction entry.
+// Returns NO_DATA when feedback file is absent — no evidence either way.
 function humanCorrectionScore(target: string): number {
   const feedbackFile = path.join(target, ".claude", "learning", "skill-feedback.jsonl");
-  if (!fs.existsSync(feedbackFile)) return 100;
+  if (!fs.existsSync(feedbackFile)) return NO_DATA;
   try {
     const lines = fs.readFileSync(feedbackFile, "utf-8").split("\n").filter(Boolean);
+    if (lines.length === 0) return NO_DATA;
     return clamp(100 - lines.length * 10);
   } catch {
-    return 100;
+    return NO_DATA;
   }
 }
 
@@ -142,6 +149,10 @@ function humanCorrectionScore(target: string): number {
  * Compute the Agent Performance Index (0–100) for the workspace.
  * Weights: Precision 25% | Attribution 20% | Efficiency 15% |
  *          Learning 15% | Completion 15% | Correction 10%
+ *
+ * Sub-scores returning NO_DATA (-1) are excluded from the composite and their
+ * weight is redistributed proportionally among the measured sub-scores.
+ * This prevents empty-state defaults (100%) from inflating new installs.
  */
 export function computeApiScore(target: string, _manifest: Manifest): ApiScore {
   const breakdown: ApiBreakdown = {
@@ -153,14 +164,31 @@ export function computeApiScore(target: string, _manifest: Manifest): ApiScore {
     humanCorrection: humanCorrectionScore(target),
   };
 
-  const score = clamp(Math.round(
-    breakdown.precision       * 0.25 +
-    breakdown.attribution     * 0.20 +
-    breakdown.skillEfficiency * 0.15 +
-    breakdown.learningRate    * 0.15 +
-    breakdown.taskCompletion  * 0.15 +
-    breakdown.humanCorrection * 0.10
-  ));
+  const weights: Record<keyof ApiBreakdown, number> = {
+    precision:       0.25,
+    attribution:     0.20,
+    skillEfficiency: 0.15,
+    learningRate:    0.15,
+    taskCompletion:  0.15,
+    humanCorrection: 0.10,
+  };
+
+  // Only include sub-scores with actual data.
+  const allKeys = Object.keys(weights) as Array<keyof ApiBreakdown>;
+  const measured = allKeys.filter(k => breakdown[k] !== NO_DATA);
+
+  let score = 0;
+  if (measured.length > 0) {
+    const totalWeight = measured.reduce((s: number, k: keyof ApiBreakdown) => s + weights[k], 0);
+    score = clamp(Math.round(
+      measured.reduce((s: number, k: keyof ApiBreakdown) => s + (breakdown[k] as number) * (weights[k] / totalWeight), 0)
+    ));
+  }
+
+  // Expose NO_DATA as 0 in the breakdown for display purposes (dashboard reads these values).
+  for (const k of Object.keys(breakdown) as Array<keyof ApiBreakdown>) {
+    if (breakdown[k] === NO_DATA) breakdown[k] = 0;
+  }
 
   return { score, grade: gradeFromScore(score), breakdown };
 }

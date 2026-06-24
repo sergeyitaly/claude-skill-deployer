@@ -600,7 +600,19 @@ function buildMcpSuccessBlocks(m: McpUsageSummary): string[] {
 // ---------------------------------------------------------------------------
 
 function buildHacePanelHtml(h: HaceMetrics): string {
-  if (h.noData) return "";
+  if (h.noData) {
+    return `<div class="sub-panel" style="grid-column: 1 / -1">
+    <h3>Session Efficiency (HACE 2.0)</h3>
+    <p class="note">No parseable session turns yet — HACE analyses <code>~/.claude/projects/</code> transcripts and activates after the first session with actual user prompts. CLI Efficiency (${h.cliEfficiencyScore}%) is already tracked.</p>
+    <div class="stat-grid">
+      <div class="stat-pill"><b>CLI Efficiency</b><span class="val ${h.cliEfficiencyScore >= 80 ? "roi-high" : h.cliEfficiencyScore >= 60 ? "conf-estimated" : "roi-low"}">${h.cliEfficiencyScore}%</span></div>
+      <div class="stat-pill"><b>Prompt Clarity</b><span class="val">—</span></div>
+      <div class="stat-pill"><b>Task Velocity</b><span class="val">—</span></div>
+      <div class="stat-pill"><b>Accuracy Rate</b><span class="val">—</span></div>
+      <div class="stat-pill"><b>Skill Leverage</b><span class="val">—</span></div>
+    </div>
+  </div>`;
+  }
 
   const gradeClass = h.haceScore >= 85 ? "roi-high"
     : h.haceScore >= 70 ? "conf-high"

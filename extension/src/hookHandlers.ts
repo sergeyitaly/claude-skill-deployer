@@ -1883,6 +1883,28 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "file-split-advisor": return Promise.resolve(handleFileSplitAdvisor(req));
     case "file-split-read-guard": return Promise.resolve(handleFileSplitReadGuard(req));
     case "mcp-encoding-fix": return Promise.resolve(handleMcpEncodingFix(req));
+    case "session-stop": return Promise.resolve(handleSessionStop(req));
     default: return {};
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handler: session-stop (PreSessionStop / Stop)
+// Writes a proposalOutcome record for every session — including zero-invocation
+// sessions — so the learning loop can track non-use and decay confidence.
+// ---------------------------------------------------------------------------
+
+function handleSessionStop(req: HookRequest): HookResponse {
+  const body = req.body as Record<string, unknown>;
+  const cwd = req.cwd;
+  if (!cwd) return {};
+
+  const sessionId = resolveSessionId(body, cwd);
+  if (!sessionId) return {};
+
+  try {
+    recordSessionProposalOutcome(cwd, sessionId, []);
+  } catch { /* non-fatal */ }
+
+  return {};
 }

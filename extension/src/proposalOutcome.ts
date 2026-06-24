@@ -105,14 +105,14 @@ export function getAcceptanceRate(target: string, skillName: string): { rate: nu
 
 /**
  * Confidence calibration multiplier for a skill.
- * If a skill has been proposed ≥5 times with acceptance < 10%, return 0.5 (halve the score).
- * If a skill has been proposed ≥10 times with acceptance < 5%, return 0 (dormant — suppress).
+ * If a skill has been proposed ≥3 times with acceptance < 10%, return 0.5 (halve the score).
+ * If a skill has been proposed ≥5 times with acceptance < 5%, return 0 (dormant — suppress).
  */
 export function confidenceCalibration(target: string, skillName: string): number {
   const { rate, sessions } = getAcceptanceRate(target, skillName);
   if (rate < 0) return 1.0; // no data yet
-  if (sessions >= 10 && rate < 0.05) return 0.0; // dormant — suppress entirely
-  if (sessions >= 5  && rate < 0.10) return 0.5; // low signal — halve confidence
+  if (sessions >= 5 && rate < 0.05) return 0.0; // dormant — suppress entirely
+  if (sessions >= 3 && rate < 0.10) return 0.5; // low signal — halve confidence
   return 1.0;
 }
 
@@ -128,7 +128,7 @@ export function getDormantSkills(target: string): Set<string> {
   }
   const dormant = new Set<string>();
   for (const [skill, count] of Object.entries(proposed)) {
-    if (count >= 10 && (invoked[skill] ?? 0) / count < 0.05) dormant.add(skill);
+    if (count >= 5 && (invoked[skill] ?? 0) / count < 0.05) dormant.add(skill);
   }
   return dormant;
 }
@@ -149,7 +149,8 @@ export function recordSessionProposalOutcome(
       names = data.proposals?.map((p) => p.name) ?? [];
     } catch { /* non-fatal — proposals file may not exist yet */ }
   }
-  if (names.length === 0) return;
+  // Always write a record — zero-invocation sessions are valid learning signal
+  // (previously returning early here starved the entire learning loop).
   const runs = readCachedEnrichedRuns(target).filter(r => r.session_id === sessionId);
   const invokedSet = new Set(runs.map(r => r.skill));
   const invoked = names.filter(s => invokedSet.has(s));
