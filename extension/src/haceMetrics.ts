@@ -173,7 +173,7 @@ export function computeHaceMetrics(
 
   if (allTurns.length === 0) {
     return {
-      noData: true, sessions: 0, totalTurns: 0,
+      noData: true, sessions: files.length, totalTurns: 0,
       avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0,
       promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0,
       cliEfficiencyScore: clamp(cliSuccessRate),

@@ -70,9 +70,12 @@ interface RawEntry {
   timestamp?:  string;
   uuid?:       string;
   requestId?:  string;
+  /** True for system-injected entries (hooks, meta-commands) — not real user prompts. */
+  isMeta?:     boolean;
   message?: {
     role?:    string;
-    content?: Array<{ type: string; text?: string; thinking?: string }>;
+    /** Plain string for user turns; array of content blocks for assistant turns. */
+    content?: string | Array<{ type: string; text?: string; thinking?: string }>;
     usage?:   { output_tokens?: number };
   };
 }
@@ -129,11 +132,18 @@ function parseSessionFile(filePath: string): HaceTurn[] {
     try { e = JSON.parse(raw) as RawEntry; } catch { continue; }
     const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
     if (!ts) continue;
-    if (e.type === "user" && e.message?.role === "user") {
-      const content = e.message.content ?? [];
-      if (!content.some(c => c.type === "tool_result")) {
-        const chars = content.reduce((n, c) => n + (c.text?.length ?? 0), 0);
+    if (e.type === "user" && e.message?.role === "user" && !e.isMeta) {
+      const rawContent = e.message.content;
+      if (typeof rawContent === "string") {
+        // Plain-text prompt (most Claude Code user turns)
+        const chars = rawContent.length;
         if (chars > 0) { commitTurn(); humanTs = ts; promptChars = chars; }
+      } else if (Array.isArray(rawContent)) {
+        // Array content blocks — skip tool_result entries
+        if (!rawContent.some((c: { type: string }) => c.type === "tool_result")) {
+          const chars = rawContent.reduce((n: number, c: { text?: string }) => n + (c.text?.length ?? 0), 0);
+          if (chars > 0) { commitTurn(); humanTs = ts; promptChars = chars; }
+        }
       }
     }
     if (e.type === "assistant" && e.message?.role === "assistant" && humanTs > 0) {
@@ -144,7 +154,8 @@ function parseSessionFile(filePath: string): HaceTurn[] {
         const usage = e.message.usage;
         if (usage?.output_tokens) outputTokens = Math.max(outputTokens, usage.output_tokens);
       }
-      if (!hasThinking && e.message.content?.some(c => c.type === "thinking")) hasThinking = true;
+      const contentArr = Array.isArray(e.message.content) ? e.message.content : [];
+      if (!hasThinking && contentArr.some((c: { type: string }) => c.type === "thinking")) hasThinking = true;
     }
   }
   commitTurn();
@@ -388,7 +399,8 @@ export function computeEfficiencyMetrics(
   try {
     hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack);
   } catch {
-    hace = { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0, cliEfficiencyScore: 0, avgSessionMinutes: 0, skillAugmentedPct: 0, skillLeverageScore: 0, resolutionVelocityScore: 0, haceScore: 0, grade: "—" };
+    // Always preserve CLI efficiency even on unexpected parse failure
+    hace = { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0, cliEfficiencyScore: cliKpi.overallSuccessRate, avgSessionMinutes: 0, skillAugmentedPct: 0, skillLeverageScore: 0, resolutionVelocityScore: 0, haceScore: 0, grade: "—" };
   }
 
   return {
