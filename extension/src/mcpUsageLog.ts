@@ -767,6 +767,11 @@ export function writeMcpHints(summary: McpUsageSummary): void {
     "- After write_file, reuse the content you already have",
     "- For files > 100KB, request only the relevant section",
     "",
+    "## Permanent cache rules (high-cost hot files)",
+    "- CHANGELOG.md: 105KB, read 17× — NEVER read the full file.",
+    "  Use search_in_file with pattern '## \\[' to extract only the latest version header.",
+    "  If you need the full changelog, read only the first 50 lines (offset 0, limit 50).",
+    "",
   ];
 
   try {

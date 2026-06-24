@@ -83,20 +83,22 @@ function precisionScore(target: string): number {
 }
 
 // ── Sub-score: Attribution ────────────────────────────────────────────────────
-// Taken directly from attribution-trust.json scorePct (already 0–100).
+// Taken directly from attribution-trust.json scorePct (stored as 0–100, not 0–1).
 function attributionScore(target: string): number {
   const trustFile = path.join(target, ".claude", "learning", "attribution-trust.json");
   const trust = readJsonSafe<{ scorePct?: number }>(trustFile);
-  return clamp(Math.round((trust?.scorePct ?? 0) * 100));
+  return clamp(Math.round(trust?.scorePct ?? 0));
 }
 
 // ── Sub-score: Skill Efficiency ───────────────────────────────────────────────
 // Maps net ROI from team-economics-cache.json onto 0–100.
-// ROI of 50x → 100, 0x → 0. Capped at 100.
+// ROI of 50x → 100. Cold-start (no runs yet) returns 50 (neutral) to avoid
+// "safe mode" triggering on new installs with zero invocations.
 function skillEfficiencyScore(target: string): number {
   const cacheFile = path.join(target, ".claude", "learning", "team-economics-cache.json");
   const cache = readJsonSafe<{ teamEconomics?: { netRoi?: number } }>(cacheFile);
   const roi = cache?.teamEconomics?.netRoi ?? 0;
+  if (roi === 0 && readCachedEnrichedRuns(target).length === 0) return 50;
   return clamp(Math.round((roi / 50) * 100));
 }
 

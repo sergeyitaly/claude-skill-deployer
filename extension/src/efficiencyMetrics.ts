@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readEnrichedRuns } from "./usageStats";
+import { readCachedEnrichedRuns } from "./runsStore";
 import { summarizeSkillCostsFromRuns } from "./skillCostFromRuns";
 
 // Hints are written at most once every 30 s to avoid redundant file I/O when the
@@ -41,19 +42,27 @@ export interface HaceTurn {
 }
 
 export interface HaceMetrics {
-  noData:              boolean;
-  sessions:            number;
-  totalTurns:          number;
-  avgResponseSecs:     number;
-  thinkingRate:        number;
-  correctionRate:      number;
-  turnsPerMinute:      number;
-  promptClarityScore:  number;
-  taskVelocityScore:   number;
-  accuracyScore:       number;
-  cliEfficiencyScore:  number;
-  haceScore:           number;
-  grade:               string;
+  noData:                 boolean;
+  sessions:               number;
+  totalTurns:             number;
+  avgResponseSecs:        number;
+  thinkingRate:           number;
+  correctionRate:         number;
+  turnsPerMinute:         number;
+  promptClarityScore:     number;
+  taskVelocityScore:      number;
+  accuracyScore:          number;
+  cliEfficiencyScore:     number;
+  /** HACE 2.0: average session duration in minutes (time-to-resolution proxy). */
+  avgSessionMinutes:      number;
+  /** HACE 2.0: % of sessions with ≥1 skill invocation. */
+  skillAugmentedPct:      number;
+  /** HACE 2.0: skill leverage score (0–100). */
+  skillLeverageScore:     number;
+  /** HACE 2.0: resolution velocity score (0–100) derived from avg TTR vs 30-min target. */
+  resolutionVelocityScore: number;
+  haceScore:              number;
+  grade:                  string;
 }
 
 interface RawEntry {
@@ -168,11 +177,16 @@ export function computeHaceMetrics(
     const last  = turns[turns.length - 1].responseTs;
     if (last > first) sessionDurations.push((last - first) / 60_000);
   }
+  const TARGET_TTR_MIN = 30; // target time-to-resolution in minutes
+
   if (allTurns.length === 0) {
     return { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0,
       correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0,
-      accuracyScore: 0, cliEfficiencyScore: haceClamp(cliSuccessRate), haceScore: 0, grade: "—" };
+      accuracyScore: 0, cliEfficiencyScore: haceClamp(cliSuccessRate),
+      avgSessionMinutes: 0, skillAugmentedPct: 0, skillLeverageScore: 0,
+      resolutionVelocityScore: 0, haceScore: 0, grade: "—" };
   }
+
   const n = allTurns.length;
   const thinkingTurns   = allTurns.filter(t => t.hasThinking).length;
   const correctionTurns = allTurns.filter(t => t.isCorrection).length;
@@ -182,17 +196,61 @@ export function computeHaceMetrics(
   const correctionRate  = correctionTurns / n;
   const avgResponseSecs = totalResponseSec / n;
   const turnsPerMinute  = totalDurMin > 0 ? n / totalDurMin : 0;
-  const promptClarityScore = haceClamp((1 - thinkingRate) * 100);
-  const taskVelocityScore  = haceClamp(Math.min(turnsPerMinute / VELOCITY_TARGET, 1) * 100);
-  const accuracyScore      = haceClamp((1 - correctionRate) * 100);
-  const cliEfficiencyScore = haceClamp(cliSuccessRate);
+  const avgSessionMinutes = sessionDurations.length > 0 ? totalDurMin / sessionDurations.length : 0;
+
+  // HACE 2.0: Skill Leverage — check how many sessions had skill invocations.
+  let skillAugmentedSessions = 0;
+  let totalSkillInvocations = 0;
+  try {
+    const runs = readCachedEnrichedRuns(target);
+    const sessionIds = new Set(files.map(f => path.basename(f, ".jsonl")));
+    const skillSessionIds = new Set(runs.filter(r => r.metadata?.invoked).map(r => r.session_id));
+    totalSkillInvocations = runs.filter(r => r.metadata?.invoked).length;
+    for (const sid of sessionIds) { if (skillSessionIds.has(sid)) skillAugmentedSessions++; }
+  } catch { /* non-fatal — degrade gracefully */ }
+  const skillAugmentedPct  = files.length > 0 ? Math.round((skillAugmentedSessions / files.length) * 100) : 0;
+  const skillLeverageScore = haceClamp(Math.min(totalSkillInvocations / Math.max(n, 1) * 10, 1) * 100);
+
+  const promptClarityScore    = haceClamp((1 - thinkingRate) * 100);
+  const taskVelocityScore     = haceClamp(Math.min(turnsPerMinute / VELOCITY_TARGET, 1) * 100);
+  const accuracyScore         = haceClamp((1 - correctionRate) * 100);
+  const cliEfficiencyScore    = haceClamp(cliSuccessRate);
+  const resolutionVelocityScore = avgSessionMinutes > 0
+    ? haceClamp(Math.max(0, 1 - avgSessionMinutes / TARGET_TTR_MIN) * 100)
+    : 0;
+
+  // HACE 2.0 composite: 25% clarity + 20% velocity + 20% accuracy + 15% CLI + 10% resolution + 10% skill leverage
   const haceScore = haceClamp(
-    0.30 * promptClarityScore + 0.25 * taskVelocityScore +
-    0.25 * accuracyScore      + 0.20 * cliEfficiencyScore
+    0.25 * promptClarityScore    +
+    0.20 * taskVelocityScore     +
+    0.20 * accuracyScore         +
+    0.15 * cliEfficiencyScore    +
+    0.10 * resolutionVelocityScore +
+    0.10 * skillLeverageScore
   );
+
+  // Persist session record for trend analysis.
+  appendHaceSession(target, {
+    haceScore, avgSessionMinutes, skillAugmentedPct,
+    promptClarityScore, taskVelocityScore, accuracyScore,
+    cliEfficiencyScore, resolutionVelocityScore, skillLeverageScore,
+    sessions: files.length, turns: n, corrections: correctionTurns,
+  });
+
   return { noData: false, sessions: files.length, totalTurns: n, avgResponseSecs, thinkingRate,
     correctionRate, turnsPerMinute, promptClarityScore, taskVelocityScore, accuracyScore,
-    cliEfficiencyScore, haceScore, grade: haceGrade(haceScore) };
+    cliEfficiencyScore, avgSessionMinutes, skillAugmentedPct, skillLeverageScore,
+    resolutionVelocityScore, haceScore, grade: haceGrade(haceScore) };
+}
+
+// ── HACE session persistence ──────────────────────────────────────────────────
+
+function appendHaceSession(target: string, record: Record<string, number | string>): void {
+  const file = path.join(target, ".claude", "learning", "hace-sessions.jsonl");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), ...record }) + "\n", "utf-8");
+  } catch { /* non-fatal */ }
 }
 
 function workspaceMcpLog(target: string): string {
@@ -330,7 +388,7 @@ export function computeEfficiencyMetrics(
   try {
     hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack);
   } catch {
-    hace = { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0, cliEfficiencyScore: 0, haceScore: 0, grade: "—" };
+    hace = { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0, cliEfficiencyScore: 0, avgSessionMinutes: 0, skillAugmentedPct: 0, skillLeverageScore: 0, resolutionVelocityScore: 0, haceScore: 0, grade: "—" };
   }
 
   return {
@@ -442,12 +500,14 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
 
   const h = metrics.hace;
   if (!h.noData) {
-    lines.push(`\n### HACE Score: ${h.haceScore}/100 (${h.grade})  —  ${h.totalTurns} turn(s) across ${h.sessions} session(s)`);
-    lines.push(`  Prompt Clarity  ${h.promptClarityScore}%  (thinking rate: ${Math.round(h.thinkingRate * 100)}%)`);
-    lines.push(`  Task Velocity   ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)`);
-    lines.push(`  Accuracy        ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)`);
-    lines.push(`  CLI Efficiency  ${h.cliEfficiencyScore}%`);
-    lines.push(`  Avg response    ${h.avgResponseSecs.toFixed(1)}s`);
+    lines.push(`\n### Session Efficiency (HACE 2.0): ${h.haceScore}/100 (${h.grade})  —  ${h.totalTurns} turn(s) across ${h.sessions} session(s)`);
+    lines.push(`  Prompt Clarity       ${h.promptClarityScore}%  (thinking rate: ${Math.round(h.thinkingRate * 100)}%)`);
+    lines.push(`  Task Velocity        ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)`);
+    lines.push(`  Accuracy             ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)`);
+    lines.push(`  CLI Efficiency       ${h.cliEfficiencyScore}%`);
+    lines.push(`  Resolution Velocity  ${h.resolutionVelocityScore}%  (avg TTR ${h.avgSessionMinutes.toFixed(0)} min, target 30)`);
+    lines.push(`  Skill Leverage       ${h.skillLeverageScore}%  (${h.skillAugmentedPct}% sessions skill-augmented)`);
+    lines.push(`  Avg response         ${h.avgResponseSecs.toFixed(1)}s`);
   }
 
   return lines.join("\n");
@@ -559,26 +619,37 @@ function buildHacePanelHtml(h: HaceMetrics): string {
   }
 
   const rows = [
-    componentRow("Prompt Clarity",  h.promptClarityScore,
+    componentRow("Prompt Clarity",      h.promptClarityScore,
       `${Math.round(h.thinkingRate * 100)}% of turns triggered extended thinking — lower = clearer prompts`),
-    componentRow("Task Velocity",   h.taskVelocityScore,
+    componentRow("Task Velocity",       h.taskVelocityScore,
       `${h.turnsPerMinute.toFixed(1)} turns/min — target ≥ 2.0`),
-    componentRow("Accuracy Rate",   h.accuracyScore,
+    componentRow("Accuracy Rate",       h.accuracyScore,
       `${Math.round(h.correctionRate * 100)}% correction turns (short re-prompts after long responses)`),
-    componentRow("CLI Efficiency",  h.cliEfficiencyScore,
+    componentRow("CLI Efficiency",      h.cliEfficiencyScore,
       "CLI exit-code success rate from terminal-watch telemetry"),
+    componentRow("Resolution Velocity", h.resolutionVelocityScore,
+      `avg session ${h.avgSessionMinutes.toFixed(0)} min — target ≤ 30 min`),
+    componentRow("Skill Leverage",      h.skillLeverageScore,
+      `${h.skillAugmentedPct}% of sessions used ≥1 skill${h.skillLeverageScore < 20 ? " ← LOW" : ""}`),
   ].join("\n");
 
+  const ttrPill = h.avgSessionMinutes > 0
+    ? `<span class="stat-pill" title="Avg session duration (time-to-resolution proxy)">TTR ${h.avgSessionMinutes.toFixed(0)} min</span>`
+    : "";
+  const skillPill = `<span class="stat-pill ${h.skillAugmentedPct >= 25 ? "conf-high" : "roi-low"}" title="${h.skillAugmentedPct}% of sessions had ≥1 skill invocation">${h.skillAugmentedPct}% skill-augmented</span>`;
+
   return `<div class="sub-panel" style="grid-column: 1 / -1">
-    <h3>HACE · Human-AI Collaboration Efficiency</h3>
+    <h3>Session Efficiency (HACE 2.0)</h3>
     <div style="margin-bottom:6px">
-      <span class="stat-pill ${gradeClass}" title="Weighted composite: 30% clarity · 25% velocity · 25% accuracy · 20% CLI">${h.haceScore}/100 · ${h.grade}</span>
+      <span class="stat-pill ${gradeClass}" title="Composite: 25% clarity · 20% velocity · 20% accuracy · 15% CLI · 10% TTR · 10% skill leverage">${h.haceScore}/100 · ${h.grade}</span>
       <span class="stat-pill conf-estimated" title="Sessions analysed">${h.sessions} session${h.sessions !== 1 ? "s" : ""}</span>
       <span class="stat-pill conf-estimated" title="Total conversation turns">${h.totalTurns} turn${h.totalTurns !== 1 ? "s" : ""}</span>
       <span class="stat-pill" title="Average wall-clock seconds from user message to first assistant token">avg ${h.avgResponseSecs.toFixed(1)}s response</span>
+      ${ttrPill}
+      ${skillPill}
     </div>
     ${rows}
-    <p class="note" style="margin-top:4px">Derived from session transcripts in <code>~/.claude/projects/</code>. Prompt Clarity: fewer thinking blocks = clearer prompts. Accuracy: short follow-ups after long responses signal corrections.</p>
+    <p class="note" style="margin-top:4px">Derived from session transcripts in <code>~/.claude/projects/</code>. Prompt Clarity: fewer thinking blocks = clearer prompts. Accuracy: short follow-ups after long responses signal corrections. Skill Leverage: sessions where you invoked a skill.</p>
   </div>`;
 }
 
@@ -661,8 +732,8 @@ function buildScoreBannerHtml(m: McpUsageSummary, mcpFileTokens: number): string
     : "";
   return `
   <div class="stat-grid" style="margin-bottom:10px">
-    <div class="stat-pill" title="Efficiency = (useful ops) / (total ops). Useful = total − redundant reads − read-after-writes − loop reads − no-op writes.">
-      <b>Efficiency</b>
+    <div class="stat-pill" title="MCP Ops Efficiency = (useful ops) / (total ops). Useful = total − redundant reads − read-after-writes − loop reads − no-op writes.">
+      <b>MCP Ops Efficiency</b>
       <span class="val ${esc(gradeColor(sc.grade))}">${sc.score}% (${esc(sc.grade)})</span>
     </div>
     <div class="stat-pill"><b>MCP calls</b><span class="val">${m.totalCalls}</span></div>

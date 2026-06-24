@@ -15,6 +15,13 @@ export interface RepoAffinityResult {
 const AFFINITY_CACHE_HOURS = 24;
 const AFFINITY_REL = path.join(".claude", "learning", "repo-affinity.json");
 
+// Cap the contribution of any single signal to this many boost points per skill.
+// Prevents one signal (e.g. .kiro dir) from single-handedly pushing a skill to 30pts.
+const MAX_SINGLE_SIGNAL_BOOST = 15;
+
+// In-process session cache — avoids re-reading disk on every proposal cycle.
+const _memCache = new Map<string, { result: RepoAffinityResult; mtimeMs: number }>();
+
 // Each entry: signal id, detector fn, skill→boost-pts map
 const SIGNAL_RULES: Array<{
   signal: string;
@@ -106,7 +113,9 @@ function computeRepoAffinity(target: string): RepoAffinityResult {
     signals.push({ signal: rule.signal, detected });
     if (detected) {
       for (const [skill, pts] of Object.entries(rule.boosts)) {
-        boostMap[skill] = Math.min(60, (boostMap[skill] ?? 0) + pts);
+        // Cap single-signal contribution so one directory can't alone push a skill above threshold.
+        const capped = Math.min(pts, MAX_SINGLE_SIGNAL_BOOST);
+        boostMap[skill] = Math.min(60, (boostMap[skill] ?? 0) + capped);
       }
     }
   }
@@ -116,20 +125,40 @@ function computeRepoAffinity(target: string): RepoAffinityResult {
 
 export function getOrComputeRepoAffinity(target: string): RepoAffinityResult {
   const file = path.join(target, AFFINITY_REL);
+  const key = path.resolve(target);
+
+  // 1. Check in-process memory cache — avoids disk read on every proposal cycle.
+  const mem = _memCache.get(key);
+  if (mem) {
+    try {
+      const fileMtime = fs.existsSync(file) ? fs.statSync(file).mtimeMs : 0;
+      if (fileMtime === mem.mtimeMs) return mem.result;
+    } catch { /* fall through */ }
+  }
+
+  // 2. Check disk cache.
   try {
     const cached = JSON.parse(fs.readFileSync(file, "utf-8")) as RepoAffinityResult;
     const ageMs = Date.now() - new Date(cached.computedAt).getTime();
-    if (ageMs < AFFINITY_CACHE_HOURS * 3_600_000 && cached.skillBoosts) return cached;
+    if (ageMs < AFFINITY_CACHE_HOURS * 3_600_000 && cached.skillBoosts) {
+      const mtime = fs.statSync(file).mtimeMs;
+      _memCache.set(key, { result: cached, mtimeMs: mtime });
+      return cached;
+    }
   } catch { /* recompute */ }
 
+  // 3. Recompute and persist.
   const result = computeRepoAffinity(target);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(result, null, 2) + "\n", "utf-8");
+    const mtime = fs.statSync(file).mtimeMs;
+    _memCache.set(key, { result, mtimeMs: mtime });
   } catch { /* non-fatal */ }
   return result;
 }
 
 export function invalidateRepoAffinity(target: string): void {
+  _memCache.delete(path.resolve(target));
   try { fs.unlinkSync(path.join(target, AFFINITY_REL)); } catch { /* missing is fine */ }
 }

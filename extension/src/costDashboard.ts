@@ -176,11 +176,17 @@ function buildExecutiveSummaryHtml(
   attrConfidence: number,
   roiBand: string,
   netRoi: number,
-  todayCost: number
+  todayCost: number,
+  skillSpend = 0,
+  sessionSpend = 0,
+  hasProposalData = false
 ): string {
   const pct = Math.round(attrConfidence * 100);
   const scoreClass = apiScore.score >= 65 ? "roi-high" : apiScore.score >= 35 ? "roi-medium" : "roi-low";
   const attrClass  = pct >= 80 ? "roi-high" : pct >= 50 ? "roi-medium" : "roi-low";
+  const utilizationPct = sessionSpend > 0 ? (skillSpend / sessionSpend * 100) : 0;
+  const utilizationStr = utilizationPct < 0.1 ? "<0.1%" : `${utilizationPct.toFixed(1)}%`;
+  const utilizationClass = utilizationPct >= 10 ? "roi-high" : utilizationPct >= 2 ? "roi-medium" : "roi-low";
 
   // Top action: derive from lowest sub-score
   const bd = apiScore.breakdown;
@@ -202,17 +208,21 @@ function buildExecutiveSummaryHtml(
   return `<div class="panel" style="background:var(--vscode-editor-inactiveSelectionBackground,rgba(0,0,0,.04));border-left:3px solid var(--vscode-focusBorder,#007acc)">
   <h2 style="margin-top:0">Executive Summary</h2>
   <div class="stat-grid">
-    <div class="stat-pill" title="Agent Performance Index — composite 0-100 score">
-      <b>API Score</b>
+    <div class="stat-pill" title="Agent Quality Index — composite 0-100 score">
+      <b>Agent Quality Index</b>
       <span class="val ${scoreClass}">${apiScore.score} (${apiScore.grade})</span>
     </div>
-    <div class="stat-pill" title="Per-skill cost attribution confidence">
-      <b>Attribution</b>
+    <div class="stat-pill" title="Cost Tracking Accuracy — per-skill attribution confidence">
+      <b>Cost Tracking</b>
       <span class="val ${attrClass}">${pct}%</span>
     </div>
-    <div class="stat-pill" title="Proposal precision — skills proposed vs actually used">
-      <b>Prediction</b>
-      <span class="val">${bd.precision ?? 0}%</span>
+    <div class="stat-pill" title="Recommendation accuracy — skills proposed vs actually used">
+      <b>Recommendation</b>
+      <span class="val">${hasProposalData ? `${bd.precision ?? 0}%` : "Awaiting data"}</span>
+    </div>
+    <div class="stat-pill" title="Skill spend ÷ session spend — what % of AI cost is skill-augmented" style="${utilizationPct < 1 ? "border-color:var(--vscode-charts-red,#F44336)" : ""}">
+      <b>Skill Utilization</b>
+      <span class="val ${utilizationClass}">${utilizationStr}</span>
     </div>
     <div class="stat-pill" title="Skill ROI vs spend">
       <b>ROI</b>
@@ -679,7 +689,7 @@ export function buildDashboardMainBodyHtml(
   const governanceHtml = isFeatureAvailable("governance") ? buildGovernancePanelHtml(target) : "";
 
   const mainBodyHtml = `
-  ${buildExecutiveSummaryHtml(target, apiScore, systemState.attribution.confidence, execRoiBand, execNetRoi, todayCost)}
+  ${buildExecutiveSummaryHtml(target, apiScore, systemState.attribution.confidence, execRoiBand, execNetRoi, todayCost, skillCostSummary.totalCost, credit.totalCost, proposalFunnel?.hasData ?? false)}
 
   ${formatGlobalTrustBannerHtml(globalTrust)} · ${escapeHtml(formatAttributionStrategyLine(attrStrategy))}
 
@@ -788,21 +798,62 @@ export function buildDashboardMainBodyHtml(
   </div>
 
   <div class="panel">
-  <h2>Agent Performance Index</h2>
+  <h2>Agent Quality Index</h2>
   <div class="stat-grid" style="margin-bottom:10px">
-    <div class="stat-pill" title="Composite AI agent quality score (0–100): Precision · Attribution · Efficiency · Learning · Completion · Correction">
-      <b>API Score</b>
+    <div class="stat-pill" title="Composite AI agent quality score (0–100): Recommendation Accuracy · Cost Tracking Accuracy · Skill ROI · Learning · Completion · Correction">
+      <b>Agent Quality Index</b>
       <span class="val roi-${apiScore.score >= 65 ? "high" : apiScore.score >= 35 ? "medium" : "low"}">${apiScore.score}/100 (${apiScore.grade})</span>
     </div>
-    <div class="stat-pill"><b>Precision</b><span class="val">${apiScore.breakdown.precision}%</span></div>
-    <div class="stat-pill"><b>Attribution</b><span class="val">${apiScore.breakdown.attribution}%</span></div>
-    <div class="stat-pill"><b>Efficiency</b><span class="val">${apiScore.breakdown.skillEfficiency}%</span></div>
+    <div class="stat-pill" title="How often proposed skills were actually used"><b>Recommendation Accuracy</b><span class="val">${apiScore.breakdown.precision}%</span></div>
+    <div class="stat-pill" title="Per-skill cost attribution confidence"><b>Cost Tracking Accuracy</b><span class="val">${apiScore.breakdown.attribution}%</span></div>
+    <div class="stat-pill" title="Skill ROI vs session spend"><b>Skill ROI</b><span class="val">${apiScore.breakdown.skillEfficiency}%</span></div>
     <div class="stat-pill"><b>Learning</b><span class="val">${apiScore.breakdown.learningRate}%</span></div>
     <div class="stat-pill"><b>Completion</b><span class="val">${apiScore.breakdown.taskCompletion}%</span></div>
     <div class="stat-pill"><b>Correction</b><span class="val">${apiScore.breakdown.humanCorrection}%</span></div>
   </div>
-  <p class="note">Weights: Precision 25% · Attribution 20% · Efficiency 15% · Learning 15% · Completion 15% · Correction 10%. Target: ≥65 (B).</p>
+  <p class="note">Weights: Rec. Accuracy 25% · Cost Tracking 20% · Skill ROI 15% · Learning 15% · Completion 15% · Correction 10%. Target: ≥65 (B).</p>
 </div>
+
+  ${(() => {
+    // Skill Utilization Ratio panel
+    const sessionSpend = credit.totalCost;
+    const skillSpend   = skillCostSummary.totalCost;
+    const utilizationPct = sessionSpend > 0 ? (skillSpend / sessionSpend * 100) : 0;
+    const utilizationStr = utilizationPct < 0.1 ? "<0.1%" : `${utilizationPct.toFixed(2)}%`;
+    const utilizationClass = utilizationPct >= 10 ? "roi-high" : utilizationPct >= 2 ? "roi-medium" : "roi-low";
+    const barWidth = Math.max(0.5, Math.min(100, utilizationPct));
+
+    // Zero-Skill Session Alert
+    const zeroSkillSessions = efficiencyMetrics.recentSessions.filter(s => s.skillCount === 0 && s.totalCost >= 1.0);
+    const zeroSkillHtml = zeroSkillSessions.length > 0
+      ? `<div class="panel" style="border-left:3px solid var(--vscode-charts-red,#F44336)">
+    <h2 style="margin-top:0">Zero-Skill Session Alert</h2>
+    <p class="note" style="color:var(--vscode-charts-red,#F44336);margin-bottom:6px">${zeroSkillSessions.length} session(s) cost &gt;$1.00 with zero skill invocations in the last 14 days.</p>
+    ${zeroSkillSessions.slice(0, 5).map(s => {
+      const date = new Date(s.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return `<div class="skill-row warn-row"><div class="skill-head"><span>${escapeHtml(s.sessionId.slice(0, 8))}…</span><span>${escapeHtml(date)}</span><span class="cost roi-low">${formatCompactUsd(s.totalCost)}</span></div><div class="hint">No skill assistance — general API only</div></div>`;
+    }).join("")}
+    <p class="note" style="margin-top:6px">Invoke a skill with <code>/skill-name</code> to get skill-augmented responses and unlock ROI tracking.</p>
+  </div>`
+      : "";
+
+    return `<div class="panel">
+    <h2>Skill Utilization Ratio · 14d</h2>
+    <div class="stat-grid" style="margin-bottom:10px">
+      <div class="stat-pill" title="Skill spend ÷ total session spend">
+        <b>Skill Utilization</b>
+        <span class="val ${escapeHtml(utilizationClass)}" style="font-size:18px;font-weight:700">${escapeHtml(utilizationStr)}</span>
+      </div>
+      <div class="stat-pill"><b>Skill spend</b><span class="val">${formatCompactUsd(skillSpend)}</span></div>
+      <div class="stat-pill"><b>Session spend</b><span class="val">${formatCompactUsd(sessionSpend)}</span></div>
+    </div>
+    <div style="display:flex;height:12px;border-radius:4px;overflow:hidden;background:var(--vscode-editorGhostText-foreground,#555);opacity:.7;margin-bottom:4px">
+      <div style="flex:${barWidth};background:var(--vscode-charts-green,#4CAF50);max-width:100%"></div>
+    </div>
+    <p class="note" style="margin-top:2px">${utilizationPct < 1 ? "⚠ Less than 1% of AI spend is skill-augmented. Invoke skills to unlock ROI tracking." : utilizationPct < 5 ? "Low skill leverage — consider invoking skills more frequently." : "Good skill leverage."}</p>
+  </div>
+  ${zeroSkillHtml}`;
+  })()}
 
   ${formatEfficiencyPanelHtml(efficiencyMetrics)}
 

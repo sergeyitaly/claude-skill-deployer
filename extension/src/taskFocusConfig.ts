@@ -13,10 +13,10 @@ export function readTaskFocusLimits(): TaskFocusLimits {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.taskFocus");
   const rawMax = cfg.get<number>("maxActiveSkills", 12);
   const maxActiveSkills = Math.max(4, Math.min(30, rawMax));
-  const rawMinConf = cfg.get<number>("minProposalConfidence", 50);
+  const rawMinConf = cfg.get<number>("minProposalConfidence", 70);
   const minProposalConfidence = Number.isFinite(rawMinConf)
     ? Math.min(100, Math.max(0, Math.round(rawMinConf)))
-    : 50;
+    : 70;
   return {
     enabled: cfg.get<boolean>("enabled", true),
     maxActiveSkills,

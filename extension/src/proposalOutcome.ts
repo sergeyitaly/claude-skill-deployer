@@ -64,6 +64,7 @@ export interface SkillHistory {
   invocations: number;
   successRate: number;
   acceptanceRate: number;
+  proposedCount: number;
 }
 
 export function historicalSuccess(target: string, skillName: string): SkillHistory {
@@ -83,28 +84,84 @@ export function historicalSuccess(target: string, skillName: string): SkillHisto
     invocations,
     successRate: invocations > 0 ? successes / invocations : 0,
     acceptanceRate: proposedCount > 0 ? invokedCount / proposedCount : 0,
+    proposedCount,
   };
 }
 
-/** Write session-end outcome record. Accepts proposed names externally to avoid circular imports. */
+/** Acceptance rate for a skill across all recorded sessions. */
+export function getAcceptanceRate(target: string, skillName: string): { rate: number; sessions: number } {
+  const outcomes = readProposalOutcomes(target);
+  let proposedCount = 0;
+  let invokedCount = 0;
+  for (const o of outcomes) {
+    if (o.event !== "session_end") continue;
+    if (o.proposed?.includes(skillName)) {
+      proposedCount++;
+      if (o.invoked?.includes(skillName)) invokedCount++;
+    }
+  }
+  return { rate: proposedCount > 0 ? invokedCount / proposedCount : -1, sessions: proposedCount };
+}
+
+/**
+ * Confidence calibration multiplier for a skill.
+ * If a skill has been proposed ≥5 times with acceptance < 10%, return 0.5 (halve the score).
+ * If a skill has been proposed ≥10 times with acceptance < 5%, return 0 (dormant — suppress).
+ */
+export function confidenceCalibration(target: string, skillName: string): number {
+  const { rate, sessions } = getAcceptanceRate(target, skillName);
+  if (rate < 0) return 1.0; // no data yet
+  if (sessions >= 10 && rate < 0.05) return 0.0; // dormant — suppress entirely
+  if (sessions >= 5  && rate < 0.10) return 0.5; // low signal — halve confidence
+  return 1.0;
+}
+
+/** Returns the set of dormant skill names (acceptance < 5% after ≥10 sessions). */
+export function getDormantSkills(target: string): Set<string> {
+  const outcomes = readProposalOutcomes(target);
+  const proposed: Record<string, number> = {};
+  const invoked: Record<string, number> = {};
+  for (const o of outcomes) {
+    if (o.event !== "session_end") continue;
+    for (const s of o.proposed ?? []) proposed[s] = (proposed[s] ?? 0) + 1;
+    for (const s of o.invoked ?? []) invoked[s] = (invoked[s] ?? 0) + 1;
+  }
+  const dormant = new Set<string>();
+  for (const [skill, count] of Object.entries(proposed)) {
+    if (count >= 10 && (invoked[skill] ?? 0) / count < 0.05) dormant.add(skill);
+  }
+  return dormant;
+}
+
+/** Write session-end outcome record. Accepts proposed names externally to avoid circular imports.
+ *  When caller passes an empty array (session started before proposal refresh), falls back to
+ *  reading task-skill-proposals.json so the learning loop is never silently starved. */
 export function recordSessionProposalOutcome(
   target: string,
   sessionId: string,
   proposedSkillNames: string[]
 ): void {
-  if (proposedSkillNames.length === 0) return;
+  let names = proposedSkillNames;
+  if (names.length === 0) {
+    try {
+      const file = path.join(target, ".claude", "learning", "task-skill-proposals.json");
+      const data = JSON.parse(fs.readFileSync(file, "utf-8")) as { proposals?: { name: string }[] };
+      names = data.proposals?.map((p) => p.name) ?? [];
+    } catch { /* non-fatal — proposals file may not exist yet */ }
+  }
+  if (names.length === 0) return;
   const runs = readCachedEnrichedRuns(target).filter(r => r.session_id === sessionId);
   const invokedSet = new Set(runs.map(r => r.skill));
-  const invoked = proposedSkillNames.filter(s => invokedSet.has(s));
-  const not_invoked = proposedSkillNames.filter(s => !invokedSet.has(s));
+  const invoked = names.filter(s => invokedSet.has(s));
+  const not_invoked = names.filter(s => !invokedSet.has(s));
   appendProposalOutcome(target, {
     session_id: sessionId,
     event: "session_end",
-    proposed: proposedSkillNames,
+    proposed: names,
     invoked,
     not_invoked,
-    acceptance_rate: proposedSkillNames.length > 0 ? invoked.length / proposedSkillNames.length : 0,
-    skills_proposed_count: proposedSkillNames.length,
+    acceptance_rate: names.length > 0 ? invoked.length / names.length : 0,
+    skills_proposed_count: names.length,
     skills_invoked_count: invoked.length,
   });
 }

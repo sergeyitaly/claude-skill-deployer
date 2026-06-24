@@ -162,9 +162,12 @@ describe("computeTaskSkillProposals", () => {
 
     const noHistory = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-nohist-"));
 
-    const scoreWith = computeTaskSkillProposals(withHistory, manifest, "fix plan")
+    // "terraform" alone scores ≥70 via name+description+keyword-hint tokens, which
+    // clears the minProposalConfidence=70 threshold even without history.
+    // With 7-day history the score rises by +25, giving a measurable diff.
+    const scoreWith = computeTaskSkillProposals(withHistory, manifest, "terraform")
       .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
-    const scoreWithout = computeTaskSkillProposals(noHistory, manifest, "fix plan")
+    const scoreWithout = computeTaskSkillProposals(noHistory, manifest, "terraform")
       .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
 
     expect(scoreWith - scoreWithout).toBeGreaterThanOrEqual(25);

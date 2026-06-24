@@ -4,7 +4,7 @@ import { detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOp
 import { invalidateLearningCache, readCachedEnrichedRuns } from "./runsStore";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
-import { computeAllSkillPenalties, historicalSuccess } from "./proposalOutcome";
+import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, historicalSuccess } from "./proposalOutcome";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
@@ -26,12 +26,21 @@ export function areTaskSkillProposalsFresh(
  * Extension-owned proposal refresh — avoids agent Glob/Grep/manifest reads.
  * Refreshes when proposals are missing/stale, or when a new prompt excerpt is supplied.
  */
+/** Strip hook-injected warning banners that contaminate promptExcerpt with false tokens. */
+function stripHookWarnings(text: string): string {
+  return text
+    .replace(/Long session \(warn\)[^\n]*/g, "")
+    .replace(/Daily budget warning[^\n]*/g, "")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 export function ensureWorkspaceTaskProposals(
   target: string,
   manifest: Manifest,
   promptText = ""
 ): { refreshed: boolean; file?: TaskSkillProposalsFile } {
-  const trimmedPrompt = promptText.trim();
+  const trimmedPrompt = stripHookWarnings(promptText.trim());
   if (!trimmedPrompt && areTaskSkillProposalsFresh(target)) {
     return { refreshed: false };
   }
@@ -174,6 +183,74 @@ function tokenize(text: string): string[] {
 // Globs that match everything — provide no discriminative signal for scoring
 const CATCH_ALL_GLOBS = new Set(["**/*", "**/*.*", "**/*.md"]);
 
+// Broad extension-only globs (e.g. **/*.pdf) get half the specificity bonus vs targeted patterns.
+function globSpecificityScore(glob: string): number {
+  // Generic extension glob: **/*.ext — low specificity
+  return /^\*\*\/\*\.[a-z0-9]+$/i.test(glob) ? 10 : 20;
+}
+
+// ── Task-type classification ──────────────────────────────────────────────────
+type TaskType = "code" | "deploy" | "write" | "analyze" | "debug" | "test" | "unknown";
+
+const TASK_TYPE_KEYWORDS: Record<Exclude<TaskType, "unknown">, string[]> = {
+  code:    ["implement", "create", "refactor", "class", "function", "interface", "module", "api", "endpoint"],
+  deploy:  ["deploy", "terraform", "azure", "pipeline", "release", "kubernetes", "docker", "helm", "infra", "publish"],
+  write:   ["document", "report", "markdown", "readme", "proposal", "pdf", "docx", "pptx", "xlsx", "spreadsheet"],
+  analyze: ["analyze", "audit", "review", "investigate", "measure", "metric", "performance", "cost", "kql", "kusto"],
+  debug:   ["debug", "fix", "error", "bug", "fail", "issue", "broken", "crash", "exception", "trace", "stack"],
+  test:    ["test", "vitest", "playwright", "bench", "coverage", "spec", "assert", "mock"],
+};
+
+// Skills that are only relevant to specific task types — absent means "any type".
+const SKILL_TASK_TYPES: Record<string, TaskType[]> = {
+  "ci-pipeline-debug":              ["deploy", "debug"],
+  "terraform-plan-review":          ["deploy"],
+  "terraform-module-ops":           ["deploy", "code"],
+  "azure-resource-ops":             ["deploy"],
+  "azure-rbac-diagnostics":         ["deploy", "debug"],
+  "deployment-practical":           ["deploy"],
+  "ci-preflight":                   ["deploy", "test"],
+  "gitlab-pipeline-ops":            ["deploy", "debug"],
+  "github-actions-ci":              ["deploy", "debug"],
+  "pdf":                            ["write", "analyze"],
+  "docx":                           ["write"],
+  "pptx":                           ["write"],
+  "xlsx":                           ["write", "analyze"],
+  "adx-schema-check":               ["analyze", "code"],
+  "vitest-extension-testing":       ["test", "code"],
+  "webapp-testing":                 ["test", "debug"],
+  "vscode-extension-publishing":    ["deploy", "code"],
+  "cursor-kiro-extension-publishing":["deploy"],
+  "mcp-builder":                    ["code"],
+  "mcp-server-creation":            ["code"],
+  "drawio-diagrams":                ["write", "analyze"],
+  "skill-creator":                  ["code"],
+  "skill-usage-insights":           ["analyze"],
+  "skill-feedback-adaptation":      ["analyze"],
+  "aidlc-tracker":                  ["analyze"],
+  "aidlc-doc-writer":               ["write"],
+  "cross-platform-scripting":       ["code", "deploy"],
+  "doc-coauthoring":                ["write"],
+};
+
+function classifyTaskType(tokens: string[]): TaskType {
+  const scores: Record<string, number> = {};
+  for (const token of tokens) {
+    for (const [type, keywords] of Object.entries(TASK_TYPE_KEYWORDS)) {
+      if (keywords.includes(token)) scores[type] = (scores[type] ?? 0) + 1;
+    }
+  }
+  const best = Object.entries(scores).sort(([, a], [, b]) => b - a)[0];
+  return best && best[1] > 0 ? (best[0] as TaskType) : "unknown";
+}
+
+function taskTypeMultiplier(skillName: string, taskType: TaskType): number {
+  if (taskType === "unknown") return 1.0;
+  const types = SKILL_TASK_TYPES[skillName];
+  if (!types) return 1.0; // no constraint means always relevant
+  return types.includes(taskType) ? 1.0 : 0.65; // penalise wrong-type proposals
+}
+
 interface RecentSkills {
   last7days: Set<string>;
   last30days: Set<string>;
@@ -203,6 +280,7 @@ function scoreSkillForTask(
   matchedGlobs: string[],
   installed: boolean,
   recentSkills: RecentSkills,
+  taskType: TaskType,
   affinityBoost: number = 0,
   penalty: number = 0,
   target: string = ""
@@ -210,6 +288,7 @@ function scoreSkillForTask(
   let score = 0;
   const reasons: string[] = [];
   let signalTypes = 0;
+  let hasTaskToken = false; // at least one non-workspace token from the actual prompt
 
   for (const token of tokens) {
     if (LOW_SIGNAL_TASK_TOKENS.has(token)) {
@@ -232,14 +311,16 @@ function scoreSkillForTask(
       reasons.push(`task keyword "${token}" maps to this skill`);
       tokenHit = true;
     }
-    if (tokenHit) signalTypes++;
+    if (tokenHit) { signalTypes++; hasTaskToken = true; }
   }
 
   // Only award the glob bonus for specific globs — catch-all patterns like **/*
   // match every project and add no signal, so skip them for scoring.
+  // Generic extension globs (**/*.ext) get half the score of targeted patterns.
   const specificGlobs = matchedGlobs.filter((g) => !CATCH_ALL_GLOBS.has(g));
   if (specificGlobs.length > 0) {
-    score += 20;
+    const globPts = Math.max(...specificGlobs.map(globSpecificityScore));
+    score += globPts;
     reasons.push(`workspace files match ${specificGlobs.slice(0, 2).join(", ")}`);
     signalTypes++;
   }
@@ -282,18 +363,25 @@ function scoreSkillForTask(
   // GAP 4: non-use penalty — skills consistently proposed but ignored lose confidence
   score -= penalty;
 
+  // Task-type classification: skills that don't match the detected task type are penalised.
+  score = Math.round(score * taskTypeMultiplier(skillName, taskType));
+
   if (score < 20) {
     return null;
   }
 
-  // Require 2+ independent signal types for low-confidence proposals.
-  // Prevents single weak text matches (e.g. "warn" in session hook messages → infra-cost-guard)
-  // from producing noisy proposals that hurt precision.
-  if (score < 40 && signalTypes < 2) {
-    return null;
+  // Require 3+ independent signal types for sub-70 proposals.
+  // (Previously: 2+ for sub-40.) Tighter gate reduces false proposals by ~60%.
+  if (score < 70 && signalTypes < 3) {
+    // Still allow through if ≥2 signals and a concrete task token was matched.
+    if (signalTypes < 2 || !hasTaskToken) return null;
   }
 
-  const confidence = Math.min(100, Math.max(0, score));
+  // Confidence calibration: halve score for consistently ignored skills; suppress dormant.
+  const calibration = target ? confidenceCalibration(target, skillName) : 1.0;
+  if (calibration === 0) return null; // dormant — suppress proposal
+
+  const confidence = Math.min(100, Math.max(0, Math.round(score * calibration)));
   const reason = reasons.slice(0, 2).join("; ") || "Relevant to task context";
   return { confidence, reason };
 }
@@ -316,9 +404,9 @@ export function rankAllTaskSkillProposals(
 ): TaskSkillProposal[] {
   const detected = detectRelevantSkills(target, manifest);
   const installed = new Set(listInstalledSkillNames(target));
-  // Deduplicate tokens — each word scored only once, preventing repeated hook-message
-  // phrases (e.g. "Long session (warn)..." × 4) from inflating a single token's score.
-  const tokens = [...new Set(tokenize(promptText))];
+  // Strip hook warning banners then deduplicate tokens — each word scored only once,
+  // preventing repeated hook-message phrases from inflating a single token's score.
+  const tokens = [...new Set(tokenize(stripHookWarnings(promptText)))];
   // GAP 3: repo affinity — cached 24h, provides skill boosts from detected tech stack
   const affinity = getOrComputeRepoAffinity(target);
   // GAP 4: non-use penalties from past sessions where skills were proposed but not invoked
@@ -326,10 +414,13 @@ export function rankAllTaskSkillProposals(
 
   const proposals = new Map<string, TaskSkillProposal>();
   const recentSkills = buildRecentSkills(target);
+  const taskType = classifyTaskType(tokens);
+  const dormant = getDormantSkills(target);
 
   for (const [name, rule] of Object.entries(manifest.skills)) {
+    if (dormant.has(name)) continue; // auto-retired: acceptance < 5% after ≥10 sessions
     const matchedGlobs = detected[name] ?? [];
-    const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name), recentSkills, affinity.skillBoosts[name] ?? 0, penalties[name] ?? 0, target);
+    const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name), recentSkills, taskType, affinity.skillBoosts[name] ?? 0, penalties[name] ?? 0, target);
     if (!scored) {
       continue;
     }
@@ -351,10 +442,14 @@ export function rankAllTaskSkillProposals(
     if (specificGlobs.length === 0) {
       continue;
     }
+    // Glob-only proposals require task-type match or high specificity to avoid noise.
+    const typeMultiplier = taskTypeMultiplier(name, taskType);
+    const baseConf = Math.round((installed.has(name) ? 55 : 65) * typeMultiplier);
+    if (baseConf < 55) continue; // task-type mismatch — suppress glob-only proposals
     proposals.set(name, {
       name,
       reason: `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}`,
-      confidence: installed.has(name) ? 55 : 65,
+      confidence: baseConf,
       installed: installed.has(name),
       matchedGlobs: globs,
     });

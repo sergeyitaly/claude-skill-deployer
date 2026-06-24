@@ -39,10 +39,10 @@ describe("computeApiScore", () => {
 
   it("high attribution trust pushes attribution sub-score up", () => {
     const target = makeWorkspace();
-    // Write a trust file with high confidence
+    // Trust file stores scorePct on 0–100 scale (not 0–1)
     fs.writeFileSync(
       path.join(target, ".claude", "learning", "attribution-trust.json"),
-      JSON.stringify({ scorePct: 0.9 }),
+      JSON.stringify({ scorePct: 90 }),
       "utf-8"
     );
     const result = computeApiScore(target, manifest);
@@ -93,10 +93,10 @@ describe("computeApiScore", () => {
   it("perfect inputs produce score close to 100", () => {
     const target = makeWorkspace();
 
-    // High attribution trust
+    // High attribution trust — scorePct stored as 0–100
     fs.writeFileSync(
       path.join(target, ".claude", "learning", "attribution-trust.json"),
-      JSON.stringify({ scorePct: 1.0 }),
+      JSON.stringify({ scorePct: 100 }),
       "utf-8"
     );
 

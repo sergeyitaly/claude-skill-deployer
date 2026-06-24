@@ -40,6 +40,17 @@ export function appendAdaptationEvent(
   const file = adaptationLogPath(target);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    // Deduplication: skip if the last entry has the same type + description.
+    if (fs.existsSync(file)) {
+      const content = fs.readFileSync(file, "utf-8");
+      const lastLine = content.trimEnd().split("\n").pop() ?? "";
+      if (lastLine) {
+        try {
+          const last = JSON.parse(lastLine) as AdaptationEvent;
+          if (last.type === event.type && last.description === event.description) return;
+        } catch { /* ignore parse error on last line */ }
+      }
+    }
     const ts = new Date().toISOString();
     const adaptation_id = `adapt_${ts.replace(/[^0-9]/g, "").slice(0, 14)}`;
     const record: AdaptationEvent = {
