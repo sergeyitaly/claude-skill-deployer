@@ -14,15 +14,15 @@ Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-r
 
 ## What's new in 1.0.90
 
-### Learning loop integrity — 10 bugs fixed, precision engine overhauled
+### Learning loop integrity — full audit remediation
 
-This release fixes the root causes that kept attribution at 35%, prediction precision at 0%, and skill utilization at 0.04%. Every change traces directly to a finding from the full architecture audit.
+This release is the result of a 15-phase QA audit. It fixes the root causes that kept attribution at 35%, prediction precision at 0%, and skill utilization at 0%, and it delivers the post-audit remediation pass that wires every previously-inert feature to real data.
 
-**Critical bug fixes:**
+**Critical bug fixes (first pass):**
 - **Attribution score formula fixed** — `scorePct` was being multiplied by 100 again (already stored as 0–100). Next recompute would have silently jumped from 35 → 100 with no real improvement.
 - **Learning loop bootstrap deadlock broken** — `recordSessionProposalOutcome()` was silently returning without writing when the hook passed an empty skill list. Now reads proposals from disk as a fallback. `proposalOutcome.jsonl` now populates from the first session.
 - **Hook warning text stripped from proposals** — Session-size hook messages (`"Long session (warn)…"`) were contaminating `promptExcerpt` and boosting unrelated skills. Stripped before tokenizing.
-- **Cold-start no longer triggers safe mode** — `skillEfficiencyScore()` returned 0 when no runs existed, falsely activating "safe mode" on new installs. Returns neutral 50 until first invocation.
+- **AQI empty-state inflation removed** — `taskCompletionScore` and `humanCorrectionScore` used to return 100 when no data existed, inflating a fresh-install score from ~15/F to 40/D. Both now return `NO_DATA` and are excluded from the composite. `skillEfficiencyScore` likewise returns `NO_DATA` (not a 50-neutral placeholder) when no invocations have been recorded.
 - **Duplicate adaptation log entries** — `appendAdaptationEvent()` deduplicates against the last line before writing.
 
 **Precision improvements (+27% expected):**
@@ -50,10 +50,18 @@ This release fixes the root causes that kept attribution at 35%, prediction prec
 - "MCP Efficiency" label → "MCP Ops Efficiency"
 
 **Modules merged (files deleted):**
-- `haceMetrics.ts` → inline in `efficiencyMetrics.ts`
 - `projectProfileDisplay.ts` → inline in `projectProfile.ts`
 - `dashboardCache.ts` → inline in `dashboardPrecompute.ts`
 - `generalApiSpend.ts` → inline in `costAttribution.ts`
+
+**Post-audit remediation (second pass):**
+- **Session-stop hook wired** — `handleSessionStop` added to hook dispatch; `proposalOutcome.jsonl` now written on every session end. This was the single change needed to unblock confidence calibration, dormancy suppression, and Precision/Recall/F1.
+- **False positives eliminated from manifests** — `adx-schema-check` globs no longer match the extension's own source files; `pdf` globs now require PDF workflow code rather than any `.pdf` file in the repo.
+- **Transcript artifact names blocked** — `nnpm`, `npm`, `npx`, `pnpm`, `yarn`, and 13 other package-manager strings added to the skill name denylist, preventing them from appearing as "skills" with fabricated ROI figures in the dashboard.
+- **Backup file cleanup** — `pruneBackupFiles` now expires files older than 7 days (was count-only). Global `~/.claude/learning/` directory is also pruned on reset, clearing 30+ accumulated `.bak` files.
+- **HACE panel always visible** — The Session Efficiency panel now renders even before transcript data is available, showing CLI Efficiency plus placeholders and activation guidance.
+- **`haceMetrics.ts` source restored** — The TypeScript source was inadvertently deleted in v1.0.82 (only compiled JS remained). Restored and re-linked from `costDashboard.ts`.
+- **Dormancy threshold halved** — Dormancy now triggers at ≥5 sessions with <5% acceptance (was ≥10); confidence decay begins at ≥3 sessions (was ≥5).
 
 ---
 

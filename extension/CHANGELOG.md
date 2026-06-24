@@ -101,6 +101,42 @@ Each release includes:
 | Skill Utilization Ratio | Not displayed | Prominent panel + exec summary |
 | Zero-skill $1+ sessions | No alert | Red-bordered alert panel |
 
+### Post-audit remediation (2026-06-24)
+
+Second-pass fixes from the full 15-phase QA audit — addresses every "NOT WORKING" finding.
+
+#### Fixed
+
+- **`session-stop` hook never wired** (`hookHandlers.ts`) — `recordSessionProposalOutcome` was imported but never called; no `session-stop` case existed in `handleHookRequest`. Added `handleSessionStop()` + `case "session-stop"` dispatch. Every session end — including zero-invocation sessions — now writes a record to `proposalOutcome.jsonl`. This was the root cause keeping the entire learning stack inert.
+- **Zero-invocation sessions silently dropped** (`proposalOutcome.ts`) — Early return when `names.length === 0` meant sessions where no skill was invoked produced no calibration signal. Removed the early return; zero-invocation records are now written (they are the most important signal for confidence decay).
+- **AQI inflated by empty-state defaults** (`agentPerformanceIndex.ts`) — `taskCompletionScore` returned 100 and `humanCorrectionScore` returned 100 when no runs/feedback existed, inflating a fresh-install AQI from ~20 (F) to 40 (D). Both functions now return `NO_DATA = -1`; the composite excludes `NO_DATA` sub-scores and redistributes their weight proportionally. A zero-data install now correctly scores F.
+- **`skillEfficiencyScore` cold-start inflates AQI** (`agentPerformanceIndex.ts`) — Was returning 50 (neutral) when `runs.length === 0`, contributing 7.5 phantom points to AQI. Now returns `NO_DATA` and is excluded from the composite when no invocations have been recorded.
+- **`adx-schema-check` false positive** (`skills_library/manifest.json`) — Globs `**/adx*` and `**/*adx*` matched any filename containing "adx", including the extension's own source files (e.g. `adx-schema-check.ts`). Replaced with `["**/*.kql", "**/adx/**", "**/*kusto*", "**/adx-schema*"]` — only fires on actual KQL files, dedicated ADX directories, or Kusto-named files.
+- **`pdf` glob false positive** (`skills_library/manifest.json`) — `**/*.pdf` fired on any PDF file present in the repo (documentation, licensing, marketplace listing). Replaced with workflow-specific patterns: `**/pdf/**/*.pdf`, `**/reports/**/*.pdf`, `**/pdf*.py`, `**/pdf*.ts`, `**/pdf*.js`, `**/generate*pdf*`, `**/*pdf*generator*`.
+- **Transcript artifact names polluting attribution** (`skillPathUtils.ts`) — Single-word verbs and package-manager strings (`nnpm`, `npm`, `npx`, `pnpm`, `yarn`, `bun`, `node`, `deno`, `pip`, `pip3`, `conda`, `venv`, `poetry`, `make`, `rake`, `gulp`, `grunt`) were parsed as skill names from session transcripts, surfacing as "skills" in the dashboard with fabricated ROI figures. Added to `DENYLIST`. Retroactive cleanup removes existing artifact entries from stored `cost-attribution.json`.
+- **`.bak` files accumulating without bound** (`learningPrune.ts`, `costAttribution.ts`) — `pruneBackupFiles` was count-only (keep 5 newest) and only ran on the workspace learning directory. Added 7-day time-based expiry alongside the count cap. `resetMisattributedData` now also prunes the global `~/.claude/learning/` directory where 30+ `.pre-reset-*.bak` files had accumulated undetected.
+- **HACE panel invisible when no data** (`efficiencyMetrics.ts`) — `buildHacePanelHtml` returned `""` on `noData: true`, making the entire HACE section disappear from the Efficiency panel. Now renders a visible panel showing CLI Efficiency (the one measurable component) plus `—` placeholders for transcript-based scores, with clear guidance on when the full panel activates.
+- **`haceMetrics.ts` source missing from repo** — The compiled `haceMetrics.js` existed in `extension/out/` but the TypeScript source had been deleted in v1.0.82. `haceMetrics.ts` has been restored to version control. `costDashboard.ts` updated to import from the source module.
+
+#### Changed
+
+- **Dormancy threshold halved** (`proposalOutcome.ts`) — Dormancy triggers at ≥5 sessions with acceptance < 5% (was ≥10). Confidence decay begins at ≥3 sessions with acceptance < 10% (was ≥5). False-positive skills are now suppressed in roughly half the time.
+
+#### Before / After (post-audit)
+
+| What | Before | After |
+|------|--------|-------|
+| `session-stop` dispatch | Not wired — `proposalOutcome.jsonl` never written | Wired — every session writes an outcome record |
+| Zero-invocation sessions | Silent no-write (early return) | Written as 0-acceptance records |
+| AQI on zero runs | 40/D (Completion 100%, Correction 100% defaults) | ~15/F (NO_DATA excluded from composite) |
+| `skillEfficiencyScore` cold-start | 50 neutral (inflates AQI) | NO_DATA (excluded from composite) |
+| `adx-schema-check` proposal | Fires on any file containing "adx" | KQL files, `adx/` dir, or Kusto-named files only |
+| `pdf` proposal | Fires on any `.pdf` file in repo | Fires on PDF workflow code only |
+| `nnpm` in Top Skills | "$308 · HIGH ROI · disable → save $616/mo" | Rejected at parse time; no longer stored |
+| Backup file cleanup | Count-only (5), workspace dir only | 7-day expiry + count cap; global dir also pruned |
+| HACE panel visibility | Hidden (`""`) when no session data | Always visible; shows CLI score + pending placeholders |
+| Dormancy threshold | ≥10 sessions, decay at ≥5 | ≥5 sessions, decay at ≥3 |
+
 ---
 
 ## [1.0.89] - 2026-06-21
