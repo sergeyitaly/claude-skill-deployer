@@ -137,6 +137,36 @@ Second-pass fixes from the full 15-phase QA audit — addresses every "NOT WORKI
 | HACE panel visibility | Hidden (`""`) when no session data | Always visible; shows CLI score + pending placeholders |
 | Dormancy threshold | ≥10 sessions, decay at ≥5 | ≥5 sessions, decay at ≥3 |
 
+### Adoption Intelligence System (2026-06-24)
+
+Addresses root causes of <1% skill utilization and 6% acceptance rate.
+
+#### Added
+
+- **`adoptionIntelligence.ts`** — New module: `computeAdoptionMetrics`, `computeSkillAdoptionStats`, `enrichProposal`, `buildAffinityAreas`, `shouldSurfaceProposals`, `formatAdoptionDashboardHtml`.
+- **Skill Adoption Intelligence dashboard panel** (`costDashboard.ts`) — Visible inside the Learning section with acceptance rate, precision, recall, F1, total time saved, top adopted/rejected skills, dormant skill list, user affinity areas, and a progress-toward-targets table (30d/60d goals).
+- **Proposal explainability fields** (`taskSkillProposals.ts`) — `TaskSkillProposal` extended with `whyText`, `estimatedMinutes`, `acceptanceRate`, `successRate`, `successScore`, `trend`. Every proposal now carries a human-readable "why this skill" string and a time-saved estimate.
+- **Benefit estimate library** — 35 skills mapped to realistic minute-saved estimates (`estimateBenefitMinutes`). Examples: `terraform-plan-review` 20 min, `ci-pipeline-debug` 25 min, `vitest-extension-testing` 8 min.
+- **Rejection tracking** (`proposalOutcome.ts`) — `recommendation-feedback.jsonl` written at session end via `recordSessionRejectionFeedback`. Every proposed-but-not-invoked skill is recorded with `accepted: false, reason: "ignored"`. Provides signal for future dismissal UI.
+- **Smart proposal timing** (`adoptionIntelligence.ts`) — `shouldSurfaceProposals()` avoids re-proposing on every prompt. Proposals surface on: first prompt of session, first kubectl/terraform/pipeline/error/ADX/publish signal, then every 2nd prompt with a 3-proposal-per-session cooldown.
+- **User affinity profile** — `buildAffinityAreas()` maps invoked skills to areas (Infrastructure, CI/CD, Testing, Azure, etc.) for personalized signal in future ranking.
+
+#### Changed
+
+- **Confidence scores now differentiated** (`taskSkillProposals.ts`) — Glob-only proposals no longer hardcode 55%. New dynamic formula: `(40 if installed else 30) + specificityScore + affinityBoost + historyBoost + acceptanceBoost - penalty`. A deeply-specific glob (`**/mcp-servers/**/*.js`) scores ~70%; a shallow extension glob (`**/*.sh`) scores ~40-50%. Historical acceptance adds up to +25 pts.
+- **Skill success score** — Composite `acceptance×50% + success×30% + reuse×20%` used to rank top-adopted skills in the dashboard.
+
+#### Before / After (Adoption Intelligence)
+
+| What | Before | After |
+|------|--------|-------|
+| Proposal explainability | `"Workspace files match **/*.ps1"` | `"detected: **/*.ps1 · 0% acceptance · ~8min saved"` |
+| Glob-only confidence | Flat 55% for all | 30–80% based on specificity + history |
+| Rejection tracking | Not stored | `recommendation-feedback.jsonl` per session |
+| Adoption metrics | No panel | Full panel: acceptance/precision/recall/F1 + top adopted/rejected + targets |
+| Smart timing | Every prompt | First prompt + signal moments + 3/session cooldown |
+| User affinity | Not tracked | `buildAffinityAreas` maps invocations to work areas |
+
 ---
 
 ## [1.0.89] - 2026-06-21

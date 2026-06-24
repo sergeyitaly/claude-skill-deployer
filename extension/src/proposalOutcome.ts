@@ -19,6 +19,74 @@ export interface ProposalOutcomeRecord {
   skills_invoked_count: number;
 }
 
+// ---------------------------------------------------------------------------
+// Rejection feedback — explicit per-skill dismissal tracking
+// ---------------------------------------------------------------------------
+
+export type RejectionReason = "ignored" | "dismissed" | "not_relevant" | "too_many";
+
+export interface RecommendationFeedback {
+  ts: string;
+  session_id: string;
+  skill: string;
+  proposed: boolean;
+  accepted: boolean;
+  reason: RejectionReason;
+  confidence?: number;
+}
+
+const FEEDBACK_REL = path.join(".claude", "learning", "recommendation-feedback.jsonl");
+
+export function recommendationFeedbackPath(target: string): string {
+  return path.join(target, FEEDBACK_REL);
+}
+
+export function appendRecommendationFeedback(
+  target: string,
+  record: Omit<RecommendationFeedback, "ts">
+): void {
+  const file = recommendationFeedbackPath(target);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({ ts: new Date().toISOString(), ...record }) + "\n", "utf-8");
+  } catch { /* non-fatal */ }
+}
+
+export function readRecommendationFeedback(target: string): RecommendationFeedback[] {
+  const file = recommendationFeedbackPath(target);
+  if (!fs.existsSync(file)) return [];
+  const records: RecommendationFeedback[] = [];
+  try {
+    for (const line of fs.readFileSync(file, "utf-8").split("\n")) {
+      if (!line.trim()) continue;
+      try { records.push(JSON.parse(line) as RecommendationFeedback); } catch { /* skip */ }
+    }
+  } catch { /* non-fatal */ }
+  return records;
+}
+
+/**
+ * Write end-of-session rejection feedback for all not_invoked skills.
+ * Called alongside recordSessionProposalOutcome to populate the feedback log.
+ */
+export function recordSessionRejectionFeedback(
+  target: string,
+  sessionId: string,
+  proposed: string[],
+  invoked: string[]
+): void {
+  const invokedSet = new Set(invoked);
+  for (const skill of proposed) {
+    appendRecommendationFeedback(target, {
+      session_id: sessionId,
+      skill,
+      proposed: true,
+      accepted: invokedSet.has(skill),
+      reason: invokedSet.has(skill) ? "ignored" : "ignored", // differentiated in future with UI
+    });
+  }
+}
+
 export function proposalOutcomePath(target: string): string {
   return path.join(target, PROPOSAL_OUTCOME_REL);
 }

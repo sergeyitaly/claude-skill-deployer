@@ -39,6 +39,7 @@ import { computeProposalFunnel, formatProposalFunnelHtml } from "./proposalOutco
 import { computeHookHealthSummary, formatHookHealthHtml } from "./hookHealth";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { resolveAdaptations } from "./adaptationEffectiveness";
+import { computeAdoptionMetrics, formatAdoptionDashboardHtml } from "./adoptionIntelligence";
 import { isFeatureAvailable } from "./featureMode";
 import { readCachedEnrichedRuns } from "./runsStore";
 import * as fs from "node:fs";
@@ -680,6 +681,7 @@ export function buildDashboardMainBodyHtml(
   const adaptationEvents = readAdaptationLog(target);
   // GAP 1: recommendation funnel; GAP 2: hook health; GAP 3: repo affinity
   const proposalFunnel = isFeatureAvailable("recommendation.funnel") ? computeProposalFunnel(target, 30) : null;
+  const adoptionMetrics = computeAdoptionMetrics(target);
   const hookHealth = isFeatureAvailable("hook.health") ? computeHookHealthSummary(target) : null;
   const repoAffinity = isFeatureAvailable("repo.affinity") ? getOrComputeRepoAffinity(target) : null;
 
@@ -904,6 +906,7 @@ export function buildDashboardMainBodyHtml(
       <h2 style="margin-top:0">Adaptation Timeline</h2>
       ${formatAdaptationTimelineHtml(adaptationEvents)}
     </div>
+    ${formatAdoptionDashboardHtml(adoptionMetrics)}
   </details>
 
   ${predictionHtml ? `<details>

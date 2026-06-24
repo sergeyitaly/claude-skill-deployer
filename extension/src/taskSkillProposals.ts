@@ -6,6 +6,7 @@ import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
 import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, historicalSuccess } from "./proposalOutcome";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
+import { enrichProposal, estimateBenefitMinutes } from "./adoptionIntelligence";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
 export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -74,6 +75,18 @@ export interface TaskSkillProposal {
   confidence: number;
   installed: boolean;
   matchedGlobs?: string[];
+  /** Human-readable explainability: signals matched + historical stats */
+  whyText?: string;
+  /** Estimated developer time saved per invocation (minutes) */
+  estimatedMinutes?: number;
+  /** Historical acceptance rate for this skill (0–1); -1 = no data */
+  acceptanceRate?: number;
+  /** Historical success rate when invoked (0–1); -1 = no data */
+  successRate?: number;
+  /** Composite adoption score (0–100): acceptance 50% + success 30% + reuse 20% */
+  successScore?: number;
+  /** Adoption trend: rising | stable | declining | dormant | new */
+  trend?: "rising" | "stable" | "declining" | "dormant" | "new";
 }
 
 export interface TaskSkillProposalsFile {
@@ -424,12 +437,19 @@ export function rankAllTaskSkillProposals(
     if (!scored) {
       continue;
     }
+    const enriched = target ? enrichProposal(target, name, scored.confidence, scored.reason) : null;
     proposals.set(name, {
       name,
       reason: scored.reason,
       confidence: scored.confidence,
       installed: installed.has(name),
       matchedGlobs: matchedGlobs.length > 0 ? matchedGlobs : undefined,
+      whyText: enriched?.whyText,
+      estimatedMinutes: estimateBenefitMinutes(name),
+      acceptanceRate: enriched?.acceptanceRate,
+      successRate: enriched?.successRate,
+      successScore: enriched?.successScore,
+      trend: enriched?.trend,
     });
   }
 
@@ -442,16 +462,36 @@ export function rankAllTaskSkillProposals(
     if (specificGlobs.length === 0) {
       continue;
     }
-    // Glob-only proposals require task-type match or high specificity to avoid noise.
+    // Glob-only proposals: confidence is dynamic based on glob specificity,
+    // task-type match, affinity boost, and historical acceptance.
     const typeMultiplier = taskTypeMultiplier(name, taskType);
-    const baseConf = Math.round((installed.has(name) ? 55 : 65) * typeMultiplier);
-    if (baseConf < 55) continue; // task-type mismatch — suppress glob-only proposals
+    // Specificity tiers: deep path globs (30+) beat shallow extension globs (10)
+    const specificityMax = Math.max(...specificGlobs.map(globSpecificityScore));
+    const affinityPts = affinity.skillBoosts[name] ?? 0;
+    const penalty = penalties[name] ?? 0;
+    const hist = target ? historicalSuccess(target, name) : { acceptanceRate: 0, invocations: 0, successRate: 0, proposedCount: 0 };
+    const histBoost = hist.invocations >= 2 ? Math.round(hist.successRate * 20) : 0;
+    const acceptBoost = hist.proposedCount >= 2 ? Math.round(hist.acceptanceRate * 25) : 0;
+    const rawConf = (installed.has(name) ? 40 : 30) + specificityMax + affinityPts + histBoost + acceptBoost - penalty;
+    const baseConf = Math.round(Math.max(20, rawConf) * typeMultiplier);
+    if (baseConf < 30) continue; // too weak — suppress
+    const calibration = target ? confidenceCalibration(target, name) : 1.0;
+    if (calibration === 0) continue;
+    const finalConf = Math.min(100, Math.max(20, Math.round(baseConf * calibration)));
+    const reasonText = `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}${affinityPts > 0 ? `; repo stack match (+${affinityPts})` : ""}`;
+    const enriched = target ? enrichProposal(target, name, finalConf, reasonText) : null;
     proposals.set(name, {
       name,
-      reason: `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}`,
-      confidence: baseConf,
+      reason: reasonText,
+      confidence: finalConf,
       installed: installed.has(name),
       matchedGlobs: globs,
+      whyText: enriched?.whyText,
+      estimatedMinutes: estimateBenefitMinutes(name),
+      acceptanceRate: enriched?.acceptanceRate,
+      successRate: enriched?.successRate,
+      successScore: enriched?.successScore,
+      trend: enriched?.trend,
     });
   }
 

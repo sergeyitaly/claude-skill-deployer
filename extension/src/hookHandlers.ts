@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { appendSkillRun, appendToolUse, RunAgent } from "./runsStore";
+import { appendSkillRun, appendToolUse, RunAgent, readCachedEnrichedRuns } from "./runsStore";
 import { readContextFocusConfig, effectiveContextFocusLevel, ContextFocusLevel } from "./contextFocusConfig";
 import { readPracticalFocusConfig, PracticalFocusLevel } from "./practicalFocusConfig";
 import { readBudgetConfig, readBudgetState, writeBudgetState, BudgetDayNotifications } from "./budgetConfig";
@@ -26,7 +26,7 @@ import {
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branchProfiles";
 import { appendHookHealth } from "./hookHealth";
-import { recordSessionProposalOutcome } from "./proposalOutcome";
+import { recordSessionProposalOutcome, recordSessionRejectionFeedback } from "./proposalOutcome";
 
 export interface HookRequest {
   hookName: string;
@@ -1904,6 +1904,21 @@ function handleSessionStop(req: HookRequest): HookResponse {
 
   try {
     recordSessionProposalOutcome(cwd, sessionId, []);
+  } catch { /* non-fatal */ }
+
+  // Record per-skill rejection feedback for every not-invoked proposal
+  try {
+    const proposalsFile = path.join(cwd, ".claude", "learning", "task-skill-proposals.json");
+    const proposalsData = JSON.parse(fs.readFileSync(proposalsFile, "utf-8")) as {
+      proposals?: { name: string }[];
+    };
+    const proposedNames = proposalsData.proposals?.map((p) => p.name) ?? [];
+    if (proposedNames.length > 0) {
+      const invoked = readCachedEnrichedRuns(cwd)
+        .filter(r => r.session_id === sessionId)
+        .map(r => r.skill);
+      recordSessionRejectionFeedback(cwd, sessionId, proposedNames, invoked);
+    }
   } catch { /* non-fatal */ }
 
   return {};
