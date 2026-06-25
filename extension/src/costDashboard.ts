@@ -537,8 +537,11 @@ export function formatContextEfficiencyPanelHtml(target: string): string {
   if (efficiency.totalTokens === 0) return "";
 
   const advisor = evaluateCompactAdvisor(analysis);
-  const roi     = computeAdvisorROI(target);
-  const advisorBanner = formatCompactAdvisorHtml(advisor, roi);
+  // No onclick in the main dashboard (CSP nonce model) — render a plain warning note instead
+  // of the interactive Compact Advisor banner. Full interactive panel is in the webview.
+  const advisorBanner = advisor.shouldShow
+    ? `<p class="note" style="color:var(--vscode-charts-yellow,#FFC107);margin-bottom:6px">⚠ Context pressure ${advisor.triggerReason ? `— ${advisor.triggerReason}` : "high"} · run <code>/compact</code> or open Context Efficiency panel for details.</p>`
+    : "";
   const coachHtml = formatEfficiencyCoachHtml(buildCoachingMessages(analysis).slice(0, 2));
 
   const scoreColor = efficiency.score >= 80 ? "roi-high"
