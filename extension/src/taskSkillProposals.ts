@@ -4,7 +4,7 @@ import { detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOp
 import { invalidateLearningCache, readCachedEnrichedRuns } from "./runsStore";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
-import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, historicalSuccess } from "./proposalOutcome";
+import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, getSuppressedByFeedback, historicalSuccess } from "./proposalOutcome";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { enrichProposal, estimateBenefitMinutes } from "./adoptionIntelligence";
 import { appendConfidenceSnapshots } from "./confidenceTrend";
@@ -476,10 +476,12 @@ export function rankAllTaskSkillProposals(
   const proposals = new Map<string, TaskSkillProposal>();
   const recentSkills = buildRecentSkills(target);
   const taskType = classifyTaskType(tokens);
-  const dormant = getDormantSkills(target);
+  const dormant    = getDormantSkills(target);
+  const suppressed = getSuppressedByFeedback(target);
 
   for (const [name, rule] of Object.entries(manifest.skills)) {
-    if (dormant.has(name)) continue; // auto-retired: acceptance < 5% after ≥10 sessions
+    if (dormant.has(name))    continue; // auto-retired: acceptance < 5% after ≥10 sessions
+    if (suppressed.has(name)) continue; // fast-path: ≥3 explicit ignores in this project
     const matchedGlobs = detected[name] ?? [];
     const scored = scoreSkillForTask(name, rule.description, tokens, matchedGlobs, installed.has(name), recentSkills, taskType, affinity.skillBoosts[name] ?? 0, penalties[name] ?? 0, target);
     if (!scored) {

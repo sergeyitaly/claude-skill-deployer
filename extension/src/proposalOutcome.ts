@@ -201,6 +201,19 @@ export function confidenceCalibration(target: string, skillName: string): number
   return 1.0;
 }
 
+/**
+ * Returns skills explicitly ignored ≥3 times in this project.
+ * Fires faster than session-level dormancy (3 feedback events vs 5 sessions).
+ */
+export function getSuppressedByFeedback(target: string): Set<string> {
+  const feedback = readRecommendationFeedback(target);
+  const counts: Record<string, number> = {};
+  for (const f of feedback) {
+    if (!f.accepted) counts[f.skill] = (counts[f.skill] ?? 0) + 1;
+  }
+  return new Set(Object.entries(counts).filter(([, n]) => n >= 3).map(([sk]) => sk));
+}
+
 /** Returns the set of dormant skill names (acceptance < 5% after ≥5 sessions). */
 export function getDormantSkills(target: string): Set<string> {
   const outcomes = readProposalOutcomes(target);

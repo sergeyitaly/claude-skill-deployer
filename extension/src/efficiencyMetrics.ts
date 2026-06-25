@@ -210,8 +210,9 @@ export function computeHaceMetrics(
     const last  = turns[turns.length - 1].responseTs;
     if (last > first) wallClockDurations.push((last - first) / 60_000);
   }
-  // Target active TTR: 30 min of focused work. Wall-clock is shown in tooltip only.
-  const TARGET_TTR_MIN = 30;
+  // Target active TTR: 120 min of focused work (calibrated to observed avg of ~113 min).
+  // Wall-clock is shown in tooltip only.
+  const TARGET_TTR_MIN = 120;
 
   if (allTurns.length === 0) {
     return { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0,
@@ -249,7 +250,23 @@ export function computeHaceMetrics(
   const skillAugmentedPct  = files.length > 0 ? Math.round((skillAugmentedSessions / files.length) * 100) : 0;
   const skillLeverageScore = haceClamp(Math.min(totalSkillInvocations / Math.max(n, 1) * 10, 1) * 100);
 
-  const promptClarityScore    = haceClamp((1 - thinkingRate) * 100);
+  // Use avg prompt intelligence score as Prompt Clarity — measures actual prompt quality
+  // (goal structure, evidence, success criteria) instead of thinking rate, which reflects
+  // model behavior on Claude 4.x and is not a valid proxy for prompt quality.
+  let promptClarityScore = 50;
+  try {
+    const piFile = path.join(target, ".claude", "learning", "prompt-intelligence.jsonl");
+    if (fs.existsSync(piFile)) {
+      const cutoff = Date.now() - daysBack * 86_400_000;
+      const scores = fs.readFileSync(piFile, "utf-8").split("\n")
+        .filter(Boolean)
+        .map(l => { try { return JSON.parse(l) as { ts: string; score: number }; } catch { return null; } })
+        .filter((r): r is { ts: string; score: number } => !!r && new Date(r.ts).getTime() > cutoff)
+        .map(r => r.score);
+      if (scores.length > 0)
+        promptClarityScore = haceClamp(scores.reduce((a, b) => a + b, 0) / scores.length);
+    }
+  } catch { /* non-fatal — keep default 50 */ }
   const taskVelocityScore     = haceClamp(Math.min(turnsPerMinute / VELOCITY_TARGET, 1) * 100);
   const accuracyScore         = haceClamp((1 - correctionRate) * 100);
   const cliEfficiencyScore    = haceClamp(cliSuccessRate);
@@ -540,11 +557,11 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
   const h = metrics.hace;
   if (!h.noData) {
     lines.push(`\n### Session Efficiency (HACE 2.0): ${h.haceScore}/100 (${h.grade})  —  ${h.totalTurns} turn(s) across ${h.sessions} session(s)`);
-    lines.push(`  Prompt Clarity       ${h.promptClarityScore}%  (thinking rate: ${Math.round(h.thinkingRate * 100)}%)`);
+    lines.push(`  Prompt Clarity       ${h.promptClarityScore}%  (avg prompt score; thinking rate: ${Math.round(h.thinkingRate * 100)}%)`);
     lines.push(`  Task Velocity        ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)`);
     lines.push(`  Accuracy             ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)`);
     lines.push(`  CLI Efficiency       ${h.cliEfficiencyScore}%`);
-    lines.push(`  Resolution Velocity  ${h.resolutionVelocityScore}%  (avg active TTR ${h.avgSessionMinutes.toFixed(0)} min, target 30)`);
+    lines.push(`  Resolution Velocity  ${h.resolutionVelocityScore}%  (avg active TTR ${h.avgSessionMinutes.toFixed(0)} min, target 120)`);
     lines.push(`  Skill Leverage       ${h.skillLeverageScore}%  (${h.skillAugmentedPct}% sessions skill-augmented)`);
     lines.push(`  Avg response         ${h.avgResponseSecs.toFixed(1)}s`);
   }
@@ -671,7 +688,7 @@ function buildHacePanelHtml(h: HaceMetrics): string {
 
   const rows = [
     componentRow("Prompt Clarity",      h.promptClarityScore,
-      `${Math.round(h.thinkingRate * 100)}% of turns triggered extended thinking — lower = clearer prompts`),
+      `Avg prompt intelligence score (goal clarity, evidence, success criteria). Thinking rate: ${Math.round(h.thinkingRate * 100)}%`),
     componentRow("Task Velocity",       h.taskVelocityScore,
       `${h.turnsPerMinute.toFixed(1)} turns/min active — target ≥ 0.5`),
     componentRow("Accuracy Rate",       h.accuracyScore,
@@ -700,7 +717,7 @@ function buildHacePanelHtml(h: HaceMetrics): string {
       ${skillPill}
     </div>
     ${rows}
-    <p class="note" style="margin-top:4px">Derived from session transcripts in <code>~/.claude/projects/</code>. Prompt Clarity: fewer thinking blocks = clearer prompts. Accuracy: short follow-ups after long responses signal corrections. Skill Leverage: sessions where you invoked a skill.</p>
+    <p class="note" style="margin-top:4px">Derived from session transcripts in <code>~/.claude/projects/</code>. Prompt Clarity: avg prompt intelligence score (goal, evidence, success criteria). Accuracy: short follow-ups after long responses signal corrections. Skill Leverage: sessions where you invoked a skill.</p>
   </div>`;
 }
 

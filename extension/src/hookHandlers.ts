@@ -28,11 +28,12 @@ import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branchProfiles";
 import { appendHookHealth } from "./hookHealth";
 import { recordSessionProposalOutcome, recordSessionRejectionFeedback } from "./proposalOutcome";
+import { computeEfficiencyMetrics } from "./efficiencyMetrics";
 import { shouldSurfaceProposals } from "./adoptionIntelligence";
 import { readTaskSkillProposals } from "./taskSkillProposals";
 import { analyzePrompt, appendPromptRecord } from "./promptIntelligence";
 import { getSessionCoachHints } from "./haceCoaching";
-import { recordAdviceShown, shouldShowAdvice } from "./coachingLearning";
+import { recordAdviceShown, shouldShowAdvice, evaluateAdviceOutcome } from "./coachingLearning";
 import { isDormantSkill } from "./adoptionIntelligence";
 
 export interface HookRequest {
@@ -1939,9 +1940,27 @@ function handleSessionCoach(req: HookRequest, promptText: string): string {
   const coachCfg = readCoachConfig();
   if (!coachCfg.enabled) return ""; // still recorded quality above; hints suppressed by user config
 
+  // Evaluate whether prior coaching advice improved the score (wires the cooldown/decay loop).
+  if (state.promptIndex > 2) {
+    try { evaluateAdviceOutcome(cwd, "promptClarity", analysis.score); } catch { /* non-fatal */ }
+  }
+
   // Don't coach on every prompt — skip the first prompt of a session (usually task setup)
   // and don't re-coach until the quality is actually below threshold
   if (state.promptIndex === 1 || state.hintsShown >= coachCfg.maxHintsPerSession) return "";
+
+  // HIGH PRIORITY: multi-goal prompts cause the worst score collapse (0–28).
+  // Surface before HACE hints and before the score≥65 gate so it always fires when present.
+  const mgAP = analysis.antiPatterns.find(ap => ap.type === "multi_goal" && ap.severity === "high");
+  if (mgAP) {
+    const shown = recordAdviceShown(cwd, "promptClarity", analysis.score, mgAP.advice);
+    if (shown) {
+      state.hintsShown++;
+      _sessionCoachState.set(sessionId, state);
+      return `[Prompt Coach] ${mgAP.evidence} — ${mgAP.advice}`;
+    }
+  }
+
   if (analysis.score >= 65) return ""; // good enough — no coaching needed
 
   // Read current HACE scores from the last hace-session record for metric targeting
@@ -2204,6 +2223,12 @@ function handleSessionStop(req: HookRequest): HookResponse {
       recordSessionRejectionFeedback(cwd, sessionId, proposedNames, invoked);
     }
   } catch { /* non-fatal */ }
+
+  // Snapshot HACE metrics on every session stop so hace-sessions.jsonl accumulates
+  // trend data without requiring the dashboard panel to be open.
+  setImmediate(() => {
+    try { computeEfficiencyMetrics(cwd, 14); } catch { /* non-fatal */ }
+  });
 
   return {};
 }
