@@ -1,0 +1,217 @@
+/**
+ * Integration tests for hookHandlers.ts
+ * Covers: signalIsNegated unit tests, handleHookRequest dispatch, opportunity detection,
+ * negation suppression, and session coach config flag.
+ */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("vscode", () => ({
+  workspace: { getConfiguration: () => ({ get: (_: string, d: unknown) => d }) },
+}));
+vi.mock("./runsStore", () => ({
+  appendSkillRun: vi.fn(), appendToolUse: vi.fn(), readCachedEnrichedRuns: () => [],
+}));
+vi.mock("./contextFocusConfig", () => ({
+  readContextFocusConfig: () => ({ enabled: false }), effectiveContextFocusLevel: () => "balanced",
+}));
+vi.mock("./practicalFocusConfig", () => ({ readPracticalFocusConfig: () => ({ enabled: false }) }));
+vi.mock("./budgetConfig", () => ({
+  readBudgetConfig: () => ({ mode: "normal", dailyBudgetUsd: 0, highTierSkills: [], mediumTierSkills: [] }),
+  readBudgetState: () => ({}), writeBudgetState: vi.fn(),
+}));
+vi.mock("./budgetOps", () => ({ disableHighTierSkills: () => [] }));
+vi.mock("./usageCost", () => ({ computeTodayCreditUsage: () => ({ totalCost: 0 }) }));
+vi.mock("./usageStats", () => ({ formatTokenCount: () => "0", readRunRecords: () => [] }));
+vi.mock("./officialSkillsSync", () => ({
+  checkOfficialSkillUpdates: () => ({ updates: [] }),
+  workspaceUsesOfficialSkillUpdater: () => false,
+  formatOfficialSkillsSessionContext: () => "",
+  resolveSkillsLibraryDir: () => null,
+}));
+vi.mock("./sessionSkillApply", () => ({
+  processSessionSkillApplyRequest: vi.fn(),
+  resolveProposedSkillNamesWithSource: () => [],
+  queueSessionSkillApplyRequest: vi.fn(),
+}));
+vi.mock("./taskSkillFocus", () => ({ applyTaskSkillFocusFromProposals: vi.fn() }));
+vi.mock("./branchProfiles", () => ({
+  applyBranchProfile: vi.fn(), getCurrentBranch: () => "main", loadBranchProfile: () => null,
+}));
+vi.mock("./hookHealth", () => ({ appendHookHealth: vi.fn() }));
+vi.mock("./proposalOutcome", () => ({
+  recordSessionProposalOutcome: vi.fn(), recordSessionRejectionFeedback: vi.fn(),
+}));
+vi.mock("./taskSkillProposals", () => ({ readTaskSkillProposals: () => ({ proposals: [] }) }));
+vi.mock("./promptIntelligence", () => ({
+  analyzePrompt: () => ({ score: 80, recommendations: [] }),
+  appendPromptRecord: vi.fn(),
+}));
+vi.mock("./haceCoaching", () => ({ getSessionCoachHints: () => [] }));
+vi.mock("./coachingLearning", () => ({ shouldShowAdvice: () => false, recordAdviceShown: () => false }));
+vi.mock("./hookServer", () => ({ hookBaseUrl: () => "http://127.0.0.1:4895" }));
+vi.mock("./adoptionIntelligence", () => ({
+  isDormantSkill: () => false,
+  shouldSurfaceProposals: () => ({ shouldPropose: true, reason: "test" }),
+  computeAdoptionMetrics: () => ({ hasData: false }),
+  formatAdoptionDashboardHtml: () => "",
+  formatAdoptionCoachHtml: () => "",
+}));
+vi.mock("./coachConfig", () => ({
+  readCoachConfig: vi.fn(() => ({ enabled: true, maxHintsPerSession: 3 })),
+}));
+
+import { handleHookRequest, signalIsNegated } from "./hookHandlers";
+
+// ---------------------------------------------------------------------------
+// signalIsNegated — unit tests (no mocks needed)
+// ---------------------------------------------------------------------------
+
+describe("signalIsNegated", () => {
+  it("returns false when keyword present without negation", () => {
+    expect(signalIsNegated("deploy with terraform", /terraform\b/i)).toBe(false);
+  });
+
+  it("detects 'don't use X' pattern", () => {
+    expect(signalIsNegated("I don't want to use terraform here", /terraform\b/i)).toBe(true);
+  });
+
+  it("detects 'avoid X' pattern", () => {
+    expect(signalIsNegated("avoid terraform in this case", /terraform\b/i)).toBe(true);
+  });
+
+  it("detects 'not using X' pattern", () => {
+    expect(signalIsNegated("we are not using terraform for this", /terraform\b/i)).toBe(true);
+  });
+
+  it("detects 'without X' pattern", () => {
+    expect(signalIsNegated("do this without terraform", /terraform\b/i)).toBe(true);
+  });
+
+  it("does not fire across sentence boundaries", () => {
+    // "Don't" in first sentence, "terraform" in second — different sentences → no suppression
+    expect(signalIsNegated("Don't do this. Use terraform to deploy.", /terraform\b/i)).toBe(false);
+  });
+
+  it("returns false when signal not in text", () => {
+    expect(signalIsNegated("hello world", /terraform\b/i)).toBe(false);
+  });
+
+  it("returns false for empty string", () => {
+    expect(signalIsNegated("", /terraform\b/i)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — dispatch
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest dispatch", () => {
+  it("returns {} for unknown hook name", async () => {
+    const result = await handleHookRequest({
+      hookName: "nonexistent-hook",
+      agent: "claude",
+      cwd: os.tmpdir(),
+      body: {},
+    });
+    expect(result).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — prompt-context with opportunity detection
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest prompt-context opportunity detection", () => {
+  let tmpDir: string;
+  let transcriptFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-test-"));
+    // Create installed skill directory
+    fs.mkdirSync(path.join(tmpDir, ".claude", "skills", "terraform-plan-review"), { recursive: true });
+    // Create transcript file
+    transcriptFile = path.join(tmpDir, "session.jsonl");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeTranscript(text: string): void {
+    const line = JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "text", text }] },
+    });
+    fs.writeFileSync(transcriptFile, line + "\n", "utf-8");
+  }
+
+  it("surfaces skill hint when terraform keyword matches", async () => {
+    writeTranscript("how do I deploy with terraform?");
+    const result = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "test-session" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).toContain("[Skill Opportunity]");
+    expect(output).toContain("terraform-plan-review");
+  });
+
+  it("suppresses hint when terraform is negated", async () => {
+    writeTranscript("I don't want to use terraform for this task");
+    const result = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "test-session-neg" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("[Skill Opportunity]");
+  });
+
+  it("suppresses hint when skill is not installed", async () => {
+    // No vitest-extension-testing directory — only terraform-plan-review exists
+    writeTranscript("run vitest benchmarks");
+    const result = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "test-session-no-install" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("vitest-extension-testing");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — session coach config flag
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest session coach disabled", () => {
+  it("suppresses coaching hints when enabled=false but does not throw", async () => {
+    const { readCoachConfig } = await import("./coachConfig");
+    vi.mocked(readCoachConfig).mockReturnValueOnce({ enabled: false, maxHintsPerSession: 3 });
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-coach-"));
+    const transcriptFile = path.join(tmpDir, "s.jsonl");
+    fs.writeFileSync(transcriptFile,
+      JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "help me" }] } }) + "\n",
+    "utf-8");
+
+    const result = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "coach-off-session" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("[HACE Coach]");
+    expect(output).not.toContain("[Prompt Coach]");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});

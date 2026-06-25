@@ -9,6 +9,7 @@ import { appendSkillRun, appendToolUse, RunAgent, readCachedEnrichedRuns } from 
 import { readContextFocusConfig, effectiveContextFocusLevel, ContextFocusLevel } from "./contextFocusConfig";
 import { readPracticalFocusConfig, PracticalFocusLevel } from "./practicalFocusConfig";
 import { readBudgetConfig, readBudgetState, writeBudgetState, BudgetDayNotifications } from "./budgetConfig";
+import { readCoachConfig } from "./coachConfig";
 import { disableHighTierSkills } from "./budgetOps";
 import { computeTodayCreditUsage } from "./usageCost";
 import { formatTokenCount, readRunRecords } from "./usageStats";
@@ -1054,6 +1055,10 @@ function handleBranchSync(req: HookRequest): HookResponse {
 
 // ---------------------------------------------------------------------------
 // Handler: mcp-force (UserPromptSubmit — structured redirect message)
+// Rationale: the filesystem MCP server provides path-scoped access control —
+// Claude cannot access paths outside the configured allow-list. Direct tools
+// (Read/Write/Edit/Bash cat/grep) bypass this sandbox. MCP-only mode ensures
+// all file operations are auditable and scoped to the workspace root.
 // ---------------------------------------------------------------------------
 
 const MCP_FORCE_REDIRECT: Record<string, string> = {
@@ -1928,9 +1933,12 @@ function handleSessionCoach(req: HookRequest, promptText: string): string {
   const analysis = analyzePrompt(promptText, sessionId, state.promptIndex);
   try { appendPromptRecord(cwd, analysis); } catch { /* non-fatal */ }
 
+  const coachCfg = readCoachConfig();
+  if (!coachCfg.enabled) return ""; // still recorded quality above; hints suppressed by user config
+
   // Don't coach on every prompt — skip the first prompt of a session (usually task setup)
   // and don't re-coach until the quality is actually below threshold
-  if (state.promptIndex === 1 || state.hintsShown >= SESSION_COACH_MAX_HINTS) return "";
+  if (state.promptIndex === 1 || state.hintsShown >= coachCfg.maxHintsPerSession) return "";
   if (analysis.score >= 65) return ""; // good enough — no coaching needed
 
   // Read current HACE scores from the last hace-session record for metric targeting
@@ -1967,7 +1975,7 @@ function handleSessionCoach(req: HookRequest, promptText: string): string {
   }
 
   // Fall back: surface a prompt-quality-specific recommendation if no metric hint fired
-  if (analysis.recommendations[0] && state.hintsShown < SESSION_COACH_MAX_HINTS) {
+  if (analysis.recommendations[0] && state.hintsShown < coachCfg.maxHintsPerSession) {
     state.hintsShown++;
     _sessionCoachState.set(sessionId, state);
     return `[Prompt Coach] Quality: ${analysis.score}/100 — ${analysis.recommendations[0]}`;
@@ -1976,11 +1984,54 @@ function handleSessionCoach(req: HookRequest, promptText: string): string {
   return "";
 }
 
+const NEGATION_WORDS = /\b(not|no|don'?t|doesn'?t|avoid|without|skip|never|instead|rather\s+than)\b/i;
+
+/** Returns true when the matched signal keyword appears in a negated context ("don't use terraform"). */
+export function signalIsNegated(text: string, signal: RegExp): boolean {
+  const m = signal.exec(text);
+  if (!m) return false;
+  const sentenceStart = text.lastIndexOf(". ", m.index);
+  const start = sentenceStart === -1 ? 0 : sentenceStart + 2;
+  const end = text.indexOf(". ", m.index + m[0].length);
+  const sentence = text.slice(start, end === -1 ? text.length : end);
+  return NEGATION_WORDS.test(sentence);
+}
+
+function _detectOpportunity(
+  cwd: string,
+  promptText: string,
+  sessionId: string | undefined,
+  proposedCount: number,
+): string {
+  const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
+  if (!shouldPropose) return "";
+
+  const installedSkills = new Set<string>();
+  try {
+    const skillsDir = path.join(cwd, ".claude", "skills");
+    for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (d.isDirectory()) installedSkills.add(d.name);
+    }
+  } catch { /* non-fatal */ }
+
+  const proposedSkills = new Set((readTaskSkillProposals(cwd)?.proposals ?? []).map(p => p.name));
+
+  for (const { pattern, skill, label } of OPPORTUNITY_SIGNALS) {
+    if (!pattern.test(promptText) || signalIsNegated(promptText, pattern)) continue;
+    if (!installedSkills.has(skill)) continue;
+    if (proposedSkills.has(skill)) continue;
+    if (isDormantSkill(cwd, skill)) continue;
+
+    if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
+    return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
+  }
+  return "";
+}
+
 /**
  * Skill Opportunity Detection — fires on UserPromptSubmit.
- * Reads the user's prompt from the transcript tail, checks for high-signal keywords
- * (kubectl, terraform, github-actions …), and surfaces a one-line skill hint when
- * shouldSurfaceProposals approves. Only fires for installed skills not yet proposed.
+ * Reads the user's prompt from the transcript tail then delegates to _detectOpportunity.
+ * Only fires for installed skills not yet proposed and not dormant.
  */
 function handleSkillOpportunity(req: HookRequest): string {
   const body = req.body as Record<string, unknown>;
@@ -2014,33 +2065,7 @@ function handleSkillOpportunity(req: HookRequest): string {
   }
 
   if (!promptText) return "";
-
-  const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
-  if (!shouldPropose) return "";
-
-  // OPPORTUNITY_SIGNALS defined at module level
-
-  const installedSkills = new Set<string>();
-  try {
-    const skillsDir = path.join(cwd, ".claude", "skills");
-    for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-      if (d.isDirectory()) installedSkills.add(d.name);
-    }
-  } catch { /* non-fatal */ }
-
-  const proposedSkills = new Set((readTaskSkillProposals(cwd)?.proposals ?? []).map(p => p.name));
-
-  for (const { pattern, skill, label } of OPPORTUNITY_SIGNALS) {
-    if (!pattern.test(promptText)) continue;
-    if (!installedSkills.has(skill)) continue;
-    if (proposedSkills.has(skill)) continue; // already proposed — no duplicate hint
-    if (isDormantSkill(cwd, skill)) continue; // repeatedly ignored — suppress to reduce noise
-
-    if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
-    return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
-  }
-
-  return "";
+  return _detectOpportunity(cwd, promptText, sessionId, proposedCount);
 }
 
 function handlePromptContext(req: HookRequest): HookResponse {
@@ -2091,39 +2116,14 @@ function handlePromptContext(req: HookRequest): HookResponse {
   }
 
   const coachHint   = handleSessionCoach(req, promptText);
-  const opportunity = promptText ? (() => {
-    // Re-use skill opportunity detection with the already-extracted text
-    const body2 = req.body as Record<string, unknown>;
+  const opportunity = (() => {
     const cwd = req.cwd;
-    if (!cwd || !promptText) return "";
-    const sessionId = resolveSessionId(body2, cwd);
+    if (!cwd) return "";
+    const sessionId = resolveSessionId(req.body as Record<string, unknown>, cwd);
     const proposedCount = sessionId ? (_sessionProposalSurfaceCount.get(sessionId) ?? 0) : 0;
-    const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
-    if (!shouldPropose) return "";
-
-    // OPPORTUNITY_SIGNALS defined at module level
-
-    const installedSkills = new Set<string>();
-    try {
-      const skillsDir = path.join(cwd, ".claude", "skills");
-      for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-        if (d.isDirectory()) installedSkills.add(d.name);
-      }
-    } catch { /* non-fatal */ }
-
-    const proposedSkills = new Set((readTaskSkillProposals(cwd)?.proposals ?? []).map(p => p.name));
-
-    for (const { pattern, skill, label } of OPPORTUNITY_SIGNALS) {
-      if (!pattern.test(promptText)) continue;
-      if (!installedSkills.has(skill)) continue;
-      if (proposedSkills.has(skill)) continue;
-      if (isDormantSkill(cwd, skill)) continue; // suppress repeatedly ignored skills
-
-      if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
-      return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
-    }
-    return "";
-  })() : handleSkillOpportunity(req);
+    if (promptText) return _detectOpportunity(cwd, promptText, sessionId, proposedCount);
+    return handleSkillOpportunity(req); // fallback: re-extract prompt from transcript
+  })();
 
   const parts = [
     coachHint,

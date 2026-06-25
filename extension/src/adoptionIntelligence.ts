@@ -534,6 +534,32 @@ function trendBadge(trend: SkillAdoptionStats["trend"]): string {
   }
 }
 
+/**
+ * Plain-text adoption summary for CLI / REPL use — no HTML, no VS Code webview needed.
+ * Prints acceptance rate, F1, time saved, dormant skills, and rising skills.
+ */
+export function formatDormancySummary(target: string): string {
+  const metrics = computeAdoptionMetrics(target);
+  if (!metrics.hasData) return "Skill Adoption Summary: no session data yet.";
+  const lines: string[] = [
+    `Skill Adoption Summary (${metrics.sessionsAnalyzed} sessions)`,
+    `  Acceptance: ${metrics.acceptanceRatePct}%  |  F1: ${metrics.f1Pct}%  |  Time saved: ~${metrics.totalMinutesSaved}min`,
+  ];
+  if (metrics.dormantSkills.length > 0) {
+    lines.push(`  Dormant (≥5 proposals, <5% accept): ${metrics.dormantSkills.join(", ")}`);
+  }
+  if (metrics.risingSkills.length > 0) {
+    lines.push(`  Rising: ${metrics.risingSkills.join(", ")}`);
+  }
+  if (metrics.topAdopted.length > 0) {
+    lines.push(`  Top adopted: ${metrics.topAdopted.slice(0, 3).map(s => s.skillName).join(", ")}`);
+  }
+  if (metrics.affinityAreas.length > 0) {
+    lines.push(`  Affinity areas: ${metrics.affinityAreas.join(", ")}`);
+  }
+  return lines.join("\n");
+}
+
 export function formatAdoptionDashboardHtml(metrics: AdoptionMetrics): string {
   if (!metrics.hasData) {
     return `<div class="panel" style="margin-top:6px">

@@ -50,6 +50,36 @@ Each release includes:
 
 ---
 
+## [1.0.96] - 2026-06-25
+
+**Summary:** Code quality audit — 6 feedback-driven fixes: negation-aware opportunity detection, session coach opt-out, `handlePromptContext` complexity reduced 22→10, MCP constraint documented, hook handler integration tests, and plain-text dormancy report.
+
+**Theme:** Make the extension trustworthy — stop false positives, stop paternalistic hints, make the learning loop visible.
+
+### Fixed
+
+- **`hookHandlers.ts` — `handlePromptContext` complexity 22→10** — Extracted `_detectOpportunity(cwd, promptText, sessionId, proposedCount)` helper shared by both `handleSkillOpportunity` and `handlePromptContext`. Eliminated a 33-line inline IIFE that duplicated the full opportunity detection loop; both paths now delegate to the single helper.
+
+- **`hookHandlers.ts` — OPPORTUNITY_SIGNALS negation blindness** — Added `signalIsNegated(text, signal)` (exported). Detects negation context ("don't use terraform", "avoid kubectl") by extracting the sentence containing the matched keyword and checking for negation words. Previously "I don't want to use terraform" would fire the terraform skill hint.
+
+- **`hookHandlers.ts` — `handleMcpForce` section undocumented** — Added rationale comment: the filesystem MCP server provides path-scoped access control; direct tools (Read/Write/Edit/Bash) bypass the workspace sandbox; MCP-only mode ensures all file operations are auditable and scoped to the configured allow-list.
+
+### Added
+
+- **`coachConfig.ts`** — New config module following the `contextFocusConfig` pattern. Exports `readCoachConfig()`, `writeCoachConfig()`, `syncCoachConfigToDisk()`. Stored at `~/.claude/learning/coach.json`. Defaults: `{ enabled: true, maxHintsPerSession: 3 }`.
+
+- **`package.json` — `claudeSkills.sessionCoach.*` settings** — Two new VS Code configuration properties: `enabled` (boolean, default `true`) and `maxHintsPerSession` (number, default 3, range 0–10). Setting `enabled: false` suppresses coaching hints while still recording prompt quality metrics for the dashboard.
+
+- **`hookHandlers.ts` — `handleSessionCoach` respects coach config** — Reads `readCoachConfig()` after recording prompt quality. When `enabled: false`, returns `""` immediately (hints suppressed). Replaces hardcoded `SESSION_COACH_MAX_HINTS = 3` with `coachCfg.maxHintsPerSession` for the per-session cap.
+
+- **`adoptionIntelligence.ts` — `formatDormancySummary(target)`** — Plain-text export alongside the existing HTML formatters. Returns a 4–6 line summary: acceptance rate, F1, total minutes saved, dormant skills, rising skills, top adopted. Enables `console.log(formatDormancySummary(cwd))` from any CLI or test harness without a VS Code webview.
+
+### Tests
+
+- Added `extension/src/hookHandlers.test.ts` — 13 new Vitest integration tests covering: `signalIsNegated` unit tests × 8 (including sentence-boundary check), `handleHookRequest` dispatch (unknown hook → `{}`), opportunity detection with real temp workspace × 3 (hint fires, negation suppresses, uninstalled skill skipped), and coach-disabled path × 1.
+
+---
+
 ## [1.0.95] - 2026-06-25
 
 **Summary:** Code health — all SonarQube S3776 violations resolved, OPPORTUNITY_SIGNALS deduplicated, 49 regression tests added.

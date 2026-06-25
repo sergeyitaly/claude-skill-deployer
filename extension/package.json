@@ -837,6 +837,25 @@
         }
       },
       {
+        "id": "sessionCoach",
+        "title": "Session Coach",
+        "order": 1.7,
+        "properties": {
+          "claudeSkills.sessionCoach.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show session coaching hints (prompt quality, HACE scores) during conversations. Disabling suppresses hints but still records prompt quality metrics for the dashboard."
+          },
+          "claudeSkills.sessionCoach.maxHintsPerSession": {
+            "type": "number",
+            "default": 3,
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Maximum coaching hints surfaced per session. Set to 0 to suppress all hints while keeping metric recording active."
+          }
+        }
+      },
+      {
         "id": "branchProfiles",
         "title": "Branch Profiles",
         "order": 2,
