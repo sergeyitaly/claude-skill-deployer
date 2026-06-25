@@ -1880,6 +1880,20 @@ function extractPromptContent(resp: HookResponse, agent: string): string {
 // Per-session counter: how many times we surfaced skill proposals this session.
 const _sessionProposalSurfaceCount = new Map<string, number>();
 
+// Keyword → installed-skill opportunity mapping (single source of truth for both prompt handlers)
+const OPPORTUNITY_SIGNALS: ReadonlyArray<{ pattern: RegExp; skill: string; label: string }> = [
+  { pattern: /kubectl|kubernetes|helm\b/i,                          skill: "k3s-kuberocketci",               label: "Kubernetes/kubectl" },
+  { pattern: /terraform\b|\.tf\b/i,                                skill: "terraform-plan-review",           label: "Terraform" },
+  { pattern: /github.actions|\.github\/workflows/i,                skill: "github-actions-ci",               label: "GitHub Actions" },
+  { pattern: /gitlab.ci|\.gitlab-ci\.yml/i,                        skill: "gitlab-pipeline-ops",             label: "GitLab CI" },
+  { pattern: /az\s+(webapp|aks|deploy)|bicep\b/i,                  skill: "azure-resource-ops",              label: "Azure deploy" },
+  { pattern: /vitest\b|\.bench\.test\.|\.solo\.test\./i,           skill: "vitest-extension-testing",        label: "Vitest test" },
+  { pattern: /vsce\b|vsix\b|vscode.*publish/i,                     skill: "vscode-extension-publishing",     label: "VS Code publish" },
+  { pattern: /ovsx\b|open.vsx|cursor.*extension|kiro.*extension/i, skill: "cursor-kiro-extension-publishing",label: "Open VSX publish" },
+  { pattern: /kusto\b|kql\b|adx\b/i,                              skill: "adx-schema-check",                label: "ADX/KQL" },
+  { pattern: /generate.*pdf|extract.*pdf|\.pdf\b/i,               skill: "pdf",                              label: "PDF workflow" },
+];
+
 // ---------------------------------------------------------------------------
 // Session Coach state — tracks hints shown per session to enforce the 3-per-session cap
 // ---------------------------------------------------------------------------
@@ -2004,19 +2018,7 @@ function handleSkillOpportunity(req: HookRequest): string {
   const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
   if (!shouldPropose) return "";
 
-  // Keyword → installed-skill opportunity mapping
-  const OPPORTUNITY_SIGNALS: Array<{ pattern: RegExp; skill: string; label: string }> = [
-    { pattern: /kubectl|kubernetes|helm\b/i,                          skill: "k3s-kuberocketci",               label: "Kubernetes/kubectl" },
-    { pattern: /terraform\b|\.tf\b/i,                                skill: "terraform-plan-review",           label: "Terraform" },
-    { pattern: /github.actions|\.github\/workflows/i,                skill: "github-actions-ci",               label: "GitHub Actions" },
-    { pattern: /gitlab.ci|\.gitlab-ci\.yml/i,                        skill: "gitlab-pipeline-ops",             label: "GitLab CI" },
-    { pattern: /az\s+(webapp|aks|deploy)|bicep\b/i,                  skill: "azure-resource-ops",              label: "Azure deploy" },
-    { pattern: /vitest\b|\.bench\.test\.|\.solo\.test\./i,           skill: "vitest-extension-testing",        label: "Vitest test" },
-    { pattern: /vsce\b|vsix\b|vscode.*publish/i,                     skill: "vscode-extension-publishing",     label: "VS Code publish" },
-    { pattern: /ovsx\b|open.vsx|cursor.*extension|kiro.*extension/i, skill: "cursor-kiro-extension-publishing",label: "Open VSX publish" },
-    { pattern: /kusto\b|kql\b|adx\b/i,                              skill: "adx-schema-check",                label: "ADX/KQL" },
-    { pattern: /generate.*pdf|extract.*pdf|\.pdf\b/i,               skill: "pdf",                              label: "PDF workflow" },
-  ];
+  // OPPORTUNITY_SIGNALS defined at module level
 
   const installedSkills = new Set<string>();
   try {
@@ -2099,18 +2101,7 @@ function handlePromptContext(req: HookRequest): HookResponse {
     const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
     if (!shouldPropose) return "";
 
-    const OPPORTUNITY_SIGNALS: Array<{ pattern: RegExp; skill: string; label: string }> = [
-      { pattern: /kubectl|kubernetes|helm\b/i,                          skill: "k3s-kuberocketci",               label: "Kubernetes/kubectl" },
-      { pattern: /terraform\b|\.tf\b/i,                                skill: "terraform-plan-review",           label: "Terraform" },
-      { pattern: /github.actions|\.github\/workflows/i,                skill: "github-actions-ci",               label: "GitHub Actions" },
-      { pattern: /gitlab.ci|\.gitlab-ci\.yml/i,                        skill: "gitlab-pipeline-ops",             label: "GitLab CI" },
-      { pattern: /az\s+(webapp|aks|deploy)|bicep\b/i,                  skill: "azure-resource-ops",              label: "Azure deploy" },
-      { pattern: /vitest\b|\.bench\.test\.|\.solo\.test\./i,           skill: "vitest-extension-testing",        label: "Vitest test" },
-      { pattern: /vsce\b|vsix\b|vscode.*publish/i,                     skill: "vscode-extension-publishing",     label: "VS Code publish" },
-      { pattern: /ovsx\b|open.vsx|cursor.*extension|kiro.*extension/i, skill: "cursor-kiro-extension-publishing",label: "Open VSX publish" },
-      { pattern: /kusto\b|kql\b|adx\b/i,                              skill: "adx-schema-check",                label: "ADX/KQL" },
-      { pattern: /generate.*pdf|extract.*pdf|\.pdf\b/i,               skill: "pdf",                              label: "PDF workflow" },
-    ];
+    // OPPORTUNITY_SIGNALS defined at module level
 
     const installedSkills = new Set<string>();
     try {

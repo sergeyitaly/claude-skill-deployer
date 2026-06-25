@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.95** | Bug fixes — SonarQube S3776 x5, OPPORTUNITY_SIGNALS dedup, dormant comment fix |
+| **1.0.94** | Skill Adoption System v2 — dormancy suppression, trust repair, Adoption Coach |
 | **1.0.87** | Learning loop unblocked — runs.jsonl populates from MCP reads; General API cost corrected to per-type rates |
 | **1.0.86** | Quality audit — 6 critical bugs fixed, attribution score accurate, prediction noise eliminated, adaptation log wired |
 | **1.0.85** | v1.1 UX Modernization — 3-bar status, Executive Summary, Learning Timeline, Prediction Intelligence, Feature Modes |
@@ -45,6 +47,20 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.95] - 2026-06-25
+
+**Summary:** Bug fixes — 5 SonarQube S3776 complexity violations in `runs_cost.py`, deduplicated `OPPORTUNITY_SIGNALS` in hook handlers, corrected dormant-skill comment.
+
+**Theme:** Code health and maintainability.
+
+### Fixed
+
+- **`runs_cost.py`** — Reduced cognitive complexity of 5 functions from [16, 22, 33, 22, 20] to ≤15 each by extracting `_parse_usage_dict`, `_build_usage_candidates`, `_resolve_transcript_path`, `_process_run_row`, `_check_collector_dedup`, `_scan_follow_lines`, and `_try_enrich_row` helpers (SonarQube S3776).
+- **`hookHandlers.ts`** — `OPPORTUNITY_SIGNALS` array was defined twice identically (lines 2008 and 2102); extracted to a single module-level `ReadonlyArray` constant, eliminating divergence risk.
+- **`proposalOutcome.ts`** — `getDormantSkills` JSDoc comment incorrectly stated "≥10 sessions"; corrected to "≥5 sessions" to match the actual threshold in the code.
 
 ---
 

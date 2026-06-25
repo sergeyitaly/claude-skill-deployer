@@ -54,42 +54,48 @@ def _coerce_int(value: Any) -> int:
         return 0
 
 
-def extract_usage_breakdown(row: dict[str, Any]) -> UsageBreakdown | None:
-    """Pull input/output/cache counts from a runs.jsonl row or nested metadata."""
+def _parse_usage_dict(usage: dict[str, Any]) -> UsageBreakdown | None:
+    breakdown: UsageBreakdown = {
+        "input_tokens": _coerce_int(usage.get("input_tokens")),
+        "output_tokens": _coerce_int(usage.get("output_tokens")),
+        "cache_creation_input_tokens": _coerce_int(
+            usage.get("cache_creation_input_tokens") or usage.get("cacheCreationTokens")
+        ),
+        "cache_read_input_tokens": _coerce_int(
+            usage.get("cache_read_input_tokens") or usage.get("cacheReadTokens")
+        ),
+    }
+    return breakdown if sum(breakdown.values()) > 0 else None
+
+
+def _build_usage_candidates(row: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    for key in ("usage",):
-        val = row.get(key)
+    if isinstance(row.get("usage"), dict):
+        candidates.append(row["usage"])
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        return candidates
+    for key in ("usage", "token_usage"):
+        val = metadata.get(key)
         if isinstance(val, dict):
             candidates.append(val)
-    metadata = row.get("metadata")
-    if isinstance(metadata, dict):
-        for key in ("usage", "token_usage"):
-            val = metadata.get(key)
-            if isinstance(val, dict):
-                candidates.append(val)
-        flat = {
-            "input_tokens": metadata.get("input_tokens"),
-            "output_tokens": metadata.get("output_tokens"),
-            "cache_creation_input_tokens": metadata.get("cache_creation_input_tokens"),
-            "cache_read_input_tokens": metadata.get("cache_read_input_tokens"),
-        }
-        if any(flat.values()):
-            candidates.append(flat)
+    flat = {
+        "input_tokens": metadata.get("input_tokens"),
+        "output_tokens": metadata.get("output_tokens"),
+        "cache_creation_input_tokens": metadata.get("cache_creation_input_tokens"),
+        "cache_read_input_tokens": metadata.get("cache_read_input_tokens"),
+    }
+    if any(flat.values()):
+        candidates.append(flat)
+    return candidates
 
-    for usage in candidates:
-        breakdown: UsageBreakdown = {
-            "input_tokens": _coerce_int(usage.get("input_tokens")),
-            "output_tokens": _coerce_int(usage.get("output_tokens")),
-            "cache_creation_input_tokens": _coerce_int(
-                usage.get("cache_creation_input_tokens") or usage.get("cacheCreationTokens")
-            ),
-            "cache_read_input_tokens": _coerce_int(
-                usage.get("cache_read_input_tokens") or usage.get("cacheReadTokens")
-            ),
-        }
-        total = sum(breakdown.values())
-        if total > 0:
-            return breakdown
+
+def extract_usage_breakdown(row: dict[str, Any]) -> UsageBreakdown | None:
+    """Pull input/output/cache counts from a runs.jsonl row or nested metadata."""
+    for usage in _build_usage_candidates(row):
+        result = _parse_usage_dict(usage)
+        if result is not None:
+            return result
     return None
 
 
@@ -126,6 +132,21 @@ def find_transcript_for_session(session_id: str, roots: list[Path] | None = None
     return None
 
 
+def _resolve_transcript_path(
+    metadata: dict[str, Any],
+    session_id: str | None,
+    transcript_roots: list[Path] | None,
+) -> Path | None:
+    file_hint = metadata.get("transcript_file") or metadata.get("file")
+    if isinstance(file_hint, str):
+        candidate = Path(file_hint)
+        if candidate.is_file():
+            return candidate
+    if isinstance(session_id, str):
+        return find_transcript_for_session(session_id, transcript_roots)
+    return None
+
+
 def compute_run_cost_with_transcript(
     row: dict[str, Any],
     *,
@@ -138,13 +159,7 @@ def compute_run_cost_with_transcript(
         metadata = row.get("metadata") or {}
         tool_use_id = metadata.get("tool_use_id")
         if isinstance(tool_use_id, str) and tool_use_id:
-            transcript = None
-            file_hint = metadata.get("transcript_file") or metadata.get("file")
-            if isinstance(file_hint, str):
-                transcript = Path(file_hint)
-            session_id = row.get("session_id")
-            if (transcript is None or not transcript.is_file()) and isinstance(session_id, str):
-                transcript = find_transcript_for_session(session_id, transcript_roots)
+            transcript = _resolve_transcript_path(metadata, row.get("session_id"), transcript_roots)
             if transcript is not None:
                 usage, model = lookup_tool_use_usage(transcript, tool_use_id)
                 if usage:
@@ -278,6 +293,52 @@ def load_runs_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _process_run_row(
+    row: dict[str, Any],
+    skill: str,
+    *,
+    overrides: dict | None,
+    enrich_transcripts: bool,
+    by_skill: dict[str, SkillCostRow],
+    by_model: dict[str, ModelCostRow],
+) -> tuple[int, float, float]:
+    """Accumulate one valid run row into skill/model buckets. Returns (tokens, stored, computed)."""
+    stored = float(row.get("cost") or 0)
+    computed, method, tokens, model = compute_run_cost_with_transcript(
+        row, overrides=overrides, enrich_transcripts=enrich_transcripts,
+    )
+    bucket = by_skill.setdefault(skill, SkillCostRow(skill=skill))
+    bucket.add(tokens=tokens, stored=stored, computed=computed, method=method, hook=is_v2_hook_run(row))
+    model_key = model or "unknown"
+    mb = by_model.setdefault(model_key, ModelCostRow(model=model_key))
+    mb.runs += 1
+    mb.tokens += tokens
+    mb.stored_cost += stored
+    mb.computed_cost += computed
+    if method == "usage_breakdown":
+        mb.usage_breakdown_runs += 1
+    return tokens, stored, computed
+
+
+def _check_collector_dedup(
+    row: dict[str, Any],
+    *,
+    include_transcript: bool,
+    dedupe_collector: bool,
+    seen_collector: set[tuple[str, str, str]],
+) -> bool:
+    """Return True if this collector row is a duplicate and should be skipped."""
+    if not include_transcript or not is_collector_transcript_run(row):
+        return False
+    key = _transcript_dedupe_key(row)
+    if key is None or not dedupe_collector:
+        return False
+    if key in seen_collector:
+        return True
+    seen_collector.add(key)
+    return False
+
+
 def summarize_skill_costs(
     target: Path | str,
     *,
@@ -291,10 +352,10 @@ def summarize_skill_costs(
     runs_file = workspace / RUNS_RELATIVE
     overrides = read_pricing_overrides(workspace)
     rows = load_runs_jsonl(runs_file)
-
-    cutoff: datetime | None = None
-    if days is not None and days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff: datetime | None = (
+        datetime.now(timezone.utc) - timedelta(days=days)
+        if days is not None and days > 0 else None
+    )
 
     seen_collector: set[tuple[str, str, str]] = set()
     by_skill: dict[str, SkillCostRow] = {}
@@ -311,52 +372,27 @@ def summarize_skill_costs(
             ts = _parse_ts(row)
             if ts is None or ts < cutoff:
                 continue
-
-        if not should_include_run(row, hook_only=hook_only, include_transcript=include_transcript):
-            if is_collector_transcript_run(row):
+        if is_collector_transcript_run(row):
+            if not should_include_run(row, hook_only=hook_only, include_transcript=include_transcript):
                 excluded_collector += 1
+                continue
+        elif not should_include_run(row, hook_only=hook_only, include_transcript=include_transcript):
             continue
-
-        if include_transcript and is_collector_transcript_run(row):
-            key = _transcript_dedupe_key(row)
-            if dedupe_collector and key is not None:
-                if key in seen_collector:
-                    duplicate_collector += 1
-                    continue
-                seen_collector.add(key)
-
-        skill = row.get("skill")
-        if not isinstance(skill, str) or not skill:
+        if _check_collector_dedup(row, include_transcript=include_transcript,
+                                   dedupe_collector=dedupe_collector, seen_collector=seen_collector):
+            duplicate_collector += 1
             continue
-
-        stored = float(row.get("cost") or 0)
-        computed, method, tokens, model = compute_run_cost_with_transcript(
-            row,
-            overrides=overrides,
-            enrich_transcripts=enrich_transcripts,
+        skill = str(row.get("skill") or "")
+        if not skill:
+            continue
+        tokens, stored, computed = _process_run_row(
+            row, skill, overrides=overrides, enrich_transcripts=enrich_transcripts,
+            by_skill=by_skill, by_model=by_model,
         )
         included += 1
         total_tokens += tokens
         stored_total += stored
         computed_total += computed
-
-        bucket = by_skill.setdefault(skill, SkillCostRow(skill=skill))
-        bucket.add(
-            tokens=tokens,
-            stored=stored,
-            computed=computed,
-            method=method,
-            hook=is_v2_hook_run(row),
-        )
-
-        model = model or "unknown"
-        model_bucket = by_model.setdefault(model, ModelCostRow(model=model))
-        model_bucket.runs += 1
-        model_bucket.tokens += tokens
-        model_bucket.stored_cost += stored
-        model_bucket.computed_cost += computed
-        if method == "usage_breakdown":
-            model_bucket.usage_breakdown_runs += 1
 
     ranked = sorted(by_skill.values(), key=lambda s: s.computed_cost, reverse=True)
     ranked_models = sorted(by_model.values(), key=lambda m: m.computed_cost, reverse=True)
@@ -402,6 +438,22 @@ def _sum_usage(node: Any) -> tuple[UsageBreakdown | None, str | None]:
     return usage, model if isinstance(model, str) else None
 
 
+def _scan_follow_lines(
+    lines: list[str], start: int
+) -> tuple[UsageBreakdown | None, str | None]:
+    for j in range(start + 1, min(start + 8, len(lines))):
+        if "usage" not in lines[j]:
+            continue
+        try:
+            follow = json.loads(lines[j])
+        except json.JSONDecodeError:
+            continue
+        usage, model = _sum_usage(follow)
+        if usage:
+            return usage, model
+    return None, None
+
+
 def lookup_tool_use_usage(transcript_path: Path, tool_use_id: str) -> tuple[UsageBreakdown | None, str | None]:
     """Resolve usage + model for a tool_use_id from a session transcript JSONL."""
     if not transcript_path.is_file() or not tool_use_id:
@@ -411,9 +463,7 @@ def lookup_tool_use_usage(transcript_path: Path, tool_use_id: str) -> tuple[Usag
     except OSError:
         return None, None
 
-    escaped = re.escape(tool_use_id)
-    id_re = re.compile(rf'"id"\s*:\s*"{escaped}"')
-
+    id_re = re.compile(rf'"id"\s*:\s*"{re.escape(tool_use_id)}"')
     for i, line in enumerate(lines):
         if "tool_use" not in line or not id_re.search(line):
             continue
@@ -424,17 +474,29 @@ def lookup_tool_use_usage(transcript_path: Path, tool_use_id: str) -> tuple[Usag
         usage, model = _sum_usage(parsed)
         if usage:
             return usage, model
-        for j in range(i + 1, min(i + 8, len(lines))):
-            if "usage" not in lines[j]:
-                continue
-            try:
-                follow = json.loads(lines[j])
-            except json.JSONDecodeError:
-                continue
-            usage, model = _sum_usage(follow)
-            if usage:
-                return usage, model
+        usage, model = _scan_follow_lines(lines, i)
+        if usage:
+            return usage, model
     return None, None
+
+
+def _try_enrich_row(row: dict[str, Any], *, overrides: dict | None) -> bool:
+    """Enrich a single hook row from transcript usage. Returns True if enriched."""
+    metadata = row.get("metadata") or {}
+    tool_use_id = metadata.get("tool_use_id")
+    transcript_file = metadata.get("transcript_file") or metadata.get("file")
+    if not isinstance(tool_use_id, str) or not isinstance(transcript_file, str):
+        return False
+    usage, model = lookup_tool_use_usage(Path(transcript_file), tool_use_id)
+    if not usage:
+        return False
+    row["tokens"] = total_tokens_from_usage(usage)
+    if model:
+        row["model"] = model
+    row["cost"] = estimate_usage_cost_usd(usage, model, overrides)
+    row["metadata"] = {**metadata, "usage": usage, "cost_method": "usage_breakdown",
+                       "cost_enriched_from": "transcript"}
+    return True
 
 
 def enrich_hook_rows_from_transcripts(
@@ -446,10 +508,10 @@ def enrich_hook_rows_from_transcripts(
     workspace = Path(target).resolve()
     rows = load_runs_jsonl(workspace / RUNS_RELATIVE)
     overrides = read_pricing_overrides(workspace)
-    cutoff: datetime | None = None
-    if days is not None and days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
+    cutoff: datetime | None = (
+        datetime.now(timezone.utc) - timedelta(days=days)
+        if days is not None and days > 0 else None
+    )
     enriched = 0
     for row in rows:
         if not is_v2_hook_run(row):
@@ -458,21 +520,6 @@ def enrich_hook_rows_from_transcripts(
             ts = _parse_ts(row)
             if ts is None or ts < cutoff:
                 continue
-        metadata = row.get("metadata") or {}
-        tool_use_id = metadata.get("tool_use_id")
-        transcript_file = metadata.get("transcript_file") or metadata.get("file")
-        if not isinstance(tool_use_id, str) or not isinstance(transcript_file, str):
-            continue
-        usage, model = lookup_tool_use_usage(Path(transcript_file), tool_use_id)
-        if not usage:
-            continue
-        row["tokens"] = total_tokens_from_usage(usage)
-        if model:
-            row["model"] = model
-        row["cost"] = estimate_usage_cost_usd(usage, model, overrides)
-        metadata["usage"] = usage
-        metadata["cost_method"] = "usage_breakdown"
-        metadata["cost_enriched_from"] = "transcript"
-        row["metadata"] = metadata
-        enriched += 1
+        if _try_enrich_row(row, overrides=overrides):
+            enriched += 1
     return enriched

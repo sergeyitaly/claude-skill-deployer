@@ -188,7 +188,7 @@ export function confidenceCalibration(target: string, skillName: string): number
   return 1.0;
 }
 
-/** Returns the set of dormant skill names (acceptance < 5% after ≥10 sessions). */
+/** Returns the set of dormant skill names (acceptance < 5% after ≥5 sessions). */
 export function getDormantSkills(target: string): Set<string> {
   const outcomes = readProposalOutcomes(target);
   const proposed: Record<string, number> = {};
