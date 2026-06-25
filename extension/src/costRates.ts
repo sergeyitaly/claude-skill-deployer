@@ -3,9 +3,11 @@
 import { overridePricingForModel, defaultHourlyRateUsd } from "./pricingOverrides";
 
 export const ESTIMATE_DISCLAIMER =
-  "All dollar amounts are model-based estimates from session transcripts and runs.jsonl — not your Anthropic/Cursor invoice. Pro/Max plans are flat-rate.";
+  "All dollar amounts are model-based estimates from session transcripts and runs.jsonl — not your Anthropic/Cursor invoice. Pro/Max plans are flat-rate. " +
+  "When only a token count is available (no caller-provided cost), blended rates (~$9/M tokens) are used; this can differ from actual API costs by ~10% due to model-mix and cache factors. " +
+  "Runs logged with cost_source=\"caller\" use the exact cost reported by the invocation hook.";
 
-export const ESTIMATE_DISCLAIMER_SHORT = "Estimates only — not an API bill";
+export const ESTIMATE_DISCLAIMER_SHORT = "Estimates only — not an API bill (~±10% vs actual)";
 
 export interface ModelPricing {
   input: number;

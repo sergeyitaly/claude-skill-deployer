@@ -157,7 +157,12 @@ export function appendSkillRun(
     agent: RunAgent;
     tokens: number;
     success: boolean;
+    /** Caller-provided cost in USD. When supplied, used as-is and stored with cost_source="caller".
+     *  If omitted, cost is estimated from tokens at the blended rate (~$0.009/1k tokens), which
+     *  may differ from the actual API cost by ~10% due to model-mix and cache factors. */
+    cost?: number;
     action?: string;
+    rc?: number;
     session_id?: string;
     branch?: string | null;
     metadata?: RunMetadata;
@@ -167,19 +172,23 @@ export function appendSkillRun(
   const file = runsFilePath(target);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const ts = new Date().toISOString();
+  const model = (entry.metadata as RunMetadata | undefined)?.model as string | undefined;
+  const estimatedCost = estimateTokenCost(entry.tokens, model);
+  const resolvedCost = entry.cost ?? estimatedCost;
+  const costSource: string | undefined = entry.cost !== undefined ? "caller" : undefined;
   const record: EnrichedRunRecord = {
     ts, timestamp: ts,
     skill: entry.skill,
     action: entry.action ?? "run",
     agent: entry.agent,
     tokens: entry.tokens,
-    cost: estimateTokenCost(entry.tokens, (entry.metadata as RunMetadata | undefined)?.model as string | undefined),
-    rc: entry.success ? 0 : 1,
+    cost: resolvedCost,
+    rc: entry.rc ?? (entry.success ? 0 : 1),
     success: entry.success,
     session_id: entry.session_id ?? `ext_${ts}`,
     project: target,
     branch: entry.branch ?? null,
-    metadata: entry.metadata ?? {},
+    metadata: { ...(entry.metadata ?? {}), ...(costSource ? { cost_source: costSource } : {}) },
     duration: entry.duration,
   };
   fs.appendFileSync(file, JSON.stringify(record) + "\n", "utf-8");

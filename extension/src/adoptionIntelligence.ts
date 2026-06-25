@@ -418,6 +418,12 @@ export function formatAdoptionCoachHtml(target: string): string {
     .sort((a, b) => b[1].proposed - a[1].proposed);
   const totalSessions = outcomes.filter(o => o.event === "session_end").length;
 
+  // Count sessions where at least one skill was proposed — used for Message E
+  const sessionsWithProposals = outcomes.filter(
+    o => o.event === "session_end" && (o.skills_proposed_count ?? 0) > 0
+  ).length;
+  const zeroProposalSessions = totalSessions - sessionsWithProposals;
+
   // Message A — persistently ignored skills
   for (const [skill, e] of ignoredHeavily.slice(0, 2)) {
     const minutes = estimateBenefitMinutes(skill);
@@ -436,11 +442,16 @@ export function formatAdoptionCoachHtml(target: string): string {
     );
   }
 
-  // Message C — zero adoptions with sufficient session history
+  // Message C — zero adoptions with sufficient session history (session-level coaching trigger)
+  // Fires after 3+ sessions with no skill invocations — proactively suggests a concrete first step.
   if (adoptedSkills.length === 0 && totalSessions >= 3) {
+    const specificSuggestion = skillMap.has("vitest-extension-testing") || zeroProposalSessions < totalSessions
+      ? `Try <code>/vitest-extension-testing</code> at the start of your next test session — it's the highest-precision skill in this repo.`
+      : `Type <code>/skill-name</code> at the start of a relevant session to activate structured context.`;
     messages.push(
-      `No skills invoked in ${totalSessions} recent sessions. ` +
-      `Invoking one skill per session typically cuts prompt back-and-forth by 15–25% and raises Task Velocity.`
+      `No skills invoked across ${totalSessions} sessions. ` +
+      `Invoking one skill per session cuts prompt back-and-forth by 15–25% and raises Task Velocity. ` +
+      specificSuggestion
     );
   }
 
@@ -450,6 +461,17 @@ export function formatAdoptionCoachHtml(target: string): string {
       `Skill Leverage is 3% vs a 20% target. ` +
       `The fastest path: type <code>/vitest-extension-testing</code> at the start of any test session ` +
       `— it's the one skill already proven to work in this repo.`
+    );
+  }
+
+  // Message E — many sessions had zero proposals (generic-prompt coaching)
+  // Targets T1: prompts like "Implement dashboard card in TypeScript" generate no signal
+  // tokens (no "vitest", "deploy", etc.) → zero proposals. Coaching: add tech stack keywords.
+  if (zeroProposalSessions >= 2 && totalSessions >= 3 && adoptedSkills.length === 0) {
+    messages.push(
+      `${zeroProposalSessions} of ${totalSessions} sessions had no skill suggestions. ` +
+      `Add tech-stack keywords to your prompts — e.g. <code>vitest</code>, <code>vscode extension</code>, <code>deploy</code>, or <code>test</code> — ` +
+      `to unlock more precise skill recommendations.`
     );
   }
 
@@ -564,6 +586,8 @@ export function formatDormancySummary(target: string): string {
 export interface SkillHealthSnapshot {
   activeCount: number;
   dormantCount: number;
+  /** Names of installed skills that are currently dormant (≥5 proposals, 0 invocations). */
+  dormantNames: string[];
   avgPromptQuality: number;
   hasPromptData: boolean;
 }
@@ -581,13 +605,15 @@ export function computeSkillHealthSnapshot(target: string): SkillHealthSnapshot 
   const dormant = new Set(
     computeAdoptionMetrics(target).dormantSkills
   );
-  const dormantCount = installedNames.filter(n => dormant.has(n)).length;
+  const dormantNames = installedNames.filter(n => dormant.has(n));
+  const dormantCount = dormantNames.length;
   const activeCount  = installedNames.length - dormantCount;
 
   const promptMetrics = computePromptMetrics(target, 14);
   return {
     activeCount,
     dormantCount,
+    dormantNames,
     avgPromptQuality: promptMetrics.avgScore,
     hasPromptData: promptMetrics.hasData,
   };
@@ -623,10 +649,20 @@ export function formatSkillHealthCard(target: string): string {
     </div>
   </div>
   ${snap.dormantCount > 0
-    ? `<p class="note" style="margin-top:6px">
-        ${snap.dormantCount} skill${snap.dormantCount > 1 ? "s are" : " is"} dormant and suppressed.
-        Invoke one to restart the learning signal.
-       </p>`
+    ? `<div style="margin-top:6px">
+        <p class="note" style="margin-bottom:4px">
+          ${snap.dormantCount} skill${snap.dormantCount > 1 ? "s are" : " is"} dormant and suppressed
+          (≥5 proposals, 0 invocations).
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+          ${snap.dormantNames.map(n =>
+            `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;background:var(--vscode-badge-background,#4d4d4d);padding:2px 6px;border-radius:4px">
+              <span style="opacity:.7">${esc(n)}</span>
+              <code style="font-size:10px;color:var(--vscode-charts-blue,#2196F3)" title="Type this in your next relevant prompt to restart the learning signal">→ /${esc(n)}</code>
+            </span>`
+          ).join("")}
+        </div>
+       </div>`
     : ""}
 </div>`;
 }

@@ -333,6 +333,7 @@ function scoreSkillForTask(
   const reasons: string[] = [];
   let signalTypes = 0;
   let hasTaskToken = false; // at least one non-workspace token from the actual prompt
+  let hasPromptSignal = false; // any prompt-content token matched this skill (gates recency boost)
 
   for (const token of tokens) {
     if (LOW_SIGNAL_TASK_TOKENS.has(token)) {
@@ -345,16 +346,18 @@ function scoreSkillForTask(
       score += 50;
       reasons.push(`task keyword "${token}" maps to this skill`);
       signalTypes++;
-      hasTaskToken = true; // only explicit keyword mappings count as a "prompt signal"
+      hasTaskToken = true;    // explicit keyword mapping — strongest prompt signal
+      hasPromptSignal = true;
     } else if (skillName.includes(token)) {
       score += 25;
       reasons.push(`name matches "${token}"`);
       signalTypes++;
-      // name match alone is not a prompt signal — too easily triggered by coincidence
+      hasPromptSignal = true; // name match — weaker but still a prompt signal
     } else if (description.toLowerCase().includes(token)) {
       score += 15;
       reasons.push(`description mentions "${token}"`);
       signalTypes++;
+      hasPromptSignal = true;
     }
   }
 
@@ -373,15 +376,20 @@ function scoreSkillForTask(
     score += 5;
   }
 
-  // Boost skills with recent invocation history — evidence of actual value here.
-  if (recentSkills.last7days.has(skillName)) {
-    score += 25;
-    reasons.push("used in last 7 days");
-    signalTypes++;
-  } else if (recentSkills.last30days.has(skillName)) {
-    score += 15;
-    reasons.push("used in last 30 days");
-    signalTypes++;
+  // Boost skills with recent invocation history — but ONLY when the prompt contains a
+  // KEYWORD HINT match (the strongest signal type). Gating on description/name matches
+  // alone was too weak: "fix" in a debug prompt matched "fix" in self-learning's description,
+  // causing a false recency boost for completely unrelated tasks (T2, T4 false positives).
+  if (hasTaskToken) {
+    if (recentSkills.last7days.has(skillName)) {
+      score += 25;
+      reasons.push("used in last 7 days");
+      signalTypes++;
+    } else if (recentSkills.last30days.has(skillName)) {
+      score += 15;
+      reasons.push("used in last 30 days");
+      signalTypes++;
+    }
   }
 
   // GAP 3: repository affinity boost — tech-stack fingerprint for this repo.
