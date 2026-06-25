@@ -2064,6 +2064,28 @@ function handlePromptContext(req: HookRequest): HookResponse {
     } catch { /* non-fatal */ }
   }
 
+  // Fallback: some Claude Code versions / environments include the prompt inline in the
+  // hook body when transcript_path is absent or the JSONL extraction yields nothing.
+  if (!promptText.trim()) {
+    const b = req.body as Record<string, unknown>;
+    const inline = b.message ?? b.prompt ?? b.content ?? b.input;
+    if (typeof inline === "string") {
+      promptText = inline;
+    } else if (Array.isArray(inline)) {
+      promptText = (inline as Array<Record<string, unknown>>)
+        .filter(c => c.type === "text")
+        .map(c => String(c.text ?? "")).join(" ");
+    } else if (inline && typeof inline === "object") {
+      const c = (inline as Record<string, unknown>).content;
+      if (typeof c === "string") promptText = c;
+      else if (Array.isArray(c)) {
+        promptText = (c as Array<Record<string, unknown>>)
+          .filter(x => x.type === "text")
+          .map(x => String(x.text ?? "")).join(" ");
+      }
+    }
+  }
+
   const coachHint   = handleSessionCoach(req, promptText);
   const opportunity = promptText ? (() => {
     // Re-use skill opportunity detection with the already-extracted text
