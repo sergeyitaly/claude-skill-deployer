@@ -7,6 +7,7 @@ import { profileInitRequiredSkills } from "./profileInit";
 import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, historicalSuccess } from "./proposalOutcome";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { enrichProposal, estimateBenefitMinutes } from "./adoptionIntelligence";
+import { appendConfidenceSnapshots } from "./confidenceTrend";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
 export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -123,6 +124,8 @@ export function writeTaskSkillProposals(target: string, data: TaskSkillProposals
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n", "utf-8");
   invalidateLearningCache(target);
   ensureGitExcludeEntry(target, PROPOSALS_FILE_RELATIVE);
+  // Persist confidence snapshot for trend engine — one entry per skill per proposal refresh
+  appendConfidenceSnapshots(target, data.proposals.map(p => ({ name: p.name, confidence: p.confidence })));
 }
 
 /**
@@ -286,6 +289,24 @@ function buildRecentSkills(target: string): RecentSkills {
   return { last7days, last30days };
 }
 
+/**
+ * Returns a multiplier (0.3–1.0) that scales down the affinity boost when a skill
+ * has been consistently ignored. Real usage eventually outweighs static repo signals.
+ *
+ * proposedCount < 3  → 1.0  (no data, full benefit of the doubt)
+ * proposedCount ≥ 3, acceptanceRate ≥ 0.15 → 1.0
+ * proposedCount ≥ 3, acceptanceRate 0–0.15  → lerp 0.3–1.0
+ * proposedCount ≥ 5, acceptanceRate 0        → 0.3 (hard floor, not 0 — affinity still valid signal)
+ */
+function computeAffinityAdoptionWeight(target: string, skillName: string): number {
+  const hist = historicalSuccess(target, skillName);
+  if (hist.proposedCount < 3) return 1.0;
+  if (hist.acceptanceRate >= 0.15) return 1.0;
+  // Smooth decay: 0% acceptance → 0.3, 15% acceptance → 1.0
+  const weight = 0.3 + (hist.acceptanceRate / 0.15) * 0.7;
+  return Math.max(0.3, Math.min(1.0, weight));
+}
+
 function scoreSkillForTask(
   skillName: string,
   description: string,
@@ -353,11 +374,20 @@ function scoreSkillForTask(
     signalTypes++;
   }
 
-  // GAP 3: repository affinity boost — tech-stack fingerprint for this repo
+  // GAP 3: repository affinity boost — tech-stack fingerprint for this repo.
+  // Adoption-weighted: static repo signals are discounted when a skill has a low
+  // acceptance rate, so real usage history eventually outweighs passive fingerprinting.
   if (affinityBoost > 0) {
-    score += affinityBoost;
-    reasons.push(`repo stack match (+${affinityBoost})`);
-    signalTypes++;
+    const adoptionWeight = target ? computeAffinityAdoptionWeight(target, skillName) : 1.0;
+    const effectiveBoost = Math.round(affinityBoost * adoptionWeight);
+    if (effectiveBoost > 0) {
+      score += effectiveBoost;
+      const label = adoptionWeight < 1.0
+        ? `repo stack match (+${effectiveBoost}, adj. ${Math.round(adoptionWeight * 100)}% adoption weight)`
+        : `repo stack match (+${effectiveBoost})`;
+      reasons.push(label);
+      signalTypes++;
+    }
   }
 
   // GAP 4: historical success weighting — replace binary recent-use with calibrated boost

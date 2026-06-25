@@ -106,7 +106,13 @@ function sessionFilesForWorkspace(target: string, cutoffMs: number): string[] {
 const CORRECTION_MAX_CHARS  = 80;
 const CORRECTION_MIN_TOKENS = 250;
 const MAX_RESPONSE_SECS     = 300;
-const VELOCITY_TARGET       = 2.0;
+// Calibrated to real coding sessions: 0.5 turns/min = 1 turn every 2 min.
+// The old target of 2.0 assumed rapid chat-style interactions; it rendered
+// every coding-style session as 2% velocity and hid meaningful differences.
+const VELOCITY_TARGET       = 0.5;
+// Gaps longer than this between turns are treated as idle time (overnight, lunch).
+// Active work time excludes these so TTR and velocity reflect genuine effort.
+const IDLE_GAP_MS           = 30 * 60_000;
 
 function parseSessionFile(filePath: string): HaceTurn[] {
   let lines: string[];
@@ -171,6 +177,20 @@ function haceGrade(score: number): string {
   return "F";
 }
 
+/** Sum only inter-turn gaps ≤ IDLE_GAP_MS so overnight/lunch pauses don't inflate TTR. */
+function activeWorkMinutes(turns: HaceTurn[]): number {
+  if (turns.length === 0) return 0;
+  let activeMs = 0;
+  for (let i = 0; i < turns.length; i++) {
+    activeMs += turns[i].responseSecs * 1000;
+    if (i < turns.length - 1) {
+      const gap = turns[i + 1].humanTs - turns[i].responseTs;
+      if (gap > 0 && gap <= IDLE_GAP_MS) activeMs += gap;
+    }
+  }
+  return activeMs / 60_000;
+}
+
 export function computeHaceMetrics(
   target: string,
   cliSuccessRate: number,
@@ -179,16 +199,19 @@ export function computeHaceMetrics(
   const cutoffMs = Date.now() - daysBack * 86_400_000;
   const files = sessionFilesForWorkspace(target, cutoffMs);
   const allTurns: HaceTurn[] = [];
-  const sessionDurations: number[] = [];
+  const activeSessionDurations: number[] = [];  // idle-stripped active work time
+  const wallClockDurations: number[] = [];       // raw wall-clock (for display only)
   for (const f of files) {
     const turns = parseSessionFile(f);
     if (turns.length === 0) continue;
     allTurns.push(...turns);
+    activeSessionDurations.push(activeWorkMinutes(turns));
     const first = turns[0].humanTs;
     const last  = turns[turns.length - 1].responseTs;
-    if (last > first) sessionDurations.push((last - first) / 60_000);
+    if (last > first) wallClockDurations.push((last - first) / 60_000);
   }
-  const TARGET_TTR_MIN = 30; // target time-to-resolution in minutes
+  // Target active TTR: 30 min of focused work. Wall-clock is shown in tooltip only.
+  const TARGET_TTR_MIN = 30;
 
   if (allTurns.length === 0) {
     return { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0,
@@ -199,15 +222,19 @@ export function computeHaceMetrics(
   }
 
   const n = allTurns.length;
+  const sessionCount     = activeSessionDurations.length || 1;
   const thinkingTurns   = allTurns.filter(t => t.hasThinking).length;
   const correctionTurns = allTurns.filter(t => t.isCorrection).length;
   const totalResponseSec = allTurns.reduce((s, t) => s + t.responseSecs, 0);
-  const totalDurMin     = sessionDurations.reduce((s, d) => s + d, 0);
+  const totalActiveDurMin = activeSessionDurations.reduce((s, d) => s + d, 0);
+  const totalWallMin      = wallClockDurations.reduce((s, d) => s + d, 0);
   const thinkingRate    = thinkingTurns / n;
   const correctionRate  = correctionTurns / n;
   const avgResponseSecs = totalResponseSec / n;
-  const turnsPerMinute  = totalDurMin > 0 ? n / totalDurMin : 0;
-  const avgSessionMinutes = sessionDurations.length > 0 ? totalDurMin / sessionDurations.length : 0;
+  // Velocity uses active work time — not inflated by overnight gaps.
+  const turnsPerMinute  = totalActiveDurMin > 0 ? n / totalActiveDurMin : 0;
+  // avgSessionMinutes used for TTR score and display: active minutes strip idle time.
+  const avgSessionMinutes = totalActiveDurMin / sessionCount;
 
   // HACE 2.0: Skill Leverage — check how many sessions had skill invocations.
   let skillAugmentedSessions = 0;
@@ -517,7 +544,7 @@ export function formatEfficiencyReport(metrics: EfficiencyMetrics): string {
     lines.push(`  Task Velocity        ${h.taskVelocityScore}%  (${h.turnsPerMinute.toFixed(1)} turns/min)`);
     lines.push(`  Accuracy             ${h.accuracyScore}%  (correction rate: ${Math.round(h.correctionRate * 100)}%)`);
     lines.push(`  CLI Efficiency       ${h.cliEfficiencyScore}%`);
-    lines.push(`  Resolution Velocity  ${h.resolutionVelocityScore}%  (avg TTR ${h.avgSessionMinutes.toFixed(0)} min, target 30)`);
+    lines.push(`  Resolution Velocity  ${h.resolutionVelocityScore}%  (avg active TTR ${h.avgSessionMinutes.toFixed(0)} min, target 30)`);
     lines.push(`  Skill Leverage       ${h.skillLeverageScore}%  (${h.skillAugmentedPct}% sessions skill-augmented)`);
     lines.push(`  Avg response         ${h.avgResponseSecs.toFixed(1)}s`);
   }
@@ -646,19 +673,19 @@ function buildHacePanelHtml(h: HaceMetrics): string {
     componentRow("Prompt Clarity",      h.promptClarityScore,
       `${Math.round(h.thinkingRate * 100)}% of turns triggered extended thinking — lower = clearer prompts`),
     componentRow("Task Velocity",       h.taskVelocityScore,
-      `${h.turnsPerMinute.toFixed(1)} turns/min — target ≥ 2.0`),
+      `${h.turnsPerMinute.toFixed(1)} turns/min active — target ≥ 0.5`),
     componentRow("Accuracy Rate",       h.accuracyScore,
       `${Math.round(h.correctionRate * 100)}% correction turns (short re-prompts after long responses)`),
     componentRow("CLI Efficiency",      h.cliEfficiencyScore,
       "CLI exit-code success rate from terminal-watch telemetry"),
     componentRow("Resolution Velocity", h.resolutionVelocityScore,
-      `avg session ${h.avgSessionMinutes.toFixed(0)} min — target ≤ 30 min`),
+      `avg active session ${h.avgSessionMinutes.toFixed(0)} min — target ≤ 30 min (idle gaps >30min excluded)`),
     componentRow("Skill Leverage",      h.skillLeverageScore,
       `${h.skillAugmentedPct}% of sessions used ≥1 skill${h.skillLeverageScore < 20 ? " ← LOW" : ""}`),
   ].join("\n");
 
   const ttrPill = h.avgSessionMinutes > 0
-    ? `<span class="stat-pill" title="Avg session duration (time-to-resolution proxy)">TTR ${h.avgSessionMinutes.toFixed(0)} min</span>`
+    ? `<span class="stat-pill" title="Active work time per session — idle gaps >30min excluded. Measures genuine effort, not wall-clock.">Active TTR ${h.avgSessionMinutes.toFixed(0)} min</span>`
     : "";
   const skillPill = `<span class="stat-pill ${h.skillAugmentedPct >= 25 ? "conf-high" : "roi-low"}" title="${h.skillAugmentedPct}% of sessions had ≥1 skill invocation">${h.skillAugmentedPct}% skill-augmented</span>`;
 

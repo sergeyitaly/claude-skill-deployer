@@ -41,6 +41,10 @@ import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { resolveAdaptations } from "./adaptationEffectiveness";
 import { computeAdoptionMetrics, formatAdoptionDashboardHtml } from "./adoptionIntelligence";
 import { isFeatureAvailable } from "./featureMode";
+import { formatPromptIntelligencePanelHtml } from "./promptIntelligence";
+import { buildCoachingReport, formatCoachingReportHtml } from "./haceCoaching";
+import { formatTemplateLibraryHtml } from "./promptTemplates";
+import { formatLearningLoopHtml } from "./coachingLearning";
 import { readCachedEnrichedRuns } from "./runsStore";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -860,6 +864,22 @@ export function buildDashboardMainBodyHtml(
 
   ${formatEfficiencyPanelHtml(efficiencyMetrics)}
 
+  ${(() => {
+    const hace = efficiencyMetrics.hace;
+    if (hace.noData) return "";
+    const coachReport = buildCoachingReport(target, {
+      haceScore: hace.haceScore,
+      grade: hace.grade,
+      promptClarityScore: hace.promptClarityScore,
+      taskVelocityScore: hace.taskVelocityScore,
+      accuracyScore: hace.accuracyScore,
+      resolutionVelocityScore: hace.resolutionVelocityScore,
+      skillLeverageScore: hace.skillLeverageScore,
+      cliEfficiencyScore: hace.cliEfficiencyScore,
+    });
+    return formatCoachingReportHtml(coachReport);
+  })()}
+
   ${
     showPerSkill
       ? `<div class="panel">
@@ -907,6 +927,15 @@ export function buildDashboardMainBodyHtml(
       ${formatAdaptationTimelineHtml(adaptationEvents)}
     </div>
     ${formatAdoptionDashboardHtml(adoptionMetrics)}
+    ${formatPromptIntelligencePanelHtml(target, 14)}
+    ${formatLearningLoopHtml(target)}
+  </details>
+
+  <details>
+    <summary style="cursor:pointer;font-weight:600;padding:6px 0;font-size:13px;list-style:none">
+      &#9654; Prompt Template Library
+    </summary>
+    ${formatTemplateLibraryHtml()}
   </details>
 
   ${predictionHtml ? `<details>

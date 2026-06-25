@@ -168,7 +168,11 @@ function statForSkill(name: string, recs: RunRecord[], now: number): SkillUsageS
   let costRows = 0;
   let measuredRuns = 0;
   for (const rec of recs) {
-    if (typeof rec.cost === "number" && rec.cost > 0) {
+    // Count any numeric cost, including 0. A cost of 0 means the hook measured it and
+    // found no billable tokens (e.g. skill file read before attribution was wired up).
+    // Previously `cost > 0` caused hook-written runs to always show totalCost: null,
+    // hiding the fact that cost data WAS present — just zero.
+    if (typeof rec.cost === "number") {
       totalCost += rec.cost;
       costRows += 1;
     }

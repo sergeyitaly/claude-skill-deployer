@@ -77,12 +77,16 @@ export function recordSessionRejectionFeedback(
 ): void {
   const invokedSet = new Set(invoked);
   for (const skill of proposed) {
+    // Only record feedback for skills that were NOT invoked — accepted skills are not rejections.
+    // Accepted skills are positive signal captured via runs.jsonl; recording them here as
+    // "ignored" was incorrectly polluting the rejection signal used for confidence decay.
+    if (invokedSet.has(skill)) continue;
     appendRecommendationFeedback(target, {
       session_id: sessionId,
       skill,
       proposed: true,
-      accepted: invokedSet.has(skill),
-      reason: invokedSet.has(skill) ? "ignored" : "ignored", // differentiated in future with UI
+      accepted: false,
+      reason: "ignored", // skill was proposed but not used this session
     });
   }
 }
@@ -261,7 +265,12 @@ export function computeProposalFunnel(target: string, daysBack = 30): ProposalFu
     totalProposed += o.skills_proposed_count ?? 0;
     totalInvoked += o.skills_invoked_count ?? 0;
   }
-  const totalSucceeded = runs.filter(r => r.success).length;
+
+  // Only count successes from sessions that are tracked in proposal outcomes — otherwise
+  // runs.jsonl sessions (which pre-date or exist outside proposal tracking) inflate the
+  // "Succeeded" step and can make successRate > 100% vs the tracked "Invoked" count.
+  const trackedSessionIds = new Set(outcomes.map(o => o.session_id));
+  const totalSucceeded = runs.filter(r => r.success && trackedSessionIds.has(r.session_id)).length;
 
   return {
     sessions: outcomes.length,

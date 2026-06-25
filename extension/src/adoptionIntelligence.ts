@@ -163,8 +163,15 @@ export interface EnrichedProposal {
   estimatedMinutes: number;
   acceptanceRate: number;
   successRate: number;
+  reuseRate: number;
+  /** Sessions where this skill was used (loyalty indicator) */
+  reuseCount: number;
   successScore: number;
   trend: SkillAdoptionStats["trend"];
+  /** Total estimated minutes saved across all invocations (historical ROI) */
+  totalMinutesSaved: number;
+  /** Number of times invoked */
+  invokedCount: number;
 }
 
 export function enrichProposal(
@@ -180,11 +187,22 @@ export function enrichProposal(
   if (stats.acceptanceRate >= 0) {
     parts.push(`${Math.round(stats.acceptanceRate * 100)}% acceptance`);
   }
-  if (stats.successRate >= 0 && stats.invokedCount >= 3) {
-    parts.push(`${Math.round(stats.successRate * 100)}% success rate`);
+  // Show success rate with 1+ invocation (not just ≥3) — flag low-sample cases with ~
+  if (stats.successRate >= 0 && stats.invokedCount >= 1) {
+    const prefix = stats.invokedCount < 3 ? "~" : "";
+    parts.push(`${prefix}${Math.round(stats.successRate * 100)}% success`);
   }
   if (stats.invokedCount > 0) {
-    parts.push(`used ${stats.invokedCount}× in this repo`);
+    parts.push(`used ${stats.invokedCount}×`);
+  }
+  if (stats.reuseCount > 1) {
+    parts.push(`${stats.reuseCount} sessions`);
+  }
+  if (stats.totalMinutesSaved > 0) {
+    const saved = stats.totalMinutesSaved >= 60
+      ? `~${Math.round(stats.totalMinutesSaved / 60 * 10) / 10}h saved`
+      : `~${stats.totalMinutesSaved}min saved`;
+    parts.push(saved);
   }
   const reasonCleaned = reason
     .replace(/Workspace files match /, "detected: ")
@@ -197,8 +215,12 @@ export function enrichProposal(
     name, confidence, reason, whyText, estimatedMinutes: minutes,
     acceptanceRate: stats.acceptanceRate,
     successRate: stats.successRate,
+    reuseRate: stats.reuseRate,
+    reuseCount: stats.reuseCount,
     successScore: stats.successScore,
     trend: stats.trend,
+    totalMinutesSaved: stats.totalMinutesSaved,
+    invokedCount: stats.invokedCount,
   };
 }
 
@@ -251,16 +273,21 @@ export function computeAdoptionMetrics(target: string): AdoptionMetrics {
   const runs = readCachedEnrichedRuns(target);
   const totalSucceeded = runs.filter(r => r.success && r.metadata?.invoked).length;
 
+  // Acceptance rate: session-level aggregate — invocations / total proposals across all sessions.
   const acceptanceRatePct = totalProposed > 0 ? Math.round((totalInvoked / totalProposed) * 100) : 0;
 
-  // Precision: of all proposals, what fraction was accepted?
-  // Recall: of all skills used, what fraction was proposed first?
+  // Precision: skill-level — of the UNIQUE skills ever proposed, what fraction was ever invoked?
+  // This is deliberately different from acceptanceRatePct (which double-counts per-session proposals).
+  // Example: skill A proposed 8× and invoked 1× → acceptanceRate=12%, but precision counts A only once.
   const usedSet = new Set(runs.map(r => r.skill));
   const proposedSet = new Set(outcomes.flatMap(o => o.proposed ?? []));
-  const invokedFromProposed = [...usedSet].filter(s => proposedSet.has(s)).length;
+  const uniqueInvokedFromProposed = [...proposedSet].filter(s => usedSet.has(s)).length;
 
-  const precisionPct = totalProposed > 0
-    ? Math.round((totalInvoked / totalProposed) * 100) : 0;
+  const precisionPct = proposedSet.size > 0
+    ? Math.round((uniqueInvokedFromProposed / proposedSet.size) * 100) : 0;
+
+  // Recall: of all skills actually used, what fraction was proposed first?
+  const invokedFromProposed = [...usedSet].filter(s => proposedSet.has(s)).length;
   const recallPct = usedSet.size > 0
     ? Math.round((invokedFromProposed / usedSet.size) * 100) : 0;
   const f1Pct = (precisionPct + recallPct) > 0

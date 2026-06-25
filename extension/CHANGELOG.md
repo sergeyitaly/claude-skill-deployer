@@ -48,6 +48,86 @@ Each release includes:
 
 ---
 
+## [1.0.92] - 2026-06-25
+
+**Summary:** HACE Coaching System + 10 bug fixes + outcome pipeline unblocked — transforms HACE from a measurement dashboard into an active coaching engine; fixes session-stop coverage, metric formula bugs, TTR inflation, velocity target calibration, and affinity cache staleness.
+
+**Theme:** Measure → Coach. Every weak HACE score now generates prioritised advice, estimated improvement, and adaptive learning that rewards followed recommendations and suppresses ignored ones.
+
+### Added
+
+- **`promptIntelligence.ts`** — Prompt Quality Engine (Phases 1, 2, 4)
+  - `analyzePrompt()`: 9-dimension scoring (goal clarity, error evidence, environment, constraints, success criteria, logs, expected output, context, scope) → `score 0–100`
+  - Anti-pattern detector: multi-goal, vague requests, missing error evidence, mixed architecture+debugging, excessive length, no success criteria
+  - Prompt Rewriter: generates 3 structured rewrites (concise / troubleshooting / expert) without any API call
+  - `computePromptMetrics()` + `formatPromptIntelligencePanelHtml()`: quality trend chart, dimension breakdown, top anti-patterns — all from `prompt-intelligence.jsonl`
+
+- **`haceCoaching.ts`** — HACE Coaching Engine (Phases 3, 9)
+  - `buildCoachingRules()`: per-metric rules with threshold-aware grades (critical/poor/fair), multi-point WHY list, concrete advice steps, estimated HACE point gain
+  - `buildCoachingReport()`: assembles all active rules + behavior insights from prompt history
+  - `formatCoachingReportHtml()`: collapsible coaching panel injected directly below the HACE Efficiency panel
+  - `getSessionCoachHints()`: returns ≤2 in-session coaching strings targeted at the weakest active metric
+  - **Productivity Impact Simulation**: "Following the top 3 recommendations could improve HACE by +N points (X → Y/100)"
+
+- **`promptTemplates.ts`** — Prompt Template Library (Phase 5)
+  - 10 structured domain templates: Kubernetes Troubleshooting, DevOps Investigation, AWS Incident Response, Azure Troubleshooting, GitHub Actions Failure, Terraform Deployment, VS Code Extension Dev, Architecture Review, Feature Implementation, Root Cause Analysis
+  - Each template enforces all 6 quality dimensions and targets ≥80/100 prompt quality score
+  - Collapsible panel added to dashboard under "Prompt Template Library" section
+
+- **`coachingLearning.ts`** — Adaptive Learning Loop (Phase 10)
+  - `recordAdviceShown()`: persists coaching interactions to `coaching-events.jsonl`; checks cooldown before surfacing
+  - `evaluateAdviceOutcome()`: called in pipeline analyze phase; awards improvement credit when score rises >3pts after advice, increments ignore counter otherwise
+  - Adaptive frequency: `adaptedMultiplier` ranges 0.25–2.0; advice ignored 3× enters exponential cooldown (24–72h)
+  - `formatLearningLoopHtml()`: improvement rate, active cooldowns, per-metric adaptation state
+
+- **Session Coach in `hookHandlers.ts`** (Phase 7)
+  - `handleSessionCoach()`: fires on every `UserPromptSubmit`; skips prompt 1 and scores ≥65; enforces 3-hint-per-session cap; checks `shouldShowAdvice()` before injecting
+  - Prefix: `[HACE Coach]` for metric-targeted hints, `[Prompt Coach]` for structural quality hints
+  - Every prompt is analyzed and persisted to `prompt-intelligence.jsonl` unconditionally (for dashboard), independent of whether a hint fires
+
+- **`costDashboard.ts`** — 3 new panels injected into the Learning section
+  - Prompt Intelligence Panel (quality trend sparkbars, dimension breakdown, top anti-patterns)
+  - Coaching Learning Loop Panel (improvement rate, active cooldowns, per-metric state)
+  - Prompt Template Library Panel (10 templates, collapsible, copyable)
+  - HACE Coaching Report Panel (injected below Efficiency panel, shows only when HACE data exists)
+
+- **`confidenceTrend.ts`** — Confidence Trend Engine
+  - `appendConfidenceSnapshots()`: persists per-skill confidence to `confidence-history.jsonl` on every proposal refresh
+  - `computeConfidenceTrends()`: groups by day, computes 7d and 30d delta, direction (rising/falling/stable)
+  - `formatConfidenceTrendHtml()`: sparkline bars (▁▂▄▇) per skill, top improving and declining sections
+
+### Fixed (10 bugs)
+
+- **Bug 1 — runs.jsonl dedup** (`hookHandlers.ts`): skill-invoke dedup key `sessionId|skill|na` collapsed all session invocations of the same skill to one record. Fixed: use `toolUseId` when present; fall back to 10-second time bucket so genuine re-invocations are captured while Pre+Post double-writes are still suppressed.
+- **Bug 2+5 — rejection feedback** (`proposalOutcome.ts`): `recordSessionRejectionFeedback` was writing `accepted: true` skills as rejected with `reason: "ignored"`, polluting the confidence decay signal. Fixed: skip accepted skills entirely; only genuinely not-invoked skills get a feedback record.
+- **Bug 3 — precisionPct === acceptanceRatePct** (`adoptionIntelligence.ts`): both metrics computed `totalInvoked/totalProposed` — identical numbers shown as separate KPIs. Fixed: Precision now measures skill-level uniqueness (`uniqueSkillsInvoked / uniqueSkillsProposed`), making it genuinely distinct from the session-aggregate Acceptance Rate.
+- **Bug 4 — funnel totalSucceeded cross-source** (`proposalOutcome.ts`): `computeProposalFunnel` sourced Invoked from `proposalOutcome.jsonl` but Succeeded from all `runs.jsonl` — making `successRate > 100%` possible. Fixed: Succeeded now filtered to only sessions tracked in proposal outcomes.
+- **Bug 6 — HACE wall-clock TTR** (`efficiencyMetrics.ts`): session duration included overnight gaps, inflating `avgSessionMinutes` from ~15 real minutes to 113 min wall-clock and rendering Resolution Velocity 0% permanently. Fixed: `activeWorkMinutes()` strips inter-turn gaps >30 min; only active work intervals count.
+- **Bug 7 — adaptation-log double-writes** (`adaptationLog.ts`): dedup only checked the last line; process restarts allowed duplicate entries. Fixed: scans all entries within the last 24 hours for matching `type+description`.
+- **Bug 8 — VELOCITY_TARGET=2.0 uncalibrated** (`efficiencyMetrics.ts`): 2.0 turns/min rendered every coding session as 2% Task Velocity regardless of actual pace. Fixed: calibrated to 0.5 turns/min (1 turn per 2 minutes) — the realistic target for focused coding sessions. Display updated to "target ≥ 0.5".
+- **Bug 9 — repo-affinity cache stale on branch switch** (`repoAffinity.ts`): 24-hour disk cache never invalidated after `git checkout`. Fixed: `.git/HEAD` mtime checked against cache epoch; if HEAD moved after cache was written, cache is dropped and recomputed immediately.
+- **Bug 10 — totalCost null when cost=0** (`usageStats.ts`): hook-measured runs with `cost: 0` (zero-token skill reads) showed `totalCost: null` in `skill-stats.json` because the guard was `cost > 0`. Fixed: any numeric cost (including 0) is now counted as measured; zero-cost runs correctly show `$0.00`.
+- **Bug — Stop hook missing** (`.claude/settings.json`): `handleSessionStop` existed and was routed but no `Stop` hook was registered, leaving 98% of sessions without proposal outcome records. Fixed: `Stop` event now registered with 10s timeout.
+
+### Changed
+
+- **`efficiencyMetrics.ts`** — HACE TTR labels updated throughout: "TTR" → "Active TTR", tooltip clarifies idle gaps excluded
+- **`haceMetrics.ts`** — Also updated with `activeWorkMinutes()` and `avgSessionActiveMinutes` field; `IDLE_GAP_MS = 30 min` constant added
+- **`taskSkillProposals.ts`** — `writeTaskSkillProposals()` now calls `appendConfidenceSnapshots()` on every proposal refresh
+- **`adoptionIntelligence.ts`** — `EnrichedProposal` extended: `reuseRate`, `reuseCount`, `totalMinutesSaved`, `invokedCount`; `whyText` now surfaces success%, reuse count, and total time saved
+- **`taskSkillProposals.ts`** — `computeAffinityAdoptionWeight()` added: adoption-weighted affinity scoring caps static repo signal contribution when acceptance rate is low (0% acceptance → 0.3× multiplier); prevents `.kiro` dir from permanently overriding rejection evidence
+
+### Storage
+
+| New file | Purpose |
+|----------|---------|
+| `.claude/learning/prompt-intelligence.jsonl` | Per-prompt quality records (max 500) |
+| `.claude/learning/coaching-events.jsonl` | Coaching interaction log for learning loop |
+| `.claude/learning/coaching-state.json` | Per-metric adaptive frequency state |
+| `.claude/learning/confidence-history.jsonl` | Daily confidence snapshots per skill for trend engine |
+
+---
+
 ## [1.0.91] - 2026-06-24
 
 **Summary:** Adoption Intelligence System + full QA audit remediation — session-stop hook, AQI honesty, HACE transcript parser, artifact cleanup, and dynamic skill scoring to drive acceptance from 6% toward 15%+.

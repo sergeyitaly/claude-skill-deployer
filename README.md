@@ -1,6 +1,6 @@
 # Claude Skills Manager
 
-**v1.0.86** — AI agent skill deployment, cost intelligence, and adaptive learning for Claude, Cursor, Kiro, and GitHub Copilot.
+**v1.0.92** — AI agent skill deployment, cost intelligence, HACE coaching, and adaptive learning for Claude, Cursor, Kiro, and GitHub Copilot.
 
 Install from:
 - [VS Code / Cursor / Kiro — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer)
@@ -17,6 +17,7 @@ Claude Skills Manager is a VS Code extension that:
 3. **Measures AI spend** per session, per agent, and (when hooks are active) per skill invocation.
 4. **Scores agent intelligence** with the Agent Performance Index (API Score) — a 0–100 composite covering prediction accuracy, attribution quality, learning rate, and task completion.
 5. **Adapts over time** — proposal confidence improves as the system observes which skills are actually used; the Adaptation Log tracks every configuration change with before/after snapshots.
+6. **Coaches you to improve** — the HACE Coaching Engine converts every weak metric into prioritised advice with estimated improvement points; the Session Coach injects targeted hints directly into your Claude context (max 3 per session).
 
 ---
 
@@ -64,7 +65,25 @@ You have custom skills for your infrastructure stack. Keeping them in sync acros
 
 ---
 
-### Scenario D — You need to audit AI usage for a team or client
+### Scenario D — HACE is low and you don't know why
+
+Your HACE Score is 33/100. Prompt Clarity is 9%. Task Velocity is 2%. You can see the numbers but don't know what to do.
+
+**What the extension does:** the HACE Coaching Engine reads your scores and generates a prioritised coaching report — for each weak metric it tells you *why* it's low (e.g. "91% of turns trigger extended thinking blocks"), *what to do* (e.g. "one goal per prompt, include the exact error message"), and *how much it's worth* ("est. +7 HACE pts if fixed"). The Productivity Impact Simulation projects what your score would reach if you followed the top 3 recommendations. The Session Coach then injects the most relevant hint directly into your next Claude prompt (at most 3 per session, never on your first prompt).
+
+**Learning loop:** advice that leads to score improvements is shown more frequently; advice ignored 3 times enters a cooldown to avoid fatigue.
+
+---
+
+### Scenario E — Your prompts are vague and the AI keeps guessing
+
+You type "Fix ESO" and get a 6-turn back-and-forth before anything works.
+
+**What the extension does:** the Prompt Intelligence Engine scores every prompt you submit across 9 dimensions — goal clarity, error evidence, environment, constraints, success criteria, logs, expected output, context, and scope. It detects anti-patterns (multi-goal, missing error evidence, mixed architecture+debugging) and generates 3 improved rewrites: concise, troubleshooting, and expert. The Prompt Intelligence Panel shows your quality trend over time and your most common failure patterns. The Prompt Template Library provides 10 domain templates (Kubernetes Troubleshooting, GitHub Actions Failure, Terraform Deployment, Root Cause Analysis, etc.) that hit ≥80/100 quality when filled in.
+
+---
+
+### Scenario F — You need to audit AI usage for a team or client
 
 A client asks: what did the AI do, how much did it cost, which skills ran, was attribution reliable?
 
@@ -72,7 +91,7 @@ A client asks: what did the AI do, how much did it cost, which skills ran, was a
 
 ---
 
-### Scenario E — You want to run infrastructure CLIs from conversation
+### Scenario G — You want to run infrastructure CLIs from conversation
 
 You're doing Terraform + Azure + Kubernetes work and copying between terminal and chat is breaking your flow.
 
@@ -80,7 +99,7 @@ You're doing Terraform + Azure + Kubernetes work and copying between terminal an
 
 ---
 
-### Scenario F — You want all file I/O observable and scored
+### Scenario H — You want all file I/O observable and scored
 
 You suspect the agent is re-reading the same files repeatedly, wasting tokens. You want to see and fix it.
 
@@ -234,6 +253,76 @@ Safe mode activates when attribution confidence < 35%. Optimization suggestions 
 
 ---
 
+## HACE Coaching System
+
+The HACE Coaching System transforms the Human-AI Collaboration Efficiency (HACE) score from a passive measurement into an active improvement loop.
+
+### How it works
+
+On every pipeline cycle the coaching engine reads the current HACE component scores and generates a **Coaching Report** — shown directly below the HACE Efficiency panel in the dashboard:
+
+- For each metric below its threshold (Prompt Clarity <65%, Task Velocity <60%, etc.) it generates:
+  - **Why it's low** — specific, evidence-backed reasons (e.g. "91% of turns trigger extended thinking blocks")
+  - **What to do** — concrete, ordered action steps
+  - **Estimated gain** — approximate HACE points if the advice is followed
+- **Productivity Impact Simulation**: "Following the top 3 recommendations could improve HACE by +N points (X → Y/100)"
+
+### Session Coach
+
+During active Claude Code sessions, the Session Coach injects coaching hints directly into your prompt context:
+
+- Fires on `UserPromptSubmit` (skip prompt 1, skip scores ≥65)
+- Max **3 hints per session** across all hint types (coach + skill opportunity)
+- Anti-spam: hints only surface when their metric's cooldown has not fired
+- Format: `[HACE Coach] ...` for metric hints; `[Prompt Coach] ...` for prompt quality hints
+
+### Prompt Intelligence Engine
+
+Every prompt you submit is analyzed across 9 quality dimensions and scored 0–100:
+
+| Dimension | What it checks |
+|-----------|---------------|
+| Goal defined | Single clear action verb; goal count |
+| Context provided | Current-state references |
+| Error evidence | Error messages, stack traces, exit codes |
+| Constraints | Must/should-not/avoid clauses |
+| Success criteria | Expected result, done-when statements |
+| Environment | Platform, cloud, tool version |
+| Logs / output | Pasted log lines, command output |
+| Expected output | Return/generate/provide directives |
+| Task scope | Single-goal focus |
+
+**Anti-patterns detected:** multi-goal (>1 goal), missing error evidence, no environment, vague request, mixed architecture+debugging, missing logs, excessive length.
+
+**Prompt Rewriter:** generates 3 structured versions of any prompt (concise / troubleshooting / expert) without any API call.
+
+### Prompt Template Library
+
+10 domain templates in the dashboard, each enforcing all quality dimensions:
+
+| Template | Category | Target score |
+|----------|----------|-------------|
+| Kubernetes Troubleshooting | Infrastructure | ≥85 |
+| DevOps Investigation | DevOps | ≥82 |
+| AWS Incident Response | Cloud | ≥83 |
+| Azure Troubleshooting | Cloud | ≥83 |
+| GitHub Actions Failure | CI/CD | ≥84 |
+| Terraform Deployment | IaC | ≥85 |
+| VS Code Extension Dev | Extension | ≥82 |
+| Architecture Review | Design | ≥78 |
+| Feature Implementation | Development | ≥80 |
+| Root Cause Analysis | Investigation | ≥86 |
+
+### Adaptive Learning Loop
+
+The coaching system learns which advice is effective:
+
+- Advice shown → user improves score >3pts → `adaptedMultiplier × 1.2` (shown more often, up to 2×)
+- Advice shown 3× → no improvement → cooldown 24–72h → `adaptedMultiplier × 0.7` (suppressed, down to 0.25×)
+- State persisted in `.claude/learning/coaching-state.json`
+
+---
+
 ## Prediction Intelligence
 
 The proposal engine ranks skills for each task using:
@@ -282,6 +371,13 @@ The Adaptation Timeline in the dashboard (Feature Mode: power) shows these entri
 | `.claude/learning/system-state.json` | Attribution / hooks / capabilities snapshot |
 | `.claude/learning/attribution-trust.json` | Attribution confidence score (0–100) and trust tier |
 | `.claude/learning/adaptation-log.jsonl` | Configuration change history with API Score snapshots |
+| `.claude/learning/proposalOutcome.jsonl` | Session-level proposal→invocation→success outcome records |
+| `.claude/learning/recommendation-feedback.jsonl` | Per-skill rejection feedback (written on session Stop) |
+| `.claude/learning/hace-sessions.jsonl` | HACE metric snapshots per pipeline cycle |
+| `.claude/learning/prompt-intelligence.jsonl` | Per-prompt quality scores (max 500 records) |
+| `.claude/learning/coaching-events.jsonl` | Coaching interaction log for learning loop |
+| `.claude/learning/coaching-state.json` | Per-metric adaptive frequency and cooldown state |
+| `.claude/learning/confidence-history.jsonl` | Daily confidence snapshots per skill for trend engine |
 | `.claude/mcp-usage.jsonl` | MCP file-access telemetry (workspace-scoped) |
 
 ---
@@ -417,4 +513,4 @@ Auto-enable on startup: `claudeSkills.mcpForce.enableOnStartup: true`
 
 ---
 
-**Current version:** 1.0.89 (`serhiivoinolovych.claude-skill-deployer`)
+**Current version:** 1.0.92 (`serhiivoinolovych.claude-skill-deployer`)

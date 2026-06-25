@@ -136,14 +136,24 @@ export function getOrComputeRepoAffinity(target: string): RepoAffinityResult {
     } catch { /* fall through */ }
   }
 
-  // 2. Check disk cache.
+  // 2. Check disk cache — also invalidate if .git/HEAD changed since the cache was written
+  //    (branch switch → different tech-stack signals → stale affinity boosts).
   try {
     const cached = JSON.parse(fs.readFileSync(file, "utf-8")) as RepoAffinityResult;
     const ageMs = Date.now() - new Date(cached.computedAt).getTime();
     if (ageMs < AFFINITY_CACHE_HOURS * 3_600_000 && cached.skillBoosts) {
-      const mtime = fs.statSync(file).mtimeMs;
-      _memCache.set(key, { result: cached, mtimeMs: mtime });
-      return cached;
+      // Invalidate if the git HEAD has moved since the cache was computed.
+      const cacheEpoch = new Date(cached.computedAt).getTime();
+      let gitHeadMtime = 0;
+      try { gitHeadMtime = fs.statSync(path.join(target, ".git", "HEAD")).mtimeMs; } catch { /* not a git repo */ }
+      if (gitHeadMtime > cacheEpoch) {
+        // Branch switched — drop cache and fall through to recompute.
+        _memCache.delete(key);
+      } else {
+        const mtime = fs.statSync(file).mtimeMs;
+        _memCache.set(key, { result: cached, mtimeMs: mtime });
+        return cached;
+      }
     }
   } catch { /* recompute */ }
 

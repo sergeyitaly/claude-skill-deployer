@@ -40,15 +40,22 @@ export function appendAdaptationEvent(
   const file = adaptationLogPath(target);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    // Deduplication: skip if the last entry has the same type + description.
+    // Deduplication: skip if any entry within the last 24 hours has the same type + description.
+    // Checking only the last line was insufficient — process restarts or interleaved events
+    // caused identical entries to slip through the single-line guard.
     if (fs.existsSync(file)) {
-      const content = fs.readFileSync(file, "utf-8");
-      const lastLine = content.trimEnd().split("\n").pop() ?? "";
-      if (lastLine) {
+      const cutoff24h = Date.now() - 24 * 3_600_000;
+      const lines = fs.readFileSync(file, "utf-8").trimEnd().split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
         try {
-          const last = JSON.parse(lastLine) as AdaptationEvent;
-          if (last.type === event.type && last.description === event.description) return;
-        } catch { /* ignore parse error on last line */ }
+          const entry = JSON.parse(line) as AdaptationEvent;
+          if (
+            entry.type === event.type &&
+            entry.description === event.description &&
+            new Date(entry.ts).getTime() >= cutoff24h
+          ) return;
+        } catch { /* skip corrupt lines */ }
       }
     }
     const ts = new Date().toISOString();

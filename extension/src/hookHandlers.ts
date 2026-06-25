@@ -27,6 +27,11 @@ import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
 import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branchProfiles";
 import { appendHookHealth } from "./hookHealth";
 import { recordSessionProposalOutcome, recordSessionRejectionFeedback } from "./proposalOutcome";
+import { shouldSurfaceProposals } from "./adoptionIntelligence";
+import { readTaskSkillProposals } from "./taskSkillProposals";
+import { analyzePrompt, appendPromptRecord } from "./promptIntelligence";
+import { getSessionCoachHints } from "./haceCoaching";
+import { recordAdviceShown, shouldShowAdvice } from "./coachingLearning";
 
 export interface HookRequest {
   hookName: string;
@@ -253,7 +258,26 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
   const MAX_STATE_KEYS = 3000;
   const MAX_STATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-  const key = `${sessionId}|${skill}|${toolUseId || "na"}`;
+  // Dedup strategy:
+  // - When toolUseId is present (PostToolUse with specific call ID): use it — exact match.
+  // - When toolUseId is absent (PreToolUse / VS Code workaround): bucket by 10-second window.
+  //   This prevents Pre+Post double-writes for the same tool call while allowing the SAME
+  //   skill to be recorded again after the bucket expires (i.e., genuine re-invocations
+  //   within the same session are captured, not permanently collapsed to one record).
+  const hasResponse = !!(body.tool_response ?? body.toolResult ?? body.tool_result);
+  const dedupeId = toolUseId
+    ? toolUseId
+    : hasResponse
+      ? `post-${Math.floor(Date.now() / 10_000)}` // PostToolUse without ID: 10s bucket
+      : `pre-${Math.floor(Date.now() / 10_000)}`;  // PreToolUse without ID: 10s bucket
+
+  // Prefer recording on PostToolUse (completion known). Skip PreToolUse when PostToolUse
+  // will fire for the same call — identified by a matching 10-second bucket key.
+  // Exception: if there is no tool_response and no toolUseId (Claude VS Code workaround),
+  // allow the PreToolUse record through so attribution is never silently dropped.
+  if (!hasResponse && toolUseId) return {}; // Pre with ID: skip — Post will write
+
+  const key = `${sessionId}|${skill}|${dedupeId}`;
   let state: Record<string, string> = readJsonSafe<Record<string, string>>(stateFile) ?? {};
   if (state[key]) return {};
 
@@ -1852,8 +1876,242 @@ function extractPromptContent(resp: HookResponse, agent: string): string {
   return typeof resp.systemMessage === "string" ? resp.systemMessage : "";
 }
 
+// Per-session counter: how many times we surfaced skill proposals this session.
+const _sessionProposalSurfaceCount = new Map<string, number>();
+
+// ---------------------------------------------------------------------------
+// Session Coach state — tracks hints shown per session to enforce the 3-per-session cap
+// ---------------------------------------------------------------------------
+
+/** Tracks { hintsShown, promptIndex } per session */
+const _sessionCoachState = new Map<string, { hintsShown: number; promptIndex: number }>();
+
+const SESSION_COACH_MAX_HINTS = 3;
+
+/**
+ * Analyzes the current prompt for quality, records the result, and returns a
+ * coaching hint string when:
+ *   1. The prompt quality is low enough to warrant advice
+ *   2. The relevant metric's cooldown has not fired
+ *   3. The per-session hint cap (3) has not been reached
+ *   4. The hint has not already been shown this session for this metric
+ *
+ * Also: runs `analyzePrompt` and persists the record unconditionally (for dashboard).
+ */
+function handleSessionCoach(req: HookRequest, promptText: string): string {
+  const cwd = req.cwd;
+  if (!cwd || !promptText.trim()) return "";
+
+  const body = req.body as Record<string, unknown>;
+  const sessionId = resolveSessionId(body, cwd) || "unknown";
+
+  const state = _sessionCoachState.get(sessionId) ?? { hintsShown: 0, promptIndex: 0 };
+  state.promptIndex++;
+  _sessionCoachState.set(sessionId, state);
+
+  // Always record prompt quality for dashboard (no hint cap here)
+  const analysis = analyzePrompt(promptText, sessionId, state.promptIndex);
+  try { appendPromptRecord(cwd, analysis); } catch { /* non-fatal */ }
+
+  // Don't coach on every prompt — skip the first prompt of a session (usually task setup)
+  // and don't re-coach until the quality is actually below threshold
+  if (state.promptIndex === 1 || state.hintsShown >= SESSION_COACH_MAX_HINTS) return "";
+  if (analysis.score >= 65) return ""; // good enough — no coaching needed
+
+  // Read current HACE scores from the last hace-session record for metric targeting
+  let haceScores: Parameters<typeof getSessionCoachHints>[1] | null = null;
+  try {
+    const haceFile = path.join(cwd, ".claude", "learning", "hace-sessions.jsonl");
+    const lines = fs.readFileSync(haceFile, "utf-8").split("\n").filter(Boolean);
+    if (lines.length > 0) {
+      const last = JSON.parse(lines[lines.length - 1]) as Record<string, number>;
+      haceScores = {
+        promptClarityScore:    last.promptClarityScore    ?? 50,
+        taskVelocityScore:     last.taskVelocityScore     ?? 50,
+        accuracyScore:         last.accuracyScore         ?? 50,
+        resolutionVelocityScore: last.resolutionVelocityScore ?? 50,
+        skillLeverageScore:    last.skillLeverageScore    ?? 50,
+        cliEfficiencyScore:    last.cliEfficiencyScore    ?? 95,
+      };
+    }
+  } catch { /* non-fatal — HACE data may not exist yet */ }
+
+  if (!haceScores) return "";
+
+  const hints = getSessionCoachHints(cwd, haceScores, promptText);
+
+  for (const hint of hints) {
+    if (!shouldShowAdvice(cwd, hint.metric)) continue; // in cooldown
+
+    const shown = recordAdviceShown(cwd, hint.metric, haceScores[`${hint.metric}Score` as never] as number ?? 50, hint.message);
+    if (!shown) continue; // cooldown says no
+
+    state.hintsShown++;
+    _sessionCoachState.set(sessionId, state);
+    return `[HACE Coach] ${hint.message}`;
+  }
+
+  // Fall back: surface a prompt-quality-specific recommendation if no metric hint fired
+  if (analysis.recommendations[0] && state.hintsShown < SESSION_COACH_MAX_HINTS) {
+    state.hintsShown++;
+    _sessionCoachState.set(sessionId, state);
+    return `[Prompt Coach] Quality: ${analysis.score}/100 — ${analysis.recommendations[0]}`;
+  }
+
+  return "";
+}
+
+/**
+ * Skill Opportunity Detection — fires on UserPromptSubmit.
+ * Reads the user's prompt from the transcript tail, checks for high-signal keywords
+ * (kubectl, terraform, github-actions …), and surfaces a one-line skill hint when
+ * shouldSurfaceProposals approves. Only fires for installed skills not yet proposed.
+ */
+function handleSkillOpportunity(req: HookRequest): string {
+  const body = req.body as Record<string, unknown>;
+  const cwd = req.cwd;
+  if (!cwd) return "";
+
+  const sessionId = resolveSessionId(body, cwd);
+  const proposedCount = sessionId ? (_sessionProposalSurfaceCount.get(sessionId) ?? 0) : 0;
+
+  // Extract prompt text from transcript tail
+  let promptText = "";
+  const transcriptPath = typeof body.transcript_path === "string" ? body.transcript_path : undefined;
+  if (transcriptPath) {
+    try {
+      const lines = fs.readFileSync(transcriptPath, "utf-8").split("\n").filter(Boolean).slice(-20);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const entry = JSON.parse(lines[i]) as Record<string, unknown>;
+          if (entry.type === "user") {
+            const content = (entry.message as Record<string, unknown>)?.content;
+            if (Array.isArray(content)) {
+              const text = (content as Array<Record<string, unknown>>)
+                .filter(c => c.type === "text")
+                .map(c => String(c.text ?? "")).join(" ");
+              if (text.trim()) { promptText = text; break; }
+            }
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  if (!promptText) return "";
+
+  const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
+  if (!shouldPropose) return "";
+
+  // Keyword → installed-skill opportunity mapping
+  const OPPORTUNITY_SIGNALS: Array<{ pattern: RegExp; skill: string; label: string }> = [
+    { pattern: /kubectl|kubernetes|helm\b/i,                          skill: "k3s-kuberocketci",               label: "Kubernetes/kubectl" },
+    { pattern: /terraform\b|\.tf\b/i,                                skill: "terraform-plan-review",           label: "Terraform" },
+    { pattern: /github.actions|\.github\/workflows/i,                skill: "github-actions-ci",               label: "GitHub Actions" },
+    { pattern: /gitlab.ci|\.gitlab-ci\.yml/i,                        skill: "gitlab-pipeline-ops",             label: "GitLab CI" },
+    { pattern: /az\s+(webapp|aks|deploy)|bicep\b/i,                  skill: "azure-resource-ops",              label: "Azure deploy" },
+    { pattern: /vitest\b|\.bench\.test\.|\.solo\.test\./i,           skill: "vitest-extension-testing",        label: "Vitest test" },
+    { pattern: /vsce\b|vsix\b|vscode.*publish/i,                     skill: "vscode-extension-publishing",     label: "VS Code publish" },
+    { pattern: /ovsx\b|open.vsx|cursor.*extension|kiro.*extension/i, skill: "cursor-kiro-extension-publishing",label: "Open VSX publish" },
+    { pattern: /kusto\b|kql\b|adx\b/i,                              skill: "adx-schema-check",                label: "ADX/KQL" },
+    { pattern: /generate.*pdf|extract.*pdf|\.pdf\b/i,               skill: "pdf",                              label: "PDF workflow" },
+  ];
+
+  const installedSkills = new Set<string>();
+  try {
+    const skillsDir = path.join(cwd, ".claude", "skills");
+    for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (d.isDirectory()) installedSkills.add(d.name);
+    }
+  } catch { /* non-fatal */ }
+
+  const proposedSkills = new Set((readTaskSkillProposals(cwd)?.proposals ?? []).map(p => p.name));
+
+  for (const { pattern, skill, label } of OPPORTUNITY_SIGNALS) {
+    if (!pattern.test(promptText)) continue;
+    if (!installedSkills.has(skill)) continue;
+    if (proposedSkills.has(skill)) continue; // already proposed — no duplicate hint
+
+    if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
+    return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
+  }
+
+  return "";
+}
+
 function handlePromptContext(req: HookRequest): HookResponse {
+  // Extract current prompt text once — shared by opportunity detection and session coach
+  let promptText = "";
+  const body = req.body as Record<string, unknown>;
+  const transcriptPath = typeof body.transcript_path === "string" ? body.transcript_path : undefined;
+  if (transcriptPath) {
+    try {
+      const lines = fs.readFileSync(transcriptPath, "utf-8").split("\n").filter(Boolean).slice(-20);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const entry = JSON.parse(lines[i]) as Record<string, unknown>;
+          if (entry.type === "user") {
+            const content = (entry.message as Record<string, unknown>)?.content;
+            if (Array.isArray(content)) {
+              const text = (content as Array<Record<string, unknown>>)
+                .filter(c => c.type === "text")
+                .map(c => String(c.text ?? "")).join(" ");
+              if (text.trim()) { promptText = text; break; }
+            }
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  const coachHint   = handleSessionCoach(req, promptText);
+  const opportunity = promptText ? (() => {
+    // Re-use skill opportunity detection with the already-extracted text
+    const body2 = req.body as Record<string, unknown>;
+    const cwd = req.cwd;
+    if (!cwd || !promptText) return "";
+    const sessionId = resolveSessionId(body2, cwd);
+    const proposedCount = sessionId ? (_sessionProposalSurfaceCount.get(sessionId) ?? 0) : 0;
+    const { shouldPropose, reason } = shouldSurfaceProposals(promptText, proposedCount);
+    if (!shouldPropose) return "";
+
+    const OPPORTUNITY_SIGNALS: Array<{ pattern: RegExp; skill: string; label: string }> = [
+      { pattern: /kubectl|kubernetes|helm\b/i,                          skill: "k3s-kuberocketci",               label: "Kubernetes/kubectl" },
+      { pattern: /terraform\b|\.tf\b/i,                                skill: "terraform-plan-review",           label: "Terraform" },
+      { pattern: /github.actions|\.github\/workflows/i,                skill: "github-actions-ci",               label: "GitHub Actions" },
+      { pattern: /gitlab.ci|\.gitlab-ci\.yml/i,                        skill: "gitlab-pipeline-ops",             label: "GitLab CI" },
+      { pattern: /az\s+(webapp|aks|deploy)|bicep\b/i,                  skill: "azure-resource-ops",              label: "Azure deploy" },
+      { pattern: /vitest\b|\.bench\.test\.|\.solo\.test\./i,           skill: "vitest-extension-testing",        label: "Vitest test" },
+      { pattern: /vsce\b|vsix\b|vscode.*publish/i,                     skill: "vscode-extension-publishing",     label: "VS Code publish" },
+      { pattern: /ovsx\b|open.vsx|cursor.*extension|kiro.*extension/i, skill: "cursor-kiro-extension-publishing",label: "Open VSX publish" },
+      { pattern: /kusto\b|kql\b|adx\b/i,                              skill: "adx-schema-check",                label: "ADX/KQL" },
+      { pattern: /generate.*pdf|extract.*pdf|\.pdf\b/i,               skill: "pdf",                              label: "PDF workflow" },
+    ];
+
+    const installedSkills = new Set<string>();
+    try {
+      const skillsDir = path.join(cwd, ".claude", "skills");
+      for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+        if (d.isDirectory()) installedSkills.add(d.name);
+      }
+    } catch { /* non-fatal */ }
+
+    const proposedSkills = new Set((readTaskSkillProposals(cwd)?.proposals ?? []).map(p => p.name));
+
+    for (const { pattern, skill, label } of OPPORTUNITY_SIGNALS) {
+      if (!pattern.test(promptText)) continue;
+      if (!installedSkills.has(skill)) continue;
+      if (proposedSkills.has(skill)) continue;
+
+      if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
+      return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
+    }
+    return "";
+  })() : handleSkillOpportunity(req);
+
   const parts = [
+    coachHint,
+    opportunity,
     extractPromptContent(handleSessionSize(req), req.agent),
     extractPromptContent(handleContextFocus(req), req.agent),
     extractPromptContent(handlePracticalFocus(req), req.agent),

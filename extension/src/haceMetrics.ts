@@ -34,6 +34,10 @@ export interface HaceMetrics {
   thinkingRate: number;
   correctionRate: number;
   turnsPerMinute: number;
+  /** Wall-clock average session minutes (raw, inflated by idle time). */
+  avgSessionMinutes: number;
+  /** Active-work-only average session minutes — idle gaps >30min stripped. */
+  avgSessionActiveMinutes: number;
   promptClarityScore: number;
   taskVelocityScore: number;
   accuracyScore: number;
@@ -77,6 +81,9 @@ const CORRECTION_MAX_CHARS = 80;
 const CORRECTION_MIN_TOKENS = 250;
 const MAX_RESPONSE_SECS = 300;
 const VELOCITY_TARGET = 2.0;
+// Gaps longer than this are treated as idle time (overnight, pause, lunch break).
+// Only active intervals count toward TTR and velocity so metrics reflect real work pace.
+const IDLE_GAP_MS = 30 * 60_000;
 
 function parseSessionFile(filePath: string): HaceTurn[] {
   let lines: string[];
@@ -149,6 +156,25 @@ function grade(score: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Active Work Time — strips idle gaps > IDLE_GAP_MS so TTR reflects real pace
+// ---------------------------------------------------------------------------
+
+function activeWorkMinutes(turns: HaceTurn[]): number {
+  if (turns.length === 0) return 0;
+  let activeMs = 0;
+  for (let i = 0; i < turns.length; i++) {
+    // Count the time to produce each response as active
+    activeMs += turns[i].responseSecs * 1000;
+    // Count the gap between response and next human message only if ≤ IDLE_GAP_MS
+    if (i < turns.length - 1) {
+      const gap = turns[i + 1].humanTs - turns[i].responseTs;
+      if (gap > 0 && gap <= IDLE_GAP_MS) activeMs += gap;
+    }
+  }
+  return activeMs / 60_000;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -160,21 +186,24 @@ export function computeHaceMetrics(
   const cutoffMs = Date.now() - daysBack * 86_400_000;
   const files = sessionFilesForWorkspace(target, cutoffMs);
   const allTurns: HaceTurn[] = [];
-  const sessionDurations: number[] = [];
+  const activeSessionDurations: number[] = [];
+  const wallClockDurations: number[] = [];
 
   for (const f of files) {
     const turns = parseSessionFile(f);
     if (turns.length === 0) continue;
     allTurns.push(...turns);
+    activeSessionDurations.push(activeWorkMinutes(turns));
     const first = turns[0].humanTs;
     const last = turns[turns.length - 1].responseTs;
-    if (last > first) sessionDurations.push((last - first) / 60_000);
+    if (last > first) wallClockDurations.push((last - first) / 60_000);
   }
 
   if (allTurns.length === 0) {
     return {
       noData: true, sessions: files.length, totalTurns: 0,
       avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0,
+      avgSessionMinutes: 0, avgSessionActiveMinutes: 0,
       promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0,
       cliEfficiencyScore: clamp(cliSuccessRate),
       haceScore: 0, grade: "—",
@@ -185,12 +214,17 @@ export function computeHaceMetrics(
   const thinkingTurns = allTurns.filter(t => t.hasThinking).length;
   const correctionTurns = allTurns.filter(t => t.isCorrection).length;
   const totalResponseSec = allTurns.reduce((s, t) => s + t.responseSecs, 0);
-  const totalDurMin = sessionDurations.reduce((s, d) => s + d, 0);
+  const totalActiveMin = activeSessionDurations.reduce((s, d) => s + d, 0);
+  const totalWallMin = wallClockDurations.reduce((s, d) => s + d, 0);
+  const sessionCount = activeSessionDurations.length || 1;
 
   const thinkingRate = thinkingTurns / n;
   const correctionRate = correctionTurns / n;
   const avgResponseSecs = totalResponseSec / n;
-  const turnsPerMinute = totalDurMin > 0 ? n / totalDurMin : 0;
+  const avgSessionMinutes = totalWallMin / sessionCount;
+  const avgSessionActiveMinutes = totalActiveMin / sessionCount;
+  // Use active work time for velocity so idle overnight gaps don't crush the score
+  const turnsPerMinute = totalActiveMin > 0 ? n / totalActiveMin : 0;
 
   const promptClarityScore = clamp((1 - thinkingRate) * 100);
   const taskVelocityScore = clamp(Math.min(turnsPerMinute / VELOCITY_TARGET, 1) * 100);
@@ -207,9 +241,113 @@ export function computeHaceMetrics(
   return {
     noData: false, sessions: files.length, totalTurns: n,
     avgResponseSecs, thinkingRate, correctionRate, turnsPerMinute,
+    avgSessionMinutes, avgSessionActiveMinutes,
     promptClarityScore, taskVelocityScore, accuracyScore, cliEfficiencyScore,
     haceScore, grade: grade(haceScore),
   };
+}
+
+// ---------------------------------------------------------------------------
+// HACE Action Engine — converts raw scores into actionable recommendations
+// ---------------------------------------------------------------------------
+
+interface HaceAction {
+  metric: string;
+  score: number;
+  advice: string;
+  priority: "critical" | "high" | "medium";
+}
+
+export function computeHaceActions(metrics: HaceMetrics): HaceAction[] {
+  const actions: HaceAction[] = [];
+
+  if (metrics.promptClarityScore < 25) {
+    actions.push({
+      metric: "Prompt Clarity",
+      score: metrics.promptClarityScore,
+      advice: "Break large requests into smaller, focused tasks. Shorter prompts reduce model reasoning overhead — aim for one goal per message.",
+      priority: "critical",
+    });
+  } else if (metrics.promptClarityScore < 50) {
+    actions.push({
+      metric: "Prompt Clarity",
+      score: metrics.promptClarityScore,
+      advice: "Split multi-step requests. Provide file paths and context upfront to avoid back-and-forth clarification rounds.",
+      priority: "high",
+    });
+  }
+
+  if (metrics.taskVelocityScore < 20) {
+    actions.push({
+      metric: "Task Velocity",
+      score: metrics.taskVelocityScore,
+      advice: "Use focused, single-topic sessions. Long omnibus sessions dilute velocity. Consider /clear between unrelated tasks.",
+      priority: "critical",
+    });
+  } else if (metrics.taskVelocityScore < 40) {
+    actions.push({
+      metric: "Task Velocity",
+      score: metrics.taskVelocityScore,
+      advice: "Keep sessions task-focused. Avoid switching topics mid-session — context switching slows throughput.",
+      priority: "high",
+    });
+  }
+
+  if (metrics.accuracyScore < 60) {
+    actions.push({
+      metric: "Accuracy Rate",
+      score: metrics.accuracyScore,
+      advice: "High correction rate detected. Provide clearer success criteria upfront. Specify exact file paths, function names, and expected outputs before the agent starts.",
+      priority: "high",
+    });
+  }
+
+  if (metrics.avgSessionActiveMinutes > 60) {
+    actions.push({
+      metric: "Resolution Velocity",
+      score: 0,
+      advice: `Active work time averages ${Math.round(metrics.avgSessionActiveMinutes)} min. Create task-focused sessions instead of open-ended sessions. Use /clear to start fresh when switching tasks.`,
+      priority: "high",
+    });
+  } else if (metrics.avgSessionActiveMinutes > 30) {
+    actions.push({
+      metric: "Resolution Velocity",
+      score: 0,
+      advice: `Sessions average ${Math.round(metrics.avgSessionActiveMinutes)} min of active work. Target ≤ 30 min per focused task.`,
+      priority: "medium",
+    });
+  }
+
+  if (metrics.cliEfficiencyScore < 80) {
+    actions.push({
+      metric: "CLI Efficiency",
+      score: metrics.cliEfficiencyScore,
+      advice: "Multiple CLI failures detected. Check credentials, paths, and allow-lists. Fix root causes — don't retry blindly.",
+      priority: "high",
+    });
+  }
+
+  return actions.sort((a, b) => {
+    const order = { critical: 0, high: 1, medium: 2 };
+    return order[a.priority] - order[b.priority];
+  });
+}
+
+function formatHaceActionsHtml(actions: HaceAction[]): string {
+  if (actions.length === 0) {
+    return `<p class="note" style="color:var(--vscode-charts-green,#4CAF50)">No critical actions — scores are within target ranges.</p>`;
+  }
+  const colorMap = { critical: "var(--vscode-charts-red,#F44336)", high: "var(--vscode-charts-yellow,#FFC107)", medium: "var(--vscode-descriptionForeground)" };
+  return actions.map(a =>
+    `<div class="skill-row" style="margin-bottom:6px">
+  <div class="skill-head">
+    <span style="color:${colorMap[a.priority]};font-size:10px;text-transform:uppercase">${a.priority}</span>
+    <b style="margin-left:4px">${a.metric}</b>
+    ${a.score > 0 ? `<span class="cost roi-low" style="margin-left:4px">${a.score}%</span>` : ""}
+  </div>
+  <div class="hint" style="margin-top:2px">${a.advice}</div>
+</div>`
+  ).join("");
 }
 
 export function formatHacePanelHtml(metrics: HaceMetrics): string {
@@ -235,6 +373,9 @@ export function formatHacePanelHtml(metrics: HaceMetrics): string {
     <div class="stat-pill"><b>Sessions</b><span class="val">${metrics.sessions}</span></div>
     <div class="stat-pill"><b>Turns</b><span class="val">${metrics.totalTurns}</span></div>
     <div class="stat-pill"><b>Avg response</b><span class="val">${fmt1(metrics.avgResponseSecs)}s</span></div>
+    <div class="stat-pill" title="Active work time per session — idle gaps >30min excluded. Wall-clock: ${Math.round(metrics.avgSessionMinutes)}min">
+      <b>Active TTR</b><span class="val ${metrics.avgSessionActiveMinutes <= 30 ? "roi-high" : metrics.avgSessionActiveMinutes <= 60 ? "roi-medium" : "roi-low"}">${Math.round(metrics.avgSessionActiveMinutes)} min</span>
+    </div>
   </div>
   <div class="stat-grid" style="margin-bottom:6px">
     <div class="stat-pill" title="Prompt Clarity (30%) — fraction of turns that did NOT trigger thinking blocks">
@@ -250,6 +391,10 @@ export function formatHacePanelHtml(metrics: HaceMetrics): string {
       <b>CLI Efficiency</b><span class="val">${pct(metrics.cliEfficiencyScore)}</span>
     </div>
   </div>
-  <p class="note">Weights: Clarity 30% · Velocity 25% · Accuracy 25% · CLI 20% · Target: ≥70 (B). ${metrics.thinkingRate > 0 ? `Thinking blocks in ${Math.round(metrics.thinkingRate * 100)}% of turns — clearer prompts reduce model reasoning overhead.` : ""}</p>
+  <p class="note">Weights: Clarity 30% · Velocity 25% · Accuracy 25% · CLI 20% · Target: ≥70 (B). Active TTR strips idle gaps &gt;30min. ${metrics.thinkingRate > 0 ? `Thinking blocks in ${Math.round(metrics.thinkingRate * 100)}% of turns — clearer prompts reduce model reasoning overhead.` : ""}</p>
+  <details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:12px;font-weight:600">Action Recommendations</summary>
+    <div style="margin-top:8px">${formatHaceActionsHtml(computeHaceActions(metrics))}</div>
+  </details>
 </div>`;
 }
