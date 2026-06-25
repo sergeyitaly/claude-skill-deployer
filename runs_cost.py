@@ -320,6 +320,38 @@ def _process_run_row(
     return tokens, stored, computed
 
 
+def _compute_cutoff(days: int | None) -> datetime | None:
+    if days is not None and days > 0:
+        return datetime.now(timezone.utc) - timedelta(days=days)
+    return None
+
+
+def _is_before_cutoff(row: dict[str, Any], cutoff: datetime | None) -> bool:
+    """Return True when the row's timestamp precedes cutoff and the row should be excluded."""
+    if cutoff is None:
+        return False
+    ts = _parse_ts(row)
+    return ts is None or ts < cutoff
+
+
+def _classify_run_row(
+    row: dict[str, Any],
+    *,
+    hook_only: bool,
+    include_transcript: bool,
+) -> tuple[bool, bool]:
+    """Return (should_process, is_excluded_collector).
+
+    should_process=False  → skip this row.
+    is_excluded_collector → the skip counts in excluded_collector_runs.
+    """
+    is_collector = is_collector_transcript_run(row)
+    included = should_include_run(row, hook_only=hook_only, include_transcript=include_transcript)
+    if not included:
+        return False, is_collector
+    return True, False
+
+
 def _check_collector_dedup(
     row: dict[str, Any],
     *,
@@ -352,10 +384,7 @@ def summarize_skill_costs(
     runs_file = workspace / RUNS_RELATIVE
     overrides = read_pricing_overrides(workspace)
     rows = load_runs_jsonl(runs_file)
-    cutoff: datetime | None = (
-        datetime.now(timezone.utc) - timedelta(days=days)
-        if days is not None and days > 0 else None
-    )
+    cutoff = _compute_cutoff(days)
 
     seen_collector: set[tuple[str, str, str]] = set()
     by_skill: dict[str, SkillCostRow] = {}
@@ -368,15 +397,14 @@ def summarize_skill_costs(
     computed_total = 0.0
 
     for row in rows:
-        if cutoff is not None:
-            ts = _parse_ts(row)
-            if ts is None or ts < cutoff:
-                continue
-        if is_collector_transcript_run(row):
-            if not should_include_run(row, hook_only=hook_only, include_transcript=include_transcript):
+        if _is_before_cutoff(row, cutoff):
+            continue
+        should_process, count_excluded = _classify_run_row(
+            row, hook_only=hook_only, include_transcript=include_transcript,
+        )
+        if not should_process:
+            if count_excluded:
                 excluded_collector += 1
-                continue
-        elif not should_include_run(row, hook_only=hook_only, include_transcript=include_transcript):
             continue
         if _check_collector_dedup(row, include_transcript=include_transcript,
                                    dedupe_collector=dedupe_collector, seen_collector=seen_collector):

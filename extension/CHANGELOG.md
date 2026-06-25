@@ -52,15 +52,23 @@ Each release includes:
 
 ## [1.0.95] - 2026-06-25
 
-**Summary:** Bug fixes — 5 SonarQube S3776 complexity violations in `runs_cost.py`, deduplicated `OPPORTUNITY_SIGNALS` in hook handlers, corrected dormant-skill comment.
+**Summary:** Code health — all SonarQube S3776 violations resolved, OPPORTUNITY_SIGNALS deduplicated, 49 regression tests added.
 
-**Theme:** Code health and maintainability.
+**Theme:** Zero cognitive-complexity findings before release; every refactored helper covered by tests.
 
 ### Fixed
 
-- **`runs_cost.py`** — Reduced cognitive complexity of 5 functions from [16, 22, 33, 22, 20] to ≤15 each by extracting `_parse_usage_dict`, `_build_usage_candidates`, `_resolve_transcript_path`, `_process_run_row`, `_check_collector_dedup`, `_scan_follow_lines`, and `_try_enrich_row` helpers (SonarQube S3776).
-- **`hookHandlers.ts`** — `OPPORTUNITY_SIGNALS` array was defined twice identically (lines 2008 and 2102); extracted to a single module-level `ReadonlyArray` constant, eliminating divergence risk.
-- **`proposalOutcome.ts`** — `getDormantSkills` JSDoc comment incorrectly stated "≥10 sessions"; corrected to "≥5 sessions" to match the actual threshold in the code.
+- **`runs_cost.py` — `extract_usage_breakdown` (16→3)** — extracted `_parse_usage_dict` + `_build_usage_candidates`.
+- **`runs_cost.py` — `compute_run_cost_with_transcript` (22→14)** — extracted `_resolve_transcript_path`; transcript path resolution is now independently testable.
+- **`runs_cost.py` — `summarize_skill_costs` (33→13)** — extracted `_compute_cutoff`, `_is_before_cutoff`, `_classify_run_row`, `_process_run_row`, `_check_collector_dedup`; all branches verified by regression tests.
+- **`runs_cost.py` — `lookup_tool_use_usage` (22→12)** — extracted `_scan_follow_lines`.
+- **`runs_cost.py` — `enrich_hook_rows_from_transcripts` (20→9)** — extracted `_try_enrich_row`.
+- **`hookHandlers.ts`** — `OPPORTUNITY_SIGNALS` defined twice identically; extracted to single module-level `ReadonlyArray` constant, eliminating silent divergence risk.
+- **`proposalOutcome.ts`** — `getDormantSkills` JSDoc said "≥10 sessions"; corrected to "≥5 sessions".
+
+### Tests
+
+- Added `tests/test_runs_cost_refactor.py` — 49 new tests covering every extracted helper and 10 behavioral-equivalence cases for `summarize_skill_costs`.
 
 ---
 
