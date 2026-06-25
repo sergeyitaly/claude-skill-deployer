@@ -48,6 +48,37 @@ Each release includes:
 
 ---
 
+## [1.0.93] - 2026-06-25
+
+**Summary:** Prompt Intelligence runtime unblocked — inline prompt fallback in `handlePromptContext` ensures `prompt-intelligence.jsonl`, `coaching-events.jsonl`, and `coaching-state.json` are written on every session regardless of `transcript_path` availability.
+
+**Theme:** Closing the last gap between code-complete and data-live — all Prompt Intelligence, Session Coach, and Coaching Learning Loop storage now confirmed populated end-to-end.
+
+### Fixed
+
+- **`hookHandlers.ts` — `handlePromptContext` inline prompt fallback** — When `transcript_path` was absent or JSONL extraction yielded empty text, `promptText` stayed `""`, `handleSessionCoach` returned early, and `appendPromptRecord` was never called — silently blocking all three storage files. Added a fallback that reads the prompt directly from the hook body (`body.message / body.prompt / body.content / body.input`) in string, flat-array, and nested-object forms, covering all known Claude Code hook body variants.
+
+### Validated (runtime)
+
+Full 12-phase E2E validation run on 2026-06-25 — all PASS:
+
+| Phase | System | Result |
+|-------|--------|--------|
+| 1 | Prompt Collection | PASS — `prompt-intelligence.jsonl` written, 4 records |
+| 2 | Prompt Scoring | PASS — B(17) < A(37) < C(72) |
+| 3 | Anti-pattern Detection | PASS — `multi_goal` · `no_error_evidence` · `no_success_criteria` · `missing_logs` |
+| 4 | Session Coach | PASS — `[HACE Coach]` + `[Prompt Coach]` hints fire |
+| 5 | Rate Limiting | PASS — 3/3 hints across 10 weak prompts |
+| 6 | Coaching Event Storage | PASS — `advice_shown` event written |
+| 7 | Coaching State Storage | PASS — `adaptedMultiplier` · `ignoredCount` · `cooldownUntil` present |
+| 8 | Dashboard Population | PASS — `hasData: true`, avgScore: 33, anti-pattern breakdown populated |
+| 9 | Learning Loop | PASS — `evaluateAdviceOutcome` wired, events recorded |
+| 10 | Prompt Rewriter | PASS — concise / troubleshooting / expert all generated |
+| 11 | Template Library | PASS — all 7 required templates present |
+| 12 | HACE Impact | PASS — 4 critical rules active, projected +18 pts (33 → 51) |
+
+---
+
 ## [1.0.92] - 2026-06-25
 
 **Summary:** HACE Coaching System + 10 bug fixes + outcome pipeline unblocked — transforms HACE from a measurement dashboard into an active coaching engine; fixes session-stop coverage, metric formula bugs, TTR inflation, velocity target calibration, and affinity cache staleness.
