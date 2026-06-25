@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
 import { readProposalOutcomes, ProposalOutcomeRecord } from "./proposalOutcome";
+import { computePromptMetrics } from "./promptIntelligence";
 
 // ---------------------------------------------------------------------------
 // Benefit estimates by skill category
@@ -558,6 +559,76 @@ export function formatDormancySummary(target: string): string {
     lines.push(`  Affinity areas: ${metrics.affinityAreas.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+export interface SkillHealthSnapshot {
+  activeCount: number;
+  dormantCount: number;
+  avgPromptQuality: number;
+  hasPromptData: boolean;
+}
+
+export function computeSkillHealthSnapshot(target: string): SkillHealthSnapshot {
+  const skillsDir = path.join(target, ".claude", "skills");
+  const installedNames: string[] = [];
+  try {
+    for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (d.isDirectory() && fs.existsSync(path.join(skillsDir, d.name, "SKILL.md")))
+        installedNames.push(d.name);
+    }
+  } catch { /* non-fatal — no skills dir */ }
+
+  const dormant = new Set(
+    computeAdoptionMetrics(target).dormantSkills
+  );
+  const dormantCount = installedNames.filter(n => dormant.has(n)).length;
+  const activeCount  = installedNames.length - dormantCount;
+
+  const promptMetrics = computePromptMetrics(target, 14);
+  return {
+    activeCount,
+    dormantCount,
+    avgPromptQuality: promptMetrics.avgScore,
+    hasPromptData: promptMetrics.hasData,
+  };
+}
+
+/** Compact summary card: Active Skills / Dormant Skills / Avg Prompt Quality. */
+export function formatSkillHealthCard(target: string): string {
+  const snap = computeSkillHealthSnapshot(target);
+
+  const qualityVal = snap.hasPromptData
+    ? `${snap.avgPromptQuality}/100`
+    : "—";
+  const qualityClass = snap.avgPromptQuality >= 75 ? "roi-high"
+    : snap.avgPromptQuality >= 50               ? "roi-medium"
+    : snap.hasPromptData                         ? "roi-low"
+    : "";
+  const dormantClass = snap.dormantCount > 0 ? "roi-low" : "roi-high";
+
+  return `<div class="panel" style="margin-top:6px;border-left:3px solid var(--vscode-focusBorder,#007acc)">
+  <h2 style="margin-top:0">Skill Health</h2>
+  <div class="stat-grid">
+    <div class="stat-pill" title="Installed skills that are not dormant and eligible for recommendation">
+      <b>Active Skills</b>
+      <span class="val roi-high">${snap.activeCount}</span>
+    </div>
+    <div class="stat-pill" title="Skills proposed ≥5× with &lt;5% acceptance — currently suppressed">
+      <b>Dormant Skills</b>
+      <span class="val ${dormantClass}">${snap.dormantCount}</span>
+    </div>
+    <div class="stat-pill" title="Average prompt quality score over last 14 days (0–100)">
+      <b>Avg Prompt Quality</b>
+      <span class="val ${qualityClass}">${qualityVal}</span>
+    </div>
+  </div>
+  ${snap.dormantCount > 0
+    ? `<p class="note" style="margin-top:6px">
+        ${snap.dormantCount} skill${snap.dormantCount > 1 ? "s are" : " is"} dormant and suppressed.
+        Invoke one to restart the learning signal.
+       </p>`
+    : ""}
+</div>`;
 }
 
 export function formatAdoptionDashboardHtml(metrics: AdoptionMetrics): string {
