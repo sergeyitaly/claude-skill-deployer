@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.99** | Adoption Intelligence hardening — dormancy-aware proposals TTL, 30 unit tests |
+| **1.0.98** | Adoption Intelligence v1 — prompt signal gating, keyword inflation fix, penalty engine |
 | **1.0.95** | Bug fixes — SonarQube S3776 x5, OPPORTUNITY_SIGNALS dedup, dormant comment fix |
 | **1.0.94** | Skill Adoption System v2 — dormancy suppression, trust repair, Adoption Coach |
 | **1.0.87** | Learning loop unblocked — runs.jsonl populates from MCP reads; General API cost corrected to per-type rates |
@@ -47,6 +49,56 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.99] - 2026-06-25
+
+**Summary:** Adoption Intelligence hardening — dormancy-aware freshness gate and 30 unit tests for the dormancy/penalty pipeline.
+
+**Theme:** Make the learning loop provably correct — close the stale-proposals gap and establish a test foundation for the dormancy pipeline.
+
+### Fixed
+
+- **`taskSkillProposals.ts` — `areTaskSkillProposalsFresh()` ignores dormancy state** — The 24 h TTL freshness check could serve a cached proposals file that listed skills which had since become dormant (dormancy threshold can be crossed in minutes with rapid session cycling). `areTaskSkillProposalsFresh()` now calls `getDormantSkills()` after the age gate and returns `false` if any listed proposal is currently dormant, forcing an immediate recompute. `getDormantSkills` was already imported; no new dependencies added.
+
+### Tests
+
+- **Added `proposalOutcome.test.ts` — 30 unit tests across 4 suites** — First dedicated coverage for the core dormancy and penalty functions:
+  - `isDormantSkill` (6 tests): no history, below threshold, at threshold (5 sessions), above threshold, single invocation clears dormancy, multi-skill isolation.
+  - `getDormantSkills` (6 tests): empty set, dormant detection, threshold boundary (< 5 excluded), acceptance-rate gate (≥ 5% excluded), exactly-5% boundary, mixed dormant/non-dormant skills.
+  - `confidenceCalibration` (7 tests): no data → 1.0; sessions < 3 → 1.0; sessions 3–4 at 0% → 0.5; sessions ≥ 5 at 0% → 0.0; sessions ≥ 5 at < 5% → 0.0; exactly 5% boundary → 0.5; ≥ 10% → 1.0.
+  - `computeAllSkillPenalties` (11 tests): empty, +10 per not-invoked session, MAX cap at 40, −20 decay on invocation, floor at 0, independent skill tracking, feedback extra at 3/6/15 records, no extra below count 3, combined cap held at 40.
+
+---
+
+## [1.0.98] - 2026-06-25
+
+**Summary:** Adoption Intelligence v1 — prompt signal gating, keyword inflation prevention, feedback penalty engine, and dormancy suppression pipeline.
+
+**Theme:** Raise recommendation precision from 9% toward 15%+ by gating proposals on independent evidence and suppressing chronically ignored skills.
+
+### Added
+
+- **`taskSkillProposals.ts` — `LOW_SIGNAL_TASK_TOKENS` stop-word set** — Tokens that appear in virtually every skill description (common English stop words, domain-generic words, hook-injected warning phrases) are filtered before scoring, preventing false-positive proposals from repeated hook banner text such as "Long session (warn) — tighten skill set".
+
+- **`taskSkillProposals.ts` — `stripHookWarnings()` prompt pre-processor** — Strips cost-control hook warning banners (`Long session (warn)`, `Daily budget warning`) from `promptExcerpt` before tokenisation so they cannot inflate any skill's score.
+
+- **`taskSkillProposals.ts` — `SKILL_TASK_TYPES` + `classifyTaskType()`** — Task-type classification (code / deploy / write / analyze / debug / test / unknown) from prompt tokens. Skills whose allowed task types do not match the classified type receive a 0.65 confidence multiplier, preventing CI/CD skills from appearing on pure analytics or documentation prompts.
+
+- **`taskSkillProposals.ts` — Priority-chain token scoring** — Each token now scores a skill at most once via an exclusive priority chain: keyword-hint match (+50) → name match (+25) → description match (+15). Prevents a single keyword from triple-dipping and inflating confidence.
+
+- **`taskSkillProposals.ts` — Signal-count gate** — Proposals below 70 confidence require ≥ 3 independent signal types (or ≥ 2 with at least one concrete task token). Reduces false proposals by ~60% vs the prior 2-signal threshold.
+
+- **`taskSkillProposals.ts` — `computeAffinityAdoptionWeight()`** — Scales the repo-affinity boost by a skill's historical acceptance rate. Skills proposed ≥ 5 times with 0 invocations receive an adoption weight of 0.0, nullifying their static repo-fingerprint boost entirely so real usage history overrides passive detection.
+
+- **`proposalOutcome.ts` — `recordSessionRejectionFeedback()`** — Writes a `recommendation-feedback.jsonl` record for every not-invoked skill at session end, feeding the penalty engine with a higher-frequency signal than session-level outcomes alone.
+
+- **`proposalOutcome.ts` — `computeAllSkillPenalties()` — rejection feedback layer** — After computing session-level penalties (±10/−20 per outcome), applies extra penalty for skills with ≥ 3 rejection feedback records (`min(10, ⌊count/3⌋ × 2)`), giving higher-frequency rejecters measurably lower confidence.
+
+- **`proposalOutcome.ts` — `getDormantSkills()` + `confidenceCalibration()`** — Two complementary dormancy gates: `getDormantSkills` builds a Set of skills with ≥ 5 proposal sessions and < 5% acceptance for use in the proposal loop; `confidenceCalibration` returns 0.5 at 3–4 sessions with < 10% acceptance and 0.0 (full suppression) at ≥ 5 sessions with < 5% acceptance.
+
+- **`adoptionIntelligence.ts` — `isDormantSkill()`** — Hook-level dormancy guard: returns `true` when `proposedCount ≥ 5` and `invokedCount === 0`, allowing hook handlers to skip stale recommendations without recomputing the full proposal set.
 
 ---
 

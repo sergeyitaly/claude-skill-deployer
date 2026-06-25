@@ -21,7 +21,11 @@ export function areTaskSkillProposalsFresh(
     return false;
   }
   const ageMs = Date.now() - new Date(saved.generatedAt).getTime();
-  return ageMs >= 0 && ageMs < maxAgeMs;
+  if (ageMs < 0 || ageMs >= maxAgeMs) return false;
+  // Force recompute if any listed skill has become dormant since the file was written.
+  // Dormancy can be crossed in minutes; the 24h TTL would otherwise keep serving stale entries.
+  const dormant = getDormantSkills(target);
+  return !saved.proposals.some(p => dormant.has(p.name));
 }
 
 /**
