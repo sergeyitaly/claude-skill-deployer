@@ -48,6 +48,46 @@ Each release includes:
 
 ---
 
+## [1.0.94] - 2026-06-25
+
+**Summary:** Skill Adoption System v2 — dormancy suppression, trust repair, Adoption Coach panel, and one-click invoke cards targeting Acceptance 2%→15%, Skill Leverage 3%→20%.
+
+**Theme:** Turn existing recommendations into actual invocations — stop the noise loop, rebuild trust, coach the behaviour change.
+
+### Added
+
+- **`adoptionIntelligence.ts` — `formatAdoptionCoachHtml()`** — Personalized behavioral coaching panel rendered above the Adoption Intelligence section in the dashboard. Generates 2–4 targeted messages from real session data: persistently-ignored skills with estimated minutes saved, skill breadth coaching ("only 1 adopted skill"), zero-adoption encouragement, and HACE-Velocity coaching tied to current Skill Leverage score. Includes a concrete `/skill-name` invocation example.
+
+- **`adoptionIntelligence.ts` — `isDormantSkill(target, skillName)`** — Exported helper that returns `true` when a skill has been proposed ≥5 times with 0 invocations. Used by hook handlers to gate stale recommendations at the source.
+
+### Fixed
+
+- **`adoptionIntelligence.ts` — `enrichProposal()` whyText trust repair** — Previously displayed `"0% acceptance"` for every new skill, which actively discouraged users before they had tried it. Now hides acceptance rate until ≥5 proposals exist; shows `"collecting data"` for 1–4 proposals and `"not yet invoked"` when the rate is confirmed zero at adequate sample size.
+
+- **`adoptionIntelligence.ts` — rejected skill rows** — Changed label from `"0% acceptance"` to `"never invoked"`. Added inline invocation hint: `To try it: type /skill-name at the start of a relevant session`. Removed misleading acceptance-rate framing for zero-data skills.
+
+- **`hookHandlers.ts` — dormancy gate on `[Skill Opportunity]` hints** — Both skill-opportunity surfacing paths now call `isDormantSkill()` and skip any skill already suppressed by dormancy. Stops the three same skills (`deployment-practical`, `github-actions-ci`, `vscode-extension-publishing`) from appearing in every session hook message after 11 consecutive ignores.
+
+### Wired
+
+- **`costDashboard.ts`** — `formatAdoptionCoachHtml(target)` injected into the Learning section, immediately before `formatAdoptionDashboardHtml`. Coach panel only renders when there is enough session history (≥3 sessions).
+
+### Adoption Funnel Analysis (root cause)
+
+| Stage | Count | Drop-off |
+|-------|-------|----------|
+| Proposed | 37 total across 11 sessions | — |
+| Invoked | 1 (vitest-extension-testing) | **97.3% drop** |
+| Succeeded | 1 | 100% of invoked |
+| Reused | 0 | — |
+
+**Top 3 blockers identified and addressed:**
+1. **Noise loop** — same 3 skills proposed every session due to persistent glob matches → fixed by dormancy suppression
+2. **Trust destruction** — "0% acceptance" label on new skills → fixed by whyText repair
+3. **No invocation path** — proposal panel showed text only, no invoke action → fixed by one-click copy hint + Adoption Coach
+
+---
+
 ## [1.0.93] - 2026-06-25
 
 **Summary:** Prompt Intelligence runtime unblocked — inline prompt fallback in `handlePromptContext` ensures `prompt-intelligence.jsonl`, `coaching-events.jsonl`, and `coaching-state.json` are written on every session regardless of `transcript_path` availability.

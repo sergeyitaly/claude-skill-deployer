@@ -39,7 +39,7 @@ import { computeProposalFunnel, formatProposalFunnelHtml } from "./proposalOutco
 import { computeHookHealthSummary, formatHookHealthHtml } from "./hookHealth";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { resolveAdaptations } from "./adaptationEffectiveness";
-import { computeAdoptionMetrics, formatAdoptionDashboardHtml } from "./adoptionIntelligence";
+import { computeAdoptionMetrics, formatAdoptionDashboardHtml, formatAdoptionCoachHtml } from "./adoptionIntelligence";
 import { isFeatureAvailable } from "./featureMode";
 import { formatPromptIntelligencePanelHtml } from "./promptIntelligence";
 import { buildCoachingReport, formatCoachingReportHtml } from "./haceCoaching";
@@ -926,6 +926,7 @@ export function buildDashboardMainBodyHtml(
       <h2 style="margin-top:0">Adaptation Timeline</h2>
       ${formatAdaptationTimelineHtml(adaptationEvents)}
     </div>
+    ${formatAdoptionCoachHtml(target)}
     ${formatAdoptionDashboardHtml(adoptionMetrics)}
     ${formatPromptIntelligencePanelHtml(target, 14)}
     ${formatLearningLoopHtml(target)}

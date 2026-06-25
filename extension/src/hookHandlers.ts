@@ -32,6 +32,7 @@ import { readTaskSkillProposals } from "./taskSkillProposals";
 import { analyzePrompt, appendPromptRecord } from "./promptIntelligence";
 import { getSessionCoachHints } from "./haceCoaching";
 import { recordAdviceShown, shouldShowAdvice } from "./coachingLearning";
+import { isDormantSkill } from "./adoptionIntelligence";
 
 export interface HookRequest {
   hookName: string;
@@ -2031,6 +2032,7 @@ function handleSkillOpportunity(req: HookRequest): string {
     if (!pattern.test(promptText)) continue;
     if (!installedSkills.has(skill)) continue;
     if (proposedSkills.has(skill)) continue; // already proposed — no duplicate hint
+    if (isDormantSkill(cwd, skill)) continue; // repeatedly ignored — suppress to reduce noise
 
     if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
     return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
@@ -2124,6 +2126,7 @@ function handlePromptContext(req: HookRequest): HookResponse {
       if (!pattern.test(promptText)) continue;
       if (!installedSkills.has(skill)) continue;
       if (proposedSkills.has(skill)) continue;
+      if (isDormantSkill(cwd, skill)) continue; // suppress repeatedly ignored skills
 
       if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
       return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;

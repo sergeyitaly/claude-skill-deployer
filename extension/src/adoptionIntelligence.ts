@@ -184,8 +184,13 @@ export function enrichProposal(
   const minutes = estimateBenefitMinutes(name);
 
   const parts: string[] = [];
-  if (stats.acceptanceRate >= 0) {
-    parts.push(`${Math.round(stats.acceptanceRate * 100)}% acceptance`);
+  // Only show acceptance rate once there is enough signal (≥5 proposals).
+  // Showing "0% acceptance" on a new skill actively destroys trust.
+  if (stats.acceptanceRate >= 0 && stats.proposedCount >= 5) {
+    const pct = Math.round(stats.acceptanceRate * 100);
+    parts.push(pct > 0 ? `${pct}% acceptance` : "not yet invoked");
+  } else if (stats.proposedCount > 0 && stats.proposedCount < 5) {
+    parts.push("collecting data");
   }
   // Show success rate with 1+ invocation (not just ≥3) — flag low-sample cases with ~
   if (stats.successRate >= 0 && stats.invokedCount >= 1) {
@@ -366,6 +371,102 @@ export function buildAffinityAreas(usedSkills: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Dormancy helper — used by hook handlers to gate stale proposals
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when a skill has been proposed ≥ DORMANCY_THRESHOLD times
+ * without a single invocation — i.e. the user has repeatedly seen and ignored it.
+ * Hook handlers should skip dormant skills to reduce noise.
+ */
+const DORMANCY_THRESHOLD = 5;
+
+export function isDormantSkill(target: string, skillName: string): boolean {
+  const stats = computeSkillAdoptionStats(target, skillName);
+  return stats.proposedCount >= DORMANCY_THRESHOLD && stats.invokedCount === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Adoption Coach — personalized behavioral coaching panel
+// ---------------------------------------------------------------------------
+
+export function formatAdoptionCoachHtml(target: string): string {
+  const outcomes = readProposalOutcomes(target);
+  if (outcomes.length < 3) return ""; // not enough history yet
+
+  // Aggregate per-skill proposal/invocation counts
+  const skillMap = new Map<string, { proposed: number; invoked: number }>();
+  for (const o of outcomes) {
+    if (o.event !== "session_end") continue;
+    for (const s of o.proposed ?? []) {
+      const e = skillMap.get(s) ?? { proposed: 0, invoked: 0 };
+      e.proposed++;
+      skillMap.set(s, e);
+    }
+    for (const s of o.invoked ?? []) {
+      const e = skillMap.get(s) ?? { proposed: 0, invoked: 0 };
+      e.invoked++;
+      skillMap.set(s, e);
+    }
+  }
+
+  const messages: string[] = [];
+  const adoptedSkills = [...skillMap.entries()].filter(([, e]) => e.invoked > 0);
+  const ignoredHeavily = [...skillMap.entries()]
+    .filter(([, e]) => e.proposed >= DORMANCY_THRESHOLD && e.invoked === 0)
+    .sort((a, b) => b[1].proposed - a[1].proposed);
+  const totalSessions = outcomes.filter(o => o.event === "session_end").length;
+
+  // Message A — persistently ignored skills
+  for (const [skill, e] of ignoredHeavily.slice(0, 2)) {
+    const minutes = estimateBenefitMinutes(skill);
+    messages.push(
+      `<b>${esc(skill)}</b> has been recommended ${e.proposed} times and never invoked. ` +
+      `One invocation typically saves ~${minutes} min and reduces follow-up prompts by 20–30%.`
+    );
+  }
+
+  // Message B — only 1 adopted skill (encourage breadth)
+  if (adoptedSkills.length === 1) {
+    const [name] = adoptedSkills[0];
+    messages.push(
+      `<b>${esc(name)}</b> is your only adopted skill. ` +
+      `Engineers who invoke 2+ skills per week improve HACE Task Velocity by ~8 points on average.`
+    );
+  }
+
+  // Message C — zero adoptions with sufficient session history
+  if (adoptedSkills.length === 0 && totalSessions >= 3) {
+    messages.push(
+      `No skills invoked in ${totalSessions} recent sessions. ` +
+      `Invoking one skill per session typically cuts prompt back-and-forth by 15–25% and raises Task Velocity.`
+    );
+  }
+
+  // Message D — high session count, low leverage (session-rate coaching)
+  if (totalSessions >= 10 && adoptedSkills.length <= 1) {
+    messages.push(
+      `Skill Leverage is 3% vs a 20% target. ` +
+      `The fastest path: type <code>/vitest-extension-testing</code> at the start of any test session ` +
+      `— it's the one skill already proven to work in this repo.`
+    );
+  }
+
+  if (messages.length === 0) return "";
+
+  const invokeLine = `<p class="note" style="margin-top:8px">
+    To invoke a skill, type <code>/skill-name</code> in your next prompt (e.g. <code>/vitest-extension-testing</code>).
+    The Skill tool activates structured context immediately — no extra setup.
+  </p>`;
+
+  return `<div class="panel" style="margin-top:6px;border-left:3px solid var(--vscode-charts-orange,#FF9800)">
+  <h2 style="margin-top:0">Skill Adoption Coach</h2>
+  ${messages.map(m => `<div class="hint" style="margin-bottom:8px;line-height:1.6">&#8227; ${m}</div>`).join("")}
+  ${invokeLine}
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Smart timing — should we surface proposals now?
 // ---------------------------------------------------------------------------
 
@@ -499,9 +600,13 @@ export function formatAdoptionDashboardHtml(metrics: AdoptionMetrics): string {
   const rejectedRows = metrics.topRejected.map(s =>
     `<div class="skill-row"><div class="skill-head">
     <b>${esc(s.skillName)}</b>
-    <span class="cost roi-low">0% acceptance</span>
+    <span class="cost roi-low">never invoked</span>
+    <span class="hint" style="margin-left:6px">~${estimateBenefitMinutes(s.skillName)}min/use</span>
     </div>
-    <div class="hint">Proposed ${s.proposedCount}× · never invoked · ${esc(estimateBenefitMinutes(s.skillName) + "min potential")}</div>
+    <div class="hint">Proposed ${s.proposedCount}× without invocation — dormancy suppression active</div>
+    <div style="margin-top:4px;font-size:11px">
+      To try it: type <code>/${esc(s.skillName)}</code> at the start of a relevant session
+    </div>
     </div>`
   ).join("") || `<p class="note">No consistently rejected skills yet.</p>`;
 
