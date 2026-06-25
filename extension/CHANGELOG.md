@@ -50,6 +50,28 @@ Each release includes:
 
 ---
 
+## [1.0.97] - 2026-06-25
+
+**Summary:** Two dashboard buttons made functional — "Apply auto-fixes to hints" and "Export Telemetry CSV".
+
+**Theme:** Dead UI → working UI. Both buttons were wired up to their backing commands with no behavioral changes elsewhere.
+
+### Fixed
+
+- **`costDashboard.ts` — "Apply auto-fixes to hints" button missing from HTML** — The `claudeSkills.applyMcpAutoFixes` command, `onDidReceiveMessage` handler, and JS listener all existed; the `<button id="btn-apply-mcp-autofixes">` element was simply never added to the "Telemetry & Export" panel template.
+
+- **`costDashboard.ts` — "Export Telemetry CSV" button had no postMessage listener** — The HTML button existed but clicking it did nothing. Added `btn-export-telemetry` listener that posts `{ command: "exportTelemetry" }`.
+
+### Added
+
+- **`commandsDashboard.ts` — `claudeSkills.exportTelemetryCsv` command** — Reads all `EnrichedRunRecord` rows from `runs.jsonl` via `readCachedEnrichedRuns()`, serializes to CSV (15 columns: ts, skill, action, agent, tokens, cost_usd, success, rc, session_id, project, branch, model, cost_method, invoked, proposed), and saves via `vscode.window.showSaveDialog`. Default filename: `claude-skills-telemetry-YYYY-MM-DD.csv`.
+
+- **`commandsDashboard.ts` — `csvEsc()` helper** — Local CSV value escaper: wraps values containing commas, quotes, or newlines in double-quotes with internal quotes doubled.
+
+- **`commandsDashboard.ts` — `"exportTelemetry"` message handler** — Wires the webview postMessage to `claudeSkills.exportTelemetryCsv`.
+
+---
+
 ## [1.0.96] - 2026-06-25
 
 **Summary:** Code quality audit — 6 feedback-driven fixes: negation-aware opportunity detection, session coach opt-out, `handlePromptContext` complexity reduced 22→10, MCP constraint documented, hook handler integration tests, and plain-text dormancy report.

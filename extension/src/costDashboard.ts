@@ -474,6 +474,9 @@ function dashboardInjectionListenerScript(): string {
       document.getElementById("btn-apply-mcp-autofixes")?.addEventListener("click", () => {
         vscode.postMessage({ command: "applyMcpAutoFixes" });
       });
+      document.getElementById("btn-export-telemetry")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "exportTelemetry" });
+      });
     }
     window.addEventListener("message", (event) => {
       const msg = event.data;
@@ -956,6 +959,7 @@ export function buildDashboardMainBodyHtml(
       ${governanceHtml}
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
         <button id="btn-export-telemetry" class="action-btn" title="Export skill telemetry to CSV">Export Telemetry CSV</button>
+        <button id="btn-apply-mcp-autofixes" class="action-btn" title="Write permanent cache rules for hot files and directories to mcp-agent-hints.md">Apply auto-fixes to hints</button>
         <button id="btn-clear-mcp-logs" class="action-btn secondary">Clear MCP Logs</button>
       </div>
     </div>

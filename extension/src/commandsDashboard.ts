@@ -27,6 +27,14 @@ import { loadManifest } from "./skillOps";
 import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
 import { ensureLearningDir } from "./usageStats";
 import { yieldToEventLoop } from "./eventLoop";
+import { readCachedEnrichedRuns } from "./runsStore";
+
+function csvEsc(v: string | number | boolean | null | undefined): string {
+  const s = String(v ?? "");
+  return s.includes(",") || s.includes('"') || s.includes("\n")
+    ? `"${s.replace(/"/g, '""')}"`
+    : s;
+}
 
 // ---------------------------------------------------------------------------
 // Panel state
@@ -184,6 +192,8 @@ export function registerDashboardCommands(deps: DashboardCommandDeps): vscode.Di
               await vscode.commands.executeCommand("claudeSkills.clearMcpLogs");
             } else if (msg.command === "applyMcpAutoFixes") {
               await vscode.commands.executeCommand("claudeSkills.applyMcpAutoFixes");
+            } else if (msg.command === "exportTelemetry") {
+              await vscode.commands.executeCommand("claudeSkills.exportTelemetryCsv");
             }
           }
         );
@@ -242,6 +252,48 @@ export function registerDashboardCommands(deps: DashboardCommandDeps): vscode.Di
       if (result.skipped.length > 0) log(`Skipped: ${result.skipped.join(", ")}`);
       refreshAll();
       void notifyUserSuccess(`Claude Skills: applied ${result.applied.length} optimization(s).`);
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.exportTelemetryCsv", async () => {
+      const target = getTarget();
+      if (!target) return;
+      const runs = readCachedEnrichedRuns(target);
+      if (runs.length === 0) {
+        void notifyUserWarn("Claude Skills: no run records found — nothing to export.", log);
+        return;
+      }
+      const header = [
+        "ts", "skill", "action", "agent", "tokens", "cost_usd",
+        "success", "rc", "session_id", "project", "branch",
+        "model", "cost_method", "invoked", "proposed",
+      ].join(",");
+      const rows = runs.map(r => [
+        csvEsc(r.ts),
+        csvEsc(r.skill),
+        csvEsc(r.action),
+        csvEsc(r.agent),
+        r.tokens ?? "",
+        r.cost ?? "",
+        r.success ? "true" : "false",
+        r.rc ?? "",
+        csvEsc(r.session_id),
+        csvEsc(r.project),
+        csvEsc(r.branch ?? ""),
+        csvEsc(r.metadata?.model as string ?? ""),
+        csvEsc(r.metadata?.cost_method as string ?? ""),
+        r.metadata?.invoked ? "true" : "false",
+        r.metadata?.proposed ? "true" : "false",
+      ].join(","));
+      const csv = [header, ...rows].join("\n");
+      const defaultName = `claude-skills-telemetry-${new Date().toISOString().slice(0, 10)}.csv`;
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(path.join(target, defaultName)),
+        filters: { CSV: ["csv"] },
+      });
+      if (uri) {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, "utf-8"));
+        void notifyUserSuccess(`Telemetry exported: ${runs.length} rows → ${uri.fsPath}`, log);
+      }
     }),
 
     vscode.commands.registerCommand("claudeSkills.exportCostReport", async () => {
