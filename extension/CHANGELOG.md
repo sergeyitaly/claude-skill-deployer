@@ -52,6 +52,86 @@ Each release includes:
 
 ---
 
+## [1.0.101] - 2026-06-26
+
+**Summary:** Skill Enrichment Intelligence + Context Efficiency Intelligence.
+
+**Theme:** Move from passive observability to active learning and optimization — the system now continuously enriches SKILL.md content from real-world usage patterns, and proactively reduces Claude token pressure before it becomes waste.
+
+### Added — Skill Enrichment Intelligence (10-phase system)
+
+- **`skillEnrichment.ts`** — Core enrichment engine:
+  - **Phase 1** `detectSuccessfulRuns()` — identifies runs where `success=true AND (cost>0 OR tokens>0)` from `runs.jsonl`, producing typed `SkillSuccessEvent` records.
+  - **Phase 2** `mineSuccessfulRunPatterns()` — mines DevOps/cloud patterns from run metadata using a keyword + affinity scoring model; writes `skill-learning.jsonl`.
+  - **Phase 3** `computeProvenExamples()` — aggregates pattern occurrences per skill with per-pattern success rates.
+  - **Phase 4** `buildSkillProfile()` / `refreshSkillProfiles()` — builds per-skill confidence profiles (invocations, success rate, avg tokens/cost, proven scenarios, quality score, quality delta) and writes `skill-profile.json`.
+  - **Phase 5** `findEnrichmentCandidates()` — promotes patterns observed ≥3 times into typed `EnrichmentCandidate` objects.
+  - **Phase 7** `computeQualityScore()` — 0-100 composite: Usage (20) + Success Rate (25) + Reuse (20) + Time Saved (15) + Knowledge Growth (20).
+  - **Phase 8** `getSkillEvolution()` — returns top-N most-improved skills by `qualityDelta` for the dashboard.
+  - **Phase 9** DevOps/cloud pattern library — 10 patterns covering ArgoCD sync failure, K3s cluster setup, AKS rollout, KubeRocketCI, Helm deployment, Terraform state lock, GitHub Actions failure, EKS, Kubernetes ingress, GKE; each with keyword list, affinity map, typical commands/files, and SKILL.md proposal template.
+
+- **`skillEnrichmentProposal.ts`** — Safe review workflow (Phase 6):
+  - `generateEnrichmentProposals()` — writes pending proposals to `skill-enrichment-proposals.jsonl`; idempotent (no duplicate active proposals per skill+pattern).
+  - `approveEnrichmentProposal()` — marks approved; does **not** touch `SKILL.md`.
+  - `rejectEnrichmentProposal()` — marks rejected with optional review note.
+  - `applyEnrichmentProposal()` — the **only** function that writes to `SKILL.md`; requires `status="approved"` and an explicit user-confirmed VS Code dialog; appends provenance comment with session count and confidence %.
+  - `formatEnrichmentProposalsHtml()` / `formatEnrichmentSummaryHtml()` — Approve / Reject / Apply to SKILL.md buttons; safety note that the system never auto-modifies skills.
+
+- **`commandsEnrichment.ts`** — 5 new VS Code commands:
+  - `claudeSkills.showEnrichmentProposals` — full enrichment webview with proposal review, Most Improved Skills, and Skill Confidence Profiles panels.
+  - `claudeSkills.runEnrichmentPipeline` — mines patterns, refreshes profiles, generates proposals; logs summary to output channel.
+  - `claudeSkills.approveEnrichmentProposal` / `claudeSkills.rejectEnrichmentProposal` — quick-pick command palette variants.
+  - `claudeSkills.applyEnrichmentProposal` — confirmation dialog → appends enrichment to SKILL.md → opens file beside.
+
+- **`costDashboard.ts` — `formatSkillEvolutionHtml()`** — "Most Improved Skills" panel in the main dashboard; shows quality delta badges and new proven patterns per skill; only renders when at least one skill has a positive `qualityDelta`.
+
+### Added — Context Efficiency Intelligence (12-phase system)
+
+- **`contextEfficiency.ts`** — Core engine; zero new telemetry (reads only from existing `mcp-usage.jsonl`):
+  - **Phase 1** `computeContextPressure()` — composite 0-100 pressure score from MCP token count, wasted tokens, repeated read count, and excessive dir scan count; four levels: `low | medium | high | critical`.
+  - **Phase 3** `detectHotFiles()` — identifies files read ≥2 times; computes `wastedReads`, `wastedTokens`, `sessionCount`; writes `hot-files.json`.
+  - **Phase 5** `detectRepeatedReadsInWindow()` — sliding 30-minute window per file; flags ≥3 reads; generates file-specific recommendations (`search_in_file` for CHANGELOG/README; context-reference note for code files).
+  - **Phase 6** `detectDirectoryScanWaste()` / `buildDirectoryCache()` — flags directories scanned ≥3 times; writes `directory-cache.json` with per-path scan counts, entry totals, and waste estimates.
+  - **Phase 7** `computeContextEfficiencyScore()` — `usefulTokens / totalTokens × 100`; grades A–F; baseline ≈59%, target ≥80%.
+  - **Phase 9** `recordAdvisorEvent()` / `computeAdvisorROI()` — appends `shown | followed | dismissed` events to `context-advisor-log.jsonl`; computes `followRate` and `estimatedTokensSaved` for Phase 9 ROI reporting.
+  - `analyzeContextEfficiency()` — runs full pipeline in one call; writes both artifact files.
+
+- **`contextAdvisor.ts`** — Advisor and coaching layer:
+  - **Phase 2** `evaluateCompactAdvisor()` — triggers when MCP tokens >120k, wasted tokens >200k, or file read ≥5× in window; outputs `/compact` recommendation with estimated savings 15–30%, secondary caching/directory actions.
+  - **Phase 8** `buildCoachingMessages()` — sorted by estimated savings (critical → high → medium): hot-file waste, repeated reads, compact, directory scans; each message includes a concrete `action` string.
+  - `formatEfficiencyCoachHtml()` / `formatCompactAdvisorHtml()` — priority-coloured coaching rows; Compact Advisor banner with "Run /compact now" and "Dismiss" buttons; Phase 9 ROI history line.
+
+- **`commandsContextEfficiency.ts`** — 4 new VS Code commands + full Phase 10 webview:
+  - `claudeSkills.showContextEfficiency` — opens dedicated webview with score ring, Context Pressure pill, Compact Advisor banner, Efficiency Coach, Hot Files table, Repeated Reads panel, Directory Scan Waste panel, and Phase 9 ROI panel.
+  - `claudeSkills.runContextAnalysis` — runs 24h analysis, logs full report to output channel, records advisor event if threshold exceeded.
+  - `claudeSkills.followCompactAdvice` — copies `/compact` to clipboard; records `followed` event (Phase 9).
+  - `claudeSkills.dismissCompactAdvice` — records `dismissed` event.
+
+- **`costDashboard.ts` — `formatContextEfficiencyPanelHtml()`** — compact Context Efficiency card injected into the main dashboard (above Skill Health Card); shows score, pressure level, potential savings, compact opportunities, and top waste source; links to the full panel.
+
+- **Phase 11 — Auto-Optimize toggle** — `claudeSkills.contextEfficiency.autoOptimize` setting (default off): when enabled, opening the Context Efficiency panel automatically surfaces the Compact Advisor if pressure is High/Critical. Never auto-executes any command.
+
+### New data files
+
+| File | Phase | Purpose |
+|---|---|---|
+| `.claude/learning/skill-learning.jsonl` | 2 | Mined pattern entries per successful run |
+| `.claude/learning/skill-profile.json` | 4 | Per-skill confidence profiles with quality scores |
+| `.claude/learning/skill-enrichment-proposals.jsonl` | 6 | Pending/approved/rejected/applied enrichment proposals |
+| `.claude/learning/hot-files.json` | 3 | Hot file index (24h window) |
+| `.claude/learning/directory-cache.json` | 6 | Directory scan cache |
+| `.claude/learning/context-advisor-log.jsonl` | 9 | Compact advisor event log (ROI tracking) |
+
+### Tests
+
+- **`skillEnrichment.test.ts`** — 58 unit tests covering all enrichment phases.
+- **`skill-enrichment-e2e.bench.test.ts`** — 12 E2E tasks: K3s cluster, KubeRocketCI, ArgoCD, Helm, AKS CrashLoopBackOff, Terraform state lock, GitHub Actions failure, multi-skill pipeline, quality score evolution.
+- **`contextEfficiency.test.ts`** — 56 unit tests covering all context efficiency phases.
+- **`context-efficiency-e2e.bench.test.ts`** — 10 E2E scenarios including baseline vs target comparison (59% → 75% at <700k waste), hot-file detection, repeated reads, dir scan waste, Compact Advisor trigger, Phase 9 ROI accumulation.
+- **Total: 136 new tests, all passing** (70 enrichment + 66 context efficiency).
+
+---
+
 ## [1.0.100] - 2026-06-26
 
 **Summary:** Real-world productivity benchmark + Skill Health Card dashboard panel.

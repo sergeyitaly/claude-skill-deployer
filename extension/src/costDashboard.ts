@@ -40,6 +40,10 @@ import { computeHookHealthSummary, formatHookHealthHtml } from "./hookHealth";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { resolveAdaptations } from "./adaptationEffectiveness";
 import { computeAdoptionMetrics, formatAdoptionDashboardHtml, formatAdoptionCoachHtml, formatSkillHealthCard } from "./adoptionIntelligence";
+import { getSkillEvolution } from "./skillEnrichment";
+import { formatEnrichmentSummaryHtml } from "./skillEnrichmentProposal";
+import { analyzeContextEfficiency, computeAdvisorROI } from "./contextEfficiency";
+import { evaluateCompactAdvisor, buildCoachingMessages, formatEfficiencyCoachHtml, formatCompactAdvisorHtml } from "./contextAdvisor";
 import { isFeatureAvailable } from "./featureMode";
 import { formatPromptIntelligencePanelHtml } from "./promptIntelligence";
 import { buildCoachingReport, formatCoachingReportHtml } from "./haceCoaching";
@@ -515,6 +519,99 @@ function wrapCostDashboardDocument(
   });
 }
 
+// ── Context Efficiency Intelligence panel ─────────────────────────────────────
+
+function fmt(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1_000 ? `${Math.round(n / 1_000)}k` : String(n);
+}
+
+/**
+ * Compact Context Efficiency summary card for the main dashboard.
+ * Full detail is in the dedicated Context Efficiency webview panel.
+ */
+export function formatContextEfficiencyPanelHtml(target: string): string {
+  let analysis;
+  try { analysis = analyzeContextEfficiency(target, 24); } catch { return ""; }
+  const { efficiency, pressure, hotFiles, compactOpportunities } = analysis;
+  if (efficiency.totalTokens === 0) return "";
+
+  const advisor = evaluateCompactAdvisor(analysis);
+  const roi     = computeAdvisorROI(target);
+  const advisorBanner = formatCompactAdvisorHtml(advisor, roi);
+  const coachHtml = formatEfficiencyCoachHtml(buildCoachingMessages(analysis).slice(0, 2));
+
+  const scoreColor = efficiency.score >= 80 ? "roi-high"
+    : efficiency.score >= 60 ? "roi-medium" : "roi-low";
+  const pressureColor = { low: "roi-high", medium: "roi-medium", high: "roi-low", critical: "roi-low" }[pressure.level];
+  const topWaste = hotFiles[0];
+
+  return `<div class="panel" style="margin-top:6px;border-left:3px solid var(--vscode-charts-blue,#2196F3)">
+  <h2 style="margin-top:0">Context Efficiency</h2>
+  ${advisorBanner}
+  <div class="stat-grid" style="margin-bottom:8px">
+    <div class="stat-pill" title="Useful tokens / total tokens × 100. Target: ≥80">
+      <b>Efficiency Score</b>
+      <span class="val ${scoreColor}">${efficiency.score}/100 (${efficiency.grade})</span>
+    </div>
+    <div class="stat-pill" title="Real-time context pressure level">
+      <b>Context Pressure</b>
+      <span class="val ${pressureColor}">${pressure.level}</span>
+    </div>
+    <div class="stat-pill">
+      <b>Potential Savings</b>
+      <span class="val roi-high">~${fmt(efficiency.potentialSavings)}</span>
+    </div>
+    <div class="stat-pill" title="Compact, caching, or read-reduction opportunities">
+      <b>Compact Opportunities</b>
+      <span class="val ${compactOpportunities > 0 ? "roi-medium" : "roi-high"}">${compactOpportunities}</span>
+    </div>
+  </div>
+  ${topWaste ? `<div class="hint" style="margin-bottom:6px">Largest waste source: <code>${topWaste.path.split(/[/\\]/).pop()}</code> (~${fmt(topWaste.wastedTokens)} tokens, ${topWaste.reads}× reads)</div>` : ""}
+  <details style="margin-top:4px">
+    <summary style="cursor:pointer;font-size:12px;font-weight:600">Efficiency Coach</summary>
+    <div style="margin-top:6px">${coachHtml}</div>
+  </details>
+  <p class="note" style="margin-top:6px">24h window · <a href="command:claudeSkills.showContextEfficiency" style="color:var(--vscode-textLink-foreground)">Open full panel</a></p>
+</div>`;
+}
+
+// ── Phase 8: Skill Evolution panel ───────────────────────────────────────────
+
+function escHtmlDash(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Renders the "Skill Evolution" panel showing the most improved skills.
+ * Returns an empty string when no quality improvements are recorded yet.
+ */
+export function formatSkillEvolutionHtml(target: string, skillNames: string[]): string {
+  const evolution = getSkillEvolution(target, skillNames);
+  if (evolution.length === 0) return "";
+
+  const rows = evolution.map(e => {
+    const deltaStr = `+${e.qualityDelta}`;
+    const patternNote = e.topPattern ? ` · New proven pattern: ${escHtmlDash(e.topPattern)}` : "";
+    return `<div class="skill-row">
+  <div class="skill-head">
+    <b>${escHtmlDash(e.skill)}</b>
+    <span class="cost roi-high">${deltaStr} quality</span>
+    <span class="cost">${e.qualityScore}/100</span>
+  </div>
+  <div class="hint">${patternNote}</div>
+</div>`;
+  }).join("");
+
+  const enrichSummary = formatEnrichmentSummaryHtml(target);
+
+  return `<div class="panel" style="margin-top:6px;border-left:3px solid var(--vscode-charts-green,#4CAF50)">
+  <h2 style="margin-top:0">Skill Evolution${enrichSummary ? ` <span style="font-size:11px;font-weight:400">${enrichSummary}</span>` : ""}</h2>
+  <p class="note" style="margin-bottom:8px">Most improved skills · quality = usage + success + reuse + time saved + knowledge growth</p>
+  ${rows}
+</div>`;
+}
+
 /** Build main dashboard panels (excludes team economics + footer actions). */
 export function buildDashboardMainBodyHtml(
   target: string,
@@ -929,7 +1026,9 @@ export function buildDashboardMainBodyHtml(
       <h2 style="margin-top:0">Adaptation Timeline</h2>
       ${formatAdaptationTimelineHtml(adaptationEvents)}
     </div>
+    ${formatContextEfficiencyPanelHtml(target)}
     ${formatSkillHealthCard(target)}
+    ${formatSkillEvolutionHtml(target, Object.keys(manifest.skills))}
     ${formatAdoptionCoachHtml(target)}
     ${formatAdoptionDashboardHtml(adoptionMetrics)}
     ${formatPromptIntelligencePanelHtml(target, 14)}
