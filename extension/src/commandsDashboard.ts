@@ -259,7 +259,7 @@ export function registerDashboardCommands(deps: DashboardCommandDeps): vscode.Di
       if (!target) return;
       const runs = readCachedEnrichedRuns(target);
       if (runs.length === 0) {
-        void notifyUserWarn("Claude Skills: no run records found — nothing to export.", log);
+        void notifyUserWarn("Claude Skills: no run records found — nothing to export.");
         return;
       }
       const header = [
@@ -292,7 +292,7 @@ export function registerDashboardCommands(deps: DashboardCommandDeps): vscode.Di
       });
       if (uri) {
         await vscode.workspace.fs.writeFile(uri, Buffer.from(csv, "utf-8"));
-        void notifyUserSuccess(`Telemetry exported: ${runs.length} rows → ${uri.fsPath}`, log);
+        void notifyUserSuccess(`Telemetry exported: ${runs.length} rows → ${uri.fsPath}`);
       }
     }),
 
