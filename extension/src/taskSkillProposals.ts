@@ -256,8 +256,11 @@ function classifyTaskType(tokens: string[]): TaskType {
       if (keywords.includes(token)) scores[type] = (scores[type] ?? 0) + 1;
     }
   }
-  const best = Object.entries(scores).sort(([, a], [, b]) => b - a)[0];
-  return best && best[1] > 0 ? (best[0] as TaskType) : "unknown";
+  const sorted = Object.entries(scores).sort(([, a], [, b]) => b - a);
+  if (!sorted[0] || sorted[0][1] === 0) return "unknown";
+  // When the top two types are tied, the signal is ambiguous — don't penalise either.
+  if (sorted[1] && sorted[0][1] === sorted[1][1]) return "unknown";
+  return sorted[0][0] as TaskType;
 }
 
 function taskTypeMultiplier(skillName: string, taskType: TaskType): number {
@@ -302,6 +305,9 @@ function computeAffinityAdoptionWeight(target: string, skillName: string): numbe
   const hist = historicalSuccess(target, skillName);
   if (hist.proposedCount < 3) return 1.0;
   if (hist.acceptanceRate >= 0.15) return 1.0;
+  // Hard zero: a skill proposed ≥5 times and never invoked has proven it's not wanted
+  // in this repo's workflow. Affinity eliminated — only explicit prompt signals can revive it.
+  if (hist.proposedCount >= 5 && hist.acceptanceRate === 0) return 0.0;
   // Smooth decay: 0% acceptance → 0.3, 15% acceptance → 1.0
   const weight = 0.3 + (hist.acceptanceRate / 0.15) * 0.7;
   return Math.max(0.3, Math.min(1.0, weight));
@@ -328,24 +334,24 @@ function scoreSkillForTask(
     if (LOW_SIGNAL_TASK_TOKENS.has(token)) {
       continue;
     }
-    let tokenHit = false;
-    if (skillName.includes(token)) {
-      score += 25;
-      reasons.push(`name matches "${token}"`);
-      tokenHit = true;
-    }
-    if (description.toLowerCase().includes(token)) {
-      score += 15;
-      reasons.push(`description mentions "${token}"`);
-      tokenHit = true;
-    }
+    // Priority chain — each token scores at most once (highest-specificity wins).
+    // Prevents common words from triple-dipping across name + description + keyword hint.
     const hints = TASK_KEYWORD_HINTS[token];
     if (hints?.includes(skillName)) {
-      score += 30;
+      score += 50;
       reasons.push(`task keyword "${token}" maps to this skill`);
-      tokenHit = true;
+      signalTypes++;
+      hasTaskToken = true; // only explicit keyword mappings count as a "prompt signal"
+    } else if (skillName.includes(token)) {
+      score += 25;
+      reasons.push(`name matches "${token}"`);
+      signalTypes++;
+      // name match alone is not a prompt signal — too easily triggered by coincidence
+    } else if (description.toLowerCase().includes(token)) {
+      score += 15;
+      reasons.push(`description mentions "${token}"`);
+      signalTypes++;
     }
-    if (tokenHit) { signalTypes++; hasTaskToken = true; }
   }
 
   // Only award the glob bonus for specific globs — catch-all patterns like **/*

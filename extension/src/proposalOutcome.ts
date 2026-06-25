@@ -116,7 +116,7 @@ export function readProposalOutcomes(target: string): ProposalOutcomeRecord[] {
   return records;
 }
 
-/** Penalty map for all skills computed from session history. */
+/** Penalty map for all skills computed from session history + rejection feedback. */
 export function computeAllSkillPenalties(target: string): Record<string, number> {
   const records = readProposalOutcomes(target);
   const penalties: Record<string, number> = {};
@@ -127,6 +127,19 @@ export function computeAllSkillPenalties(target: string): Record<string, number>
     }
     for (const sk of (r.not_invoked ?? [])) {
       penalties[sk] = Math.min(MAX_PENALTY, (penalties[sk] ?? 0) + PENALTY_PER_NOT_USED);
+    }
+  }
+  // Layer in explicit rejection feedback — each "ignored" record adds a small extra
+  // penalty on top of the session-level signal, giving higher-frequency rejecters more weight.
+  const feedback = readRecommendationFeedback(target);
+  const rejectionCounts: Record<string, number> = {};
+  for (const f of feedback) {
+    if (!f.accepted) rejectionCounts[f.skill] = (rejectionCounts[f.skill] ?? 0) + 1;
+  }
+  for (const [sk, count] of Object.entries(rejectionCounts)) {
+    if (count >= 3) {
+      const extra = Math.min(10, Math.floor(count / 3) * 2);
+      penalties[sk] = Math.min(MAX_PENALTY, (penalties[sk] ?? 0) + extra);
     }
   }
   return penalties;
@@ -213,14 +226,23 @@ export function recordSessionProposalOutcome(
   sessionId: string,
   proposedSkillNames: string[]
 ): void {
-  let names = proposedSkillNames;
-  if (names.length === 0) {
-    try {
-      const file = path.join(target, ".claude", "learning", "task-skill-proposals.json");
-      const data = JSON.parse(fs.readFileSync(file, "utf-8")) as { proposals?: { name: string }[] };
-      names = data.proposals?.map((p) => p.name) ?? [];
-    } catch { /* non-fatal — proposals file may not exist yet */ }
-  }
+  // Start with caller-supplied names (e.g. skills surfaced via _detectOpportunity),
+  // then union with the proposals file if it is fresh (< 4 h old).
+  // Using a Set prevents double-counting when both sources list the same skill.
+  const nameSet = new Set<string>(proposedSkillNames);
+  try {
+    const file = path.join(target, ".claude", "learning", "task-skill-proposals.json");
+    const data = JSON.parse(fs.readFileSync(file, "utf-8")) as {
+      proposals?: { name: string }[];
+      generatedAt?: string;
+    };
+    // Reject stale files — proposals older than 4 h belong to a prior session.
+    const ageMs = data.generatedAt ? Date.now() - new Date(data.generatedAt).getTime() : Infinity;
+    if (ageMs < 4 * 60 * 60 * 1000) {
+      for (const p of data.proposals ?? []) nameSet.add(p.name);
+    }
+  } catch { /* non-fatal — proposals file may not exist yet */ }
+  const names = [...nameSet];
   // Always write a record — zero-invocation sessions are valid learning signal
   // (previously returning early here starved the entire learning loop).
   const runs = readCachedEnrichedRuns(target).filter(r => r.session_id === sessionId);

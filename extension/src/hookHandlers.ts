@@ -1884,6 +1884,9 @@ function extractPromptContent(resp: HookResponse, agent: string): string {
 
 // Per-session counter: how many times we surfaced skill proposals this session.
 const _sessionProposalSurfaceCount = new Map<string, number>();
+// Per-session set: names of skills surfaced via _detectOpportunity (OPPORTUNITY_SIGNALS path).
+// Merged into proposalOutcome.jsonl at session-stop so dormancy counts them correctly.
+const _sessionOpportunityProposals = new Map<string, Set<string>>();
 
 // Keyword → installed-skill opportunity mapping (single source of truth for both prompt handlers)
 const OPPORTUNITY_SIGNALS: ReadonlyArray<{ pattern: RegExp; skill: string; label: string }> = [
@@ -2022,7 +2025,11 @@ function _detectOpportunity(
     if (proposedSkills.has(skill)) continue;
     if (isDormantSkill(cwd, skill)) continue;
 
-    if (sessionId) _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
+    if (sessionId) {
+      _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
+      if (!_sessionOpportunityProposals.has(sessionId)) _sessionOpportunityProposals.set(sessionId, new Set());
+      _sessionOpportunityProposals.get(sessionId)!.add(skill);
+    }
     return `[Skill Opportunity] ${label} detected — invoke the \`${skill}\` skill to accelerate this task. (${reason})`;
   }
   return "";
@@ -2177,7 +2184,10 @@ function handleSessionStop(req: HookRequest): HookResponse {
   if (!sessionId) return {};
 
   try {
-    recordSessionProposalOutcome(cwd, sessionId, []);
+    // Pass skills surfaced via OPPORTUNITY_SIGNALS so they're counted in dormancy tracking.
+    const opportunityNames = [...(_sessionOpportunityProposals.get(sessionId) ?? [])];
+    _sessionOpportunityProposals.delete(sessionId);
+    recordSessionProposalOutcome(cwd, sessionId, opportunityNames);
   } catch { /* non-fatal */ }
 
   // Record per-skill rejection feedback for every not-invoked proposal
