@@ -52,6 +52,41 @@ Each release includes:
 
 ---
 
+## [1.0.100] - 2026-06-26
+
+**Summary:** Real-world productivity benchmark + Skill Health Card dashboard panel.
+
+**Theme:** Measure what matters — validate that v1.0.98 fixes hold in production, surface the health state at a glance, and fix the two `SKILL_TASK_TYPES` gaps that caused legitimate prompts to be penalised.
+
+### Added
+
+- **`adoptionIntelligence.ts` — `formatSkillHealthCard(target)`** — Compact dashboard panel above the Adoption Coach showing three at-a-glance metrics: **Active Skills** (installed and not dormant), **Dormant Skills** (proposed ≥5× with <5% acceptance, currently suppressed), and **Avg Prompt Quality** (14-day rolling average from `prompt-intelligence.jsonl`). Uses `roi-high`/`roi-low` colour classes to make degraded state immediately visible. Includes a plain-English dormancy note when `dormantCount > 0`.
+
+- **`adoptionIntelligence.ts` — `computeSkillHealthSnapshot(target)`** — Data layer behind the card: reads the installed skills directory, crosses against `getDormantSkills()`, and reads `computePromptMetrics()`. Returns `{ activeCount, dormantCount, avgPromptQuality, hasPromptData }`.
+
+- **`costDashboard.ts`** — Wired `formatSkillHealthCard()` into the Adoption Intelligence section, rendered above `formatAdoptionCoachHtml()`.
+
+- **`skillHealthCard.test.ts`** — 13 unit tests covering both `computeSkillHealthSnapshot` and `formatSkillHealthCard`: empty workspace zeros, 3-skill active set, 1-of-3 dormant split, all-dormant, below-threshold boundary, missing-skills-dir grace, HTML label presence, dormant warning note, CSS class assertions.
+
+- **`benchmark-runner.test.ts`** — Real-world productivity benchmark suite (11 tests) run against the live workspace and installed skills. Validates scoring for Tasks 1–9 against actual `~/.claude/learning/` data. Benchmark results committed in the run body:
+  - Acceptance 5% (target ≥5% — **ACHIEVED**)
+  - Precision 18% (target ≥15% — **ACHIEVED**)
+  - F1 28%
+  - Dormant: `deployment-practical`, `github-actions-ci`, `vscode-extension-publishing` — all correctly suppressed
+  - Rising: `skill-feedback-adaptation`, `vitest-extension-testing`
+
+### Fixed
+
+- **`taskSkillProposals.ts` — `SKILL_TASK_TYPES["github-actions-ci"]`** — Added `"code"` to the allowed task types. Prompts containing `implement`/`create` (code-type verbs) were receiving a 0.65× task-type penalty when paired with a CI skill, dropping confidence below the 70-point threshold. Implementing a GitHub Actions workflow *is* a code task.
+
+- **`taskSkillProposals.ts` — `SKILL_TASK_TYPES["deployment-practical"]`** — Same fix: added `"code"` type. Creating deployment scripts is a development task, not purely a deploy operation.
+
+### Tests
+
+- 573 tests passing (519 pre-existing + 43 E2E validation + 11 benchmark; all green).
+
+---
+
 ## [1.0.99] - 2026-06-25
 
 **Summary:** Adoption Intelligence hardening — dormancy-aware freshness gate and 30 unit tests for the dormancy/penalty pipeline.

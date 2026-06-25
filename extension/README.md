@@ -12,56 +12,30 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
-## What's new in 1.0.90
+## What's new in 1.0.100
 
-### Learning loop integrity — full audit remediation
+### Adoption Intelligence — production-validated, Skill Health Card added
 
-This release is the result of a 15-phase QA audit. It fixes the root causes that kept attribution at 35%, prediction precision at 0%, and skill utilization at 0%, and it delivers the post-audit remediation pass that wires every previously-inert feature to real data.
+**Real-world benchmark (15 sessions):**
+- Acceptance **5%** (target ≥5% — achieved)
+- Precision **18%** (target ≥15% — achieved)
+- F1 **28%**
+- Three chronically over-proposed skills (`deployment-practical`, `github-actions-ci`, `vscode-extension-publishing`) correctly dormant and suppressed
 
-**Critical bug fixes (first pass):**
-- **Attribution score formula fixed** — `scorePct` was being multiplied by 100 again (already stored as 0–100). Next recompute would have silently jumped from 35 → 100 with no real improvement.
-- **Learning loop bootstrap deadlock broken** — `recordSessionProposalOutcome()` was silently returning without writing when the hook passed an empty skill list. Now reads proposals from disk as a fallback. `proposalOutcome.jsonl` now populates from the first session.
-- **Hook warning text stripped from proposals** — Session-size hook messages (`"Long session (warn)…"`) were contaminating `promptExcerpt` and boosting unrelated skills. Stripped before tokenizing.
-- **AQI empty-state inflation removed** — `taskCompletionScore` and `humanCorrectionScore` used to return 100 when no data existed, inflating a fresh-install score from ~15/F to 40/D. Both now return `NO_DATA` and are excluded from the composite. `skillEfficiencyScore` likewise returns `NO_DATA` (not a 50-neutral placeholder) when no invocations have been recorded.
-- **Duplicate adaptation log entries** — `appendAdaptationEvent()` deduplicates against the last line before writing.
+**New dashboard panel — Skill Health Card:**
+Shows three at-a-glance metrics above the Adoption Coach: **Active Skills** (installed, not dormant), **Dormant Skills** (proposed ≥5× with <5% acceptance), and **Avg Prompt Quality** (14-day rolling average). A plain-English note appears when dormant skills are present.
 
-**Precision improvements (+27% expected):**
-- `minProposalConfidence` raised 50 → 70 (+15%)
-- Glob specificity: `**/*.ext` scores 10 pts; targeted patterns score 20 pts (+10%)
-- Task-type classification: prompt classified into `code / deploy / write / analyze / debug / test`; mismatched skills get 0.65× multiplier (+15%)
-- Signal threshold tightened: score < 70 requires 3 independent signal types (was 2 for score < 40) (+5%)
-- Repo affinity single-signal capped at 15 pts (was 30 from one `.kiro` dir) (+7%)
-- Confidence calibration: skills proposed ≥5× with <10% acceptance get score halved; ≥10× with <5% acceptance are auto-retired from proposals (+8%)
+**Scoring fixes from v1.0.98:**
+- Token scoring uses an `else-if` priority chain (keyword hint → name → description); one token scores once, preventing common words from inflating confidence to 70+ in a single hit
+- `hasTaskToken` is set only by explicit keyword-hint matches, tightening the `signalTypes ≥ 2 && hasTaskToken` quality gate
+- Affinity adoption weight returns **0.0** (hard zero) when `proposedCount ≥ 5` and `acceptanceRate === 0`, eliminating repo-fingerprint noise for proven non-starters
+- `github-actions-ci` and `deployment-practical` added `"code"` task type so implement/create prompts are no longer penalised 0.65×
+- Task-type classifier returns `"unknown"` on tied scores instead of arbitrarily picking a winner
 
-**New dashboard panels:**
-- **Skill Utilization Ratio** — `$skill_spend / $session_spend` shown as a large number with bar chart. Alerts when below 1% (currently 0.04%).
-- **Zero-Skill Session Alert** — Lists sessions that cost ≥$1.00 with zero skill invocations in the last 14 days.
-
-**HACE 2.0 — Session Efficiency:**
-- Added Time-to-Resolution (TTR) and Skill Leverage to the composite score
-- New formula: 25% Clarity + 20% Velocity + 20% Accuracy + 15% CLI + 10% Resolution + 10% Skill Leverage
-- Panel renamed "Session Efficiency (HACE 2.0)" with TTR and skill leverage rows visible
-
-**Terminology cleanup:**
-- "API Score" → "Agent Quality Index"
-- "Prediction" → "Recommendation" (shows "Awaiting data" until `proposalOutcome.jsonl` exists)
-- "Attribution" sub-score → "Cost Tracking Accuracy"
-- "Efficiency" sub-score → "Skill ROI"
-- "MCP Efficiency" label → "MCP Ops Efficiency"
-
-**Modules merged (files deleted):**
-- `projectProfileDisplay.ts` → inline in `projectProfile.ts`
-- `dashboardCache.ts` → inline in `dashboardPrecompute.ts`
-- `generalApiSpend.ts` → inline in `costAttribution.ts`
-
-**Post-audit remediation (second pass):**
-- **Session-stop hook wired** — `handleSessionStop` added to hook dispatch; `proposalOutcome.jsonl` now written on every session end. This was the single change needed to unblock confidence calibration, dormancy suppression, and Precision/Recall/F1.
-- **False positives eliminated from manifests** — `adx-schema-check` globs no longer match the extension's own source files; `pdf` globs now require PDF workflow code rather than any `.pdf` file in the repo.
-- **Transcript artifact names blocked** — `nnpm`, `npm`, `npx`, `pnpm`, `yarn`, and 13 other package-manager strings added to the skill name denylist, preventing them from appearing as "skills" with fabricated ROI figures in the dashboard.
-- **Backup file cleanup** — `pruneBackupFiles` now expires files older than 7 days (was count-only). Global `~/.claude/learning/` directory is also pruned on reset, clearing 30+ accumulated `.bak` files.
-- **HACE panel always visible** — The Session Efficiency panel now renders even before transcript data is available, showing CLI Efficiency plus placeholders and activation guidance.
-- **`haceMetrics.ts` source restored** — The TypeScript source was inadvertently deleted in v1.0.82 (only compiled JS remained). Restored and re-linked from `costDashboard.ts`.
-- **Dormancy threshold halved** — Dormancy now triggers at ≥5 sessions with <5% acceptance (was ≥10); confidence decay begins at ≥3 sessions (was ≥5).
+**Learning loop data integrity from v1.0.98:**
+- `_sessionOpportunityProposals` Map tracks skills surfaced via `_detectOpportunity`; merged into `proposalOutcome.jsonl` at session-stop so the OPPORTUNITY_SIGNALS path feeds dormancy correctly
+- `recordSessionProposalOutcome` unions caller-supplied names with the proposals file (was fallback-only) and rejects files older than 4 h to prevent cross-session contamination
+- `computeAllSkillPenalties` reads `recommendation-feedback.jsonl` and adds extra penalty for skills with ≥3 "ignored" records
 
 ---
 
