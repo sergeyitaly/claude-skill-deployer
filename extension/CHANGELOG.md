@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.103** | Telemetry quality — coaching decay fix, rejection staleness guard, normPath Windows fix, advisor log ordering, enrichment patterns, HACE 2.0 docs |
 | **1.0.99** | Adoption Intelligence hardening — dormancy-aware proposals TTL, 30 unit tests |
 | **1.0.98** | Adoption Intelligence v1 — prompt signal gating, keyword inflation fix, penalty engine |
 | **1.0.95** | Bug fixes — SonarQube S3776 x5, OPPORTUNITY_SIGNALS dedup, dormant comment fix |
@@ -49,6 +50,55 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.103] - 2026-06-26
+
+**Summary:** Telemetry quality audit — 6 bugs fixed across coaching decay, false-positive suppression, enrichment pipeline, context efficiency, and HACE documentation.
+
+**Theme:** Internal telemetry correctness pass — every signal the system uses to self-improve now lands in the right place, at the right time, with accurate values.
+
+### Fixed — Coaching decay loop
+
+- **`coachingLearning.ts`** — `evaluateAdviceOutcome` was gated on `lastShownAt` (updated every prompt by `recordAdviceShown`), so the 1-hour guard always fired and `ignoredCount` never incremented.
+  - Added `lastEvaluatedAt: string | null` to `MetricCoachingState` + `defaultMetricState()`.
+  - Replaced the `hoursSinceShown < 1` guard with a 5-minute debounce on `lastEvaluatedAt`; coaching cooldowns now activate after ≥3 ignored pieces of advice as designed.
+
+### Fixed — Rejection feedback staleness guard
+
+- **`hookHandlers.ts`** — `onStopSession` read `task-skill-proposals.json` without checking age; stale proposals from previous sessions were logged as "ignored", inflating suppression counters.
+  - Added the same 4-hour `generatedAt` staleness check that `recordSessionProposalOutcome` already uses; feedback is only recorded when proposals are fresh.
+
+### Fixed — Skill Enrichment pipeline dormant for project skills
+
+- **`skillEnrichment.ts`** — `DEVOPS_PATTERNS` had no entries matching actual project skill names (`vitest`, `skill-feedback-adaptation`, `self-learning`), so `MIN_PATTERN_OCCURRENCES = 3` was never reached and no enrichment proposals were ever generated.
+  - Added 3 new patterns: `vscode-extension-test-run` (keywords: vitest/extension/test, affinity: vitest-extension-testing), `skill-feedback-workflow` (keywords: feedback/adaptation/skill), `self-learning-session` (keywords: self-learning/learning).
+  - Extended `PatternCategory` type with `"vscode-extension" | "skill-meta"`.
+  - After fix: `vitest-extension-testing` accumulates ≥3 occurrences → enrichment proposal generated on next session.
+
+### Fixed — Context Efficiency normPath Windows drive-letter mismatch
+
+- **`contextEfficiency.ts`** — `normPath` normalised backslashes but not drive-letter case; `C:/foo` and `c:/foo` mapped to different keys, double-counting hot files and inflating `totalWastedTokens`.
+  - Added `.replace(/^[A-Z]:/, m => m.toLowerCase())` to canonicalise the drive letter.
+
+### Fixed — Advisor log "followed" before "shown" ordering
+
+- **`commandsContextEfficiency.ts`** — Auto-optimize path showed the notification before calling `recordAdvisorEvent("shown")`, so "followed" events landed before "shown" in `context-advisor-log.jsonl`, breaking follow-rate calculations.
+  - Moved `recordAdvisorEvent("shown", …)` and `currentAdvisorEstimate`/`currentAdvisorReason` assignments to before `showInformationMessage` await; all events now log in correct order.
+
+### Improved — HACE 2.0 formula documentation
+
+- **`efficiencyMetrics.ts`** — Added authoritative docstring to `computeHaceMetrics` listing the live 6-component formula: `0.25×clarity + 0.20×velocity + 0.20×accuracy + 0.15×cli + 0.10×resolution + 0.10×leverage`.
+- **`haceMetrics.ts`** — Added `@deprecated` JSDoc pointing to `efficiencyMetrics.ts`; eliminates confusion between the 4-component draft and the live engine.
+
+---
+
+## [1.0.102] - 2026-06-26
+
+**Summary:** Coaching decay, fast FP suppression, HACE recovery, multi-goal hint, HACE on session-stop.
+
+**Theme:** Telemetry reliability — signals that drive self-improvement now fire correctly and on time.
 
 ---
 

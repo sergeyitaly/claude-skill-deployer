@@ -63,7 +63,8 @@ export function detectSuccessfulRuns(target: string): SkillSuccessEvent[] {
 
 export type PatternCategory =
   | "kubernetes" | "argocd" | "helm" | "terraform"
-  | "ci-cd" | "cloud" | "general";
+  | "ci-cd" | "cloud" | "general"
+  | "vscode-extension" | "skill-meta";
 
 export interface KnownPattern {
   id: string;
@@ -442,6 +443,122 @@ kubectl get nodes
 \`\`\`bash
 gcloud container clusters create-auto <name> --region <region>
 \`\`\``,
+  },
+
+  // ── VS Code Extension Testing ───────────────────────────────────────────────
+  {
+    id: "vscode-extension-test-run",
+    label: "VS Code Extension Test Run",
+    category: "vscode-extension",
+    keywords: ["vitest", "extension", "test"],
+    affinity: ["vitest-extension-testing"],
+    typicalCommands: [
+      "npx vitest run --reporter=verbose",
+      "npx vitest run --coverage",
+      "node ./out/test/runTest.js",
+      "npx vitest bench",
+    ],
+    typicalFiles: ["*.test.ts", "*.bench.ts", "extension/test/*", "vitest.config.ts"],
+    sectionTitle: "VS Code Extension Test Patterns",
+    proposalTemplate: `## VS Code Extension Test Patterns
+
+Run tests and benchmarks for this VS Code extension:
+
+\`\`\`bash
+# Unit / integration tests
+npx vitest run --reporter=verbose
+
+# Benchmark suite
+npx vitest bench
+
+# Coverage report
+npx vitest run --coverage
+\`\`\`
+
+**Extension host tests** (requires compiled output):
+\`\`\`bash
+npm run compile && node ./out/test/runTest.js
+\`\`\`
+
+**Common failures:**
+- \`Cannot find module 'vscode'\` — run inside extension host or mock vscode API
+- \`ENOENT .claude/learning/\` — ensure workspace root is the repo root, not a sub-folder
+- Timeout on first run — warm up the cache with a single \`vitest run\` before benchmarking
+- \`p95 regression\` — check for new synchronous file I/O on the hot path`,
+  },
+
+  // ── Skill Feedback Adaptation ───────────────────────────────────────────────
+  {
+    id: "skill-feedback-workflow",
+    label: "Skill Feedback Adaptation Workflow",
+    category: "skill-meta",
+    keywords: ["feedback", "adaptation", "skill"],
+    affinity: ["skill-feedback-adaptation"],
+    typicalCommands: [],
+    typicalFiles: [
+      ".claude/learning/skill-feedback.jsonl",
+      ".claude/skills/**",
+      ".claude/learning/adaptation-log.jsonl",
+    ],
+    sectionTitle: "Skill Feedback Patterns",
+    proposalTemplate: `## Skill Feedback Patterns
+
+Negative signals that trigger adaptation:
+
+| Signal | Meaning |
+|--------|---------|
+| "no", "not that", "wrong" | Output misaligned with intent |
+| "stop", "don't" | Unwanted action taken |
+| "actually", "instead" | Correction of approach |
+| "you missed", "you forgot" | Incomplete output |
+
+**Workflow this skill runs:**
+1. Detects negative signals in the current user message
+2. Appends a \`SkillFeedbackRecord\` to \`skill-feedback.jsonl\`
+3. Surfaces a digest in the next session if the pattern repeats ≥ 3×
+4. Writes an adaptation note to \`adaptation-log.jsonl\`
+
+**When to invoke:**
+- After a skill produces output the user explicitly rejects
+- To audit which skills have the highest inefficiency score
+- To review \`skill-feedback.jsonl\` for a specific skill before updating its SKILL.md`,
+  },
+
+  // ── Self-Learning ───────────────────────────────────────────────────────────
+  {
+    id: "self-learning-session",
+    label: "Self-Learning Session Update",
+    category: "skill-meta",
+    keywords: ["self-learning", "learning"],
+    affinity: ["self-learning"],
+    typicalCommands: [],
+    typicalFiles: [
+      ".claude/learning/",
+      "MEMORY.md",
+      ".claude/projects/*/memory/",
+    ],
+    sectionTitle: "Self-Learning Update Patterns",
+    proposalTemplate: `## Self-Learning Update Patterns
+
+This skill runs at session start to inject prior learning context.
+
+**What it reads:**
+- \`MEMORY.md\` — index of persistent memory files
+- \`memory/*.md\` — individual user/feedback/project/reference records
+- \`.claude/learning/skill-feedback.jsonl\` — accumulated correction signals
+
+**Update triggers:**
+- User says "remember X" → save to appropriate memory type file
+- User corrects the same mistake 2+ times → save as \`feedback\` memory
+- New project context discovered → save as \`project\` memory
+
+**Memory types written:**
+| Type | File pattern | When |
+|------|-------------|------|
+| user | \`user_*.md\` | Role, preferences, expertise |
+| feedback | \`feedback_*.md\` | Corrections and validated approaches |
+| project | \`project_*.md\` | Goals, deadlines, context |
+| reference | \`reference_*.md\` | External system pointers |`,
   },
 ];
 

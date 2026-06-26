@@ -42,6 +42,7 @@ export interface MetricCoachingState {
   cooldownUntil: string | null; // ISO timestamp when advice can resurface
   lastScore: number | null;
   lastShownAt: string | null;
+  lastEvaluatedAt: string | null; // ISO timestamp of last evaluateAdviceOutcome run
   adaptedMultiplier: number;   // 0.25–2.0 frequency multiplier; 1.0 = default
 }
 
@@ -84,7 +85,7 @@ function appendEvent(target: string, event: CoachingEvent): void {
 function defaultMetricState(metric: CoachingMetric): MetricCoachingState {
   return {
     metric, showCount: 0, improvedCount: 0, ignoredCount: 0,
-    cooldownUntil: null, lastScore: null, lastShownAt: null,
+    cooldownUntil: null, lastScore: null, lastShownAt: null, lastEvaluatedAt: null,
     adaptedMultiplier: 1.0,
   };
 }
@@ -140,9 +141,15 @@ export function evaluateAdviceOutcome(
   const ms = state.metrics[metric];
   if (!ms || ms.lastShownAt === null || ms.lastScore === null) return;
 
-  // Only evaluate if at least one full session has passed (1 hour)
-  const hoursSinceShown = (Date.now() - new Date(ms.lastShownAt).getTime()) / 3_600_000;
-  if (hoursSinceShown < 1) return;
+  // Debounce: skip if evaluated within the last 5 minutes.
+  // Guard uses lastEvaluatedAt — not lastShownAt — because recordAdviceShown runs on
+  // the same prompt pass just after this call, which would make lastShownAt always
+  // appear "too recent" and permanently block the decay loop.
+  const minsSinceEvaluated = ms.lastEvaluatedAt
+    ? (Date.now() - new Date(ms.lastEvaluatedAt).getTime()) / 60_000
+    : Infinity;
+  if (minsSinceEvaluated < 5) return;
+  ms.lastEvaluatedAt = new Date().toISOString();
 
   const improved = currentScore > ms.lastScore + 3; // >3pt gain = meaningful
 

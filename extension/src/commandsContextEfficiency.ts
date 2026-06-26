@@ -269,6 +269,14 @@ export function registerContextEfficiencyCommands(deps: ContextEfficiencyCommand
         const analysis = analyzeContextEfficiency(target, 24);
         const advisor  = evaluateCompactAdvisor(analysis);
         if (advisor.shouldShow) {
+          // Record "shown" BEFORE awaiting the notification so that any subsequent
+          // "followed" or "dismissed" event always lands after "shown" in the log.
+          recordAdvisorEvent(target, "shown", {
+            estimatedSavingsTokens: advisor.estimatedTokensSaved,
+            triggerReason: advisor.triggerReason,
+          });
+          currentAdvisorEstimate = advisor.estimatedTokensSaved;
+          currentAdvisorReason   = advisor.triggerReason;
           const choice = await vscode.window.showInformationMessage(
             `⚠ Context Efficiency: ${advisor.triggerReason}`,
             "Run /compact now", "Dismiss"

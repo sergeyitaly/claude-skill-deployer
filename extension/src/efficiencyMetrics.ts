@@ -191,6 +191,23 @@ function activeWorkMinutes(turns: HaceTurn[]): number {
   return activeMs / 60_000;
 }
 
+/**
+ * HACE 2.0 — Human-AI Collaboration Efficiency (active formula)
+ *
+ * Six observable components, weights summing to 1.0:
+ *
+ *   Prompt Clarity       (25%) — avg prompt intelligence score from prompt-intelligence.jsonl
+ *   Task Velocity        (20%) — turns/min of active work vs 0.5 target
+ *   Accuracy Rate        (20%) — inverse of correction-turn rate
+ *   CLI Efficiency       (15%) — CLI exit-code success rate from mcp-usage.jsonl
+ *   Resolution Velocity  (10%) — avg active session duration vs 120-min target
+ *   Skill Leverage       (10%) — skill invocation rate per turn
+ *
+ * HACE = 0.25×clarity + 0.20×velocity + 0.20×accuracy + 0.15×cli + 0.10×resolution + 0.10×leverage
+ *
+ * This is the authoritative formula that writes hace-sessions.jsonl.
+ * haceMetrics.ts contains an older 4-component draft — it is superseded by this file.
+ */
 export function computeHaceMetrics(
   target: string,
   cliSuccessRate: number,

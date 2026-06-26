@@ -2214,13 +2214,23 @@ function handleSessionStop(req: HookRequest): HookResponse {
     const proposalsFile = path.join(cwd, ".claude", "learning", "task-skill-proposals.json");
     const proposalsData = JSON.parse(fs.readFileSync(proposalsFile, "utf-8")) as {
       proposals?: { name: string }[];
+      generatedAt?: string;
     };
-    const proposedNames = proposalsData.proposals?.map((p) => p.name) ?? [];
-    if (proposedNames.length > 0) {
-      const invoked = readCachedEnrichedRuns(cwd)
-        .filter(r => r.session_id === sessionId)
-        .map(r => r.skill);
-      recordSessionRejectionFeedback(cwd, sessionId, proposedNames, invoked);
+    // Mirror the 4-hour staleness gate used by recordSessionProposalOutcome so that
+    // recommendation-feedback.jsonl only logs proposals that were actually fresh enough
+    // to have been shown this session. Without this check, stale proposals from a prior
+    // session would be written as "ignored", inflating ignore counts for FP suppression.
+    const ageMs = proposalsData.generatedAt
+      ? Date.now() - new Date(proposalsData.generatedAt).getTime()
+      : Infinity;
+    if (ageMs < 4 * 60 * 60 * 1000) {
+      const proposedNames = proposalsData.proposals?.map((p) => p.name) ?? [];
+      if (proposedNames.length > 0) {
+        const invoked = readCachedEnrichedRuns(cwd)
+          .filter(r => r.session_id === sessionId)
+          .map(r => r.skill);
+        recordSessionRejectionFeedback(cwd, sessionId, proposedNames, invoked);
+      }
     }
   } catch { /* non-fatal */ }
 

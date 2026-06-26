@@ -10,6 +10,10 @@
  *   CLI Efficiency   (20%) — CLI success rate from mcp-usage.jsonl
  *
  * HACE = 0.30×clarity + 0.25×velocity + 0.25×accuracy + 0.20×cli
+ *
+ * @deprecated Superseded by efficiencyMetrics.ts which implements the live HACE 2.0
+ * six-component formula (0.25/0.20/0.20/0.15/0.10/0.10) and writes hace-sessions.jsonl.
+ * This file's formula and dashboard HTML are no longer used for scoring.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";

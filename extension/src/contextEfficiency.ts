@@ -55,7 +55,9 @@ export function bytesToTokens(bytes: number): number {
 }
 
 function normPath(p: string): string {
-  return p.replace(/\\/g, "/");
+  // Normalize backslashes and lowercase the drive letter so C:/foo and c:/foo
+  // map to the same key on Windows — without this the same file is counted twice.
+  return p.replace(/\\/g, "/").replace(/^[A-Z]:/, m => m.toLowerCase());
 }
 
 function selectLogPath(target: string): string {
