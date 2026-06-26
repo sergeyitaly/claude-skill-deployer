@@ -1941,7 +1941,8 @@ function handleSessionCoach(req: HookRequest, promptText: string): string {
   if (!coachCfg.enabled) return ""; // still recorded quality above; hints suppressed by user config
 
   // Evaluate whether prior coaching advice improved the score (wires the cooldown/decay loop).
-  if (state.promptIndex > 2) {
+  // Start from prompt 2 so evaluation fires even in short sessions.
+  if (state.promptIndex >= 2) {
     try { evaluateAdviceOutcome(cwd, "promptClarity", analysis.score); } catch { /* non-fatal */ }
   }
 
@@ -1988,7 +1989,12 @@ function handleSessionCoach(req: HookRequest, promptText: string): string {
   for (const hint of hints) {
     if (!shouldShowAdvice(cwd, hint.metric)) continue; // in cooldown
 
-    const shown = recordAdviceShown(cwd, hint.metric, haceScores[`${hint.metric}Score` as never] as number ?? 50, hint.message);
+    // Use analysis.score as baseline for promptClarity so evaluateAdviceOutcome
+    // compares prompt-quality scores consistently (not HACE rolling avg vs per-prompt score).
+    const baselineScore = hint.metric === "promptClarity"
+      ? analysis.score
+      : (haceScores[`${hint.metric}Score` as never] as number ?? 50);
+    const shown = recordAdviceShown(cwd, hint.metric, baselineScore, hint.message);
     if (!shown) continue; // cooldown says no
 
     state.hintsShown++;
@@ -2238,6 +2244,19 @@ function handleSessionStop(req: HookRequest): HookResponse {
   // trend data without requiring the dashboard panel to be open.
   setImmediate(() => {
     try { computeEfficiencyMetrics(cwd, 14); } catch { /* non-fatal */ }
+    // Evaluate coaching advice outcome at session end so the decay loop fires even
+    // when a session has only one prompt — the pre-prompt handler only calls
+    // evaluateAdviceOutcome at promptIndex >= 2, which never triggers in short sessions.
+    try {
+      const piFile = path.join(cwd, ".claude", "learning", "prompt-intelligence.jsonl");
+      const lines = fs.readFileSync(piFile, "utf-8").split("\n").filter(Boolean);
+      if (lines.length > 0) {
+        const last = JSON.parse(lines[lines.length - 1]) as { score?: number };
+        if (typeof last.score === "number") {
+          evaluateAdviceOutcome(cwd, "promptClarity", last.score);
+        }
+      }
+    } catch { /* non-fatal */ }
   });
 
   return {};

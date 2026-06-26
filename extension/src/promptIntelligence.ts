@@ -101,8 +101,8 @@ function scoreDimension(id: string, name: string, pattern: RegExp, text: string,
 function scoreGoalDimension(text: string): PromptDimension {
   const goalCount = detectGoalCount(text);
   const found = GOAL_VERBS.test(text) && goalCount === 1;
-  const score = found ? 100 : goalCount > 3 ? 10 : goalCount > 1 ? 40 : GOAL_VERBS.test(text) ? 70 : 30;
-  return { id: "goal", name: "Goal defined", score, found: goalCount === 1, evidence: `${goalCount} goal(s) detected`, weight: 20 };
+  const score = goalCount === 1 ? 100 : goalCount > 3 ? 10 : 40;
+  return { id: "goal", name: "Goal defined", score, found, evidence: `${goalCount} goal(s) detected`, weight: 20 };
 }
 
 // ---------------------------------------------------------------------------

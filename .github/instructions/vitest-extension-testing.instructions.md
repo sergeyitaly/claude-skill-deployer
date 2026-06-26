@@ -81,3 +81,31 @@ Files with the most test coverage to check when refactoring:
 2. Import from vitest: `import { describe, expect, it } from "vitest"`
 3. Use `fs.mkdtempSync` for temp dirs; clean up in `afterAll`
 4. Run `npm test` to confirm it appears in the suite output
+
+
+<!-- Enrichment: added from 3 real-world sessions, 92% confidence, 2026-06-26 -->
+## VS Code Extension Test Patterns
+
+Run tests and benchmarks for this VS Code extension:
+
+```bash
+# Unit / integration tests
+npx vitest run --reporter=verbose
+
+# Benchmark suite
+npx vitest bench
+
+# Coverage report
+npx vitest run --coverage
+```
+
+**Extension host tests** (requires compiled output):
+```bash
+npm run compile && node ./out/test/runTest.js
+```
+
+**Common failures:**
+- `Cannot find module 'vscode'` — run inside extension host or mock vscode API
+- `ENOENT .claude/learning/` — ensure workspace root is the repo root, not a sub-folder
+- Timeout on first run — warm up the cache with a single `vitest run` before benchmarking
+- `p95 regression` — check for new synchronous file I/O on the hot path

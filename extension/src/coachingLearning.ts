@@ -148,7 +148,7 @@ export function evaluateAdviceOutcome(
   const minsSinceEvaluated = ms.lastEvaluatedAt
     ? (Date.now() - new Date(ms.lastEvaluatedAt).getTime()) / 60_000
     : Infinity;
-  if (minsSinceEvaluated < 5) return;
+  if (minsSinceEvaluated < 0.5) return;
   ms.lastEvaluatedAt = new Date().toISOString();
 
   const improved = currentScore > ms.lastScore + 3; // >3pt gain = meaningful
