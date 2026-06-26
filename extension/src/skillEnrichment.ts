@@ -494,7 +494,10 @@ npm run compile && node ./out/test/runTest.js
     category: "skill-meta",
     keywords: ["feedback", "adaptation", "skill"],
     affinity: ["skill-feedback-adaptation"],
-    typicalCommands: [],
+    typicalCommands: [
+      "cat .claude/learning/skill-feedback.jsonl",
+      "cat .claude/learning/adaptation-log.jsonl",
+    ],
     typicalFiles: [
       ".claude/learning/skill-feedback.jsonl",
       ".claude/skills/**",
@@ -531,7 +534,10 @@ Negative signals that trigger adaptation:
     category: "skill-meta",
     keywords: ["self-learning", "learning"],
     affinity: ["self-learning"],
-    typicalCommands: [],
+    typicalCommands: [
+      "cat .claude/learning/runs.jsonl",
+      "cat MEMORY.md",
+    ],
     typicalFiles: [
       ".claude/learning/",
       "MEMORY.md",
