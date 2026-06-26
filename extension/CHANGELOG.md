@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.104** | Learning Dashboard — live server toggle, dynamic review.html, skill-profile mapping fixes |
 | **1.0.103** | Telemetry quality — coaching decay fix, rejection staleness guard, normPath Windows fix, advisor log ordering, enrichment patterns, HACE 2.0 docs |
 | **1.0.99** | Adoption Intelligence hardening — dormancy-aware proposals TTL, 30 unit tests |
 | **1.0.98** | Adoption Intelligence v1 — prompt signal gating, keyword inflation fix, penalty engine |
@@ -50,6 +51,45 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.104] - 2026-06-26
+
+**Summary:** Learning Dashboard — one-click live server toggle that serves `index.html` + `.claude/learning/` over a local HTTP server, embedded as a WebviewPanel with a pulsing status bar indicator.
+
+**Theme:** Developer observability — the full telemetry review is now always one click away, live-updating every 30 seconds, with no external tooling required.
+
+### Added — Learning Dashboard command (`claudeSkills.toggleLearningDashboard`)
+
+- **`commandsLearningDashboard.ts`** (new file) — self-contained module for the dashboard server lifecycle:
+  - `buildServer(workspaceRoot)` — Node.js `http.Server` serving the workspace root with MIME detection, `Cache-Control: no-store`, path-traversal guard, and `Access-Control-Allow-Origin: *` so `fetch()` in `index.html` works without CORS issues.
+  - `findFreePort(3099)` — probes sequentially for a free port; never conflicts with other dev servers.
+  - Toggle ON: starts server, opens a `WebviewPanel` beside the active editor showing an `<iframe>` pointed at `http://localhost:{port}`, reveals a pulsing status bar badge `$(broadcast) Dashboard ON :{port}`.
+  - Toggle OFF: stops server, disposes panel. Also triggered by the **■ Stop Server** button inside the panel.
+  - Panel toolbar buttons send `postMessage` to the extension — "Open in Browser" calls `vscode.env.openExternal`; "↻ Refresh" reloads the iframe.
+  - Info toast on start offers **Open in Browser** / **Copy URL** shortcuts.
+
+### Added — `index.html` live dashboard (project root)
+
+- Fully self-contained HTML+JS dashboard that `fetch()`es all 18 `.claude/learning/` files on load and on every 30-second auto-refresh cycle.
+- Sections: Executive Summary (computed grades), HACE trends, Skill Adoption, Prompt Intelligence, Cost Intelligence, Context Efficiency, Hook Health, Skill Enrichment, System State, Recommendations.
+- Requires `npx serve .` or the extension's new toggle command — shows a clear `file://` error banner if opened directly.
+
+### Fixed — `skill-profile.json` field mapping in dashboard
+
+- `skill-stats.json` stores `totalTokens`; `skill-profile.json` stores `avgTokens` — the dashboard was reading `s.avgTokens` from the stats object (always `undefined`), showing "0K" for every skill.
+  - `compute()` now enriches each active skill entry: `avgTokens = Math.round(totalTokens / runs)` (falling back to `skill-profile.avgTokens`); `qualityScore` pulled from `skill-profile.profiles[name]`.
+  - `successRate` normalised: stats file stores 0–100 integer, profile stores 0–1 decimal — both display correctly as a percentage.
+
+### Fixed — `recommendation-feedback.jsonl` duplicate event inflation
+
+- Multiple `session_end` events fire per session (e.g. session `d5383429` fired 4 times with identical ignored-skill lists), inflating "times ignored" counts by 4–6×.
+  - `compute()` now deduplicates feedback by `session_id + skill` before tallying; each skill is counted once per unique session.
+
+### Changed — `package.json` contributes
+
+- Added `claudeSkills.toggleLearningDashboard` to `contributes.commands` (`$(graph-line)` icon) and `view/item/context` menu under `3_usage` group alongside other dashboard commands.
 
 ---
 

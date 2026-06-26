@@ -192,6 +192,7 @@ import { computeEfficiencyMetrics, formatEfficiencyReport } from "./efficiencyMe
 import { clearMcpLogs, workspaceMcpLogPath, summarizeMcpUsage, summarizeCrossSessionPatterns, MCP_USAGE_LOG_PATH } from "./mcpUsageLog";
 import { initMcpStatusBars, refreshMcpStatusBars, refreshCliMcpStatusBar } from "./mcpStatusBars";
 import { registerDashboardCommands } from "./commandsDashboard";
+import { registerLearningDashboardCommands } from "./commandsLearningDashboard";
 import { registerEnrichmentCommands } from "./commandsEnrichment";
 import { registerContextEfficiencyCommands } from "./commandsContextEfficiency";
 import { registerMcpCommands } from "./commandsMcp";
@@ -1292,6 +1293,11 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       getTarget: getWorkspaceTarget,
       log,
       refreshAll,
+    }),
+    ...registerLearningDashboardCommands({
+      context,
+      getTarget: getWorkspaceTarget,
+      log,
     }),
   );
 

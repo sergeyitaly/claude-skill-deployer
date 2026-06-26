@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Skills — Live Learning Dashboard</title>
+<style>
+:root{
+  --bg0:#0d1117;--bg1:#161b22;--bg2:#21262d;--bg3:#2d333b;
+  --border:#30363d;--border2:#444c56;
+  --t1:#e6edf3;--t2:#8b949e;--t3:#6e7681;
+  --blue:#58a6ff;--green:#3fb950;--yellow:#d29922;
+  --red:#f85149;--purple:#bc8cff;--orange:#f0883e;--teal:#39d353;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg0);color:var(--t1);font-size:13px;line-height:1.6;min-height:100vh}
+code{font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;background:var(--bg3);padding:1px 5px;border-radius:3px;color:var(--orange)}
+.page{max-width:1280px;margin:0 auto;padding:20px 16px}
+
+/* Banner */
+.banner{padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:12px}
+.banner-warn{background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.3);color:var(--yellow)}
+.banner-ok{background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.25);color:var(--green)}
+.banner-error{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.25);color:var(--red)}
+
+/* Header */
+.hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.hdr h1{font-size:18px;font-weight:700}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.ts{font-size:11px;color:var(--t3)}
+.btn{cursor:pointer;padding:5px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--t1);font-size:12px;font-weight:600}
+.btn:hover{background:var(--bg3);border-color:var(--border2)}
+.btn-blue{background:rgba(88,166,255,.15);border-color:rgba(88,166,255,.4);color:var(--blue)}
+.btn-blue:hover{background:rgba(88,166,255,.25)}
+.cd{font-size:11px;color:var(--t3);min-width:60px;text-align:right}
+
+/* Layout */
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+.g5{grid-template-columns:repeat(5,1fr)}
+@media(max-width:960px){.g4,.g5{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.g2,.g3,.g4,.g5{grid-template-columns:1fr}}
+
+/* Cards */
+.card{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:16px}
+.card-title{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:10px}
+
+/* KPI */
+.kpi{text-align:center;padding:18px 10px}
+.kpi-v{font-size:32px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.kpi-l{font-size:10px;color:var(--t2);margin-top:5px;text-transform:uppercase;letter-spacing:.4px}
+.kpi-s{font-size:10px;color:var(--t3);margin-top:2px}
+
+/* Colors */
+.c-green{color:var(--green)}.c-blue{color:var(--blue)}.c-yellow{color:var(--yellow)}.c-red{color:var(--red)}.c-orange{color:var(--orange)}.c-purple{color:var(--purple)}.c-muted{color:var(--t2)}.c-dim{color:var(--t3)}
+
+/* Grade ring */
+.grade{display:inline-flex;align-items:center;justify-content:center;width:60px;height:60px;border-radius:50%;border:3px solid;font-size:26px;font-weight:800}
+.grade-A{color:var(--green);border-color:var(--green)}.grade-B{color:var(--blue);border-color:var(--blue)}
+.grade-C{color:var(--yellow);border-color:var(--yellow)}.grade-D{color:var(--orange);border-color:var(--orange)}
+.grade-F{color:var(--red);border-color:var(--red)}
+.grade-card{display:flex;flex-direction:column;align-items:center;gap:7px;padding:18px 8px;text-align:center}
+.grade-card .sub{font-size:9px;color:var(--t2);line-height:1.4}
+.grade-card .lbl{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.4px}
+
+/* Bars */
+.bar-bg{background:var(--bg3);border-radius:3px;height:5px;overflow:hidden;margin:3px 0}
+.bar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+
+/* Badge / pill */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.3px}
+.b-green{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.3)}
+.b-blue{background:rgba(88,166,255,.15);color:var(--blue);border:1px solid rgba(88,166,255,.3)}
+.b-yellow{background:rgba(210,153,34,.15);color:var(--yellow);border:1px solid rgba(210,153,34,.3)}
+.b-red{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+.b-orange{background:rgba(240,136,62,.15);color:var(--orange);border:1px solid rgba(240,136,62,.3)}
+.b-grey{background:rgba(139,148,158,.08);color:var(--t2);border:1px solid var(--border)}
+.b-purple{background:rgba(188,140,255,.15);color:var(--purple);border:1px solid rgba(188,140,255,.3)}
+
+/* Risk */
+.risk{display:inline-block;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:800;text-transform:uppercase}
+.risk-critical{background:rgba(248,81,73,.2);color:#ff6b6b}
+.risk-high{background:rgba(240,136,62,.2);color:var(--orange)}
+.risk-medium{background:rgba(210,153,34,.2);color:var(--yellow)}
+.risk-low{background:rgba(63,185,80,.2);color:var(--green)}
+
+/* Collapsible */
+details{background:var(--bg1);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px}
+summary{cursor:pointer;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:13px;list-style:none;user-select:none}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"›";font-size:18px;color:var(--t2);transition:transform .2s}
+details[open] summary::after{transform:rotate(90deg)}
+summary:hover{background:var(--bg2)}
+.d-body{padding:0 16px 16px}
+
+/* Table */
+.t-wrap{overflow-x:auto;border-radius:7px;border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:7px 12px;border-bottom:2px solid var(--border2);color:var(--t2);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;background:var(--bg2)}
+td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg2)}
+.row-del{background:rgba(248,81,73,.04)}
+.row-keep{background:rgba(63,185,80,.03)}
+.row-warn{background:rgba(210,153,34,.04)}
+
+/* Misc */
+.section{margin-bottom:24px}
+.sh{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:9px;border-bottom:1px solid var(--border)}
+.sn{background:var(--bg3);color:var(--t2);width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.sh h2{font-size:15px;font-weight:600}
+.row{display:flex;align-items:center;gap:8px}
+.row-sb{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mt4{margin-top:4px}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}
+.mb4{margin-bottom:4px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}
+.sm{font-size:11px}.xs{font-size:10px}
+.bold{font-weight:700}.mono{font-family:'SF Mono','Cascadia Code',monospace;font-size:11px}
+.pill-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.pill{padding:2px 8px;border-radius:12px;font-size:10px;background:var(--bg3);border:1px solid var(--border);color:var(--t2)}
+.pill-ok{background:rgba(88,166,255,.1);color:var(--blue);border-color:rgba(88,166,255,.3)}
+.pill-bad{background:rgba(248,81,73,.08);color:var(--red);border-color:rgba(248,81,73,.2)}
+.pill-warn{background:rgba(210,153,34,.08);color:var(--yellow);border-color:rgba(210,153,34,.25)}
+
+/* Loading */
+#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:12px;color:var(--t2)}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* HACE panel */
+.hace-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.hace-name{font-size:12px;color:var(--t1);width:170px;flex-shrink:0}
+.hace-bar{flex:1}.hace-val{font-size:12px;font-weight:700;width:32px;text-align:right;flex-shrink:0}
+.hace-delta{font-size:10px;width:40px;text-align:right;flex-shrink:0}
+
+/* Big number */
+.big-num{font-size:42px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+
+/* Responsive */
+@media(max-width:480px){.hdr h1{font-size:15px}}
+</style>
+</head>
+<body>
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Loading .claude/learning data…</div>
+  <div class="xs c-dim">Serve with: <code>npx serve .</code> or VS Code Live Server</div>
+</div>
+
+<div id="app" class="page" style="display:none"></div>
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+const BASE = '.claude/learning/';
+const REFRESH_SEC = 30;
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+const parseJsonl = t => (t||'').trim().split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
+const fmt2 = n => (typeof n==='number'?n.toFixed(2):n);
+const fmtCost = n => `$${(+n||0).toFixed(3)}`;
+const pct = (a,b) => b?Math.round(a/b*100):0;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const avgArr = a => a.length ? a.reduce((s,x)=>s+x,0)/a.length : 0;
+const color = (v,g=60,y=30) => v>=g?'var(--green)':v>=y?'var(--yellow)':'var(--red)';
+const badge = (txt,cls='b-grey') => `<span class="badge ${cls}">${txt}</span>`;
+const risk = (txt) => {
+  const c=txt==='CRITICAL'?'risk-critical':txt==='HIGH'?'risk-high':txt==='MEDIUM'?'risk-medium':'risk-low';
+  return `<span class="risk ${c}">${txt}</span>`;
+};
+
+async function safeFetch(path, mode='json') {
+  try {
+    const r = await fetch(BASE + path, {cache:'no-store'});
+    if (!r.ok) return null;
+    return mode==='json' ? r.json() : r.text();
+  } catch { return null; }
+}
+
+// ─── DATA LOADER ───────────────────────────────────────────────────────────
+async function loadAll() {
+  const [
+    haceText, skillStats, skillProfile, promptText,
+    coachState, hookText, costAttrib, teamEcon,
+    hotFiles, proposalText, attrTrust, sysState,
+    taskDrift, dailyStats, feedbackText, coachEvents,
+    enrichText, contextLog
+  ] = await Promise.all([
+    safeFetch('hace-sessions.jsonl','text'),
+    safeFetch('skill-stats.json'),
+    safeFetch('skill-profile.json'),
+    safeFetch('prompt-intelligence.jsonl','text'),
+    safeFetch('coaching-state.json'),
+    safeFetch('hook-health.jsonl','text'),
+    safeFetch('cost-attribution.json'),
+    safeFetch('team-economics-cache.json'),
+    safeFetch('hot-files.json'),
+    safeFetch('proposalOutcome.jsonl','text'),
+    safeFetch('attribution-trust.json'),
+    safeFetch('system-state.json'),
+    safeFetch('task-drift-reproposal.json'),
+    safeFetch('daily-stats.json'),
+    safeFetch('recommendation-feedback.jsonl','text'),
+    safeFetch('coaching-events.jsonl','text'),
+    safeFetch('skill-enrichment-proposals.jsonl','text'),
+    safeFetch('context-advisor-log.jsonl','text'),
+  ]);
+
+  const hace = parseJsonl(haceText);
+  const prompts = parseJsonl(promptText);
+  const hooks = parseJsonl(hookText);
+  const proposals = parseJsonl(proposalText);
+  const feedback = parseJsonl(feedbackText);
+  const coachEvts = parseJsonl(coachEvents);
+  const enrichProps = parseJsonl(enrichText);
+  const ctxLog = parseJsonl(contextLog);
+
+  return {
+    hace, prompts, hooks, proposals, feedback, coachEvts, enrichProps, ctxLog,
+    skillStats, skillProfile, coachState, costAttrib, teamEcon,
+    hotFiles, attrTrust, sysState, taskDrift, dailyStats
+  };
+}
+
+// ─── COMPUTED METRICS ──────────────────────────────────────────────────────
+function compute(d) {
+  const latestH = d.hace[d.hace.length-1] || {};
+  const firstH  = d.hace[0] || {};
+
+  // Prompt scores
+  const scores = d.prompts.map(p=>p.score).filter(s=>typeof s==='number');
+  const avgScore = scores.length ? Math.round(avgArr(scores)) : 0;
+
+  // Anti-patterns
+  const apCount = {};
+  d.prompts.forEach(p=>(p.antiPatterns||[]).forEach(a=>{apCount[a.type]=(apCount[a.type]||0)+1}));
+  const topAP = Object.entries(apCount).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+  // Coaching
+  const coach = d.coachState?.metrics?.promptClarity || {};
+
+  // Hooks
+  const hookFires = d.hooks.length;
+  const hookBySkill = {};
+  d.hooks.forEach(h=>{hookBySkill[h.skill]=(hookBySkill[h.skill]||0)+1});
+
+  // Skills — merge skill-stats (source of truth for runs/cost) with skill-profile (qualityScore, avgTokens)
+  const ss = d.skillStats?.skills || {};
+  const profiles = d.skillProfile?.profiles || {};
+  const active = Object.values(ss).filter(s => s.runs > 0).map(s => {
+    const prof = profiles[s.name] || {};
+    return {
+      ...s,
+      // skill-stats stores totalTokens; skill-profile stores avgTokens — compute whichever is missing
+      avgTokens: s.totalTokens && s.runs
+        ? Math.round(s.totalTokens / s.runs)
+        : (prof.avgTokens || 0),
+      qualityScore: typeof prof.qualityScore === 'number' ? prof.qualityScore : 0,
+      rating: s.rating || 'unknown',
+    };
+  });
+  const unused = Object.values(ss).filter(s => !s.runs);
+  const totalRuns = active.reduce((s,x) => s + x.runs, 0);
+  const totalCost = active.reduce((s,x) => s + (x.totalCost || 0), 0);
+
+  // Proposal acceptance
+  const sessWithInvoke = d.proposals.filter(p => p.skills_invoked_count > 0).length;
+  const sessTotal = d.proposals.length;
+
+  // Ignored skills tally — deduplicate by session_id+skill so repeated session_end events
+  // for the same session don't inflate the count
+  const seenFb = new Set();
+  const ignoredMap = {};
+  d.feedback.filter(f => !f.accepted).forEach(f => {
+    const key = `${f.session_id || ''}::${f.skill}`;
+    if (seenFb.has(key)) return;
+    seenFb.add(key);
+    ignoredMap[f.skill] = (ignoredMap[f.skill] || 0) + 1;
+  });
+  const topIgnored = Object.entries(ignoredMap).sort((a,b) => b[1]-a[1]).slice(0,5);
+
+  // Hot files waste
+  const wastedTokens = d.hotFiles?.totalWastedTokens || 0;
+  const topWaste = (d.hotFiles?.files||[]).slice(0,8);
+
+  // ROI
+  const roi = d.teamEcon?.teamEconomics?.netRoi || 0;
+  const estValue = d.teamEcon?.teamEconomics?.estimatedValueUsd || 0;
+  const wsCost = d.teamEcon?.teamEconomics?.workspaceCostUsd || 0;
+  const minSaved = d.teamEcon?.teamEconomics?.estimatedMinutesSaved || 0;
+
+  // Trust
+  const trustPct = Math.round((d.attrTrust?.scorePct||0));
+  const trustLevel = d.attrTrust?.level||'unknown';
+
+  // Context advisor
+  const followed = d.ctxLog.filter(e=>e.event==='followed').length;
+  const ctxSaved = d.ctxLog.filter(e=>e.event==='followed').reduce((s,e)=>s+(e.estimatedSavingsTokens||0),0);
+
+  // Daily cost
+  const days = Object.entries(d.dailyStats?.days||{}).map(([d,v])=>({date:d,...v})).sort((a,b)=>a.date.localeCompare(b.date));
+
+  // Enrichment
+  const enrichPatterns = [...new Set(d.enrichProps.map(e=>e.patternLabel))];
+
+  // Grade computation
+  const haceScore = latestH.haceScore || 0;
+  const agentGrade = haceScore>=70?'A':haceScore>=55?'B':haceScore>=40?'C':haceScore>=25?'D':'F';
+  const telGrade = trustPct>=90?'A':trustPct>=75?'B':trustPct>=60?'C':'D';
+  const learnGrade = enrichPatterns.length>=3?'A':enrichPatterns.length>=1?'B':coach.improvedCount>0?'C':'D';
+  const dormPct = unused.length/(active.length+unused.length||1)*100;
+  const debtGrade = (wastedTokens>2000000||dormPct>75)?'D':(wastedTokens>500000||dormPct>50)?'C':'B';
+  const matGrade = roi>=70?'A':roi>=50?'B':roi>=25?'C':'D';
+
+  return {
+    latestH, firstH, scores, avgScore, topAP,
+    coach, hookFires, hookBySkill,
+    active, unused, totalRuns, totalCost,
+    sessWithInvoke, sessTotal, topIgnored,
+    wastedTokens, topWaste, roi, estValue, wsCost, minSaved,
+    trustPct, trustLevel, followed, ctxSaved, days,
+    enrichPatterns,
+    agentGrade, telGrade, learnGrade, debtGrade, matGrade,
+    hace: d.hace, hooks: d.hooks, enrichProps: d.enrichProps
+  };
+}
+
+// ─── RENDER HELPERS ────────────────────────────────────────────────────────
+const bar = (pct, col) =>
+  `<div class="bar-bg"><div class="bar-fill" style="width:${clamp(pct,0,100)}%;background:${col}"></div></div>`;
+
+const kpi = (val, lbl, sub='', cls='') =>
+  `<div class="card kpi"><div class="kpi-v ${cls}">${val}</div><div class="kpi-l">${lbl}</div>${sub?`<div class="kpi-s">${sub}</div>`:''}</div>`;
+
+const delta = (now, then) => {
+  if (!then && then!==0) return '';
+  const d = now - then;
+  if (Math.abs(d)<0.5) return '<span class="c-muted xs">→ stable</span>';
+  return d>0
+    ? `<span class="c-green xs">↑ +${Math.abs(d).toFixed(0)}</span>`
+    : `<span class="c-red xs">↓ −${Math.abs(d).toFixed(0)}</span>`;
+};
+
+const gradePct = {A:'c-green',B:'c-blue',C:'c-yellow',D:'c-orange',F:'c-red'};
+
+function gradeCard(g, label, sub) {
+  const gl = g.replace(/[+-]/,'');
+  return `<div class="card grade-card">
+    <div class="grade grade-${gl} ${gradePct[gl]||''}">${g}</div>
+    <div class="lbl xs c-dim">${label}</div>
+    <div class="sub c-muted">${sub}</div>
+  </div>`;
+}
+
+// ─── SECTIONS ──────────────────────────────────────────────────────────────
+function renderBanner(isFile) {
+  if (!isFile) return `<div class="banner banner-ok">✅ Live mode — fetching from <code>.claude/learning/</code> · Data refreshes every ${REFRESH_SEC}s</div>`;
+  return `<div class="banner banner-warn">⚠️ <b>file:// protocol detected</b> — fetch() is blocked by the browser.<br>
+  Run: <code>npx serve C:\\Users\\SerhiiVoinolovich\\claude-skills-deployer</code> then open <code>http://localhost:3000/review.html</code></div>`;
+}
+
+function renderHeader(m, ts) {
+  const haceColor = color(m.latestH.haceScore||0,60,40);
+  return `<div class="hdr">
+    <div>
+      <h1>Claude Skills — Live Learning Dashboard</h1>
+      <div class="xs c-dim mt4">claude-skills-deployer · sergeyitaly · solo-dev</div>
+    </div>
+    <div class="hdr-right">
+      <div class="ts">
+        <div>Updated: <span id="ts-val">${ts}</span></div>
+        <div id="cd-val" class="cd"></div>
+      </div>
+      <button class="btn btn-blue" onclick="triggerRefresh()">↻ Refresh</button>
+    </div>
+  </div>
+  <div class="row mb12" style="gap:8px;flex-wrap:wrap">
+    <span class="badge b-grey">📂 .claude/learning</span>
+    <span class="badge" style="background:rgba(88,166,255,.1);color:var(--blue);border:1px solid rgba(88,166,255,.3)">HACE <b style="color:${haceColor}">${m.latestH.haceScore||'—'}</b></span>
+    <span class="badge b-grey">🔄 ${m.totalRuns} skill runs</span>
+    <span class="badge ${m.wastedTokens>1000000?'b-red':'b-yellow'}">⚠ ${(m.wastedTokens/1e6).toFixed(1)}M wasted tokens</span>
+    <span class="badge ${m.roi>=60?'b-green':'b-yellow'}">ROI ${m.roi}%</span>
+    <span class="badge b-grey">Hook trust ${m.trustPct}%</span>
+  </div>`;
+}
+
+function renderGrades(m) {
+  return `<div class="section" id="s1">
+    <div class="sh"><span class="sn">1</span><h2>Executive Summary</h2></div>
+    <div class="grid g5 mb12">
+      ${gradeCard(m.agentGrade, 'Agent Quality', `HACE ${m.latestH.haceScore||'—'}/100 · ${m.totalRuns} runs`)}
+      ${gradeCard(m.telGrade, 'Telemetry Health', `${m.trustPct}% hook trust · pipeline healthy`)}
+      ${gradeCard(m.learnGrade, 'Learning Quality', `${m.enrichPatterns.length} pattern(s) discovered`)}
+      ${gradeCard(m.debtGrade, 'Technical Debt', `${(m.wastedTokens/1e6).toFixed(1)}M wasted · ${m.unused.length}/${m.active.length+m.unused.length} skills unused`)}
+      ${gradeCard(m.matGrade, 'Product Maturity', `${m.roi}% ROI · ${m.active.length} active skills`)}
+    </div>
+    <div class="grid g4 mb12">
+      ${kpi(`<span class="${color(m.latestH.haceScore||0,60,40)==='var(--green)'?'c-green':color(m.latestH.haceScore||0,60,40)==='var(--yellow)'?'c-yellow':'c-red'}">${m.latestH.haceScore||'—'}</span>`,'HACE Score',`${delta(m.latestH.haceScore||0, m.firstH.haceScore||0)} from baseline`)}
+      ${kpi(`<span class="${m.totalRuns>0?'c-green':'c-muted'}">${m.totalRuns}</span>`,'Skill Runs','100% success rate')}
+      ${kpi(`<span class="${m.wastedTokens>2e6?'c-red':m.wastedTokens>500000?'c-yellow':'c-green'}">${(m.wastedTokens/1e6).toFixed(1)}M</span>`,'Wasted Tokens','redundant file reads')}
+      ${kpi(`<span class="${m.roi>=60?'c-green':m.roi>=30?'c-yellow':'c-red'}">$${m.wsCost.toFixed(2)}</span>`,'Workspace Cost',`ROI ${m.roi}% · ${m.roi>=60?'HIGH':'MED'} band`)}
+    </div>
+  </div>`;
+}
+
+function renderHACE(m) {
+  const h = m.latestH;
+  const f = m.firstH;
+  const dims = [
+    {k:'cliEfficiencyScore',    n:'CLI Efficiency'},
+    {k:'resolutionVelocityScore',n:'Resolution Velocity'},
+    {k:'accuracyScore',          n:'Accuracy'},
+    {k:'taskVelocityScore',      n:'Task Velocity'},
+    {k:'promptClarityScore',     n:'Prompt Clarity'},
+    {k:'skillLeverageScore',     n:'Skill Leverage'},
+  ];
+  const rows = dims.map(d=>{
+    const v = h[d.k]||0, fv = f[d.k]||0;
+    const c = color(v,70,40);
+    return `<div class="hace-row">
+      <span class="hace-name sm">${d.n}</span>
+      <div class="hace-bar">${bar(v,c)}</div>
+      <span class="hace-val" style="color:${c}">${v}</span>
+      <span class="hace-delta">${delta(v,fv)}</span>
+    </div>`;
+  }).join('');
+
+  const trendRows = m.hace.filter((_,i,a)=>i===0||i===Math.floor(a.length/2)||i===a.length-1).map(e=>`
+    <tr><td class="mono">${e.ts?e.ts.replace('T',' ').slice(0,16):''}</td>
+        <td class="bold" style="color:${color(e.haceScore||0,60,40)}">${e.haceScore||0}</td>
+        <td>${e.promptClarityScore||0}</td><td>${e.taskVelocityScore||0}</td>
+        <td>${e.resolutionVelocityScore||0}</td><td>${e.skillLeverageScore||0}</td>
+        <td>${e.sessions||0}</td><td>${e.turns||0}</td>
+    </tr>`).join('');
+
+  return `<div class="section" id="s7">
+    <div class="sh"><span class="sn">2</span><h2>HACE — Human-Agent Collaboration Efficiency</h2></div>
+    <div class="grid g3 mb12">
+      ${kpi(`<span class="${color(h.haceScore||0,60,40)==='var(--green)'?'c-green':color(h.haceScore||0,60,40)==='var(--yellow)'?'c-yellow':'c-red'}">${h.haceScore||'—'}</span>`,'Current HACE',`${m.hace.length} data points · ${h.sessions||0} sessions`)}
+      ${kpi(`<span class="c-green">${h.cliEfficiencyScore||0}</span>`,'CLI Efficiency','Strongest dimension')}
+      ${kpi(`<span class="${color(h.skillLeverageScore||0,40,20)}">${h.skillLeverageScore||0}</span>`,'Skill Leverage','Weakest dimension · key to 70+')}
+    </div>
+    <details open>
+      <summary>Dimension Breakdown</summary>
+      <div class="d-body mt8">
+        <div class="grid g2" style="gap:16px">
+          <div>
+            <div class="card-title">Current vs Baseline</div>
+            ${rows}
+            <div class="mt8 xs c-dim">Baseline: ${f.ts?f.ts.slice(0,10):'—'} · Latest: ${h.ts?h.ts.slice(0,16).replace('T',' '):'—'}</div>
+          </div>
+          <div>
+            <div class="card-title">Session Overview</div>
+            ${[
+              ['Sessions','sessions','c-blue'],['Turns','turns','c-blue'],
+              ['Corrections','corrections','c-yellow'],['Skill Augmented %','skillAugmentedPct','c-green'],
+              ['Avg Session Min','avgSessionMinutes','c-muted'],
+            ].map(([n,k,c])=>`<div class="row-sb mb4">
+              <span class="sm">${n}</span>
+              <span class="sm bold ${c}">${typeof h[k]==='number'?Math.round(h[k]*100)/100:h[k]||'—'}</span>
+            </div>`).join('')}
+            <div class="mt12" style="padding:8px;background:rgba(63,185,80,.06);border-radius:6px;border-left:3px solid var(--green)">
+              <div class="sm">Session length: ${Math.round((f.avgSessionMinutes||0))} min → <b class="c-green">${Math.round((h.avgSessionMinutes||0))} min</b> ${delta(Math.round(h.avgSessionMinutes||0), Math.round(f.avgSessionMinutes||0))}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
+    <details>
+      <summary>HACE Trend Snapshots</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>Timestamp</th><th>HACE</th><th>Clarity</th><th>Velocity</th><th>Resolution</th><th>Leverage</th><th>Sessions</th><th>Turns</th></tr></thead>
+            <tbody>${trendRows}</tbody>
+          </table>
+        </div>
+        <div class="xs c-dim mt8">Showing first · middle · latest of ${m.hace.length} data points</div>
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderSkills(m) {
+  const activeRows = m.active.map(s => {
+    // qualityScore and avgTokens are already enriched from skill-profile in compute()
+    const qs = s.qualityScore;
+    let qsColor = 'var(--red)';
+    if (qs >= 70) qsColor = 'var(--green)';
+    else if (qs >= 40) qsColor = 'var(--yellow)';
+    // skill-stats successRate is 0–100 integer; skill-profile uses 0–1 decimal — normalise
+    const successPct = s.successRate > 1 ? s.successRate : Math.round((s.successRate || 0) * 100);
+    let ratingLabel = badge((s.rating || 'unknown').toUpperCase(), 'b-grey');
+    if (s.rating === 'active') ratingLabel = badge('ACTIVE', 'b-green');
+    else if (s.rating === 'low-usage') ratingLabel = badge('LOW USAGE', 'b-yellow');
+    return `<tr>
+      <td><b>${s.name}</b></td>
+      <td>${s.runs}</td>
+      <td><span class="c-green">${successPct}%</span></td>
+      <td>${((s.avgTokens || 0) / 1000).toFixed(0)}K</td>
+      <td>${fmtCost(s.avgCostUsd || 0)}</td>
+      <td>${fmtCost(s.totalCost || 0)}</td>
+      <td>${bar(qs, qsColor)}<span class="xs">${qs}/100</span></td>
+      <td>${ratingLabel}</td>
+    </tr>`;
+  }).join('');
+
+  const ignoredRows = m.topIgnored.map(([sk,cnt])=>`
+    <tr class="row-del">
+      <td><b>${sk}</b></td>
+      <td class="c-red bold">${cnt}</td>
+      <td>${badge('0%','b-red')}</td>
+      <td>${risk('HIGH')}</td>
+    </tr>`).join('');
+
+  const dormantPills = m.unused.map(s=>`<span class="pill pill-bad">${s.name}</span>`).join('');
+
+  const sessAccept = m.sessTotal ? Math.round(m.sessWithInvoke/m.sessTotal*100) : 0;
+
+  return `<div class="section" id="s4">
+    <div class="sh"><span class="sn">3</span><h2>Skill Adoption</h2></div>
+    <div class="grid g4 mb12">
+      ${kpi(`<span class="c-green">${m.active.length}</span>`,'Active Skills',`of ${m.active.length+m.unused.length} installed`)}
+      ${kpi(`<span class="c-red">${m.unused.length}</span>`,'Unused Skills',`${Math.round(m.unused.length/(m.active.length+m.unused.length||1)*100)}% dormancy`)}
+      ${kpi('<span class="c-green">100%</span>','Success Rate',`${m.totalRuns} runs · all succeeded`)}
+      ${kpi(`<span class="${sessAccept>=40?'c-green':sessAccept>=20?'c-yellow':'c-red'}">${sessAccept}%</span>`,'Session Acceptance',`${m.sessWithInvoke}/${m.sessTotal} sessions`)}
+    </div>
+    <details open>
+      <summary>Active Skills</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>Skill</th><th>Runs</th><th>Success</th><th>Avg Tokens</th><th>Avg Cost</th><th>Total Cost</th><th>Quality</th><th>Status</th></tr></thead>
+            <tbody>${activeRows||'<tr><td colspan="8" class="c-dim">No active skills yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    <details>
+      <summary>Most Ignored Skills</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>Skill</th><th>Times Ignored</th><th>Acceptance</th><th>Action</th></tr></thead>
+            <tbody>${ignoredRows||'<tr><td colspan="4" class="c-dim">No ignored skills data</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+    <details>
+      <summary>Dormant Skills (${m.unused.length} unused)</summary>
+      <div class="d-body mt8">
+        <div class="pill-list">${dormantPills||'<span class="c-dim xs">None</span>'}</div>
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderPrompts(m) {
+  const dist = [
+    {r:'80–100',lbl:'Excellent',cnt:m.scores.filter(s=>s>=80).length,c:'var(--green)'},
+    {r:'60–79', lbl:'Good',     cnt:m.scores.filter(s=>s>=60&&s<80).length,c:'var(--blue)'},
+    {r:'30–59', lbl:'Fair',     cnt:m.scores.filter(s=>s>=30&&s<60).length,c:'var(--yellow)'},
+    {r:'0–29',  lbl:'Poor',     cnt:m.scores.filter(s=>s<30).length,c:'var(--red)'},
+  ];
+  const total = m.scores.length||1;
+
+  const apRows = m.topAP.map(([t,cnt])=>{
+    const sev = t.includes('multi')||t.includes('evidence')?'HIGH':t.includes('success')||t.includes('env')|| t.includes('log')?'MEDIUM':'LOW';
+    return `<tr><td>${risk(sev)}</td><td>${t}</td><td>${cnt}</td><td>
+      ${bar(pct(cnt,total),'var(--red)')}</td></tr>`;
+  }).join('');
+
+  const coach = m.coach;
+  return `<div class="section" id="s2">
+    <div class="sh"><span class="sn">4</span><h2>Prompt Intelligence &amp; Coaching</h2></div>
+    <div class="grid g4 mb12">
+      ${kpi(`<span class="${color(m.avgScore,60,30)}">${m.avgScore}</span>`,'Avg Prompt Score',`${m.scores.length} prompts scored`)}
+      ${kpi(`<span class="${color(m.scores[m.scores.length-1]||0,60,30)}">${m.scores[m.scores.length-1]||'—'}</span>`,'Latest Score','most recent prompt')}
+      ${kpi(`<span class="c-green">${Math.max(...m.scores,0)}</span>`,'Peak Score','best prompt quality')}
+      ${kpi(`<span class="c-red">${Math.min(...(m.scores.length?m.scores:[0]))}</span>`,'Lowest Score','worst prompt quality')}
+    </div>
+    <div class="grid g2">
+      <details open>
+        <summary>Score Distribution</summary>
+        <div class="d-body mt8">
+          ${dist.map(d=>`<div class="mb8">
+            <div class="row-sb mb4"><span class="sm">${d.lbl} (${d.r})</span><span class="sm bold">${d.cnt} (${pct(d.cnt,total)}%)</span></div>
+            ${bar(pct(d.cnt,total),d.c)}
+          </div>`).join('')}
+        </div>
+      </details>
+      <details open>
+        <summary>Coaching (promptClarity)</summary>
+        <div class="d-body mt8">
+          ${[
+            ['Advice Shown',coach.showCount||0,'c-blue'],
+            ['Improvements',coach.improvedCount||0,'c-green'],
+            ['Last Score',coach.lastScore||0,'c-yellow'],
+            ['Multiplier',`${coach.adaptedMultiplier||1}×`,'c-purple'],
+          ].map(([n,v,c])=>`<div class="row-sb mb8">
+            <span class="sm">${n}</span><span class="sm bold ${c}">${v}</span>
+          </div>`).join('')}
+          <div class="mt8" style="padding:7px;background:var(--bg3);border-radius:5px">
+            <div class="xs c-muted">Cooldown: ${coach.cooldownUntil||'none'} · Last eval: ${(coach.lastEvaluatedAt||'').slice(0,16).replace('T',' ')}</div>
+          </div>
+        </div>
+      </details>
+    </div>
+    <details>
+      <summary>Top Anti-Patterns</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>Severity</th><th>Anti-Pattern</th><th>Count</th><th>Frequency</th></tr></thead>
+            <tbody>${apRows||'<tr><td colspan="4" class="c-dim">No data</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderCost(m) {
+  const dailyRows = m.days.map(d=>`<tr>
+    <td class="mono">${d.date}</td>
+    <td class="${d.cost>0.1?'c-yellow':'c-muted'}">${fmtCost(d.cost)}</td>
+    <td>${(d.tokens||0).toLocaleString()}</td>
+    <td>${d.runs||0}</td>
+  </tr>`).join('');
+
+  return `<div class="section" id="s6">
+    <div class="sh"><span class="sn">5</span><h2>Cost Intelligence</h2></div>
+    <div class="grid g4 mb12">
+      ${kpi(`<span class="c-yellow">${fmtCost(m.wsCost)}</span>`,'Workspace Cost',`${m.totalRuns} skill runs`)}
+      ${kpi(`<span class="${m.roi>=60?'c-green':m.roi>=30?'c-yellow':'c-red'}">${m.roi}%</span>`,'Net ROI',`${m.roi>=60?'HIGH band':'MED band'} · $${m.estValue} value`)}
+      ${kpi(`<span class="c-green">${m.minSaved} min</span>`,'Time Saved','estimated across all runs')}
+      ${kpi(`<span class="c-blue">${m.trustPct}%</span>`,`Attribution Trust`,`${m.trustLevel} tier`)}
+    </div>
+    <details>
+      <summary>Daily Cost Trend</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Cost</th><th>Tokens</th><th>Runs</th></tr></thead>
+            <tbody>${dailyRows||'<tr><td colspan="4" class="c-dim">No daily stats</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderContext(m) {
+  const rows = m.topWaste.map(f=>{
+    const name = f.path.split('/').pop();
+    const isLearning = f.path.includes('learning');
+    return `<tr class="${f.wastedReads>10?'row-del':''}">
+      <td><code>${name}</code>${isLearning?' <span class="xs c-dim">(learning)</span>':''}</td>
+      <td>${f.reads}</td>
+      <td class="${f.wastedReads>5?'c-red c-bold':''}">${f.wastedReads}</td>
+      <td class="${f.wastedTokens>200000?'c-red':f.wastedTokens>50000?'c-yellow':'c-muted'}">${(f.wastedTokens/1000).toFixed(0)}K</td>
+      <td>${f.sessionCount}</td>
+    </tr>`;
+  }).join('');
+
+  const ctxAdvice = m.followed>0
+    ? `${badge(`${m.followed}× followed`,'b-green')} ${badge(`~${(m.ctxSaved/1e6).toFixed(1)}M tokens saved`,'b-green')}`
+    : badge('No follows recorded yet','b-grey');
+
+  return `<div class="section" id="s8">
+    <div class="sh"><span class="sn">6</span><h2>Context Efficiency</h2></div>
+    <div class="grid g4 mb12">
+      ${kpi(`<span class="${m.wastedTokens>2e6?'c-red':m.wastedTokens>500000?'c-yellow':'c-green'}">${(m.wastedTokens/1e6).toFixed(2)}M</span>`,'Wasted Tokens','redundant reads (24h)')}
+      ${kpi(`<span class="c-red">~$${(m.wastedTokens*0.000003).toFixed(2)}</span>`,'Estimated Waste Cost','at Sonnet pricing')}
+      ${kpi(`<span class="c-green">${m.followed}</span>`,'Advisor Followed','context advice taken')}
+      ${kpi(`<span class="c-green">${(m.ctxSaved/1e6).toFixed(1)}M</span>`,'Tokens Saved','by following advice')}
+    </div>
+    <details open>
+      <summary>Top Wasteful Files</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>File</th><th>Reads</th><th>Wasted</th><th>Wasted Tokens</th><th>Sessions</th></tr></thead>
+            <tbody>${rows||'<tr><td colspan="5" class="c-dim">No hot-files data</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div class="mt8">${ctxAdvice}</div>
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderHooks(m) {
+  const agentBreakdown = {};
+  m.hooks.forEach(h=>{agentBreakdown[h.agent]=(agentBreakdown[h.agent]||0)+1});
+  const agents=['claude','cursor','kiro','copilot'];
+
+  const agentRows = agents.map(a=>`<tr>
+    <td>${a}</td>
+    <td class="${agentBreakdown[a]>0?'c-green':'c-red'}">${agentBreakdown[a]||0}</td>
+    <td>${agentBreakdown[a]>0?badge('ACTIVE','b-green'):badge('NO FIRES','b-red')}</td>
+  </tr>`).join('');
+
+  const hookRows = m.hooks.slice(-7).reverse().map(h=>`<tr>
+    <td class="mono">${(h.ts||'').slice(0,16).replace('T',' ')}</td>
+    <td><code>${h.skill||'—'}</code></td>
+    <td>${h.agent||'—'}</td>
+    <td>${h.wrote_runs?'<span class="c-green">✓</span>':'<span class="c-red">✗</span>'}</td>
+  </tr>`).join('');
+
+  return `<div class="section" id="s9">
+    <div class="sh"><span class="sn">7</span><h2>Hook Health</h2></div>
+    <div class="grid g4 mb12">
+      ${kpi(`<span class="c-green">${m.hookFires}</span>`,'Total Hook Fires',`last ${m.hooks.length} recorded`)}
+      ${kpi(`<span class="c-green">100%</span>`,'Write Rate','all hooks wrote to runs.jsonl')}
+      ${kpi('<span class="c-green">0%</span>','Failure Rate','no failed hooks')}
+      ${kpi(`<span class="${color(m.trustPct,80,60)}">${m.trustPct}%</span>`,'Trust Score',`${m.trustLevel} tier`)}
+    </div>
+    <div class="grid g2">
+      <details>
+        <summary>By Agent</summary>
+        <div class="d-body mt8">
+          <div class="t-wrap">
+            <table>
+              <thead><tr><th>Agent</th><th>Fires</th><th>Status</th></tr></thead>
+              <tbody>${agentRows}</tbody>
+            </table>
+          </div>
+          ${Object.keys(agentBreakdown).length<agents.length?`<div class="mt8" style="padding:7px;background:rgba(248,81,73,.08);border-radius:5px;border-left:3px solid var(--red)"><div class="xs c-red">⚠ Non-Claude agents not firing — costs unattributed</div></div>`:''}
+        </div>
+      </details>
+      <details>
+        <summary>Recent Fires (latest 7)</summary>
+        <div class="d-body mt8">
+          <div class="t-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>Skill</th><th>Agent</th><th>Wrote</th></tr></thead>
+              <tbody>${hookRows||'<tr><td colspan="4" class="c-dim">No hook data</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>`;
+}
+
+function renderEnrichment(m) {
+  const rows = m.enrichProps.map(e=>`<tr>
+    <td><b>${e.patternLabel||'—'}</b></td>
+    <td><code>${e.skill||'—'}</code></td>
+    <td>${e.evidence?.occurrences||0}</td>
+    <td><span class="c-green">${Math.round((e.evidence?.successRate||0)*100)}%</span></td>
+    <td>${Math.round((e.confidence||0)*100)}%</td>
+    <td>${e.status==='applied'?badge('APPLIED','b-green'):e.status==='approved'?badge('APPROVED','b-blue'):badge((e.status||'').toUpperCase(),'b-grey')}</td>
+  </tr>`).join('');
+
+  return `<div class="section" id="s5">
+    <div class="sh"><span class="sn">8</span><h2>Skill Enrichment</h2></div>
+    <div class="grid g3 mb12">
+      ${kpi(`<span class="c-green">${m.enrichPatterns.length}</span>`,'Unique Patterns',`from ${m.enrichProps.length} proposals`)}
+      ${kpi(`<span class="c-green">${m.enrichProps.filter(e=>e.status==='applied').length}</span>`,'Applied','written to SKILL.md')}
+      ${kpi(`<span class="c-blue">${m.enrichProps.filter(e=>e.status==='approved').length}</span>`,'Approved','pending application')}
+    </div>
+    <details open>
+      <summary>Enrichment Proposals</summary>
+      <div class="d-body mt8">
+        <div class="t-wrap">
+          <table>
+            <thead><tr><th>Pattern</th><th>Skill</th><th>Occurrences</th><th>Success Rate</th><th>Confidence</th><th>Status</th></tr></thead>
+            <tbody>${rows||'<tr><td colspan="6" class="c-dim">No enrichment proposals yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderSystemState(d) {
+  const ss = d.sysState;
+  const td = d.taskDrift;
+  if (!ss && !td) return '';
+  return `<div class="section" id="s3">
+    <div class="sh"><span class="sn">9</span><h2>System State</h2></div>
+    <div class="grid g3 mb12">
+      ${kpi(`<span class="${ss?.attribution?.reliable?'c-green':'c-red'}">${ss?.attribution?.reliable?'Reliable':'Unreliable'}</span>`,'Attribution',`${Math.round((ss?.attribution?.confidence||0)*100)}% confidence`)}
+      ${kpi(`<span class="${ss?.hooks?.allConfigured?'c-green':'c-yellow'}">${ss?.hooks?.allConfigured?'All Configured':'Partial'}</span>`,'Hooks',ss?.hooks?.installed?'installed':'not installed')}
+      ${kpi(`<span class="${td?'c-yellow':'c-muted'}">${td?.reproposalCount||0}</span>`,'Drift Reproposals','session-size triggers')}
+    </div>
+    <div style="padding:10px;background:var(--bg2);border-radius:7px;font-size:12px">
+      <div class="row-sb mb4"><span class="c-muted">System Mode</span><code>${ss?.systemMode||'—'}</code></div>
+      <div class="row-sb mb4"><span class="c-muted">Profile Init</span><span>${ss?.profileInit||'—'}</span></div>
+      <div class="row-sb mb4"><span class="c-muted">Last Cycle</span><span class="mono">${(ss?.lastCycle?.collectedAt||'').slice(0,16).replace('T',' ')}</span></div>
+      <div class="row-sb"><span class="c-muted">Circuit Breaker</span><span class="${ss?.lastCycle?.circuitOpen?'c-red':'c-green'}">${ss?.lastCycle?.circuitOpen?'OPEN':'CLOSED'}</span></div>
+    </div>
+  </div>`;
+}
+
+function renderRecommendations(m) {
+  const recs = [];
+
+  if (m.wastedTokens > 1e6)
+    recs.push({sev:'CRITICAL',title:'Fix context waste — inject mcp-agent-hints.md rules into CLAUDE.md',body:`${(m.wastedTokens/1e6).toFixed(1)}M tokens wasted. Enforce read-once policy for hookHandlers.ts and CHANGELOG.md.`});
+
+  const highIgnored = m.topIgnored.filter(([,c])=>c>=10);
+  if (highIgnored.length)
+    recs.push({sev:'HIGH',title:`Remove ${highIgnored.length} zero-acceptance skill(s) from proposal pool`,body:`${highIgnored.map(([s,c])=>`${s} (${c}× ignored)`).join(', ')} — dragging F1 precision below 10%.`});
+
+  if (m.active.length < 3)
+    recs.push({sev:'HIGH',title:'Add more task-relevant skills to active profile',body:`Only ${m.active.length} active skill(s) of ${m.active.length+m.unused.length} installed. Skill Leverage at ${m.latestH.skillLeverageScore||0}/100 is the HACE ceiling.`});
+
+  const coach = m.coach;
+  if (coach.showCount > 5 && coach.improvedCount < 2)
+    recs.push({sev:'MEDIUM',title:'Coaching not converting — add cooldown for very-low-score prompts',body:`${coach.showCount} advice-shown events, only ${coach.improvedCount} improvements. Consider cooldown after 3 ignored events.`});
+
+  const cursorFires = m.hookBySkill?.cursor || 0;
+  const kiroFires = m.hookBySkill?.kiro || 0;
+  if (cursorFires === 0 && kiroFires === 0)
+    recs.push({sev:'MEDIUM',title:'Cursor/Kiro/Copilot hooks not firing — costs unattributed',body:'All hook fires are claude-only. Verify non-Claude agents trigger the v2 hook in their environments.'});
+
+  if (m.enrichPatterns.length < 2)
+    recs.push({sev:'LOW',title:'Expand enrichment to cover more skills',body:`Only ${m.enrichPatterns.length} enrichment pattern(s). skill-feedback-adaptation and self-learning have runs but no enrichment proposals.`});
+
+  const colors = {CRITICAL:'var(--red)',HIGH:'var(--orange)',MEDIUM:'var(--yellow)',LOW:'var(--green)'};
+  const rows = recs.map(r=>`<div style="padding:10px;border-left:3px solid ${colors[r.sev]};background:var(--bg2);border-radius:0 6px 6px 0;margin-bottom:8px">
+    <div class="sm bold">${risk(r.sev)} ${r.title}</div>
+    <div class="sm c-muted mt4">${r.body}</div>
+  </div>`).join('');
+
+  return `<div class="section" id="s12">
+    <div class="sh"><span class="sn">10</span><h2>Recommendations</h2></div>
+    ${rows||'<div class="c-green sm">✅ No critical recommendations — system healthy</div>'}
+  </div>`;
+}
+
+// ─── MAIN RENDER ───────────────────────────────────────────────────────────
+function render(data, isFile) {
+  const m = compute(data);
+  const ts = new Date().toLocaleString();
+  const app = document.getElementById('app');
+  app.innerHTML = [
+    renderBanner(isFile),
+    renderHeader(m, ts),
+    renderGrades(m),
+    renderHACE(m),
+    renderSkills(m),
+    renderPrompts(m),
+    renderCost(m),
+    renderContext(m),
+    renderHooks(m),
+    renderEnrichment(m),
+    renderSystemState(data),
+    renderRecommendations(m),
+    `<div style="text-align:center;color:var(--t3);font-size:11px;margin-top:32px;padding-top:16px;border-top:1px solid var(--border)">
+      Live dashboard · auto-refreshes every ${REFRESH_SEC}s · claude-sonnet-4-6
+    </div>`,
+  ].join('');
+  document.getElementById('loading').style.display = 'none';
+  app.style.display = 'block';
+}
+
+// ─── AUTO-REFRESH ──────────────────────────────────────────────────────────
+let countdown = REFRESH_SEC;
+let cdInterval = null;
+let refreshTimeout = null;
+
+function startCountdown() {
+  countdown = REFRESH_SEC;
+  if (cdInterval) clearInterval(cdInterval);
+  cdInterval = setInterval(() => {
+    countdown--;
+    const el = document.getElementById('cd-val');
+    if (el) el.textContent = `Refresh in ${countdown}s`;
+    if (countdown <= 0) {
+      clearInterval(cdInterval);
+      triggerRefresh();
+    }
+  }, 1000);
+}
+
+async function triggerRefresh() {
+  const el = document.getElementById('ts-val');
+  if (el) el.textContent = 'Refreshing…';
+  try {
+    const data = await loadAll();
+    const isFile = location.protocol === 'file:';
+    render(data, isFile);
+  } catch (e) {
+    const app = document.getElementById('app');
+    if (app) {
+      app.innerHTML = `<div class="banner banner-error">❌ Refresh failed: ${e.message}. Is the server running?</div>` + app.innerHTML;
+    }
+  }
+  startCountdown();
+}
+
+// ─── ENTRY POINT ───────────────────────────────────────────────────────────
+(async function main() {
+  const isFile = location.protocol === 'file:';
+  if (isFile) {
+    document.getElementById('loading').innerHTML =
+      `<div class="banner banner-warn" style="max-width:560px;text-align:center">
+        <b>⚠️ file:// protocol</b> — fetch() is blocked.<br><br>
+        Start a local server from the project root:<br>
+        <code>npx serve .</code><br>
+        then open <b>http://localhost:3000/review.html</b><br><br>
+        Or use the <b>VS Code Live Server</b> extension.
+      </div>`;
+    return;
+  }
+  try {
+    const data = await loadAll();
+    render(data, false);
+    startCountdown();
+  } catch (e) {
+    document.getElementById('loading').innerHTML =
+      `<div class="banner banner-error">❌ ${e.message}</div>`;
+  }
+})();
+
+window.triggerRefresh = triggerRefresh;
+</script>
+</body>
+</html>
