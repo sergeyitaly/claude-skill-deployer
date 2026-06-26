@@ -25,6 +25,9 @@ let server: http.Server | undefined;
 let serverPort = 0;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let dashboardPanel: vscode.WebviewPanel | undefined;
+/** Absolute path of the index.html we copied into the workspace — so we only
+ *  delete what we placed there, never a file the user owned beforehand. */
+let deployedIndexPath: string | undefined;
 
 // ---------------------------------------------------------------------------
 // Port helper — finds next free port starting from `start`
@@ -75,6 +78,35 @@ function buildServer(workspaceRoot: string): http.Server {
       res.end(data);
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// index.html lifecycle — copy from extension resources / delete on stop
+// ---------------------------------------------------------------------------
+function deployDashboardHtml(extensionPath: string, workspaceRoot: string, log: (msg: string) => void): void {
+  const src  = path.join(extensionPath, "resources", "learning-dashboard.html");
+  const dest = path.join(workspaceRoot, "index.html");
+  try {
+    fs.copyFileSync(src, dest);
+    deployedIndexPath = dest;
+    log(`[LearningDashboard] Deployed index.html → ${dest}`);
+  } catch (err) {
+    log(`[LearningDashboard] Warning: could not copy dashboard HTML: ${(err as Error).message}`);
+  }
+}
+
+function removeDashboardHtml(log: (msg: string) => void): void {
+  if (!deployedIndexPath) return;
+  try {
+    if (fs.existsSync(deployedIndexPath)) {
+      fs.unlinkSync(deployedIndexPath);
+      log(`[LearningDashboard] Removed index.html from ${deployedIndexPath}`);
+    }
+  } catch (err) {
+    log(`[LearningDashboard] Warning: could not remove dashboard HTML: ${(err as Error).message}`);
+  } finally {
+    deployedIndexPath = undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -180,12 +212,14 @@ export interface LearningDashboardOpts {
   context: vscode.ExtensionContext;
   getTarget: () => string | undefined;
   log: (msg: string) => void;
+  extensionPath?: string; // falls back to context.extensionPath
 }
 
 export function registerLearningDashboardCommands(
   opts: LearningDashboardOpts
 ): vscode.Disposable[] {
   const { context, getTarget, log } = opts;
+  const extPath = opts.extensionPath ?? context.extensionPath;
 
   // Status bar — right-aligned, just before existing status bar items
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 94);
@@ -202,6 +236,7 @@ export function registerLearningDashboardCommands(
         // ── TURN OFF ──────────────────────────────────────────────────────
         dashboardPanel?.dispose();   // fires onDidDispose which nulls the ref
         stopDashboardServer(log);
+        removeDashboardHtml(log);
         refreshStatusBar();
         void vscode.window.showInformationMessage("Learning Dashboard stopped.");
       } else {
@@ -214,9 +249,12 @@ export function registerLearningDashboardCommands(
           return;
         }
 
+        deployDashboardHtml(extPath, workspaceRoot, log);
+
         try {
           await startDashboardServer(workspaceRoot, log);
         } catch (err) {
+          removeDashboardHtml(log); // clean up if server fails to start
           void vscode.window.showErrorMessage(
             `Failed to start dashboard server: ${(err as Error).message}`
           );
@@ -274,6 +312,7 @@ function openOrRevealPanel(port: number, log: (msg: string) => void): void {
     if (msg.command === "stopServer") {
       dashboardPanel?.dispose();
       stopDashboardServer(log);
+      removeDashboardHtml(log);
       refreshStatusBar();
       void vscode.window.showInformationMessage("Learning Dashboard stopped.");
     }
