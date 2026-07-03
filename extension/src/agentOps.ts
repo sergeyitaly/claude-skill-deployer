@@ -4,7 +4,9 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   buildCopilotInstructionsFile,
+  buildCopilotInstructionsFileWithTelemetry,
   CopilotSkillEntry,
+  validateInstructionFile,
   writeCopilotBootstrap,
 } from "./copilotTransform";
 import { parseSkillFrontmatter } from "./skillLint";
@@ -810,6 +812,8 @@ export function syncCopilotBootstrap(target: string, libraryDir: string): string
   const manifest = loadManifest(libraryDir);
   const effective = listEffectiveEnabledSkills(target);
   const entries: CopilotSkillEntry[] = [];
+  const githubDir = path.join(target, ".github", "instructions");
+  const validationErrors: string[] = [];
 
   for (const name of effective) {
     const skillMd = path.join(target, ".claude", "skills", name, "SKILL.md");
@@ -819,16 +823,35 @@ export function syncCopilotBootstrap(target: string, libraryDir: string): string
       continue;
     }
     const raw = fs.readFileSync(mdPath, "utf-8");
+    const detectGlobs = manifest.skills[name]?.detect_globs ?? ["**/*"];
     entries.push({
       name,
-      detectGlobs: manifest.skills[name]?.detect_globs ?? ["**/*"],
+      detectGlobs,
       description: parseSkillFrontmatter(raw)?.description,
     });
+
+    // Write telemetry-aware instruction file
+    const instructionPath = path.join(githubDir, `${name}.instructions.md`);
+    fs.mkdirSync(githubDir, { recursive: true });
+    const instructionContent = buildCopilotInstructionsFileWithTelemetry(name, detectGlobs, mdPath);
+    fs.writeFileSync(instructionPath, instructionContent, "utf-8");
+
+    // Validate the written file
+    const validation = validateInstructionFile(instructionPath, name, detectGlobs);
+    if (!validation.valid) {
+      validationErrors.push(`${name}: ${validation.errors.join("; ")}`);
+    }
   }
 
   if (entries.length === 0) {
     return undefined;
   }
+
+  // Log validation errors if any (non-blocking)
+  if (validationErrors.length > 0) {
+    console.warn(`⚠️  Copilot instruction validation warnings:\n${validationErrors.map((e) => `  - ${e}`).join("\n")}`);
+  }
+
   return writeCopilotBootstrap(target, entries);
 }
 

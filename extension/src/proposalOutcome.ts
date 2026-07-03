@@ -24,7 +24,19 @@ export interface ProposalOutcomeRecord {
 // Rejection feedback — explicit per-skill dismissal tracking
 // ---------------------------------------------------------------------------
 
-export type RejectionReason = "ignored" | "dismissed" | "not_relevant" | "too_many";
+/** Rejection reasons that can be tracked for Copilot skills. */
+export type RejectionReason =
+  | "ignored" // skill was proposed but not used this session
+  | "dismissed" // user explicitly dismissed the skill recommendation
+  | "not_relevant" // skill was deemed not relevant to the current task
+  | "too_many" // too many skills were proposed at once
+  | "misleading_description" // skill description was unclear or inaccurate
+  | "wrong_domain" // skill was in wrong domain/area of expertise
+  | "performance_issue" // skill execution was slow or caused problems
+  | "unpredictable_output" // skill output was inconsistent or unreliable
+  | "wrong_pattern_match" // skill triggered incorrectly (bad detect_globs)
+  | "missing_context" // skill needed context that wasn't provided
+  | "other";
 
 export interface RecommendationFeedback {
   ts: string;
@@ -34,6 +46,8 @@ export interface RecommendationFeedback {
   accepted: boolean;
   reason: RejectionReason;
   confidence?: number;
+  copilot_instruction_file?: string; // Path to the Copilot instruction file if applicable
+  file_context?: string; // File or pattern that triggered the recommendation
 }
 
 const FEEDBACK_REL = path.join(".claude", "learning", "recommendation-feedback.jsonl");
@@ -96,6 +110,57 @@ export function recordSessionRejectionFeedback(
   try {
     recordRejectedSkills(target, sessionId, ignored.map((name) => ({ name })));
   } catch { /* non-fatal */ }
+}
+
+/** Record a specific rejection reason for a Copilot instruction or skill. */
+export function recordRejectionReason(
+  target: string,
+  options: {
+    skillName: string;
+    reason: RejectionReason;
+    sessionId?: string;
+    copilotInstructionFile?: string;
+    fileContext?: string;
+    confidence?: number;
+  }
+): void {
+  const sessionId = options.sessionId || "unknown";
+  appendRecommendationFeedback(target, {
+    session_id: sessionId,
+    skill: options.skillName,
+    proposed: true,
+    accepted: false,
+    reason: options.reason,
+    confidence: options.confidence,
+    copilot_instruction_file: options.copilotInstructionFile,
+    file_context: options.fileContext,
+  });
+}
+
+/** Analyze rejection reasons for a specific skill to help improve descriptions/patterns. */
+export function analyzeRejectionReasons(target: string, skillName: string): Record<RejectionReason, number> {
+  const feedback = readRecommendationFeedback(target);
+  const counts: Record<RejectionReason, number> = {
+    ignored: 0,
+    dismissed: 0,
+    not_relevant: 0,
+    too_many: 0,
+    misleading_description: 0,
+    wrong_domain: 0,
+    performance_issue: 0,
+    unpredictable_output: 0,
+    wrong_pattern_match: 0,
+    missing_context: 0,
+    other: 0,
+  };
+
+  for (const f of feedback) {
+    if (f.skill === skillName && !f.accepted) {
+      counts[f.reason] = (counts[f.reason] || 0) + 1;
+    }
+  }
+
+  return counts;
 }
 
 export function proposalOutcomePath(target: string): string {

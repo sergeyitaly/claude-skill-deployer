@@ -25,11 +25,11 @@
       "cost_estimate": "medium"
     },
     "github-actions-ci": {
-      "description": "GitHub Actions CI/CD — debug pipeline failures, reproduce lint/test/validate stages locally before pushing",
-      "detect_globs": ["**/.github/workflows/*.yml", "**/.github/workflows/*.yaml"],
+      "description": "GitHub Actions CI/CD — debug pipeline failures, reproduce lint/test/validate stages locally before pushing. Use when troubleshooting workflow failures, understanding GitHub Actions behavior, or preparing code for CI validation.",
+      "detect_globs": ["**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/.github/**/*.md", "**/test/**", "**/src/**", "**/*.test.ts", "**/*.test.js"],
       "cost_estimate": "medium",
-      "version": "1.0.0",
-      "changelog": "Merged ci-pipeline-debug and ci-preflight"
+      "version": "1.0.1",
+      "changelog": "Merged ci-pipeline-debug and ci-preflight, expanded detect patterns for Copilot"
     },
     "aidlc-tracker": {
       "description": "AI-DLC methodology phase/stage tracking",
@@ -42,8 +42,8 @@
       "cost_estimate": "high"
     },
     "deployment-practical": {
-      "description": "Deployment-first delivery: concrete architecture and IaC over theoretical advice; first-try deploy checklists",
-      "detect_globs": ["**/*.tf", "**/*.bicep", "**/azure.yaml", "**/azure.yml", "**/Dockerfile", "**/Dockerfile.*", "**/docker-compose*.yml", "**/.gitlab-ci.yml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/azure-pipelines.yml"],
+      "description": "Deployment-first delivery: concrete architecture and IaC over theoretical advice; first-try deploy checklists. Use whenever deploying to Azure, creating infrastructure code, preparing Docker containers, or planning cloud deployments.",
+      "detect_globs": ["**/*.tf", "**/*.bicep", "**/azure.yaml", "**/azure.yml", "**/Dockerfile", "**/Dockerfile.*", "**/docker-compose*.yml", "**/.gitlab-ci.yml", "**/.github/workflows/*.yml", "**/.github/workflows/*.yaml", "**/azure-pipelines.yml", "**/README.md", "**/.env*", "**/deployment/**"],
       "cost_estimate": "low"
     },
     "terraform-module-ops": {
@@ -94,13 +94,13 @@
       "cost_estimate": "high"
     },
     "vscode-extension-publishing": {
-      "description": "Build, package, and publish a VS Code extension via @vscode/vsce - manifest fields, .vscodeignore, Extension Development Host testing, version bumps, publisher/PAT setup, common publish errors",
-      "detect_globs": ["**/.vscodeignore", "**/vsc-extension-quickstart.md", "**/*.vsix", "**/src/extension.ts", "**/src/extension.js"],
+      "description": "Build, package, and publish a VS Code extension via @vscode/vsce - manifest fields, .vscodeignore, Extension Development Host testing, version bumps, publisher/PAT setup, common publish errors. Use when building VS Code extensions, preparing releases, or debugging vsce package/publish failures.",
+      "detect_globs": ["**/.vscodeignore", "**/vsc-extension-quickstart.md", "**/*.vsix", "**/src/extension.ts", "**/src/extension.js", "**/package.json", "**/extension/**", "**/CHANGELOG.md", "**/MARKETPLACE*.md"],
       "cost_estimate": "medium"
     },
     "cursor-kiro-extension-publishing": {
-      "description": "Publish a VS Code-compatible extension to Open VSX for Cursor and Kiro via ovsx - OVSX_PAT, namespace verification, same VSIX as Marketplace, publish scripts and common ovsx errors",
-      "detect_globs": ["**/PUBLISHING.md", "**/publish-openvsx.js", "**/.github/workflows/publish-extension.yml", "**/00-extension-registries.md"],
+      "description": "Publish a VS Code-compatible extension to Open VSX for Cursor and Kiro via ovsx - OVSX_PAT, namespace verification, same VSIX as Marketplace, publish scripts and common ovsx errors. Use when publishing to Open VSX, Cursor gallery, Kiro extension registry, or debugging ovsx publish failures.",
+      "detect_globs": ["**/PUBLISHING.md", "**/publish-openvsx.js", "**/.github/workflows/publish*.yml", "**/00-extension-registries.md", "**/package.json", "**/CHANGELOG.md"],
       "cost_estimate": "medium"
     },
     "skill-official-updater": {
