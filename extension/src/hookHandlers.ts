@@ -35,6 +35,7 @@ import { analyzePrompt, appendPromptRecord } from "./promptIntelligence";
 import { getSessionCoachHints } from "./haceCoaching";
 import { recordAdviceShown, shouldShowAdvice, evaluateAdviceOutcome } from "./coachingLearning";
 import { isDormantSkill } from "./adoptionIntelligence";
+import { recordInvokedSkill, recordProposedSkills, recordSessionAdoptionOutcomes } from "./skillAdoption";
 
 export interface HookRequest {
   hookName: string;
@@ -327,6 +328,17 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
       },
     });
     wroteRuns = true;
+  } catch { /* non-fatal */ }
+
+  // Adoption funnel: record the invocation (and implicit acceptance for proposed skills).
+  try {
+    recordInvokedSkill(cwd, {
+      skill,
+      sessionId,
+      agent: req.agent as RunAgent,
+      confidence: proposalConfidence > 0 ? proposalConfidence : undefined,
+      proposed: proposedFlag,
+    });
   } catch { /* non-fatal */ }
 
   // GAP 2: record hook health for learning loop diagnostics
@@ -2219,9 +2231,23 @@ function handleSessionStop(req: HookRequest): HookResponse {
   try {
     const proposalsFile = path.join(cwd, ".claude", "learning", "task-skill-proposals.json");
     const proposalsData = JSON.parse(fs.readFileSync(proposalsFile, "utf-8")) as {
-      proposals?: { name: string }[];
+      proposals?: { name: string; confidence?: number }[];
       generatedAt?: string;
     };
+
+    // Adoption funnel catch-up: agent-written proposal files bypass
+    // writeTaskSkillProposals, so record their "proposed" events here.
+    // recordProposedSkills dedupes by generatedAt — extension-written batches are no-ops.
+    if (proposalsData.generatedAt && proposalsData.proposals?.length) {
+      try {
+        recordProposedSkills(
+          cwd,
+          { generatedAt: proposalsData.generatedAt, proposals: proposalsData.proposals },
+          "auto",
+          req.agent as RunAgent
+        );
+      } catch { /* non-fatal */ }
+    }
     // Mirror the 4-hour staleness gate used by recordSessionProposalOutcome so that
     // recommendation-feedback.jsonl only logs proposals that were actually fresh enough
     // to have been shown this session. Without this check, stale proposals from a prior
@@ -2239,6 +2265,10 @@ function handleSessionStop(req: HookRequest): HookResponse {
       }
     }
   } catch { /* non-fatal */ }
+
+  // Adoption funnel Phases 4+5: mark invoked skills successful (no correction signal)
+  // and detect reuse across sessions (7d/30d/90d windows). Idempotent per session.
+  try { recordSessionAdoptionOutcomes(cwd, sessionId, req.agent as RunAgent); } catch { /* non-fatal */ }
 
   // Snapshot HACE metrics on every session stop so hace-sessions.jsonl accumulates
   // trend data without requiring the dashboard panel to be open.

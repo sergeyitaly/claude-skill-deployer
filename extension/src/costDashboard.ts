@@ -40,6 +40,8 @@ import { computeHookHealthSummary, formatHookHealthHtml } from "./hookHealth";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { resolveAdaptations } from "./adaptationEffectiveness";
 import { computeAdoptionMetrics, formatAdoptionDashboardHtml, formatAdoptionCoachHtml, formatSkillHealthCard } from "./adoptionIntelligence";
+import { formatAdoptionFunnelPanelHtml } from "./skillAdoption";
+import { formatEnrichmentIntelligencePanelHtml } from "./enrichmentIntelligence";
 import { getSkillEvolution } from "./skillEnrichment";
 import { formatEnrichmentSummaryHtml } from "./skillEnrichmentProposal";
 import { analyzeContextEfficiency, computeAdvisorROI } from "./contextEfficiency";
@@ -920,6 +922,7 @@ export function buildDashboardMainBodyHtml(
     <div class="stat-pill"><b>Learning</b><span class="val">${apiScore.breakdown.learningRate}%</span></div>
     <div class="stat-pill"><b>Completion</b><span class="val">${apiScore.breakdown.taskCompletion}%</span></div>
     <div class="stat-pill"><b>Correction</b><span class="val">${apiScore.breakdown.humanCorrection}%</span></div>
+    <div class="stat-pill" title="Recommendation quality F1 (precision = successful/accepted, recall = successful/proposed) from the skill adoption funnel"><b>Recommendation F1</b><span class="val">${apiScore.breakdown.recommendationQuality}%</span></div>
   </div>
   <p class="note">Weights: Rec. Accuracy 25% · Cost Tracking 20% · Skill ROI 15% · Learning 15% · Completion 15% · Correction 10%. Target: ≥65 (B).</p>
 </div>
@@ -1034,6 +1037,8 @@ export function buildDashboardMainBodyHtml(
     ${formatSkillEvolutionHtml(target, Object.keys(manifest.skills))}
     ${formatAdoptionCoachHtml(target)}
     ${formatAdoptionDashboardHtml(adoptionMetrics)}
+    ${formatAdoptionFunnelPanelHtml(target)}
+    ${formatEnrichmentIntelligencePanelHtml(target)}
     ${formatPromptIntelligencePanelHtml(target, 14)}
     ${formatLearningLoopHtml(target)}
   </details>

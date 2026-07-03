@@ -653,7 +653,9 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
   };
 
   async function applyProposalSkillNames(target: string, names: string[]): Promise<string[]> {
-    const result = applyProposedSkillsLocally(libraryDir, target, names);
+    // User-consented installs (Apply Suggested Skills command / high-usage prompt) are
+    // "manual" acceptances in the adoption funnel; background applies stay "auto".
+    const result = applyProposedSkillsLocally(libraryDir, target, names, "manual");
     if (result.installed.length > 0 || result.overridesApplied > 0) {
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {
         saveBranchProfile: true,

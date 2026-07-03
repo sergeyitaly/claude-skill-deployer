@@ -1,6 +1,6 @@
 # Claude Skills Manager
 
-**v1.0.101** — AI agent skill deployment, cost intelligence, HACE coaching, adaptive learning, Skill Enrichment Intelligence, and Context Efficiency Intelligence for Claude, Cursor, Kiro, and GitHub Copilot.
+**v1.0.105** — AI agent skill deployment, cost intelligence, HACE coaching, adaptive learning, Skill Adoption Intelligence, Skill Enrichment Intelligence, and Context Efficiency Intelligence for Claude, Cursor, Kiro, and GitHub Copilot.
 
 Install from:
 - [VS Code / Cursor / Kiro — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer)
@@ -513,4 +513,4 @@ Auto-enable on startup: `claudeSkills.mcpForce.enableOnStartup: true`
 
 ---
 
-**Current version:** 1.0.101 (`serhiivoinolovych.claude-skill-deployer`)
+**Current version:** 1.0.105 (`serhiivoinolovych.claude-skill-deployer`)

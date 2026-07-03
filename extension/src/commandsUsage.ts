@@ -32,6 +32,7 @@ import { readSkillStatsIndex } from "./runsStore";
 import { getOptimalAgent, formatRoutingSuggestion } from "./costRouter";
 import { generateLatestSessionBreakdown } from "./sessionBreakdown";
 import { computeEfficiencyMetrics, formatEfficiencyReport } from "./efficiencyMetrics";
+import { formatAdoptionReport } from "./skillAdoption";
 import { reconcileCursorCosts } from "./cursorUsageImport";
 import { formatCompactUsd } from "./skillCost";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
@@ -137,6 +138,7 @@ export function registerUsageCommands(deps: UsageCommandDeps): vscode.Disposable
         log(sessionBreakdown);
       }
       log(formatEfficiencyReport(computeEfficiencyMetrics(target, 14)));
+      log(formatAdoptionReport(target));
       const topSkill = stats.filter((s) => s.runs > 0).sort((a, b) => b.runs - a.runs)[0];
       if (topSkill) {
         const agent = getOptimalAgent(topSkill.name, attribution);

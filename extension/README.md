@@ -12,6 +12,27 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.105
+
+### Skill Adoption Intelligence v1 — the full recommendation funnel, measured
+
+Every recommendation now leaves a trace in an append-only event log (`.claude/learning/skill-adoption.jsonl`): **proposed → accepted → invoked → successful → reused** (plus explicit rejections). The extension can finally answer which recommendations users accept, which skills deliver value, and what the recommendation engine's real **precision / recall / F1** is.
+
+- **Skill Adoption Funnel panel** — 5-stage funnel with acceptance, invocation, success, and reuse rates, a composite Adoption Score, and Top Accepted / Ignored / Successful / Reused / Least Effective skill lists.
+- **Agent Quality Index upgrade** — precision now comes from real adoption outcomes, and a new Recommendation F1 sub-score joins the composite.
+- **Self-tuning ranking** — recent acceptances, successes, and reuses boost a skill's proposal confidence; rejections and unsuccessful uses decay it (exponential 14-day half-life, ±25 points).
+- **Usage Report** gains a "Skill Adoption Intelligence" section with funnel counts, rates, and the top performing skill.
+
+### Skill Enrichment Intelligence v1 — skills that learn from real usage
+
+A telemetry-mining engine (`.claude/learning/skill-enrichment.json`) extracts what actually happens when a skill is used successfully: frequently used files and commands (secrets and private paths redacted), related technologies with frequency/confidence, and recurring troubleshooting patterns with the fixes that worked.
+
+- **Data-driven SKILL.md proposals** — "Frequently Used Commands" and "Common Deployment Failures" sections generated from evidence and reviewed by you; nothing is ever applied automatically.
+- **Review workflow** — "Claude Skills: Review Skill Enrichment Suggestions" now supports Accept / Reject / **Postpone (7 days)**.
+- **Enrichment impact** — before/after acceptance, success, and reuse deltas for every enriched skill.
+- **Staleness detection** — heavily used skills whose SKILL.md hasn't changed in 90+ days get flagged for enrichment.
+- **Recommendation boosting** — recently enriched skills rank higher; stale ones rank lower.
+
 ## What's new in 1.0.100
 
 ### Adoption Intelligence — production-validated, Skill Health Card added

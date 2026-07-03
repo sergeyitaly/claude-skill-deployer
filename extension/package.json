@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.104",
+  "version": "1.0.105",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -373,7 +373,7 @@
       },
       {
         "command": "claudeSkills.showEnrichmentProposals",
-        "title": "Show Skill Enrichment Proposals",
+        "title": "Review Skill Enrichment Suggestions",
         "icon": "$(lightbulb)",
         "category": "Claude Skills"
       },
@@ -391,6 +391,11 @@
       {
         "command": "claudeSkills.rejectEnrichmentProposal",
         "title": "Reject Enrichment Proposal",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.postponeEnrichmentProposal",
+        "title": "Postpone Enrichment Proposal",
         "category": "Claude Skills"
       },
       {

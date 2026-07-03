@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Manifest } from "./skillOps";
 import { readCachedEnrichedRuns } from "./runsStore";
+import { computeRecommendationQuality } from "./skillAdoption";
 
 export interface ApiBreakdown extends Record<string, number> {
   precision: number;
@@ -10,6 +11,8 @@ export interface ApiBreakdown extends Record<string, number> {
   learningRate: number;
   taskCompletion: number;
   humanCorrection: number;
+  /** F1 of recommendation quality from the adoption event log (0-100). */
+  recommendationQuality: number;
 }
 
 /** Sentinel: sub-score has no data yet and should be excluded from composite. */
@@ -42,9 +45,15 @@ function readJsonSafe<T>(file: string): T | undefined {
 }
 
 // ── Sub-score: Precision ──────────────────────────────────────────────────────
-// Uses proposalOutcome.jsonl acceptance rate when available (GAP 1), falling back to
-// the simple proposals-vs-used ratio when no session outcome data exists yet.
+// Preferred source: the skill-adoption event log (successful / accepted recommendations).
+// Falls back to proposalOutcome.jsonl acceptance rate, then to the legacy
+// proposals-vs-used ratio when no adoption or session outcome data exists yet.
 function precisionScore(target: string): number {
+  const quality = computeRecommendationQuality(target);
+  if (quality.hasData && quality.accepted > 0) {
+    return clamp(quality.precisionPct);
+  }
+
   const outcomeFile = path.join(target, ".claude", "learning", "proposalOutcome.jsonl");
   if (fs.existsSync(outcomeFile)) {
     try {
@@ -143,12 +152,21 @@ function humanCorrectionScore(target: string): number {
   }
 }
 
+// ── Sub-score: Recommendation Quality (F1) ────────────────────────────────────
+// F1 (harmonic mean of precision = successful/accepted and recall = successful/proposed)
+// from the skill-adoption event log. NO_DATA until proposals are recorded there.
+function recommendationQualityScore(target: string): number {
+  const quality = computeRecommendationQuality(target);
+  if (!quality.hasData) return NO_DATA;
+  return clamp(quality.f1Pct);
+}
+
 // ── Composite ─────────────────────────────────────────────────────────────────
 
 /**
  * Compute the Agent Performance Index (0–100) for the workspace.
- * Weights: Precision 25% | Attribution 20% | Efficiency 15% |
- *          Learning 15% | Completion 15% | Correction 10%
+ * Weights: Precision 15% | Recommendation Quality (F1) 10% | Attribution 20% |
+ *          Efficiency 15% | Learning 15% | Completion 15% | Correction 10%
  *
  * Sub-scores returning NO_DATA (-1) are excluded from the composite and their
  * weight is redistributed proportionally among the measured sub-scores.
@@ -162,15 +180,17 @@ export function computeApiScore(target: string, _manifest: Manifest): ApiScore {
     learningRate: learningRateScore(target),
     taskCompletion: taskCompletionScore(target),
     humanCorrection: humanCorrectionScore(target),
+    recommendationQuality: recommendationQualityScore(target),
   };
 
   const weights: Record<keyof ApiBreakdown, number> = {
-    precision:       0.25,
-    attribution:     0.20,
-    skillEfficiency: 0.15,
-    learningRate:    0.15,
-    taskCompletion:  0.15,
-    humanCorrection: 0.10,
+    precision:             0.15,
+    recommendationQuality: 0.10,
+    attribution:           0.20,
+    skillEfficiency:       0.15,
+    learningRate:          0.15,
+    taskCompletion:        0.15,
+    humanCorrection:       0.10,
   };
 
   // Only include sub-scores with actual data.

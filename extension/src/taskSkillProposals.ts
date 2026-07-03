@@ -8,6 +8,8 @@ import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, getS
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { enrichProposal, estimateBenefitMinutes } from "./adoptionIntelligence";
 import { appendConfidenceSnapshots } from "./confidenceTrend";
+import { adoptionConfidenceAdjustment, recordProposedSkills } from "./skillAdoption";
+import { enrichmentRankingAdjustment } from "./enrichmentIntelligence";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
 export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -130,6 +132,9 @@ export function writeTaskSkillProposals(target: string, data: TaskSkillProposals
   ensureGitExcludeEntry(target, PROPOSALS_FILE_RELATIVE);
   // Persist confidence snapshot for trend engine — one entry per skill per proposal refresh
   appendConfidenceSnapshots(target, data.proposals.map(p => ({ name: p.name, confidence: p.confidence })));
+  // Adoption funnel: one "proposed" event per skill, deduplicated by generatedAt so
+  // installed-flag rewrites of the same batch don't double count.
+  recordProposedSkills(target, { generatedAt: data.generatedAt, proposals: data.proposals }, "auto");
 }
 
 /**
@@ -442,7 +447,13 @@ function scoreSkillForTask(
   const calibration = target ? confidenceCalibration(target, skillName) : 1.0;
   if (calibration === 0) return null; // dormant — suppress proposal
 
-  const confidence = Math.min(100, Math.max(0, Math.round(score * calibration)));
+  // Adoption feedback loop: exponentially weighted history (accepted/successful/reused
+  // boost, rejected/unsuccessful decay) shifts confidence by up to +/-25 points.
+  const adoptionAdj = target ? adoptionConfidenceAdjustment(target, skillName) : 0;
+  // Enrichment boost: +15 for recently enriched skills, -10 for stale content
+  // (success/reuse components live in the adoption adjustment above).
+  const enrichAdj = target ? enrichmentRankingAdjustment(target, skillName) : 0;
+  const confidence = Math.min(100, Math.max(0, Math.round(score * calibration) + adoptionAdj + enrichAdj));
   const reason = reasons.slice(0, 2).join("; ") || "Relevant to task context";
   return { confidence, reason };
 }
@@ -527,7 +538,9 @@ export function rankAllTaskSkillProposals(
     if (baseConf < 30) continue; // too weak — suppress
     const calibration = target ? confidenceCalibration(target, name) : 1.0;
     if (calibration === 0) continue;
-    const finalConf = Math.min(100, Math.max(20, Math.round(baseConf * calibration)));
+    const globAdoptionAdj = target ? adoptionConfidenceAdjustment(target, name) : 0;
+    const globEnrichAdj = target ? enrichmentRankingAdjustment(target, name) : 0;
+    const finalConf = Math.min(100, Math.max(20, Math.round(baseConf * calibration) + globAdoptionAdj + globEnrichAdj));
     const reasonText = `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}${affinityPts > 0 ? `; repo stack match (+${affinityPts})` : ""}`;
     const enriched = target ? enrichProposal(target, name, finalConf, reasonText) : null;
     proposals.set(name, {

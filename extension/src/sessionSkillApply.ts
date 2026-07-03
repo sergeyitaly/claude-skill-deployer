@@ -22,6 +22,7 @@ import {
   applyTaskSkillFocus,
   taskSkillFocusEnabled,
 } from "./taskSkillFocus";
+import { AdoptionSource, recordAcceptedSkills } from "./skillAdoption";
 
 export const SESSION_APPLY_REQUEST_REL = path.join(
   ".claude",
@@ -225,7 +226,8 @@ function refreshProposalInstalledFlags(target: string, installedNames: Set<strin
 export function applyProposedSkillsLocally(
   libraryDir: string,
   target: string,
-  skillNames: string[]
+  skillNames: string[],
+  adoptionSource: AdoptionSource = "auto"
 ): ApplyProfileResult {
   const unique = mergeWithRequiredPlatformSkills([...new Set(skillNames.filter(Boolean))]);
   if (unique.length === 0) {
@@ -243,6 +245,21 @@ export function applyProposedSkillsLocally(
 
   const result = applyBranchProfile(libraryDir, target, profile, { removeExtra: false });
   saveBranchProfile(target, libraryDir);
+
+  // Adoption funnel: a proposed skill transitioning to installed is an acceptance.
+  try {
+    const proposalsData = readTaskSkillProposals(target);
+    if (result.installed.length > 0 && proposalsData?.proposals.length) {
+      recordAcceptedSkills(
+        target,
+        result.installed,
+        proposalsData.proposals,
+        adoptionSource,
+        proposalsData.generatedAt
+      );
+    }
+  } catch { /* non-fatal */ }
+
   refreshProposalInstalledFlags(target, new Set(listInstalledSkills(target)));
 
   if (taskSkillFocusEnabled()) {
@@ -331,7 +348,12 @@ export function processSessionSkillApplyRequest(
   const skills = manifestSkills
     ? allSkills.filter((s) => required.has(s) || manifestSkills!.has(s))
     : allSkills;
-  const result = applyProposedSkillsLocally(libraryDir, target, skills);
+  const result = applyProposedSkillsLocally(
+    libraryDir,
+    target,
+    skills,
+    req.source === "profile" ? "profile-init" : "auto"
+  );
   writeSessionApplyState(target, {
     version: 1,
     lastSessionId: req.sessionId,

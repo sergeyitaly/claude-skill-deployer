@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
+import { recordRejectedSkills } from "./skillAdoption";
 
 const PROPOSAL_OUTCOME_REL = path.join(".claude", "learning", "proposalOutcome.jsonl");
 const PENALTY_PER_NOT_USED = 10;
@@ -76,11 +77,13 @@ export function recordSessionRejectionFeedback(
   invoked: string[]
 ): void {
   const invokedSet = new Set(invoked);
+  const ignored: string[] = [];
   for (const skill of proposed) {
     // Only record feedback for skills that were NOT invoked — accepted skills are not rejections.
     // Accepted skills are positive signal captured via runs.jsonl; recording them here as
     // "ignored" was incorrectly polluting the rejection signal used for confidence decay.
     if (invokedSet.has(skill)) continue;
+    ignored.push(skill);
     appendRecommendationFeedback(target, {
       session_id: sessionId,
       skill,
@@ -89,6 +92,10 @@ export function recordSessionRejectionFeedback(
       reason: "ignored", // skill was proposed but not used this session
     });
   }
+  // Adoption funnel: proposal expired without invocation this session -> rejected.
+  try {
+    recordRejectedSkills(target, sessionId, ignored.map((name) => ({ name })));
+  } catch { /* non-fatal */ }
 }
 
 export function proposalOutcomePath(target: string): string {

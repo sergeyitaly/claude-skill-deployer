@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.105** | Skill Adoption Intelligence v1 + Skill Enrichment Intelligence v1 — adoption event funnel, precision/recall/F1, telemetry-mined SKILL.md proposals, staleness detection, recommendation boosting |
 | **1.0.104** | Learning Dashboard — live server toggle, dynamic review.html, skill-profile mapping fixes |
 | **1.0.103** | Telemetry quality — coaching decay fix, rejection staleness guard, normPath Windows fix, advisor log ordering, enrichment patterns, HACE 2.0 docs |
 | **1.0.99** | Adoption Intelligence hardening — dormancy-aware proposals TTL, 30 unit tests |
@@ -51,6 +52,53 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.105] - 2026-07-03
+
+**Summary:** Two new intelligence systems — a unified skill-adoption event funnel (proposed → accepted → invoked → successful → reused) with precision/recall/F1, and a telemetry-mining enrichment engine that turns real usage into reviewable SKILL.md update proposals.
+
+**Theme:** Closing the learning loop — the extension now measures which recommendations actually deliver value and feeds that back into both ranking and skill content.
+
+### Added — Skill Adoption Intelligence v1 (`skillAdoption.ts`)
+
+- **Adoption event log** `.claude/learning/skill-adoption.jsonl` — append-only, corruption-tolerant, single-syscall batch writes. Events: `proposed | accepted | rejected | invoked | successful | reused` with workspace, branch, taskId, source (`auto | manual | profile-init`), confidence, and agent.
+- **Funnel wiring across existing flows:**
+  - `proposed` — recorded on proposal batch writes (deduped by `generatedAt`), plus a session-stop catch-up for agent-written proposal files.
+  - `accepted` — proposed skill becomes installed (`applyProposedSkillsLocally`); user-consented installs record `manual`, profile applies record `profile-init`; invoking an already-installed proposed skill records an implicit acceptance.
+  - `rejected` — fresh proposals that expire un-invoked at session stop (idempotent per session+skill — the Stop hook fires per response turn).
+  - `invoked` — skill-invoke hook, carrying proposal confidence and agent.
+  - `successful` — at session stop when the skill had a successful run and no correction feedback; carries a 0–100 success-confidence score.
+  - `reused` — successful use with a prior-session use within 7d/30d/90d windows, with day-gap tracking.
+- **Funnel metrics** — acceptance (accepted/proposed), invocation (invoked/accepted), success (successful/invoked), reuse (reused/successful), global adoption (invoked/proposed), composite Adoption Score, per-skill stats and top lists.
+- **Recommendation quality** — precision = successful/accepted, recall = successful/proposed, F1; new `recommendationQuality` AQI sub-score (10% weight; precision reweighted 25% → 15%), "Recommendation F1" pill in the dashboard AQI row.
+- **Feedback loop** — exponentially decayed adjustment (14-day half-life; accepted +5, invoked +3, successful +9, reused +12, rejected −7, unsuccessful-use penalty), clamped ±25, applied in proposal ranking.
+- **Dashboard panel** "Skill Adoption Funnel" — 5-stage funnel with rates, Adoption Score, precision/recall/F1, Top Accepted / Ignored / Successful / Reused / Least Effective.
+- **Usage Report section** "Skill Adoption Intelligence" — stage counts, rates, quality metrics, top performing skill.
+
+### Added — Skill Enrichment Intelligence v1 (`enrichmentIntelligence.ts`)
+
+- **Per-skill enrichment model** `.claude/learning/skill-enrichment.json` — usage/success counts, frequently used files and commands, common errors and fixes, related technologies, suggested updates, staleness inputs, confidence.
+- **Success pattern extraction** — mines successful sessions only, joining `runs.jsonl` attribution against `mcp-usage.jsonl` (filesystem paths, CLI/bash commands with exit codes) and `skill-feedback.jsonl`.
+- **Technology affinity engine** — 22 signatures (Kubernetes, Helm, ArgoCD, Terraform, AWS/IAM, Azure, GCP, K3s, KubeRocketCI, Ingress, RBAC, GitHub Actions, …) stored as `{technology, frequency, confidence}`.
+- **Command intelligence** — commands grouped by binary+subcommand with success/failure frequency and confidence; secret redaction (flag secrets, `token=`/`secret=` assignments, Bearer/JWT/AWS/GitHub/Slack credentials, opaque blobs); `cd <path>` prefixes stripped and trivial navigation commands excluded so no private local paths are stored.
+- **Troubleshooting intelligence** — 14 recurring-issue detectors (ImagePullBackOff, CrashLoopBackOff, Helm timeout/conflict, RBAC forbidden, Terraform provider/state-lock, ArgoCD sync, ENOENT, EADDRINUSE, …) with observed same-session fixes plus canned fallbacks.
+- **Data-driven proposals** — "Frequently Used Commands" and "Common Deployment Failures" SKILL.md sections generated from mined evidence (≥3 observations) into the existing review pipeline; SKILL.md is never modified automatically.
+- **Enrichment impact** (`enrichment-impact.json`) — before/after acceptance/success/reuse deltas around each skill's first applied enrichment, from the adoption event log.
+- **Staleness detection** — warns when a skill has ≥5 invocations, was used in the last 30 days, but SKILL.md is unchanged for 90+ days.
+- **Recommendation boosting** — +15 for skills enriched in the last 30 days, −10 for stale content, applied in ranking with a 10s cache on the prompt hot path (success/reuse components remain owned by the adoption feedback loop to avoid double-weighting).
+- **Dashboard panel** "Skill Enrichment Intelligence" — Skills Analyzed / Enriched / Pending / Stale tiles, Top Learning, Most Improved, Most Stale.
+
+### Changed — Enrichment review workflow
+
+- Command retitled **"Review Skill Enrichment Suggestions"** (`claudeSkills.showEnrichmentProposals`).
+- New **Postpone** action (`claudeSkills.postponeEnrichmentProposal`) — 7-day snooze with automatic resurfacing and duplicate protection while snoozed; webview button added next to Approve/Reject.
+- Pipeline command now runs telemetry mining, data-driven candidate generation, impact refresh, and staleness reporting alongside the static pattern library.
+
+### Tests
+
+- `skillAdoption.test.ts` (37 tests) and `enrichmentIntelligence.test.ts` (38 tests); both engines >90% statement coverage. Full suite: 738 tests green.
 
 ---
 

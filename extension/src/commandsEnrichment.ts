@@ -20,9 +20,18 @@ import {
   generateEnrichmentProposals,
   approveEnrichmentProposal,
   rejectEnrichmentProposal,
+  postponeEnrichmentProposal,
+  resurfacePostponedProposals,
   applyEnrichmentProposal,
   formatEnrichmentProposalsHtml,
 } from "./skillEnrichmentProposal";
+import {
+  analyzeSkillEnrichment,
+  buildDataDrivenCandidates,
+  computeEnrichmentImpact,
+  detectStaleSkills,
+  formatEnrichmentIntelligencePanelHtml,
+} from "./enrichmentIntelligence";
 import { listInstalledSkills } from "./usageStats";
 import { globalSkillsDir } from "./skillOps";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
@@ -47,8 +56,10 @@ function buildEnrichmentWebviewHtml(
   webview: vscode.Webview,
   libraryDir: string
 ): string {
+  resurfacePostponedProposals(target);
   const proposals = readEnrichmentProposals(target);
   const proposalsHtml = formatEnrichmentProposalsHtml(proposals);
+  const intelligenceHtml = formatEnrichmentIntelligencePanelHtml(target);
 
   const installed = listInstalledSkills(target);
   const profileIndex = readSkillProfileIndex(target);
@@ -122,8 +133,10 @@ function buildEnrichmentWebviewHtml(
 
 ${proposalsHtml}
 
+${intelligenceHtml}
+
 <div class="panel" style="margin-top:8px">
-  <h2 style="margin-top:0">Most Improved Skills</h2>
+  <h2 style="margin-top:0">Most Improved Skills (quality score)</h2>
   ${evolutionHtml}
 </div>
 
@@ -178,6 +191,8 @@ export function registerEnrichmentCommands(deps: EnrichmentCommandDeps): vscode.
               await vscode.commands.executeCommand("claudeSkills.approveEnrichmentProposal", msg.id);
             } else if (msg.command === "rejectEnrichment" && msg.id) {
               await vscode.commands.executeCommand("claudeSkills.rejectEnrichmentProposal", msg.id);
+            } else if (msg.command === "postponeEnrichment" && msg.id) {
+              await vscode.commands.executeCommand("claudeSkills.postponeEnrichmentProposal", msg.id);
             } else if (msg.command === "applyEnrichment" && msg.id) {
               await vscode.commands.executeCommand("claudeSkills.applyEnrichmentProposal", msg.id);
             }
@@ -209,19 +224,37 @@ export function registerEnrichmentCommands(deps: EnrichmentCommandDeps): vscode.
       }
 
       const result = runEnrichmentPipeline(target, installed);
-      const newProposals = generateEnrichmentProposals(target, result.candidates);
+
+      // Phase 1-5: mine per-skill files / commands / technologies / troubleshooting
+      // into skill-enrichment.json, then add data-driven candidates (Phase 6)
+      // to the static pattern-library ones.
+      const enrichmentIndex = analyzeSkillEnrichment(target, installed);
+      const minedCandidates = buildDataDrivenCandidates(target, enrichmentIndex);
+      const allCandidates = [...result.candidates, ...minedCandidates];
+      const resurfaced = resurfacePostponedProposals(target);
+      const newProposals = generateEnrichmentProposals(target, allCandidates);
+
+      // Phase 8 + 10: refresh impact deltas and staleness warnings
+      const impact = computeEnrichmentImpact(target);
+      const stale = detectStaleSkills(target, enrichmentIndex);
 
       log(`\n=== Enrichment Pipeline ===`);
       log(`Skills analyzed:     ${installed.length}`);
       log(`New pattern entries: ${result.newEntries}`);
-      log(`Enrichment candidates: ${result.candidates.length}`);
+      log(`Enrichment candidates: ${allCandidates.length} (${minedCandidates.length} mined from telemetry)`);
       log(`New proposals:       ${newProposals}`);
+      if (resurfaced > 0) log(`Resurfaced postponed proposals: ${resurfaced}`);
+      if (impact.impacts.length > 0) log(`Enrichment impact records: ${impact.impacts.length}`);
 
-      if (result.candidates.length > 0) {
+      if (allCandidates.length > 0) {
         log(`\nCandidates:`);
-        for (const c of result.candidates) {
+        for (const c of allCandidates) {
           log(`  ${c.skill} / ${c.patternLabel} — ${c.occurrences}× observed, ${Math.round(c.confidence * 100)}% confidence`);
         }
+      }
+      if (stale.length > 0) {
+        log(`\nStale skills:`);
+        for (const w of stale) log(`  ${w.skill} — ${w.message}`);
       }
 
       if (newProposals > 0) {
@@ -293,6 +326,34 @@ export function registerEnrichmentCommands(deps: EnrichmentCommandDeps): vscode.
       if (ok) {
         void notifyUserSuccess("Claude Skills: enrichment proposal rejected.");
         log(`Enrichment rejected: ${proposalId}`);
+      }
+    }),
+
+    // ── Postpone Proposal ─────────────────────────────────────────────────
+    vscode.commands.registerCommand("claudeSkills.postponeEnrichmentProposal", async (proposalId?: string) => {
+      const target = getTarget();
+      if (!target) return;
+
+      if (!proposalId) {
+        const pending = readEnrichmentProposals(target).filter(p => p.status === "pending");
+        if (pending.length === 0) {
+          void notifyUserWarn("Claude Skills: no pending enrichment proposals.");
+          return;
+        }
+        const pick = await vscode.window.showQuickPick(
+          pending.map(p => ({ label: `${p.skill} — ${p.patternLabel}`, id: p.id })),
+          { title: "Postpone enrichment proposal (7 days)" }
+        );
+        if (!pick) return;
+        proposalId = pick.id;
+      }
+
+      const ok = postponeEnrichmentProposal(target, proposalId);
+      if (ok) {
+        void notifyUserSuccess("Claude Skills: proposal postponed for 7 days.");
+        log(`Enrichment postponed: ${proposalId}`);
+      } else {
+        void notifyUserWarn("Claude Skills: only pending proposals can be postponed.");
       }
     }),
 

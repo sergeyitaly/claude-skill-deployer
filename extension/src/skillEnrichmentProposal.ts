@@ -20,7 +20,7 @@ const ENRICHMENT_PROPOSALS_REL = path.join(".claude", "learning", "skill-enrichm
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ProposalStatus = "pending" | "approved" | "rejected" | "applied";
+export type ProposalStatus = "pending" | "approved" | "rejected" | "applied" | "postponed";
 
 export interface EnrichmentProposal {
   id: string;
@@ -29,6 +29,8 @@ export interface EnrichmentProposal {
   patternId: string;
   patternLabel: string;
   status: ProposalStatus;
+  /** Set when status === "postponed": the proposal returns to pending after this date. */
+  postponedUntil?: string;
   evidence: {
     sessions: number;
     successRate: number;
@@ -87,9 +89,16 @@ function rewriteProposals(target: string, proposals: EnrichmentProposal[]): void
  */
 export function generateEnrichmentProposals(target: string, candidates: EnrichmentCandidate[]): number {
   const existing = readEnrichmentProposals(target);
+  const now = Date.now();
   const activeKeys = new Set(
     existing
-      .filter(p => p.status === "pending" || p.status === "approved")
+      .filter(p =>
+        p.status === "pending" ||
+        p.status === "approved" ||
+        // Postponed proposals stay active (no duplicate) until their snooze expires.
+        (p.status === "postponed" &&
+          (!p.postponedUntil || new Date(p.postponedUntil).getTime() > now))
+      )
       .map(p => `${p.skill}::${p.patternId}`)
   );
 
@@ -135,6 +144,49 @@ export function approveEnrichmentProposal(target: string, proposalId: string): E
   proposals[idx] = { ...proposals[idx], status: "approved", reviewedAt: new Date().toISOString() };
   rewriteProposals(target, proposals);
   return proposals[idx];
+}
+
+export const POSTPONE_DEFAULT_DAYS = 7;
+
+/**
+ * Postpone a pending proposal: it leaves the review queue and automatically
+ * returns to "pending" after `days` (applied lazily by resurfacePostponedProposals).
+ */
+export function postponeEnrichmentProposal(
+  target: string,
+  proposalId: string,
+  days = POSTPONE_DEFAULT_DAYS
+): boolean {
+  const proposals = readEnrichmentProposals(target);
+  const idx = proposals.findIndex(p => p.id === proposalId);
+  if (idx < 0) return false;
+  if (proposals[idx].status !== "pending") return false;
+  proposals[idx] = {
+    ...proposals[idx],
+    status: "postponed",
+    reviewedAt: new Date().toISOString(),
+    postponedUntil: new Date(Date.now() + days * 86_400_000).toISOString(),
+  };
+  rewriteProposals(target, proposals);
+  return true;
+}
+
+/** Returns expired postponed proposals to "pending". Called before rendering the queue. */
+export function resurfacePostponedProposals(target: string, nowMs = Date.now()): number {
+  const proposals = readEnrichmentProposals(target);
+  let changed = 0;
+  const updated = proposals.map(p => {
+    if (
+      p.status === "postponed" &&
+      (!p.postponedUntil || new Date(p.postponedUntil).getTime() <= nowMs)
+    ) {
+      changed++;
+      return { ...p, status: "pending" as ProposalStatus, postponedUntil: undefined };
+    }
+    return p;
+  });
+  if (changed > 0) rewriteProposals(target, updated);
+  return changed;
 }
 
 /** Mark a proposal as rejected with an optional review note. */
@@ -225,10 +277,11 @@ function esc(s: string): string {
 
 /** Renders a full panel of pending enrichment proposals with Approve / Reject buttons. */
 export function formatEnrichmentProposalsHtml(proposals: EnrichmentProposal[]): string {
-  const pending = proposals.filter(p => p.status === "pending");
-  const approved = proposals.filter(p => p.status === "approved");
-  const applied  = proposals.filter(p => p.status === "applied");
-  const rejected = proposals.filter(p => p.status === "rejected");
+  const pending   = proposals.filter(p => p.status === "pending");
+  const approved  = proposals.filter(p => p.status === "approved");
+  const applied   = proposals.filter(p => p.status === "applied");
+  const rejected  = proposals.filter(p => p.status === "rejected");
+  const postponed = proposals.filter(p => p.status === "postponed");
 
   if (pending.length === 0 && approved.length === 0) {
     return `<div class="panel" style="margin-top:6px">
@@ -272,6 +325,11 @@ export function formatEnrichmentProposalsHtml(proposals: EnrichmentProposal[]): 
       style="background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ccc);border:none;padding:4px 14px;cursor:pointer;border-radius:3px;font-size:11px">
       Reject
     </button>
+    <button class="enrich-btn"
+      onclick="vscode.postMessage({command:'postponeEnrichment',id:'${esc(p.id)}'})"
+      style="background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ccc);border:none;padding:4px 14px;cursor:pointer;border-radius:3px;font-size:11px">
+      Postpone 7d
+    </button>
   </div>
 </div>`;
   }).join("");
@@ -293,8 +351,8 @@ export function formatEnrichmentProposalsHtml(proposals: EnrichmentProposal[]): 
 </div>`
   ).join("");
 
-  const historyNote = (applied.length > 0 || rejected.length > 0)
-    ? `<p class="note" style="margin-top:8px">${applied.length} applied · ${rejected.length} rejected</p>`
+  const historyNote = (applied.length > 0 || rejected.length > 0 || postponed.length > 0)
+    ? `<p class="note" style="margin-top:8px">${applied.length} applied · ${rejected.length} rejected · ${postponed.length} postponed</p>`
     : "";
 
   return `<div class="panel" style="margin-top:6px">
