@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.106** | Skill Adoption Intelligence v1 — Delivery Summary — Phase 10 tests, full funnel e2e, architecture wired end-to-end |
 | **1.0.105** | Skill Adoption Intelligence v1 + Skill Enrichment Intelligence v1 — adoption event funnel, precision/recall/F1, telemetry-mined SKILL.md proposals, staleness detection, recommendation boosting |
 | **1.0.104** | Learning Dashboard — live server toggle, dynamic review.html, skill-profile mapping fixes |
 | **1.0.103** | Telemetry quality — coaching decay fix, rejection staleness guard, normPath Windows fix, advisor log ordering, enrichment patterns, HACE 2.0 docs |
@@ -52,6 +53,38 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.106] - 2026-07-04
+
+**Summary:** Skill Adoption Intelligence v1 delivery complete — all 10 phases verified, Phase 10 test suite created, end-to-end architecture confirmed wired.
+
+**Theme:** Release verification and quality assurance — new Phase 10 test coverage confirms all adoption-funnel systems (event recording, funnel progression, P/R/F1 calculation, confidence feedback, audit queries, dashboard rendering) work together as specified.
+
+### Added — Phase 10 Test Suite (`skillAdoptionIntegration.test.ts`)
+
+- **44 new tests** across 9 describe blocks (797 → 841 total, +44 adoption tests, all passing)
+- **Test coverage by phase:**
+  - Phase 1 (event schema) — 4 tests: all fields written, reuse fields, validation drop, all 6 types accepted
+  - Phase 2 (full funnel e2e) — 3 tests: all 5 stages lifecycle, daysBack window, per-skill sort
+  - Phase 3 (acceptance via Apply) — 4 tests: recordAcceptedSkills, auto-acceptance on invocation, non-proposed, rejection idempotency
+  - Phase 4 (success detection) — 5 tests: clean success, correction suppression, failed invocation, formula bounds, idempotency
+  - Phase 5 (reuse detection) — 3 tests: 7d window, first-ever use, beyond 90d cutoff
+  - Phase 6+7 (P/R/F1) — 4 tests: standard ratios, perfect precision, zero precision, no-data guard
+  - Phase 8 (confidence feedback) — 7 tests: boost, penalty, ±25 cap, recency weighting, unsuccessful-use penalty, no history, ranking effect
+  - Phase 9 (audit queries) — 8 tests: Q1–Q6 from spec, report text, dashboard HTML sections
+  - Concurrent write safety — 2 tests: interleaved appends, atomic batch write
+  - detectBranch — 4 tests: branch read, null fallback, detached HEAD, branch written to events
+
+### Verified — Architecture End-to-End Wiring
+
+- `handleSkillInvoke` → `recordInvokedSkill` → `skill-adoption.jsonl` ✓
+- `handleSessionStop` → `recordSessionAdoptionOutcomes` → writes successful + reused ✓
+- `applyProposedSkillsLocally` → `recordAcceptedSkills` → `skill-adoption.jsonl` ✓
+- `writeTaskSkillProposals` → `recordProposedSkills` → deduplicated by generatedAt ✓
+- `adoptionConfidenceAdjustment` → fed into `rankAllTaskSkillProposals` confidence ✓
+- `formatAdoptionFunnelPanelHtml` → rendered in `buildDashboardMainBodyHtml` (line 1040) ✓
 
 ---
 
