@@ -12,6 +12,19 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.108
+
+### Workspace Intelligence v1 — telemetry becomes action, not just reporting
+
+Telemetry, enrichment, adoption, affinity, and lifecycle data are mined separately — but users still had to manually type `/skill-name` at the start of every session and manually check for skill updates. Workspace Intelligence closes that loop.
+
+- **Workspace Affinity Engine** — a normalized 0-100 per-skill score (`.claude/learning/workspace-affinity.json`) from 30% manual invocations, 30% observations, 20% success, 10% reuse, 10% recency. Manual invocation (`/skill-name`) is weighted as the strongest signal of intent — stronger than accepting a recommendation.
+- **Session Bootstrap & Update Advisor** — every session start now shows a "Workspace Intelligence" summary: ⭐ Top Workspace Skills (ranked by real usage) and ⚠ Updates Available (ranked by upgrade impact, highest first). Advisory only — nothing is auto-invoked or auto-installed.
+- **Recommendation boost breakdown** — proposal confidence now includes a tiered workspace-affinity boost (+25 / +15 / +10 for affinity > 90 / 75 / 60) plus a structured point-by-point breakdown (semantic match, workspace affinity, repository affinity, adoption success) instead of only a prose reason.
+- **Skill Lifecycle Intelligence** — outdated/deprecated skills are now ranked by real impact (affinity → usage → recommendation impact → version delta) into HIGH/MEDIUM/LOW upgrade priority, not just flagged.
+- **Safe auto-upgrade (opt-in)** — new `claudeSkills.autoUpgradeTrustedSkills` setting (default off) automatically applies only trusted releases (patch-only or docs/metadata-only changelogs, never breaking or deprecated), snapshotting each skill first so it can be rolled back.
+- **Dashboard** gains **Workspace Intelligence** and **Skill Lifecycle Intelligence** panels.
+
 ## What's new in 1.0.105
 
 ### Skill Adoption Intelligence v1 — the full recommendation funnel, measured

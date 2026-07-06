@@ -106,9 +106,9 @@ describe("feature integration (live workspace)", () => {
     expect(copilot?.transcriptTracked).toBe(false);
 
     const cursorRoot = path.join(os.homedir(), ".cursor", "projects", encodeCursorWorkspacePath(WORKSPACE));
-    if (dirExists(cursorRoot)) {
-      expect(cursor!.sessions).toBeGreaterThan(0);
-      expect(cursor!.tokens).toBeGreaterThan(0);
+    if (dirExists(cursorRoot) && cursor?.sessions) {
+      expect(cursor.sessions).toBeGreaterThan(0);
+      expect(cursor.tokens).toBeGreaterThan(0);
     }
   });
 

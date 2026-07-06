@@ -36,6 +36,7 @@ import { getSessionCoachHints } from "./haceCoaching";
 import { recordAdviceShown, shouldShowAdvice, evaluateAdviceOutcome } from "./coachingLearning";
 import { isDormantSkill } from "./adoptionIntelligence";
 import { recordInvokedSkill, recordProposedSkills, recordSessionAdoptionOutcomes } from "./skillAdoption";
+import { computeSessionIntelligence, formatSessionIntelligenceMarkdown } from "./sessionIntelligence";
 
 export interface HookRequest {
   hookName: string;
@@ -338,6 +339,10 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
       agent: req.agent as RunAgent,
       confidence: proposalConfidence > 0 ? proposalConfidence : undefined,
       proposed: proposedFlag,
+      // Phase 4 (Workspace Intelligence): a skill already in the proposal set was
+      // invoked because a recommendation was accepted; otherwise this is a direct
+      // manual invocation — the stronger signal of intent (see workspaceAffinity.ts).
+      source: proposedFlag ? "recommended" : "manual",
     });
   } catch { /* non-fatal */ }
 
@@ -768,6 +773,35 @@ function handleTaskDrift(req: HookRequest): HookResponse {
 
   writeJsonSafe(promptFile, { ...prompt, shouldInject: false, deliveredAt: new Date().toISOString() });
   return promptOutput(prompt.message, req.agent);
+}
+
+// ---------------------------------------------------------------------------
+// Handler: workspace-intelligence (SessionStart)
+// ---------------------------------------------------------------------------
+
+/**
+ * Surfaces the top workspace-proven skills and highest-impact outdated skills
+ * at session start (Workspace Intelligence Phases 2+7). Advisory only — never
+ * installs, upgrades, or invokes anything; see sessionIntelligence.ts.
+ */
+async function handleWorkspaceIntelligence(req: HookRequest): Promise<HookResponse> {
+  const body = req.body as Record<string, unknown>;
+  const cwd = req.cwd;
+  if (!cwd) return {};
+  if (req.agent === "claude" || req.agent === "copilot") {
+    const source = String(body.source ?? "startup");
+    if (!SESSION_SOURCES.has(source)) return {};
+  }
+
+  try {
+    const libraryDir = resolveSkillsLibraryDir(cwd) ?? path.join(cwd, "skills_library");
+    const report = computeSessionIntelligence(cwd, libraryDir);
+    const content = formatSessionIntelligenceMarkdown(report);
+    if (!content) return {};
+    return sessionStartOutput(content, req.agent);
+  } catch {
+    return {};
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2192,6 +2226,7 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
     case "task-drift": return handleTaskDrift(req);
     case "official-skills": return handleOfficialSkills(req);
     case "profile-init": return handleProfileInit(req);
+    case "workspace-intelligence": return handleWorkspaceIntelligence(req);
     case "branch-sync": return Promise.resolve(handleBranchSync(req));
     case "mcp-force": return Promise.resolve(handleMcpForce(req));
     case "mcp-gate": return Promise.resolve(handleMcpGate(req));

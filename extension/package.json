@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.107",
+  "version": "1.0.109",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -1114,6 +1114,11 @@
             "type": "boolean",
             "default": false,
             "description": "During auto-optimize passes, automatically upgrade outdated skills whose measured ROI band is LOW to the latest catalog version (requires at least 3 recorded sessions of data)."
+          },
+          "claudeSkills.autoUpgradeTrustedSkills": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically install trusted skill updates — patch-only version bumps and metadata/documentation-only releases. Never applies major/minor bumps, changes flagged as breaking, or deprecated skills. Each upgrade is snapshotted first so it can be rolled back (Workspace Intelligence Phase 8)."
           }
         }
       },

@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Manifest } from "./skillOps";
+import { appendAdoptionEvents } from "./skillAdoption";
 import {
   areTaskSkillProposalsFresh,
   computeTaskSkillProposals,
@@ -221,5 +222,38 @@ describe("computeTaskSkillProposals", () => {
     expect(proposals.find((p) => p.name === "terraform-plan-review")).toBeDefined();
     // theme-factory must NOT appear — only catch-all glob, no token match, no history
     expect(proposals.find((p) => p.name === "theme-factory")).toBeUndefined();
+  });
+
+  it("confidenceBreakdown reports a workspaceAffinity boost for a workspace-proven skill", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-breakdown-"));
+    const events = Array.from({ length: 20 }, (_, i) => ({
+      taskId: `s${i}`, skill: "terraform-plan-review", event: "invoked" as const, source: "manual" as const,
+    }));
+    appendAdoptionEvents(target, [...events, ...events.map((e) => ({ ...e, event: "successful" as const }))]);
+
+    const proposals = computeTaskSkillProposals(target, manifest, "debug terraform plan failure");
+    const proposal = proposals.find((p) => p.name === "terraform-plan-review");
+
+    expect(proposal?.confidenceBreakdown).toBeDefined();
+    expect(proposal!.confidenceBreakdown!.workspaceAffinity).toBeGreaterThan(0);
+    expect([10, 15, 25]).toContain(proposal!.confidenceBreakdown!.workspaceAffinity);
+    expect(proposal!.confidenceBreakdown!.semanticMatch).toBeGreaterThan(0);
+  });
+
+  it("a workspace-proven skill scores higher than the same skill with no workspace history", () => {
+    const withAffinity = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-affinity-with-"));
+    const events = Array.from({ length: 20 }, (_, i) => ({
+      taskId: `s${i}`, skill: "terraform-plan-review", event: "invoked" as const, source: "manual" as const,
+    }));
+    appendAdoptionEvents(withAffinity, [...events, ...events.map((e) => ({ ...e, event: "successful" as const }))]);
+
+    const withoutAffinity = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-affinity-without-"));
+
+    const scoreWith = computeTaskSkillProposals(withAffinity, manifest, "debug terraform plan failure")
+      .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
+    const scoreWithout = computeTaskSkillProposals(withoutAffinity, manifest, "debug terraform plan failure")
+      .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
+
+    expect(scoreWith).toBeGreaterThan(scoreWithout);
   });
 });

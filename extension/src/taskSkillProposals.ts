@@ -10,6 +10,7 @@ import { enrichProposal, estimateBenefitMinutes } from "./adoptionIntelligence";
 import { appendConfidenceSnapshots } from "./confidenceTrend";
 import { adoptionConfidenceAdjustment, recordProposedSkills } from "./skillAdoption";
 import { enrichmentRankingAdjustment } from "./enrichmentIntelligence";
+import { appendWorkspaceIntelligenceEvent, getWorkspaceAffinityScore, workspaceAffinityBoost } from "./workspaceAffinity";
 
 export const PROPOSALS_FILE_RELATIVE = path.join(".claude", "learning", "task-skill-proposals.json");
 export const PROPOSALS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -75,6 +76,22 @@ export function ensureWorkspaceTaskProposals(
   return { refreshed: true, file: data };
 }
 
+/**
+ * Workspace Intelligence Phase 3: structured breakdown of how a proposal's
+ * confidence was assembled, so the dashboard/telemetry can show the
+ * point-by-point contribution instead of only a prose reason string.
+ * Example: { semanticMatch: 42, workspaceAffinity: 25, repositoryAffinity: 15,
+ * adoptionSuccess: 11, enrichment: 0, penalty: 0 } -> confidence 93.
+ */
+export interface ConfidenceBreakdown {
+  semanticMatch: number;
+  workspaceAffinity: number;
+  repositoryAffinity: number;
+  adoptionSuccess: number;
+  enrichment: number;
+  penalty: number;
+}
+
 export interface TaskSkillProposal {
   name: string;
   reason: string;
@@ -82,6 +99,8 @@ export interface TaskSkillProposal {
   confidence: number;
   installed: boolean;
   matchedGlobs?: string[];
+  /** Point-by-point confidence composition (Phase 3). */
+  confidenceBreakdown?: ConfidenceBreakdown;
   /** Human-readable explainability: signals matched + historical stats */
   whyText?: string;
   /** Estimated developer time saved per invocation (minutes) */
@@ -135,6 +154,19 @@ export function writeTaskSkillProposals(target: string, data: TaskSkillProposals
   // Adoption funnel: one "proposed" event per skill, deduplicated by generatedAt so
   // installed-flag rewrites of the same batch don't double count.
   recordProposedSkills(target, { generatedAt: data.generatedAt, proposals: data.proposals }, "auto");
+
+  // Workspace Intelligence Phase 10: observability for skills whose ranking was
+  // materially boosted by workspace-proven affinity (Phase 3).
+  for (const p of data.proposals) {
+    const boost = p.confidenceBreakdown?.workspaceAffinity ?? 0;
+    if (boost > 0) {
+      appendWorkspaceIntelligenceEvent(target, "recommendation-boosted", {
+        skill: p.name,
+        boost,
+        confidence: p.confidence,
+      });
+    }
+  }
 }
 
 /**
@@ -333,10 +365,12 @@ function scoreSkillForTask(
   affinityBoost: number = 0,
   penalty: number = 0,
   target: string = ""
-): { confidence: number; reason: string } | null {
+): { confidence: number; reason: string; breakdown: ConfidenceBreakdown } | null {
   let score = 0;
   const reasons: string[] = [];
   let signalTypes = 0;
+  let repositoryAffinity = 0;
+  let adoptionSuccess = 0;
   let hasTaskToken = false; // at least one non-workspace token from the actual prompt
   let hasPromptSignal = false; // any prompt-content token matched this skill (gates recency boost)
 
@@ -405,10 +439,27 @@ function scoreSkillForTask(
     const effectiveBoost = Math.round(affinityBoost * adoptionWeight);
     if (effectiveBoost > 0) {
       score += effectiveBoost;
+      repositoryAffinity += effectiveBoost;
       const label = adoptionWeight < 1.0
         ? `repo stack match (+${effectiveBoost}, adj. ${Math.round(adoptionWeight * 100)}% adoption weight)`
         : `repo stack match (+${effectiveBoost})`;
       reasons.push(label);
+      signalTypes++;
+    }
+  }
+
+  // Workspace Intelligence Phase 3: tiered boost from this workspace's own proven
+  // usage of the skill (manual invocations + observations + success + reuse +
+  // recency — see workspaceAffinity.ts). Distinct from the repo-affinity signal
+  // above (static tech-stack fingerprint) and the historical-success signal below
+  // (recent-invocation success rate) — this is workspace-proven adoption specifically.
+  let workspaceAffinityPts = 0;
+  const workspaceAffinityScore = target ? getWorkspaceAffinityScore(target, skillName) : 0;
+  if (workspaceAffinityScore > 0) {
+    workspaceAffinityPts = workspaceAffinityBoost(workspaceAffinityScore);
+    if (workspaceAffinityPts > 0) {
+      score += workspaceAffinityPts;
+      reasons.push(`workspace affinity ${workspaceAffinityScore}/100 (+${workspaceAffinityPts})`);
       signalTypes++;
     }
   }
@@ -420,6 +471,7 @@ function scoreSkillForTask(
       const histBoost = Math.round(hist.successRate * 30);
       if (histBoost > 0) {
         score += histBoost;
+        adoptionSuccess += histBoost;
         reasons.push(`${hist.invocations} prior invocations (${Math.round(hist.successRate * 100)}% success)`);
         signalTypes++;
       }
@@ -428,6 +480,7 @@ function scoreSkillForTask(
 
   // GAP 4: non-use penalty — skills consistently proposed but ignored lose confidence
   score -= penalty;
+  const semanticMatch = score + penalty - repositoryAffinity - workspaceAffinityPts - adoptionSuccess;
 
   // Task-type classification: skills that don't match the detected task type are penalised.
   score = Math.round(score * taskTypeMultiplier(skillName, taskType));
@@ -455,7 +508,15 @@ function scoreSkillForTask(
   const enrichAdj = target ? enrichmentRankingAdjustment(target, skillName) : 0;
   const confidence = Math.min(100, Math.max(0, Math.round(score * calibration) + adoptionAdj + enrichAdj));
   const reason = reasons.slice(0, 2).join("; ") || "Relevant to task context";
-  return { confidence, reason };
+  const breakdown: ConfidenceBreakdown = {
+    semanticMatch: Math.max(0, Math.round(semanticMatch)),
+    workspaceAffinity: workspaceAffinityPts,
+    repositoryAffinity,
+    adoptionSuccess: adoptionSuccess + adoptionAdj,
+    enrichment: enrichAdj,
+    penalty: -penalty,
+  };
+  return { confidence, reason, breakdown };
 }
 
 /** Drop proposals below minProposalConfidence; required platform skills always kept. */
@@ -505,6 +566,7 @@ export function rankAllTaskSkillProposals(
       confidence: scored.confidence,
       installed: installed.has(name),
       matchedGlobs: matchedGlobs.length > 0 ? matchedGlobs : undefined,
+      confidenceBreakdown: scored.breakdown,
       whyText: enriched?.whyText,
       estimatedMinutes: estimateBenefitMinutes(name),
       acceptanceRate: enriched?.acceptanceRate,
@@ -533,7 +595,9 @@ export function rankAllTaskSkillProposals(
     const hist = target ? historicalSuccess(target, name) : { acceptanceRate: 0, invocations: 0, successRate: 0, proposedCount: 0 };
     const histBoost = hist.invocations >= 2 ? Math.round(hist.successRate * 20) : 0;
     const acceptBoost = hist.proposedCount >= 2 ? Math.round(hist.acceptanceRate * 25) : 0;
-    const rawConf = (installed.has(name) ? 40 : 30) + specificityMax + affinityPts + histBoost + acceptBoost - penalty;
+    const workspaceAffinityScore = target ? getWorkspaceAffinityScore(target, name) : 0;
+    const workspaceAffinityPts = workspaceAffinityBoost(workspaceAffinityScore);
+    const rawConf = (installed.has(name) ? 40 : 30) + specificityMax + affinityPts + workspaceAffinityPts + histBoost + acceptBoost - penalty;
     const baseConf = Math.round(Math.max(20, rawConf) * typeMultiplier);
     if (baseConf < 30) continue; // too weak — suppress
     const calibration = target ? confidenceCalibration(target, name) : 1.0;
@@ -541,7 +605,15 @@ export function rankAllTaskSkillProposals(
     const globAdoptionAdj = target ? adoptionConfidenceAdjustment(target, name) : 0;
     const globEnrichAdj = target ? enrichmentRankingAdjustment(target, name) : 0;
     const finalConf = Math.min(100, Math.max(20, Math.round(baseConf * calibration) + globAdoptionAdj + globEnrichAdj));
-    const reasonText = `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}${affinityPts > 0 ? `; repo stack match (+${affinityPts})` : ""}`;
+    const reasonText = `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}${affinityPts > 0 ? `; repo stack match (+${affinityPts})` : ""}${workspaceAffinityPts > 0 ? `; workspace affinity ${workspaceAffinityScore}/100 (+${workspaceAffinityPts})` : ""}`;
+    const breakdown: ConfidenceBreakdown = {
+      semanticMatch: (installed.has(name) ? 40 : 30) + specificityMax,
+      workspaceAffinity: workspaceAffinityPts,
+      repositoryAffinity: affinityPts,
+      adoptionSuccess: histBoost + acceptBoost + globAdoptionAdj,
+      enrichment: globEnrichAdj,
+      penalty: -penalty,
+    };
     const enriched = target ? enrichProposal(target, name, finalConf, reasonText) : null;
     proposals.set(name, {
       name,
@@ -549,6 +621,7 @@ export function rankAllTaskSkillProposals(
       confidence: finalConf,
       installed: installed.has(name),
       matchedGlobs: globs,
+      confidenceBreakdown: breakdown,
       whyText: enriched?.whyText,
       estimatedMinutes: estimateBenefitMinutes(name),
       acceptanceRate: enriched?.acceptanceRate,

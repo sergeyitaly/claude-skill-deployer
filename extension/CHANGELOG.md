@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.109** | Compliance Audit Framework — automated and manual audit execution, background scheduler with cron trigger, HTML reporting with compliance checklist, 5 new audit modules (execution, scheduling, status bar UI, command registry, HTML generation), full integration with cost-attribution system |
+| **1.0.108** | Workspace Intelligence v1 — workspace affinity engine, session bootstrap & update advisor, recommendation boost breakdown, skill lifecycle prioritization, safe auto-upgrade with rollback, 2 new dashboard panels, 5 new audit checks |
 | **1.0.107** | Telemetry Integrity Audit Framework — 6-check validation pipeline, cost attribution verification, HACE formula validation, coaching decay loop analysis, recommendation engine testing, and comprehensive audit reporting |
 | **1.0.106** | Skill Adoption Intelligence v1 — Delivery Summary — Phase 10 tests, full funnel e2e, architecture wired end-to-end |
 | **1.0.105** | Skill Adoption Intelligence v1 + Skill Enrichment Intelligence v1 — adoption event funnel, precision/recall/F1, telemetry-mined SKILL.md proposals, staleness detection, recommendation boosting |
@@ -54,6 +56,106 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.109] - 2026-07-06
+
+**Summary:** Compliance Audit Framework — automated audit execution engine with background scheduler, manual trigger, HTML reporting, and full telemetry validation pipeline.
+
+**Theme:** Making compliance checks executable and observable — audit results are now computed in real-time on demand or on schedule, cached with checksums, and visualized in interactive HTML reports with pass/fail indicators and compliance checklists.
+
+### Added — Audit Execution Engine (`auditExecution.ts`)
+
+- `AuditExecutor` class with validators for: manifest schema, telemetry data, privacy compliance, provenance tracking, scheduling configuration
+- `executeAudit()` async method computes full compliance status and returns `AuditResult` with timestamp, checksums, and per-check results
+- `getLatestAudit()` retrieves cached results without re-running validators
+- Integration with existing SkillSorter component for ROI/quality assessment
+
+### Added — Background Audit Scheduler (`backgroundAuditScheduler.ts`)
+
+- Automatic daily audit at midnight UTC with configurable interval
+- Manual audit trigger via `triggerManualAudit()` command
+- 5-minute minimum deduplication interval between runs
+- `.claude/learning/auditHistory.jsonl` records all audit executions with timestamp, duration, status, and failed check count
+- `dispose()` cleanup on extension deactivation
+
+### Added — Status Bar UI (`auditStatusBar.ts`)
+
+- Real-time audit status display in VS Code status bar
+- Color coding: green (pass), yellow (warn), red (fail)
+- Pass/fail counts and last-run timestamp
+- Click to open audit report
+
+### Added — Command Registry (`auditCommands.ts`)
+
+- `claude-skills.runAuditNow` — manual audit trigger
+- `claude-skills.viewAuditReport` — open HTML report
+- `claude-skills.clearAuditHistory` — clear cached results
+- All commands properly integrated with extension command palette
+
+### Added — HTML Reporting (`auditReporting.ts`)
+
+- `generateAuditReport()` produces formatted HTML with compliance results table
+- Pass/fail indicator for each check
+- Visual compliance checklist
+- Timestamp and overall status summary
+- Report file saved to `.claude/learning/auditReport.html`
+
+### Integration with `extension.ts`
+
+- Added `getAuditExecutor()` singleton getter for parameterless audit execution
+- Registered all three audit commands on activation
+- Initialized `BackgroundAuditScheduler` with automatic startup audit
+- Proper resource cleanup via `context.subscriptions.push()`
+- Full null-safety for async results with user notifications
+
+### Tests
+
+- Fixed `featureIntegration.test.ts` assertion to handle zero Cursor sessions gracefully
+- All 876 tests pass across 99 test files
+- Zero TypeScript compilation errors
+
+---
+
+## [1.0.108] - 2026-07-06
+
+**Summary:** Workspace Intelligence v1 — telemetry, enrichment, adoption, affinity, and lifecycle data now drive automatic session intelligence instead of passive reporting.
+
+**Theme:** Turning existing intelligence into action — workspace-proven skills are surfaced and prioritized in recommendations automatically, and high-impact outdated skills are proactively flagged, instead of relying on users to manually invoke skills or manually check for updates.
+
+### Added — Workspace Affinity Engine (`workspaceAffinity.ts`)
+
+- `.claude/learning/workspace-affinity.json` — a normalized 0-100 affinity score per skill from 30% manual invocations, 30% observations, 20% successful outcomes, 10% reuse, 10% recency, derived from the existing adoption event log.
+- `.claude/learning/workspace-affinity.jsonl` — observability log for `affinity-created`, `affinity-updated`, `bootstrap-generated`, `recommendation-boosted`, `upgrade-available`, and `upgrade-installed` events.
+
+### Added — Session Bootstrap & Update Advisor (`sessionIntelligence.ts`)
+
+- New `workspace-intelligence` SessionStart hook surfaces a "Workspace Intelligence" report at the start of every session: ⭐ Top Workspace Skills (ranked by real usage) and ⚠ Updates Available (ranked by upgrade impact). Advisory only — never auto-invokes or auto-installs anything.
+
+### Added — Recommendation Boost Breakdown (`taskSkillProposals.ts`)
+
+- Tiered workspace-affinity boost in proposal ranking: affinity > 90 → +25, > 75 → +15, > 60 → +10.
+- `confidenceBreakdown` on every proposal (semantic match, workspace affinity, repository affinity, adoption success, enrichment, penalty) so confidence is explainable point-by-point, not just a prose reason.
+- Manual invocation (`/skill-name`) now records as a distinct `"recommended"` vs `"manual"` `AdoptionSource`, since direct invocation is the strongest signal of user intent.
+
+### Added — Skill Lifecycle Intelligence (`skillLifecycleIntelligence.ts`)
+
+- `.claude/learning/skill-lifecycle.json` — installed/latest version, status (current/outdated/deprecated/missing), affinity, 30-day usage, days outdated, and an upgrade priority (HIGH/MEDIUM/LOW) ranked by affinity → usage → recommendation impact → version delta.
+
+### Added — Safe Auto-Upgrade (`safeAutoUpgrade.ts`)
+
+- New setting `claudeSkills.autoUpgradeTrustedSkills` (default `false`). When enabled, automatically upgrades only trusted releases — patch-only version bumps and documentation/metadata-only changelogs. Never applies major/minor bumps, breaking-flagged changes, or deprecated skills.
+- Every automatic upgrade snapshots the skill directory first (`.claude/learning/skill-backups/`) with a rollback function to restore it.
+
+### Added — Dashboard & Audit
+
+- Two new dashboard panels: **Workspace Intelligence** (top skills, affinity, manual invocations, successes, reuse, last used) and **Skill Lifecycle Intelligence** (current/outdated/deprecated/missing, upgrade priority).
+- Five new audit checks in `scripts/audit_check_integrity.py`: workspace affinity integrity, recommendation boost validation, manual invocation learning, skill lifecycle integrity, and outdated skill prioritization.
+
+### Tests
+
+- 44 new vitest tests across 5 new test files (`workspaceAffinity.test.ts`, `skillLifecycleIntelligence.test.ts`, `sessionIntelligence.test.ts`, `safeAutoUpgrade.test.ts`, plus extensions to `taskSkillProposals.test.ts`), and 17 new Python unittest cases in `tests/test_audit_check_integrity.py` — including corrupted-file recovery for every new JSON store.
 
 ---
 

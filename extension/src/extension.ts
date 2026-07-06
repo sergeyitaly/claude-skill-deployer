@@ -308,6 +308,8 @@ import {
   revertMcpForcePermissions,
 } from "./mcpForce";
 import { checkAndShowKpiAlert } from "./kpiAlert";
+import { getAuditExecutor } from "./auditExecution";
+import { initializeAuditScheduler } from "./backgroundAuditScheduler";
 
 import {
   executeSkillSetResolution,
@@ -1203,6 +1205,31 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     })
   );
 
+  // Register "Run Audit Now" command
+  context.subscriptions.push(
+    vscode.commands.registerCommand("claude-skills.runAuditNow", async () => {
+      try {
+        const auditExecutor = getAuditExecutor();
+        const result = await auditExecutor.executeAudit();
+        if (!result) {
+          void notifyUserWarn("Audit execution returned no result.");
+          log("Audit execution failed (null result)");
+          return;
+        }
+        const passedCount = result.compliance.filter((c) => c.ok).length;
+        const totalCount = result.compliance.length;
+        const message = `Audit: ${result.overallStatus.toUpperCase()} (${passedCount}/${totalCount} checks passed)`;
+        void notifyUserSuccess(message);
+        log(message);
+        refreshAll();
+      } catch (err) {
+        const message = `Audit failed: ${err instanceof Error ? err.message : String(err)}`;
+        void notifyUserWarn(message);
+        log(message);
+      }
+    })
+  );
+
   context.subscriptions.push(
     ...registerMiscCommands({
       context,
@@ -1476,6 +1503,13 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     }
   } catch {
     // Non-fatal — workspace watcher covers the common case.
+  }
+
+  // Initialize audit framework
+  if (initialTarget) {
+    const auditExecutor = getAuditExecutor();
+    const auditScheduler = initializeAuditScheduler(auditExecutor, initialTarget);
+    context.subscriptions.push({ dispose: () => auditScheduler.dispose() });
   }
 
   const gitExt = vscode.extensions.getExtension("vscode.git");

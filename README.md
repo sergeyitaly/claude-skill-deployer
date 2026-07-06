@@ -1,6 +1,6 @@
 # Claude Skills Manager
 
-**v1.0.107** — AI agent skill deployment, cost intelligence, HACE coaching, adaptive learning, Skill Adoption Intelligence, Skill Enrichment Intelligence, Context Efficiency Intelligence, and comprehensive Telemetry Integrity Audit framework for Claude, Cursor, Kiro, and GitHub Copilot.
+**v1.0.109** — AI agent skill deployment, cost intelligence, HACE coaching, adaptive learning, Skill Adoption Intelligence, Skill Enrichment Intelligence, Context Efficiency Intelligence, Workspace Intelligence, Telemetry Integrity Audit framework, and native Compliance Audit Framework for automated and manual audit execution for Claude, Cursor, Kiro, and GitHub Copilot.
 
 Install from:
 - [VS Code / Cursor / Kiro — Open VSX](https://open-vsx.org/extension/serhiivoinolovych/claude-skill-deployer)

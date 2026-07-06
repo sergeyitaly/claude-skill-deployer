@@ -29,7 +29,13 @@ export type AdoptionEventType =
   | "successful"
   | "reused";
 
-export type AdoptionSource = "auto" | "manual" | "profile-init";
+/**
+ * "manual" = user directly invoked the skill (e.g. `/skill-name`) — the strongest
+ * signal of intent. "recommended" = invocation followed an accepted proposal from
+ * task-skill-proposals.json. "auto"/"profile-init" = system-driven installs with
+ * no explicit user invocation signal.
+ */
+export type AdoptionSource = "auto" | "manual" | "recommended" | "profile-init";
 
 export type ReuseWindow = "7d" | "30d" | "90d";
 

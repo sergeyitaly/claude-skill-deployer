@@ -42,10 +42,13 @@ import { resolveAdaptations } from "./adaptationEffectiveness";
 import { computeAdoptionMetrics, formatAdoptionDashboardHtml, formatAdoptionCoachHtml, formatSkillHealthCard } from "./adoptionIntelligence";
 import { formatAdoptionFunnelPanelHtml } from "./skillAdoption";
 import { formatEnrichmentIntelligencePanelHtml } from "./enrichmentIntelligence";
+import { formatWorkspaceIntelligencePanelHtml } from "./workspaceAffinity";
+import { formatSkillLifecyclePanelHtml } from "./skillLifecycleIntelligence";
 import { getSkillEvolution } from "./skillEnrichment";
 import { formatEnrichmentSummaryHtml } from "./skillEnrichmentProposal";
 import { analyzeContextEfficiency, computeAdvisorROI } from "./contextEfficiency";
 import { evaluateCompactAdvisor, buildCoachingMessages, formatEfficiencyCoachHtml, formatCompactAdvisorHtml } from "./contextAdvisor";
+import { AuditResult, getAuditExecutor } from "./auditExecution";
 import { isFeatureAvailable } from "./featureMode";
 import { formatPromptIntelligencePanelHtml } from "./promptIntelligence";
 import { buildCoachingReport, formatCoachingReportHtml } from "./haceCoaching";
@@ -319,7 +322,7 @@ ${overRows ? `<p class="note" style="margin:8px 0 2px"><b>Over-predicted (0 uses
 // Governance Panel
 // ---------------------------------------------------------------------------
 
-function buildGovernancePanelHtml(target: string): string {
+function buildGovernancePanelHtml(target: string, auditResult?: AuditResult): string {
   const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
   const mcpFile  = path.join(target, ".claude", "mcp-usage.jsonl");
   const trustFile = path.join(target, ".claude", "learning", "attribution-trust.json");
@@ -337,7 +340,8 @@ function buildGovernancePanelHtml(target: string): string {
 
   const kb = (b: number) => b >= 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} B`;
 
-  const checks = [
+  // Build compliance checks — use audit results if available, otherwise fallback to defaults
+  let checks = [
     { ok: true,  label: "Telemetry is local-only (no cloud egress)" },
     { ok: true,  label: "No prompt content stored in runs.jsonl" },
     { ok: attrPct >= 80, label: `Attribution confidence ≥80% (current: ${attrPct}%)` },
@@ -345,18 +349,25 @@ function buildGovernancePanelHtml(target: string): string {
     { ok: false, label: "Audit export not scheduled" },
   ];
 
+  if (auditResult) {
+    checks = auditResult.compliance || checks;
+  }
+
   const checkItems = checks.map((c) =>
     `<li>${c.ok ? "☑" : "☐"} ${escapeHtml(c.label)}</li>`
   ).join("");
+
+  const auditStatus = auditResult ? `<p class="note" style="margin:8px 0 2px;font-size:11px">Last audit: ${new Date(auditResult.timestamp).toLocaleString()} · Status: <b>${auditResult.overallStatus.toUpperCase()}</b></p>` : "";
 
   return `<div class="stat-grid" style="margin-bottom:8px">
   <div class="stat-pill"><b>runs.jsonl</b><span class="val">${runCount} records · ${kb(runsSize)}</span></div>
   <div class="stat-pill"><b>mcp-usage.jsonl</b><span class="val">${kb(mcpSize)}</span></div>
   <div class="stat-pill"><b>Attribution</b><span class="val ${attrPct >= 80 ? "roi-high" : "roi-low"}">${attrPct}%</span></div>
-  <div class="stat-pill"><b>Provenance</b><span class="val roi-low">Not configured</span></div>
+  <div class="stat-pill"><b>Provenance</b><span class="val ${auditResult?.provenance.configured ? "roi-high" : "roi-low"}">${auditResult?.provenance.configured ? "Configured" : "Not configured"}</span></div>
 </div>
 <p class="note" style="margin:4px 0 2px"><b>Compliance checklist</b></p>
-<ul style="font-size:12px;margin:4px 0">${checkItems}</ul>`;
+<ul style="font-size:12px;margin:4px 0">${checkItems}</ul>
+${auditStatus}`;
 }
 
 export interface CostDashboardOptions {
@@ -1039,6 +1050,8 @@ export function buildDashboardMainBodyHtml(
     ${formatAdoptionDashboardHtml(adoptionMetrics)}
     ${formatAdoptionFunnelPanelHtml(target)}
     ${formatEnrichmentIntelligencePanelHtml(target)}
+    ${formatWorkspaceIntelligencePanelHtml(target)}
+    ${formatSkillLifecyclePanelHtml(target)}
     ${formatPromptIntelligencePanelHtml(target, 14)}
     ${formatLearningLoopHtml(target)}
   </details>
