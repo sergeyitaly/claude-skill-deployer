@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.107** | Telemetry Integrity Audit Framework — 6-check validation pipeline, cost attribution verification, HACE formula validation, coaching decay loop analysis, recommendation engine testing, and comprehensive audit reporting |
 | **1.0.106** | Skill Adoption Intelligence v1 — Delivery Summary — Phase 10 tests, full funnel e2e, architecture wired end-to-end |
 | **1.0.105** | Skill Adoption Intelligence v1 + Skill Enrichment Intelligence v1 — adoption event funnel, precision/recall/F1, telemetry-mined SKILL.md proposals, staleness detection, recommendation boosting |
 | **1.0.104** | Learning Dashboard — live server toggle, dynamic review.html, skill-profile mapping fixes |
