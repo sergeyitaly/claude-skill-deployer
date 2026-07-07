@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.109",
+  "version": "1.0.110",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -405,31 +405,9 @@
         "category": "Claude Skills"
       },
       {
-        "command": "claudeSkills.showContextEfficiency",
-        "title": "Show Context Efficiency Intelligence",
-        "icon": "$(pulse)",
-        "category": "Claude Skills"
-      },
-      {
         "command": "claudeSkills.toggleLearningDashboard",
         "title": "Toggle Learning Dashboard (Live Server)",
         "icon": "$(graph-line)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.runContextAnalysis",
-        "title": "Run Context Efficiency Analysis",
-        "icon": "$(sync)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.followCompactAdvice",
-        "title": "Follow Compact Advice (copy /compact)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claudeSkills.dismissCompactAdvice",
-        "title": "Dismiss Compact Advice",
         "category": "Claude Skills"
       },
       {
@@ -574,6 +552,24 @@
         "command": "claudeSkills.applyLocalProfile",
         "title": "Apply Local Profile (.claude/profile.local.json)",
         "icon": "$(check)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claude-skills.runAuditNow",
+        "title": "Run Compliance Audit Now",
+        "icon": "$(shield-check)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claude-skills.viewAuditReport",
+        "title": "View Audit Report",
+        "icon": "$(document)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claude-skills.clearAuditHistory",
+        "title": "Clear Audit History",
+        "icon": "$(trash)",
         "category": "Claude Skills"
       }
     ],
@@ -731,18 +727,6 @@
             "minimum": 0,
             "maximum": 100,
             "description": "Warn when today's estimated spend reaches this percentage of the daily budget."
-          }
-        }
-      },
-      {
-        "id": "contextEfficiency",
-        "title": "Context Efficiency Intelligence",
-        "order": 1.15,
-        "properties": {
-          "claudeSkills.contextEfficiency.autoOptimize": {
-            "type": "boolean",
-            "default": false,
-            "description": "When true, automatically surface compact advice and caching suggestions when the Context Efficiency panel is opened and context pressure is High or Critical. Never executes commands automatically."
           }
         }
       },
@@ -1620,17 +1604,7 @@
           "group": "3_usage"
         },
         {
-          "command": "claudeSkills.showContextEfficiency",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
           "command": "claudeSkills.toggleLearningDashboard",
-          "when": "view == claudeSkillsView",
-          "group": "3_usage"
-        },
-        {
-          "command": "claudeSkills.runContextAnalysis",
           "when": "view == claudeSkillsView",
           "group": "3_usage"
         },

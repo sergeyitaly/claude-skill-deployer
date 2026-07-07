@@ -6,7 +6,7 @@ applyTo:
   - **/*.bench.test.ts
   - **/*.solo.test.ts
   - **/src/**/*.test.ts
-deployedAt: "2026-07-06T20:38:02.002Z"
+deployedAt: "2026-07-07T08:06:05.381Z"
 ---
 
 # vitest-extension-testing
@@ -85,6 +85,15 @@ Files with the most test coverage to check when refactoring:
 2. Import from vitest: `import { describe, expect, it } from "vitest"`
 3. Use `fs.mkdtempSync` for temp dirs; clean up in `afterAll`
 4. Run `npm test` to confirm it appears in the suite output
+
+**Testing a private method on a module with no `vscode` import** (e.g. `auditExecution.ts`):
+skip the `vi.mock("vscode", ...)` boilerplate entirely — it's only needed when the module under
+test imports `vscode`. Access the private method via a typed cast on the instance:
+```ts
+const executor = new AuditExecutor("/unused/path") as unknown as AuditExecutor & {
+  myPrivateMethod(arg: string): ReturnType;
+};
+```
 
 
 <!-- Enrichment: added from 3 real-world sessions, 92% confidence, 2026-06-26 -->

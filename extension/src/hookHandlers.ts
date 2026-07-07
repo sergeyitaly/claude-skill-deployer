@@ -820,19 +820,34 @@ async function handleOfficialSkills(req: HookRequest): Promise<HookResponse> {
     if (!SESSION_SOURCES.has(source)) return {};
   }
 
-  if (!workspaceUsesOfficialSkillUpdater(cwd)) return {};
+  const parts: string[] = [];
 
-  const libraryDir = resolveSkillsLibraryDir(cwd);
-  if (!libraryDir) return {};
-
+  // Workspace Intelligence (Phases 2+7) + Skill Lifecycle Intelligence (Phase 5):
+  // this "official-skills" hook is the only SessionStart hook actually
+  // registered in settings.json (see installOfficialSkillsSessionHook), so
+  // both reports are folded in here rather than into their own hook types
+  // (workspace-intelligence, profile-init) that nothing ever registers.
+  // Independent of the official-skill-updater feature gate below.
   try {
-    const result = await checkOfficialSkillUpdates(libraryDir);
-    const context = formatOfficialSkillsSessionContext(result);
-    if (!context) return {};
-    return sessionStartOutput(context, req.agent);
-  } catch {
-    return {};
+    const intelLibraryDir = resolveSkillsLibraryDir(cwd) ?? path.join(cwd, "skills_library");
+    const report = computeSessionIntelligence(cwd, intelLibraryDir);
+    const intelContext = formatSessionIntelligenceMarkdown(report);
+    if (intelContext) parts.push(intelContext);
+  } catch { /* non-fatal */ }
+
+  if (workspaceUsesOfficialSkillUpdater(cwd)) {
+    const libraryDir = resolveSkillsLibraryDir(cwd);
+    if (libraryDir) {
+      try {
+        const result = await checkOfficialSkillUpdates(libraryDir);
+        const context = formatOfficialSkillsSessionContext(result);
+        if (context) parts.push(context);
+      } catch { /* non-fatal */ }
+    }
   }
+
+  if (parts.length === 0) return {};
+  return sessionStartOutput(parts.join("\n\n"), req.agent);
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,6 +1029,15 @@ async function handleProfileInit(req: HookRequest): Promise<HookResponse> {
     }
   } catch { /* non-fatal */ }
 
+  // Workspace/Lifecycle Intelligence is also folded into handleOfficialSkills
+  // (the SessionStart hook that's actually registered), but profile-init runs
+  // on its own command-triggered path too, so surface it here as well.
+  let workspaceIntelligenceNote = "";
+  try {
+    const report = computeSessionIntelligence(cwd, libraryDir);
+    workspaceIntelligenceNote = formatSessionIntelligenceMarkdown(report) ?? "";
+  } catch { /* non-fatal */ }
+
   const buildContext = (): string => {
     const deterministicEnabled = (() => {
       const cfg = readJsonSafe<{ features?: { deterministicTaskProposals?: boolean } }>(
@@ -1040,7 +1064,7 @@ async function handleProfileInit(req: HookRequest): Promise<HookResponse> {
 
     const lowTrust = formatLowTrustPrompt(cwd);
     const drift = formatTaskDriftPromptText(cwd);
-    return [base, lowTrust, drift, cliLearnerNote, mcpLearnerNote].filter(Boolean).join("\n\n");
+    return [base, lowTrust, drift, cliLearnerNote, mcpLearnerNote, workspaceIntelligenceNote].filter(Boolean).join("\n\n");
   };
 
   if (profileInitComplete(cwd)) {
@@ -1070,6 +1094,7 @@ async function handleProfileInit(req: HookRequest): Promise<HookResponse> {
     formatTaskDriftPromptText(cwd),
     cliLearnerNote,
     mcpLearnerNote,
+    workspaceIntelligenceNote,
     lastSession ? `## Last session\n${lastSession}` : "",
   ].filter(Boolean).join("\n\n");
   return sessionStartOutput(combined || context, req.agent);

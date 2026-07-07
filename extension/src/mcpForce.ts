@@ -17,14 +17,16 @@ const FORCE_CLAUDE_MD_BLOCK = `${FORCE_BLOCK_START}
 
 Use ONLY MCP filesystem tools for file operations.
 
-❌ Do NOT use: \`Read\`, \`Write\`, \`Edit\`, \`Glob\`, \`Grep\`, or CLI MCP (\`run_command\`, \`list_available_clis\`)
+❌ Do NOT use: \`Read\`, \`Write\`, \`Edit\`, \`Glob\`, \`Grep\`, \`Bash\`, or CLI MCP (\`run_command\`, \`list_available_clis\`)
 
 ✅ Use:
-- \`mcp__filesystem__read_file\`
+- \`mcp__filesystem__read_file\` (pass \`offset\`/\`limit\` to page through large files)
 - \`mcp__filesystem__write_file\`
 - \`mcp__filesystem__edit_file\`
 - \`mcp__filesystem__list_directory\`
-- \`mcp__filesystem__search_files\`
+- \`mcp__filesystem__search_files\` (find files by name)
+- \`mcp__filesystem__search_in_file\` (search within one file)
+- \`mcp__filesystem__search_in_files\` (recursive grep across a directory tree)
 ${FORCE_BLOCK_END}`;
 
 // Lock files older than this are presumed to belong to a crashed process and are

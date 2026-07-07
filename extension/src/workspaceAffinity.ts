@@ -243,11 +243,20 @@ export function getWorkspaceAffinityScore(target: string, skill: string): number
   return getOrComputeWorkspaceAffinity(target).skills[skill]?.affinityScore ?? 0;
 }
 
-/** Skills ranked by affinity score, above `minScore` (default 60 — "proven" threshold). */
+/**
+ * Skills ranked by affinity score, above `minScore` (default 20 — "proven"
+ * threshold). The composite score (see computeAffinityScore) only reaches
+ * 60+ when a skill saturates several components at once (10+ manual
+ * invocations, 100+ observations, near-100% success, 5+ reuses, all within
+ * the last ~2 weeks) — a bar normal single-workspace usage rarely clears
+ * even for skills that are clearly the workspace's proven favorites. 20
+ * still excludes one-off/no-signal skills (score 0-10) while surfacing
+ * skills with real recurring usage.
+ */
 export function topWorkspaceSkills(
   target: string,
   limit = 3,
-  minScore = 60
+  minScore = 20
 ): WorkspaceAffinityRecord[] {
   const index = getOrComputeWorkspaceAffinity(target);
   return Object.values(index.skills)

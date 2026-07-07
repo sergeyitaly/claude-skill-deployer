@@ -469,6 +469,15 @@ export function copySkill(
     return "missing-source";
   }
   if (fs.existsSync(dst) && !shouldCopyPath(src, dst)) {
+    // Content is already current, but the version sidecar still needs stamping —
+    // otherwise a metadata/changelog-only bump (no file content change) never
+    // records the new version, so getInstalledSkillVersion() keeps returning the
+    // "1.0.0" fallback forever and callers re-attempt this "upgrade" indefinitely.
+    if (!dryRun && opts?.libraryDir) {
+      const manifest = loadManifest(opts.libraryDir);
+      const rule = manifest.skills[skillName];
+      writeSkillVersionSidecar(dst, skillCatalogVersion(rule), rule?.changelog);
+    }
     return "skipped-exists";
   }
   if (dryRun) {

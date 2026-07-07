@@ -1,11 +1,13 @@
 /**
  * Background Audit Scheduler
- * 
+ *
  * Manages scheduled audit execution, runs on:
- * - Extension activation
  * - Daily at midnight (configurable)
  * - Manual trigger from UI
- * 
+ *
+ * Does not run on extension activation — the Cost Dashboard's compliance
+ * panel computes results on demand instead.
+ *
  * Stores audit history in .claude/learning/auditHistory.jsonl
  */
 
@@ -25,24 +27,25 @@ interface AuditHistoryEntry {
 export class BackgroundAuditScheduler {
   private auditExecutor: AuditExecutor;
   private workspacePath: string;
+  private libraryDir: string;
   private scheduledCheckTimer: NodeJS.Timeout | null = null;
   private lastAuditTime: number = 0;
   private readonly MIN_AUDIT_INTERVAL_MS = 5 * 60 * 1000; // Don't run audits more than every 5 minutes
   private readonly DAILY_AUDIT_HOUR = 0; // Midnight UTC
 
-  constructor(auditExecutor: AuditExecutor, workspacePath: string) {
+  constructor(auditExecutor: AuditExecutor, workspacePath: string, libraryDir: string) {
     this.auditExecutor = auditExecutor;
     this.workspacePath = workspacePath;
+    this.libraryDir = libraryDir;
   }
 
   /**
-   * Initialize scheduler — call on extension activation
+   * Initialize scheduler — call on extension activation.
+   * Deliberately does not run an audit immediately: the compliance panel
+   * in the Cost Dashboard computes results on demand, and the daily
+   * schedule below covers unattended monitoring.
    */
   async initialize(): Promise<void> {
-    // 1. Run immediate audit on startup (non-blocking)
-    this.queueAudit("startup");
-
-    // 2. Schedule daily audit checks
     this.scheduleDailyCheck();
   }
 
@@ -60,7 +63,7 @@ export class BackgroundAuditScheduler {
     console.log(`[Audit] Starting audit (${reason})`);
 
     const start = Date.now();
-    const result = await this.auditExecutor.executeAudit();
+    const result = await this.auditExecutor.executeAudit(this.workspacePath, this.libraryDir);
     const duration = Date.now() - start;
 
     if (result) {
@@ -136,11 +139,17 @@ export class BackgroundAuditScheduler {
 
     if (result.overallStatus === "pass") {
       console.log(`[Audit] ✓ All compliance checks passed`);
-    } else if (result.overallStatus === "warn") {
-      vscode.window.showWarningMessage(`Audit complete: ${failedCount} compliance check(s) failed`, "View Report");
-    } else {
-      vscode.window.showErrorMessage(`Audit complete: ${failedCount} compliance check(s) failed`, "View Report");
+      return;
     }
+
+    const message = `Audit complete: ${failedCount} compliance check(s) failed`;
+    const showMessage = result.overallStatus === "warn" ? vscode.window.showWarningMessage : vscode.window.showErrorMessage;
+
+    void showMessage(message, "View Report").then((selection) => {
+      if (selection === "View Report") {
+        void vscode.commands.executeCommand("claude-skills.viewAuditReport");
+      }
+    });
   }
 
   /**
@@ -148,7 +157,7 @@ export class BackgroundAuditScheduler {
    */
   async triggerManualAudit(): Promise<AuditResult | null> {
     await this.queueAudit("manual-trigger");
-    return this.auditExecutor.getLatestAudit();
+    return this.auditExecutor.getLatestAudit(this.workspacePath, this.libraryDir);
   }
 
   /**
@@ -197,8 +206,8 @@ export class BackgroundAuditScheduler {
  */
 let auditScheduler: BackgroundAuditScheduler | null = null;
 
-export function initializeAuditScheduler(auditExecutor: AuditExecutor, workspacePath: string): BackgroundAuditScheduler {
-  auditScheduler = new BackgroundAuditScheduler(auditExecutor, workspacePath);
+export function initializeAuditScheduler(auditExecutor: AuditExecutor, workspacePath: string, libraryDir: string): BackgroundAuditScheduler {
+  auditScheduler = new BackgroundAuditScheduler(auditExecutor, workspacePath, libraryDir);
   auditScheduler.initialize();
   return auditScheduler;
 }

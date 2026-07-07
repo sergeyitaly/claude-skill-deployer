@@ -270,6 +270,90 @@ describe("Filesystem MCP server benchmark", () => {
   });
 
   // -------------------------------------------------------------------------
+  // read_file pagination (offset/limit)
+  // -------------------------------------------------------------------------
+
+  it("read_file without offset/limit returns the full file (unchanged behaviour)", async () => {
+    const res = await client.call("tools/call", { name: "read_file", arguments: { path: sampleFile } });
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const text = ((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text ?? "";
+    expect(text).toBe(fs.readFileSync(sampleFile, "utf-8"));
+    expect(text).not.toMatch(/^\d+\t/); // no line-number prefix on the unpaginated path
+  });
+
+  it("read_file with offset/limit returns a numbered line window and a continuation footer", async () => {
+    const pagedFile = path.join(tmpDir, "paged.txt");
+    const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`);
+    fs.writeFileSync(pagedFile, lines.join("\n"), "utf-8");
+
+    const res = await client.call("tools/call", {
+      name: "read_file",
+      arguments: { path: pagedFile, offset: 10, limit: 5 },
+    });
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const text = ((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text ?? "";
+    expect(text).toContain("10\tline 10");
+    expect(text).toContain("14\tline 14");
+    expect(text).not.toContain("15\tline 15");
+    expect(text).toMatch(/showing lines 10-14 of 50 total — pass offset:15 to continue/);
+  });
+
+  // -------------------------------------------------------------------------
+  // search_in_files (recursive multi-file content search)
+  // -------------------------------------------------------------------------
+
+  it("search_in_files finds matches across multiple files and skips excluded dirs", async () => {
+    const searchRoot = path.join(tmpDir, "search-root");
+    fs.mkdirSync(path.join(searchRoot, "sub"), { recursive: true });
+    fs.mkdirSync(path.join(searchRoot, "node_modules", "pkg"), { recursive: true });
+    fs.writeFileSync(path.join(searchRoot, "a.ts"), "import { widget } from './widget';\nconst x = 1;\n");
+    fs.writeFileSync(path.join(searchRoot, "sub", "b.ts"), "export function widget() {}\n");
+    fs.writeFileSync(path.join(searchRoot, "c.md"), "widget mentioned in docs\n");
+    fs.writeFileSync(path.join(searchRoot, "node_modules", "pkg", "d.ts"), "widget widget widget\n");
+
+    const res = await client.call("tools/call", {
+      name: "search_in_files",
+      arguments: { path: searchRoot, pattern: "widget", file_glob: ".ts" },
+    });
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const text = ((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text ?? "";
+
+    expect(text).toContain(path.join(searchRoot, "a.ts"));
+    expect(text).toContain(path.join(searchRoot, "sub", "b.ts"));
+    // file_glob excludes the .md file
+    expect(text).not.toContain(path.join(searchRoot, "c.md"));
+    // node_modules is excluded by default even though it matches file_glob
+    expect(text).not.toContain(path.join(searchRoot, "node_modules"));
+    expect(text).toMatch(/Found 2 match\(es\) in 2 file\(s\)/);
+  });
+
+  it("search_in_files respects max_matches cap", async () => {
+    const searchRoot = path.join(tmpDir, "search-cap");
+    fs.mkdirSync(searchRoot, { recursive: true });
+    for (let i = 0; i < 5; i++) {
+      fs.writeFileSync(path.join(searchRoot, `f${i}.txt`), "needle\nneedle\nneedle\n");
+    }
+    const res = await client.call("tools/call", {
+      name: "search_in_files",
+      arguments: { path: searchRoot, pattern: "needle", max_matches: 4 },
+    });
+    expect((res.result as { isError?: boolean }).isError).toBeUndefined();
+    const text = ((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text ?? "";
+    expect(text).toMatch(/Found \d+ match\(es\)/);
+    const found = Number(text.match(/Found (\d+) match/)?.[1] ?? -1);
+    expect(found).toBeLessThanOrEqual(4);
+  });
+
+  it("blocks search_in_files outside allowed dirs", async () => {
+    const res = await client.call("tools/call", {
+      name: "search_in_files",
+      arguments: { path: blockedDir, pattern: "x" },
+    });
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(((res.result as { content?: Array<{ text: string }> }).content ?? [])[0]?.text).toMatch(/Access denied/);
+  });
+
+  // -------------------------------------------------------------------------
   // Performance
   // -------------------------------------------------------------------------
 

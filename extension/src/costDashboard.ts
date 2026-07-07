@@ -46,9 +46,7 @@ import { formatWorkspaceIntelligencePanelHtml } from "./workspaceAffinity";
 import { formatSkillLifecyclePanelHtml } from "./skillLifecycleIntelligence";
 import { getSkillEvolution } from "./skillEnrichment";
 import { formatEnrichmentSummaryHtml } from "./skillEnrichmentProposal";
-import { analyzeContextEfficiency, computeAdvisorROI } from "./contextEfficiency";
-import { evaluateCompactAdvisor, buildCoachingMessages, formatEfficiencyCoachHtml, formatCompactAdvisorHtml } from "./contextAdvisor";
-import { AuditResult, getAuditExecutor } from "./auditExecution";
+import { AuditResult, tryGetAuditExecutor } from "./auditExecution";
 import { isFeatureAvailable } from "./featureMode";
 import { formatPromptIntelligencePanelHtml } from "./promptIntelligence";
 import { buildCoachingReport, formatCoachingReportHtml } from "./haceCoaching";
@@ -494,6 +492,9 @@ function dashboardInjectionListenerScript(): string {
       document.getElementById("btn-export-telemetry")?.addEventListener("click", () => {
         vscode.postMessage({ command: "exportTelemetry" });
       });
+      document.getElementById("btn-run-audit")?.addEventListener("click", () => {
+        vscode.postMessage({ command: "runComplianceAudit" });
+      });
     }
     window.addEventListener("message", (event) => {
       const msg = event.data;
@@ -530,66 +531,6 @@ function wrapCostDashboardDocument(
     ${includeInjectionListeners ? dashboardInjectionListenerScript() : ""}
   </script>`,
   });
-}
-
-// ── Context Efficiency Intelligence panel ─────────────────────────────────────
-
-function fmt(n: number): string {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
-    : n >= 1_000 ? `${Math.round(n / 1_000)}k` : String(n);
-}
-
-/**
- * Compact Context Efficiency summary card for the main dashboard.
- * Full detail is in the dedicated Context Efficiency webview panel.
- */
-export function formatContextEfficiencyPanelHtml(target: string): string {
-  let analysis;
-  try { analysis = analyzeContextEfficiency(target, 24); } catch { return ""; }
-  const { efficiency, pressure, hotFiles, compactOpportunities } = analysis;
-  if (efficiency.totalTokens === 0) return "";
-
-  const advisor = evaluateCompactAdvisor(analysis);
-  // No onclick in the main dashboard (CSP nonce model) — render a plain warning note instead
-  // of the interactive Compact Advisor banner. Full interactive panel is in the webview.
-  const advisorBanner = advisor.shouldShow
-    ? `<p class="note" style="color:var(--vscode-charts-yellow,#FFC107);margin-bottom:6px">⚠ Context pressure ${advisor.triggerReason ? `— ${advisor.triggerReason}` : "high"} · run <code>/compact</code> or open Context Efficiency panel for details.</p>`
-    : "";
-  const coachHtml = formatEfficiencyCoachHtml(buildCoachingMessages(analysis).slice(0, 2));
-
-  const scoreColor = efficiency.score >= 80 ? "roi-high"
-    : efficiency.score >= 60 ? "roi-medium" : "roi-low";
-  const pressureColor = { low: "roi-high", medium: "roi-medium", high: "roi-low", critical: "roi-low" }[pressure.level];
-  const topWaste = hotFiles[0];
-
-  return `<div class="panel" style="margin-top:6px;border-left:3px solid var(--vscode-charts-blue,#2196F3)">
-  <h2 style="margin-top:0">Context Efficiency</h2>
-  ${advisorBanner}
-  <div class="stat-grid" style="margin-bottom:8px">
-    <div class="stat-pill" title="Useful tokens / total tokens × 100. Target: ≥80">
-      <b>Efficiency Score</b>
-      <span class="val ${scoreColor}">${efficiency.score}/100 (${efficiency.grade})</span>
-    </div>
-    <div class="stat-pill" title="Real-time context pressure level">
-      <b>Context Pressure</b>
-      <span class="val ${pressureColor}">${pressure.level}</span>
-    </div>
-    <div class="stat-pill">
-      <b>Potential Savings</b>
-      <span class="val roi-high">~${fmt(efficiency.potentialSavings)}</span>
-    </div>
-    <div class="stat-pill" title="Compact, caching, or read-reduction opportunities">
-      <b>Compact Opportunities</b>
-      <span class="val ${compactOpportunities > 0 ? "roi-medium" : "roi-high"}">${compactOpportunities}</span>
-    </div>
-  </div>
-  ${topWaste ? `<div class="hint" style="margin-bottom:6px">Largest waste source: <code>${topWaste.path.split(/[/\\]/).pop()}</code> (~${fmt(topWaste.wastedTokens)} tokens, ${topWaste.reads}× reads)</div>` : ""}
-  <details style="margin-top:4px">
-    <summary style="cursor:pointer;font-size:12px;font-weight:600">Efficiency Coach</summary>
-    <div style="margin-top:6px">${coachHtml}</div>
-  </details>
-  <p class="note" style="margin-top:6px">24h window · <a href="command:claudeSkills.showContextEfficiency" style="color:var(--vscode-textLink-foreground)">Open full panel</a></p>
-</div>`;
 }
 
 // ── Phase 8: Skill Evolution panel ───────────────────────────────────────────
@@ -809,7 +750,9 @@ export function buildDashboardMainBodyHtml(
   const predictionHtml = isFeatureAvailable("prediction") ? buildPredictionIntelligenceHtml(target, manifest) : "";
 
   // ── Governance ─────────────────────────────────────────────────────────────
-  const governanceHtml = isFeatureAvailable("governance") ? buildGovernancePanelHtml(target) : "";
+  const governanceHtml = isFeatureAvailable("governance")
+    ? buildGovernancePanelHtml(target, tryGetAuditExecutor()?.getLatestAuditSync(target, libraryDir) ?? undefined)
+    : "";
 
   const mainBodyHtml = `
   ${buildExecutiveSummaryHtml(target, apiScore, systemState.attribution.confidence, execRoiBand, execNetRoi, todayCost, skillCostSummary.totalCost, credit.totalCost, proposalFunnel?.hasData ?? false)}
@@ -1043,7 +986,6 @@ export function buildDashboardMainBodyHtml(
       <h2 style="margin-top:0">Adaptation Timeline</h2>
       ${formatAdaptationTimelineHtml(adaptationEvents)}
     </div>
-    ${formatContextEfficiencyPanelHtml(target)}
     ${formatSkillHealthCard(target)}
     ${formatSkillEvolutionHtml(target, Object.keys(manifest.skills))}
     ${formatAdoptionCoachHtml(target)}
@@ -1079,6 +1021,7 @@ export function buildDashboardMainBodyHtml(
     <div class="panel" style="margin-top:6px">
       ${governanceHtml}
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="btn-run-audit" class="action-btn" title="Re-run compliance audit now">Run Compliance Audit</button>
         <button id="btn-export-telemetry" class="action-btn" title="Export skill telemetry to CSV">Export Telemetry CSV</button>
         <button id="btn-apply-mcp-autofixes" class="action-btn" title="Write permanent cache rules for hot files and directories to mcp-agent-hints.md">Apply auto-fixes to hints</button>
         <button id="btn-clear-mcp-logs" class="action-btn secondary">Clear MCP Logs</button>

@@ -8,6 +8,7 @@ import {
   getInstalledSkillVersion,
   listOutdatedSkills,
   stampMissingVersionSidecars,
+  upgradeSkillInWorkspace,
 } from "./skillLifecycle";
 import { writeSkillVersionSidecar } from "./skillOps";
 
@@ -81,6 +82,48 @@ describe("stampMissingVersionSidecars", () => {
 
     expect(stamped).toBe(0);
     fs.rmSync(target, { recursive: true, force: true });
+  });
+});
+
+describe("upgradeSkillInWorkspace", () => {
+  it("stamps the new version even when file content is unchanged (metadata-only bump)", async () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "lifecycle-upgrade-"));
+    const libraryDir = fs.mkdtempSync(path.join(os.tmpdir(), "lifecycle-lib-"));
+    const skillContent = "# test-skill\nSame content on both sides.\n";
+
+    fs.writeFileSync(
+      path.join(libraryDir, "manifest.json"),
+      JSON.stringify({
+        skills: {
+          "test-skill": {
+            description: "x",
+            detect_globs: ["**/*.test"],
+            version: "1.0.1",
+            changelog: "Metadata-only bump, no file changes",
+          },
+        },
+      }),
+      "utf-8"
+    );
+    const librarySkillDir = path.join(libraryDir, "test-skill");
+    fs.mkdirSync(librarySkillDir, { recursive: true });
+    fs.writeFileSync(path.join(librarySkillDir, "SKILL.md"), skillContent, "utf-8");
+
+    const installedSkillDir = path.join(target, ".claude", "skills", "test-skill");
+    fs.mkdirSync(installedSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(installedSkillDir, "SKILL.md"), skillContent, "utf-8");
+    writeSkillVersionSidecar(installedSkillDir, "1.0.0");
+
+    expect(listOutdatedSkills(libraryDir, target).some((s) => s.name === "test-skill")).toBe(true);
+
+    const result = await upgradeSkillInWorkspace(libraryDir, target, "test-skill", { confirmCost: false });
+
+    expect(result).toBe("installed");
+    expect(getInstalledSkillVersion(target, "test-skill")).toBe("1.0.1");
+    expect(listOutdatedSkills(libraryDir, target).some((s) => s.name === "test-skill")).toBe(false);
+
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.rmSync(libraryDir, { recursive: true, force: true });
   });
 });
 

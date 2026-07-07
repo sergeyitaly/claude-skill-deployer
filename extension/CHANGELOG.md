@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.110** | Simplification — legacy Context Efficiency feature (analysis engine, advisor, commands, dashboard panel) removed; superseded by the Compliance Audit Framework and Workspace Intelligence systems |
 | **1.0.109** | Compliance Audit Framework — automated and manual audit execution, background scheduler with cron trigger, HTML reporting with compliance checklist, 5 new audit modules (execution, scheduling, status bar UI, command registry, HTML generation), full integration with cost-attribution system |
 | **1.0.108** | Workspace Intelligence v1 — workspace affinity engine, session bootstrap & update advisor, recommendation boost breakdown, skill lifecycle prioritization, safe auto-upgrade with rollback, 2 new dashboard panels, 5 new audit checks |
 | **1.0.107** | Telemetry Integrity Audit Framework — 6-check validation pipeline, cost attribution verification, HACE formula validation, coaching decay loop analysis, recommendation engine testing, and comprehensive audit reporting |
@@ -56,6 +57,24 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.110] - 2026-07-07
+
+**Summary:** Removed the legacy Context Efficiency feature — its analysis engine, advisor, commands, and dashboard panel are gone, superseded by the Compliance Audit Framework and Workspace Intelligence systems.
+
+**Theme:** Simplification — trimming dead code surface now that audit execution and workspace affinity cover the same signal the context-efficiency advisor used to provide.
+
+### Removed
+
+- `contextEfficiency.ts`, `contextAdvisor.ts`, `commandsContextEfficiency.ts` and their test/benchmark suites (`contextEfficiency.test.ts`, `context-efficiency-e2e.bench.test.ts`)
+- All references to context-efficiency analysis, compact-advice tracking, and the Context Efficiency Intelligence dashboard panel from `commandsDashboard.ts`, `costDashboard.ts`, `mcpForce.ts`, and `extension.ts`
+
+### Changed
+
+- `auditExecution.ts` and `backgroundAuditScheduler.ts` updated to drop dependencies on the removed context-efficiency modules
+- `mcpFilesystemServer.bench.test.ts` updated accordingly
 
 ---
 

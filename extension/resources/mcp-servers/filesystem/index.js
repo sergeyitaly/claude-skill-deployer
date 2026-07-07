@@ -2,7 +2,9 @@
 /**
  * Minimal Filesystem MCP Server
  * Bundled with Claude Skills extension for convenient local file operations.
- * Supports: read, write, edit, list, search, delete — scoped to configured allowed directories.
+ * Supports: read (with optional offset/limit pagination), write, edit, list,
+ * search by filename, search within a file, recursive multi-file content
+ * search, delete — scoped to configured allowed directories.
  *
  * Usage: node index.js --config /path/to/allowed-dirs.json
  * Config format: { "allowedDirs": ["/abs/path/one", "/abs/path/two"] }
@@ -17,6 +19,15 @@ const os = require("node:os");
 
 /** Maximum file size allowed for read_file (50 MB). Prevents OOM on large binaries. */
 const MAX_READ_BYTES = 50 * 1024 * 1024;
+
+/** Directory names skipped by default during recursive content search (search_in_files). */
+const SEARCH_EXCLUDED_DIRS = new Set([
+  "node_modules", ".git", "out", "dist", "build", "coverage",
+  ".vscode-test", "__pycache__", ".venv", "venv",
+]);
+
+/** Files larger than this are skipped by search_in_files (avoids slow regex on huge files). */
+const MAX_SEARCH_FILE_BYTES = 2 * 1024 * 1024;
 
 /** Binary-file magic byte signatures (first 4 bytes). */
 const BINARY_SIGNATURES = [
@@ -264,6 +275,83 @@ function appendMcpUsageLog(entry) {
 }
 
 // ---------------------------------------------------------------------------
+// Recursive multi-file content search (search_in_files) — the grep-across-a-
+// directory-tree counterpart to search_in_file (single file) and search_files
+// (filename-only). Skips binary files and common noise directories by default.
+// ---------------------------------------------------------------------------
+
+function searchInFiles(rootResolved, regex, opts) {
+  const { fileGlob, maxFiles, maxMatches, contextLines } = opts;
+  const MAX_DEPTH = 12;
+  const deadline = Date.now() + 8_000;
+  const fileResults = [];
+  let totalMatches = 0;
+  let filesScanned = 0;
+  let filesMatched = 0;
+  let timedOut = false;
+  let depthReached = false;
+
+  function scanFile(full) {
+    if (totalMatches >= maxMatches || filesScanned >= maxFiles) return;
+    let stat;
+    try { stat = fs.statSync(full); } catch { return; }
+    if (stat.size === 0 || stat.size > MAX_SEARCH_FILE_BYTES) return;
+
+    const header = Buffer.alloc(Math.min(4, stat.size));
+    try {
+      const fd = fs.openSync(full, "r");
+      try { fs.readSync(fd, header, 0, header.length, 0); } finally { fs.closeSync(fd); }
+    } catch { return; }
+    if (looksLikeBinary(header)) return;
+
+    filesScanned++;
+    let content;
+    try { content = fs.readFileSync(full, "utf-8"); } catch { return; }
+    const lines = content.split("\n");
+    const matches = [];
+    for (let i = 0; i < lines.length && matches.length + totalMatches < maxMatches; i++) {
+      if (i % 500 === 0 && Date.now() > deadline) { timedOut = true; break; }
+      if (regex.test(lines[i])) {
+        const start = Math.max(0, i - contextLines);
+        const end = Math.min(lines.length - 1, i + contextLines);
+        matches.push({
+          lineNumber: i + 1,
+          context: lines.slice(start, end + 1).map((l, idx) => ({
+            lineNumber: start + idx + 1,
+            text: l,
+            isMatch: start + idx === i,
+          })),
+        });
+      }
+    }
+    if (matches.length > 0) {
+      filesMatched++;
+      totalMatches += matches.length;
+      fileResults.push({ file: full, matches });
+    }
+  }
+
+  function scanDir(dir, depth) {
+    if (timedOut || totalMatches >= maxMatches || filesScanned >= maxFiles) return;
+    if (depth > MAX_DEPTH) { depthReached = true; return; }
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (timedOut || totalMatches >= maxMatches || filesScanned >= maxFiles) return;
+      if (e.isDirectory()) {
+        if (SEARCH_EXCLUDED_DIRS.has(e.name)) continue;
+        scanDir(path.join(dir, e.name), depth + 1);
+      } else if (!fileGlob || e.name.includes(fileGlob)) {
+        scanFile(path.join(dir, e.name));
+      }
+    }
+  }
+
+  scanDir(rootResolved, 0);
+  return { fileResults, totalMatches, filesScanned, filesMatched, timedOut, depthReached };
+}
+
+// ---------------------------------------------------------------------------
 // Tool dispatch (extracted to keep line-reader handler under complexity limit)
 // ---------------------------------------------------------------------------
 
@@ -301,17 +389,37 @@ function dispatchTool(id, toolName, args) {
         const mtime = stat ? stat.mtimeMs : -1;
         const sReads = sessionReadCache.get(SESSION_ID) ?? new Map();
         const cached = sReads.get(resolved);
+        let content;
         if (cached && mtime !== -1 && cached.mtimeMs === mtime) {
-          logExtra.bytes = Buffer.byteLength(cached.content, "utf-8");
           logExtra.skipped = true;
-          result = { content: [{ type: "text", text: cached.content }] };
+          content = cached.content;
+        } else {
+          content = fs.readFileSync(resolved, "utf-8");
+          sReads.set(resolved, { content, mtimeMs: mtime });
+          sessionReadCache.set(SESSION_ID, sReads);
+        }
+        logExtra.bytes = Buffer.byteLength(content, "utf-8");
+
+        // Optional windowed read: offset (1-indexed start line) / limit (max lines).
+        // Mirrors the built-in Read tool's pagination so large files no longer
+        // force a fall-back to a different tool.
+        const offset = typeof args.offset === "number" && args.offset > 0 ? Math.floor(args.offset) : null;
+        const limitLines = typeof args.limit === "number" && args.limit > 0 ? Math.floor(args.limit) : null;
+        if (offset === null && limitLines === null) {
+          result = { content: [{ type: "text", text: content }] };
           break;
         }
-        const content = fs.readFileSync(resolved, "utf-8");
-        logExtra.bytes = Buffer.byteLength(content, "utf-8");
-        sReads.set(resolved, { content, mtimeMs: mtime });
-        sessionReadCache.set(SESSION_ID, sReads);
-        result = { content: [{ type: "text", text: content }] };
+        const allLines = content.split("\n");
+        const startIdx = offset !== null ? offset - 1 : 0;
+        const endIdx = limitLines !== null ? startIdx + limitLines : allLines.length;
+        const slice = allLines.slice(startIdx, endIdx);
+        logExtra.entryCount = slice.length;
+        const numbered = slice.map((l, i) => `${startIdx + i + 1}\t${l}`).join("\n");
+        const shownEnd = Math.min(endIdx, allLines.length);
+        const footer = endIdx < allLines.length
+          ? `\n... (showing lines ${startIdx + 1}-${shownEnd} of ${allLines.length} total — pass offset:${shownEnd + 1} to continue)`
+          : "";
+        result = { content: [{ type: "text", text: numbered + footer }] };
         break;
       }
       case "write_file": {
@@ -495,6 +603,42 @@ function dispatchTool(id, toolName, args) {
         result = { content: [{ type: "text", text: matchLines.join("\n").trimEnd() || "(no matches)" }] };
         break;
       }
+      case "search_in_files": {
+        const resolved = assertAllowed(args.path);
+        const patternStr = typeof args.pattern === "string" ? args.pattern : "";
+        if (patternStr.length > 500) {
+          throw new Error(`Regex pattern too long (${patternStr.length} chars > 500 max).`);
+        }
+        let regex;
+        try {
+          regex = new RegExp(patternStr);
+        } catch {
+          throw new Error(`Invalid regex pattern: ${patternStr}`);
+        }
+        const fileGlob = typeof args.file_glob === "string" ? args.file_glob : "";
+        const maxFiles = typeof args.max_files === "number" ? Math.min(Math.max(1, args.max_files), 2000) : 500;
+        const maxMatches = typeof args.max_matches === "number" ? Math.min(Math.max(1, args.max_matches), 500) : 200;
+        const contextLines = typeof args.context_lines === "number" ? Math.min(Math.max(0, args.context_lines), 5) : 0;
+
+        const { fileResults, totalMatches, filesScanned, filesMatched, timedOut, depthReached } =
+          searchInFiles(resolved, regex, { fileGlob, maxFiles, maxMatches, contextLines });
+
+        logExtra.entryCount = totalMatches;
+        const outLines = [`Found ${totalMatches} match(es) in ${filesMatched} file(s) (scanned ${filesScanned} file(s)):`, ""];
+        for (const fr of fileResults) {
+          outLines.push(fr.file);
+          for (const m of fr.matches) {
+            for (const c of m.context) {
+              outLines.push(`${c.isMatch ? ">" : " "} ${c.lineNumber}: ${c.text}`);
+            }
+          }
+          outLines.push("");
+        }
+        if (timedOut) outLines.push("(search timed out after 8s — results may be incomplete; narrow file_glob or pattern)");
+        if (depthReached) outLines.push("(directory depth limit reached — results may be incomplete)");
+        result = { content: [{ type: "text", text: outLines.join("\n").trimEnd() || "(no matches)" }] };
+        break;
+      }
       case "delete_file": {
         const resolved = assertAllowed(args.path);
         fs.unlinkSync(resolved);
@@ -565,11 +709,14 @@ rl.on("line", async (line) => {
             {
               name: "read_file",
               description:
-                "Read contents of a file. Only paths inside the configured allowed directories are accessible.",
+                "Read contents of a file. Only paths inside the configured allowed directories are accessible. " +
+                "For large files, pass offset/limit to read a specific line range instead of reading the whole file.",
               inputSchema: {
                 type: "object",
                 properties: {
                   path: { type: "string", description: "Absolute file path to read" },
+                  offset: { type: "number", description: "1-indexed line number to start reading from (optional)" },
+                  limit: { type: "number", description: "Maximum number of lines to return (optional)" },
                 },
                 required: ["path"],
               },
@@ -650,6 +797,25 @@ rl.on("line", async (line) => {
                   pattern: { type: "string", description: "Regex pattern matched against each line" },
                   context_lines: { type: "number", description: "Lines of context around each match (default 2, max 10)" },
                   max_matches: { type: "number", description: "Maximum matches to return (default 50, max 100)" },
+                },
+                required: ["path", "pattern"],
+              },
+            },
+            {
+              name: "search_in_files",
+              description:
+                "Recursively search file contents for a regex pattern across a directory tree (like grep -r), " +
+                "grouped by file. Skips binary files and common noise directories (node_modules, .git, dist, out, " +
+                "build, coverage) by default. Use for 'which files reference X' questions across many files.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  path: { type: "string", description: "Absolute directory path to search in (root of the recursive walk)" },
+                  pattern: { type: "string", description: "Regex pattern matched against each line" },
+                  file_glob: { type: "string", description: "Only scan files whose name includes this substring (e.g. '.ts')" },
+                  max_files: { type: "number", description: "Maximum files to scan (default 500, max 2000)" },
+                  max_matches: { type: "number", description: "Maximum total matches across all files (default 200, max 500)" },
+                  context_lines: { type: "number", description: "Lines of context around each match (default 0, max 5)" },
                 },
                 required: ["path", "pattern"],
               },

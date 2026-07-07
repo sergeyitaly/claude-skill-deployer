@@ -194,7 +194,6 @@ import { initMcpStatusBars, refreshMcpStatusBars, refreshCliMcpStatusBar } from 
 import { registerDashboardCommands } from "./commandsDashboard";
 import { registerLearningDashboardCommands } from "./commandsLearningDashboard";
 import { registerEnrichmentCommands } from "./commandsEnrichment";
-import { registerContextEfficiencyCommands } from "./commandsContextEfficiency";
 import { registerMcpCommands } from "./commandsMcp";
 import { registerSkillsCommands } from "./commandsSkills";
 import { registerUsageCommands } from "./commandsUsage";
@@ -284,6 +283,7 @@ import {
   listSkillVersionStatuses,
   upgradeOutdatedSkills,
 } from "./skillLifecycle";
+import { autoUpgradeTrustedSkills } from "./safeAutoUpgrade";
 import { readSkillStatsIndex } from "./runsStore";
 import { setPricingContext } from "./costRates";
 import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
@@ -308,7 +308,7 @@ import {
   revertMcpForcePermissions,
 } from "./mcpForce";
 import { checkAndShowKpiAlert } from "./kpiAlert";
-import { getAuditExecutor } from "./auditExecution";
+import { getAuditExecutor, initializeAuditExecutor } from "./auditExecution";
 import { initializeAuditScheduler } from "./backgroundAuditScheduler";
 
 import {
@@ -365,6 +365,7 @@ let workspaceFolderStatusBarItem: vscode.StatusBarItem;
 let mcpHealthStatusBarItem: vscode.StatusBarItem;
 let mcpKpiStatusBarItem: vscode.StatusBarItem;
 let mcpCliStatusBarItem: vscode.StatusBarItem;
+let auditStatusBarItem: vscode.StatusBarItem;
 let usagePanel: vscode.WebviewPanel | undefined;
 
 
@@ -530,7 +531,13 @@ async function maybePromptOutdatedSkillUpgrades(libraryDir: string, target: stri
     return;
   }
   lastOutdatedAlertCheckMs = now;
-  const outdated = listOutdatedSkills(libraryDir, target);
+
+  const silentlyUpgraded = await autoUpgradeTrustedSkills(libraryDir, target);
+  if (silentlyUpgraded.length > 0) {
+    log(`Claude Skills: auto-upgraded ${silentlyUpgraded.length} trusted skill(s) silently — ${silentlyUpgraded.join(", ")}.`);
+  }
+
+  const outdated = listOutdatedSkills(libraryDir, target).filter((s) => !silentlyUpgraded.includes(s.name));
   if (outdated.length === 0) {
     return;
   }
@@ -578,6 +585,9 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel("Claude Skills");
   context.subscriptions.push(outputChannel);
 
+  // Initialize audit framework executor
+  initializeAuditExecutor();
+
   const provider = new SkillsProvider(libraryDir, getWorkspaceTarget);
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -608,6 +618,10 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
 
    mcpCliStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 91.5);
    context.subscriptions.push(mcpCliStatusBarItem);
+   
+   auditStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 91);
+   context.subscriptions.push(auditStatusBarItem);
+   
    initMcpStatusBars(mcpHealthStatusBarItem, mcpKpiStatusBarItem, mcpCliStatusBarItem);
    initStatusBars(
      {
@@ -1146,6 +1160,18 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       }
     });
 
+    // Initialize background audit scheduler to run compliance checks daily
+    if (initialTarget && !integrationTestMode()) {
+      try {
+        const executor = getAuditExecutor();
+        const auditScheduler = initializeAuditScheduler(executor, initialTarget, libraryDir);
+        context.subscriptions.push(auditScheduler);
+        log('Audit scheduler initialized — will run daily compliance checks.');
+      } catch (err) {
+        log(`Failed to initialize audit scheduler: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     // Watchdog: if MCP force mode is active but MCP server becomes unreachable,
     // auto-revert permissions to prevent agents from being deadlocked.
     context.subscriptions.push(
@@ -1205,30 +1231,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     })
   );
 
-  // Register "Run Audit Now" command
-  context.subscriptions.push(
-    vscode.commands.registerCommand("claude-skills.runAuditNow", async () => {
-      try {
-        const auditExecutor = getAuditExecutor();
-        const result = await auditExecutor.executeAudit();
-        if (!result) {
-          void notifyUserWarn("Audit execution returned no result.");
-          log("Audit execution failed (null result)");
-          return;
-        }
-        const passedCount = result.compliance.filter((c) => c.ok).length;
-        const totalCount = result.compliance.length;
-        const message = `Audit: ${result.overallStatus.toUpperCase()} (${passedCount}/${totalCount} checks passed)`;
-        void notifyUserSuccess(message);
-        log(message);
-        refreshAll();
-      } catch (err) {
-        const message = `Audit failed: ${err instanceof Error ? err.message : String(err)}`;
-        void notifyUserWarn(message);
-        log(message);
-      }
-    })
-  );
+
 
   context.subscriptions.push(
     ...registerMiscCommands({
@@ -1317,16 +1320,60 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       log,
       refreshAll,
     }),
-    ...registerContextEfficiencyCommands({
-      context,
-      getTarget: getWorkspaceTarget,
-      log,
-      refreshAll,
-    }),
     ...registerLearningDashboardCommands({
       context,
       getTarget: getWorkspaceTarget,
       log,
+    }),
+    vscode.commands.registerCommand('claude-skills.runAuditNow', async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        void notifyUserWarn('Claude Skills: open a workspace folder first.');
+        return;
+      }
+      const executor = getAuditExecutor();
+      if (!executor) {
+        void notifyUserWarn('Audit framework not initialized.');
+        return;
+      }
+      try {
+        void notifyBackground('Running compliance audit...', log);
+        executor.clearCache();
+        const result = await executor.executeAudit(target, libraryDir);
+        if (result) {
+          if (result.overallStatus === 'pass') {
+            void notifyUserSuccess(`Audit passed: ${result.compliance.length} checks passed.`);
+          } else if (result.overallStatus === 'warn') {
+            void notifyUserWarn(`Audit completed with warnings: ${result.compliance.length} checks.`);
+          } else {
+            void notifyUserWarn(`Audit failed: Review compliance results.`);
+          }
+          await vscode.commands.executeCommand('claude-skills.viewAuditReport');
+        } else {
+          void notifyUserWarn('Audit returned no result.');
+        }
+      } catch (err) {
+        void notifyUserWarn(`Audit failed: ${(err as Error).message}`);
+        log(`Audit execution error: ${(err as Error).message}`);
+      }
+    }),
+    vscode.commands.registerCommand('claude-skills.viewAuditReport', async () => {
+      // Compliance audit results are shown inline in the Cost Intelligence
+      // dashboard's "Telemetry & Export" panel — no separate report file.
+      await vscode.commands.executeCommand('claudeSkills.showCostDashboard');
+    }),
+    vscode.commands.registerCommand('claude-skills.clearAuditHistory', async () => {
+      const target = getWorkspaceTarget();
+      if (!target) {
+        void notifyUserWarn('Claude Skills: open a workspace folder first.');
+        return;
+      }
+      const historyPath = `${target}/.claude/learning/auditHistory.jsonl`;
+      if (fs.existsSync(historyPath)) {
+        fs.unlinkSync(historyPath);
+        void notifyUserSuccess('Audit history cleared.');
+        log('Audit history cleared.');
+      }
     }),
   );
 
@@ -1503,13 +1550,6 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     }
   } catch {
     // Non-fatal — workspace watcher covers the common case.
-  }
-
-  // Initialize audit framework
-  if (initialTarget) {
-    const auditExecutor = getAuditExecutor();
-    const auditScheduler = initializeAuditScheduler(auditExecutor, initialTarget);
-    context.subscriptions.push({ dispose: () => auditScheduler.dispose() });
   }
 
   const gitExt = vscode.extensions.getExtension("vscode.git");
