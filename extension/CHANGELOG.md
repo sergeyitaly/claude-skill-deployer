@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.111** | Reliability — task focus / task drift feature flags now honor their settings, task-drift re-proposal reacts to new tool calls, hook-server stale-port self-healing extended to all hook categories |
 | **1.0.110** | Simplification — legacy Context Efficiency feature (analysis engine, advisor, commands, dashboard panel) removed; superseded by the Compliance Audit Framework and Workspace Intelligence systems |
 | **1.0.109** | Compliance Audit Framework — automated and manual audit execution, background scheduler with cron trigger, HTML reporting with compliance checklist, 5 new audit modules (execution, scheduling, status bar UI, command registry, HTML generation), full integration with cost-attribution system |
 | **1.0.108** | Workspace Intelligence v1 — workspace affinity engine, session bootstrap & update advisor, recommendation boost breakdown, skill lifecycle prioritization, safe auto-upgrade with rollback, 2 new dashboard panels, 5 new audit checks |
@@ -57,6 +58,21 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.111] - 2026-07-09
+
+**Summary:** Fixed the hook-driven "quiet" skill-set self-update pipeline — task focus narrowing had no working off switch, task-drift re-proposal was never triggered by new tool calls, and hook-server URLs could get stuck on a dead port for three of four hook categories.
+
+**Theme:** Reliability — several feature-enabled getters silently ignored their documented settings (hardcoded `true`), and the hook-server's port-fallback mechanism only self-healed one of four hook categories, causing hooks to point at ports nothing was listening on.
+
+### Fixed
+
+- `taskSkillFocusEnabled()` (`taskSkillFocus.ts`) was hardcoded `true` and ignored `claudeSkills.taskFocus.enabled` — the setting had no effect regardless of value. It now reads the real configuration.
+- `readTaskDriftSettings().enabled` (`taskDriftReproposal.ts`) was hardcoded `true`. Added a real `claudeSkills.skillFeedback.taskDriftEnabled` setting and declared it plus the four existing `taskDrift*` settings in `package.json` — previously none of them were visible in the Settings UI.
+- The `runs.jsonl` file watcher (`extension.ts`) — the file the PostToolUse `skill-invoke` hook appends to on every tool/skill call — only scheduled a cost-pipeline sync and never called `refreshAll()`. `processTaskDriftReproposal` therefore only re-evaluated task-scope drift incidentally, when an unrelated watched file happened to change, instead of reacting to new (including off-profile) calls as they occurred.
+- Stale hook-server-port self-healing (`hookOps.ts`) existed only in `ensurePostToolHookRegistered`. `ensurePreToolHookRegistered`, `ensureSessionStartHookRegistered`, and `ensureHookRegistered` (UserPromptSubmit) now apply the same in-place command rewrite when the hook server's bound port changes across restarts, so previously-registered hooks stop silently failing against a dead port.
 
 ---
 

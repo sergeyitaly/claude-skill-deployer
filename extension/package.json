@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.110",
+  "version": "1.0.111",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -753,6 +753,34 @@
             "minimum": 0,
             "description": "Monthly credit budget in USD for threshold checks. 0 = use daily budget ÃƒÆ’Ã¢â‚¬â€ 30, or 30-day workspace spend if daily budget is off."
           },
+          "claudeSkills.skillFeedback.taskDriftEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Detect mid-session task scope drift (skills invoked outside the active task focus, or a growing session transcript) and silently refresh task-skill-proposals.json / the active skill set."
+          },
+          "claudeSkills.skillFeedback.taskDriftMinOffProfileInvokes": {
+            "type": "number",
+            "default": 2,
+            "minimum": 1,
+            "description": "Minimum number of off-profile skill invocations before task drift re-proposal triggers."
+          },
+          "claudeSkills.skillFeedback.taskDriftCooldownMinutes": {
+            "type": "number",
+            "default": 30,
+            "minimum": 5,
+            "description": "Minimum minutes between automatic task-drift re-proposals."
+          },
+          "claudeSkills.skillFeedback.taskDriftSessionSizeLevel": {
+            "type": "string",
+            "enum": ["warn", "critical"],
+            "default": "warn",
+            "description": "Session transcript size level that counts as a drift trigger on its own."
+          },
+          "claudeSkills.skillFeedback.taskDriftNotifyUser": {
+            "type": "boolean",
+            "default": true,
+            "description": "Notify when task drift re-proposal refreshes the active skill set."
+          },
           "claudeSkills.skillFeedback.taskSkillUnderusePromote": {
             "type": "boolean",
             "default": true,
@@ -1182,7 +1210,7 @@
           "claudeSkills.taskFocus.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Cap the active task skill set (required platform skills + top proposals) to save tokens."
+            "description": "Auto-disable installed skills that aren't in the current task-skill-proposals (via skillOverrides) and cap the active set to save tokens. Turn off to keep all installed skills active regardless of task proposals."
           },
           "claudeSkills.taskFocus.maxActiveSkills": {
             "type": "number",

@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import * as vscode from "vscode";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
 import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
@@ -20,8 +21,10 @@ export interface TaskActiveSkillsFile {
   ignoredSkills: string[];
 }
 
+/** Master switch: claudeSkills.taskFocus.enabled (default on). When off, installed
+ * skills are never auto-disabled via skillOverrides based on task-skill-proposals. */
 export function taskSkillFocusEnabled(): boolean {
-  return true;
+  return vscode.workspace.getConfiguration("claudeSkills.taskFocus").get<boolean>("enabled", true);
 }
 
 export function taskActiveSkillsPath(target: string): string {

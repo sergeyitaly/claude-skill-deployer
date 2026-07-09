@@ -1507,18 +1507,24 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
   proposalsWatcher.onDidCreate(debouncedTaskProposalsApply);
   context.subscriptions.push(proposalsWatcher);
 
+  // runs.jsonl is where the PostToolUse skill-invoke hook records every tool/skill
+  // call (including off-profile invokes) — it must also feed refreshAll() so
+  // processTaskDriftReproposal (task-scope drift re-proposal) actually re-evaluates
+  // when a new call lands, not just incidentally on unrelated file changes.
   for (const learningGlob of ["**/.claude/learning/runs.jsonl", "**/.claude/learning/cost-attribution.json"]) {
     const learningWatcher = vscode.workspace.createFileSystemWatcher(learningGlob);
     learningWatcher.onDidChange(() => {
       const target = getWorkspaceTarget();
       if (target) {
         scheduleCostPipelineSync(target, libraryDir);
+        refreshAll({ workspaceState: true, forceTree: false });
       }
     });
     learningWatcher.onDidCreate(() => {
       const target = getWorkspaceTarget();
       if (target) {
         scheduleCostPipelineSync(target, libraryDir);
+        refreshAll({ workspaceState: true, forceTree: false });
       }
     });
     context.subscriptions.push(learningWatcher);

@@ -620,6 +620,21 @@ function ensureHookRegistered(settings: Settings, legacyFilenames: string | stri
     });
   }
 
+  // Replace stale-port hooks: if a hook targets /hook/<hookName> but its command
+  // no longer matches the canonical URL (e.g. the hook server fell back to a
+  // different port), update it in-place so the hook reaches the running server.
+  let replacedStale = false;
+  for (const entry of settings.hooks.UserPromptSubmit) {
+    for (let i = 0; i < entry.hooks.length; i++) {
+      const h = entry.hooks[i];
+      if (h.command.includes(`/hook/${hookName}`) && h.command !== command) {
+        entry.hooks[i] = { ...h, command };
+        replacedStale = true;
+      }
+    }
+  }
+  if (replacedStale) return true;
+
   if (hasHook(settings, hookName)) return removedLegacy;
 
   settings.hooks.UserPromptSubmit.push({
@@ -689,6 +704,21 @@ function ensurePreToolHookRegistered(
     return true;
   });
 
+  // Replace stale-port hooks: if a hook targets /hook/<hookName> but its command
+  // no longer matches the canonical URL (e.g. the hook server fell back to a
+  // different port), update it in-place so the hook reaches the running server.
+  let replacedStale = false;
+  for (const entry of settings.hooks.PreToolUse) {
+    for (let i = 0; i < entry.hooks.length; i++) {
+      const h = entry.hooks[i];
+      if (h.command.includes(`/hook/${hookName}`) && h.command !== command) {
+        entry.hooks[i] = { ...h, command };
+        replacedStale = true;
+      }
+    }
+  }
+  if (replacedStale) return true;
+
   if (hasPreToolHook(settings, hookName)) {
     return removedLegacy || migrateAttributionPreToolMatcher(settings);
   }
@@ -719,11 +749,22 @@ function ensureSessionStartHookRegistered(
 
   for (const entry of settings.hooks.SessionStart) {
     if (entry.hooks.some((h) => h.command.includes(`/hook/${hookName}`))) {
+      let changed = false;
       if (entry.matcher !== matcher) {
         entry.matcher = matcher;
-        return true;
+        changed = true;
       }
-      return removedLegacy;
+      // Replace stale-port hooks: if the command no longer matches the canonical
+      // URL (e.g. the hook server fell back to a different port), update it
+      // in-place so the hook reaches the running server.
+      for (let i = 0; i < entry.hooks.length; i++) {
+        const h = entry.hooks[i];
+        if (h.command.includes(`/hook/${hookName}`) && h.command !== command) {
+          entry.hooks[i] = { ...h, command };
+          changed = true;
+        }
+      }
+      return changed || removedLegacy;
     }
   }
 

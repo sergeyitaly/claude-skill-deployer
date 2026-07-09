@@ -12,6 +12,17 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.111
+
+### Reliability fixes for the "quiet" skill self-update pipeline
+
+Two settings that looked configurable had no effect, and hook-server URLs could silently go stale — together these made task-focus narrowing and mid-session task-drift re-proposal unpredictable.
+
+- **`claudeSkills.taskFocus.enabled` now actually disables focus narrowing.** Previously the master switch was hardcoded on; toggling it off had zero effect. Turning it off now keeps every installed skill active regardless of task-skill-proposals.
+- **Task-drift re-proposal reacts to new tool calls again.** The file that records every skill/tool invocation (`runs.jsonl`) was watched only for cost telemetry — task-scope drift re-evaluation never ran when a new (including off-profile) call was recorded, so the "skill set silently refreshed" behavior only fired incidentally.
+- **`claudeSkills.skillFeedback.taskDrift*` settings are now visible and effective.** All five (`taskDriftEnabled`, `taskDriftMinOffProfileInvokes`, `taskDriftCooldownMinutes`, `taskDriftSessionSizeLevel`, `taskDriftNotifyUser`) are declared in the Settings UI; `taskDriftEnabled` previously had no wiring at all.
+- **Hook-server stale-port self-healing now covers every hook category.** If the local hook server falls back to a non-default port (e.g. the default port is already in use), PreToolUse, SessionStart, and UserPromptSubmit hooks now rewrite their URL in place on the next activation — matching behavior PostToolUse already had. Previously only PostToolUse self-healed, so some hooks could silently point at a dead port indefinitely.
+
 ## What's new in 1.0.108
 
 ### Workspace Intelligence v1 — telemetry becomes action, not just reporting

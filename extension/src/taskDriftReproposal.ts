@@ -100,7 +100,7 @@ export interface TaskDriftResult {
 
 export function readTaskDriftSettings(): TaskDriftSettings {
   const cfg = vscode.workspace.getConfiguration("claudeSkills.skillFeedback");
-  const enabled = true;
+  const enabled = cfg.get<boolean>("taskDriftEnabled", true);
   let minOffProfileInvokes = cfg.get<number>("taskDriftMinOffProfileInvokes", 2);
   let cooldownMinutes = cfg.get<number>("taskDriftCooldownMinutes", 30);
   const sessionSizeLevel = cfg.get<"warn" | "critical">("taskDriftSessionSizeLevel", "warn");
