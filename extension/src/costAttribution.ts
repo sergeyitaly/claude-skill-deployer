@@ -223,23 +223,27 @@ export function buildCostAttribution(target: string, libraryDir: string): {
   };
 }
 
-/** Multiple skills with identical cost usually means session tokens were split equally (stale collector data). */
+/** Multiple skills with identical cost usually means session tokens were split equally (stale collector data).
+ * Bucketed to the nearest micro-cent (not cent) — a genuine equal-split assigns the literal same
+ * float (session cost / N) to every skill, so this still catches real dupes while not merging
+ * distinct small costs (e.g. $0.128, $0.135, $0.127) that only coincide when rounded to a cent. */
 export function detectEqualSplitCluster(
   attribution: SkillAttributionMap
 ): { count: number; cost: number } | null {
+  const BUCKET_SCALE = 1_000_000;
   const clusters = new Map<number, number>();
   for (const agents of Object.values(attribution)) {
     const cost = Object.values(agents).reduce((s, a) => s + (a?.cost ?? 0), 0);
     if (cost <= 0) {
       continue;
     }
-    const key = Math.round(cost * 100);
+    const key = Math.round(cost * BUCKET_SCALE);
     clusters.set(key, (clusters.get(key) ?? 0) + 1);
   }
   let worst: { count: number; cost: number } | null = null;
   for (const [key, count] of clusters) {
     if (count >= 3 && (!worst || count > worst.count)) {
-      worst = { count, cost: key / 100 };
+      worst = { count, cost: key / BUCKET_SCALE };
     }
   }
   return worst;

@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.112** | Reliability — fixed a false-positive in the attribution equal-split detector that pinned `attribution.status` to "broken" on accurate per-skill cost data |
 | **1.0.111** | Reliability — task focus / task drift feature flags now honor their settings, task-drift re-proposal reacts to new tool calls, hook-server stale-port self-healing extended to all hook categories |
 | **1.0.110** | Simplification — legacy Context Efficiency feature (analysis engine, advisor, commands, dashboard panel) removed; superseded by the Compliance Audit Framework and Workspace Intelligence systems |
 | **1.0.109** | Compliance Audit Framework — automated and manual audit execution, background scheduler with cron trigger, HTML reporting with compliance checklist, 5 new audit modules (execution, scheduling, status bar UI, command registry, HTML generation), full integration with cost-attribution system |
@@ -58,6 +59,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.112] - 2026-07-10
+
+**Summary:** Fixed a false-positive in the attribution equal-split detector that pinned `attribution.status` to "broken" (20% confidence) even when per-skill cost data was accurate — a live smoke-test of the 1.0.111 fixes traced the report to the detector's rounding granularity, not to actual stale or mis-attributed data.
+
+**Theme:** Reliability — a follow-up to 1.0.111's hook/task-drift fixes, found while verifying them end-to-end against real telemetry.
+
+### Fixed
+
+- `detectEqualSplitCluster()` (`costAttribution.ts`) bucketed each skill's accumulated cost by rounding to the nearest **cent** to flag naive even-split cost data (a real bug pattern where a whole session's cost gets divided equally across every skill it touched). With only a handful of skills and typical per-skill costs in the $0.10–$0.30 range, three *unrelated* real costs (e.g. $0.1280, $0.1349, $0.1266) routinely collide in the same cent bucket by coincidence, tripping `staleEqualSplit` and forcing `attribution.status` to "broken" regardless of actual data quality — even immediately after running "Reset Mis-attributed Cost Data". Bucket precision tightened from cents (`×100`) to micro-cents (`×1,000,000`): a genuine equal-split bug still produces bit-identical floats and is still caught, but coincidental cent-level rounding collisions no longer are.
 
 ---
 
