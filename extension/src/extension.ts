@@ -132,10 +132,8 @@ import {
   installMcpGateHook,
   installCliLoopGuardHook,
   removeCliLoopGuardHook,
-  isCliLoopGuardConfigured,
   installDirCacheGuardHook,
   removeDirCacheGuardHook,
-  isDirCacheGuardConfigured,
   installOfficialSkillsSessionHook,
   installTerminalWatchHook,
   removeMcpForceHooks,
@@ -1108,9 +1106,13 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         // ensureFilesystemMcpActive refreshes allowed dirs and silently re-adds
         // the server entry to any agent config that lost it, without notifications.
         void ensureFilesystemMcpActive(context.extensionPath, workspaceDirs, log).then(() => {
-          if (initialTarget && !isDirCacheGuardConfigured(initialTarget)) {
-            installDirCacheGuardHook(initialTarget);
-            log(`Dir cache guard hook installed.`);
+          if (initialTarget) {
+            // Always call through (not gated by presence) so a stale-port entry from a
+            // prior fallback-port session gets rewritten, not just a missing entry filled in.
+            const dirCacheGuardStatus = installDirCacheGuardHook(initialTarget);
+            if (dirCacheGuardStatus !== "already-configured") {
+              log(`Dir cache guard hook ${dirCacheGuardStatus}.`);
+            }
           }
           refreshMcpStatusBars(getWorkspaceTarget());
           if (initialTarget) maybeAutoEnableMcpForce(initialTarget);
@@ -1121,9 +1123,11 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         if (needsCliMcpSetup()) {
           void enableOfficialCliServer(context.extensionPath, workspaceDirs, log).then(() => {
             log(`CLI MCP server: auto-started and configured.`);
-            if (initialTarget && !isCliLoopGuardConfigured(initialTarget)) {
-              installCliLoopGuardHook(initialTarget);
-              log(`CLI loop-guard hook installed.`);
+            if (initialTarget) {
+              const cliLoopGuardStatus = installCliLoopGuardHook(initialTarget);
+              if (cliLoopGuardStatus !== "already-configured") {
+                log(`CLI loop-guard hook ${cliLoopGuardStatus}.`);
+              }
             }
             refreshCliMcpStatusBar();
           }).catch((err: unknown) => {
@@ -1131,9 +1135,11 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
           });
         } else {
           refreshCliConfig(workspaceDirs, log);
-          if (initialTarget && !isCliLoopGuardConfigured(initialTarget)) {
-            installCliLoopGuardHook(initialTarget);
-            log(`CLI loop-guard hook installed.`);
+          if (initialTarget) {
+            const cliLoopGuardStatus = installCliLoopGuardHook(initialTarget);
+            if (cliLoopGuardStatus !== "already-configured") {
+              log(`CLI loop-guard hook ${cliLoopGuardStatus}.`);
+            }
           }
           log(`CLI MCP server: already configured — agents can connect.`);
           refreshCliMcpStatusBar();
