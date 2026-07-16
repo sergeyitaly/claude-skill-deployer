@@ -9,6 +9,8 @@ import {
   computeTaskSkillProposals,
   ensureWorkspaceTaskProposals,
   filterProposalsByMinConfidence,
+  formatPromptTimeSkillRecommendation,
+  formatSessionStartSkillRecommendations,
   readTaskSkillProposals,
   writeTaskSkillProposals,
 } from "./taskSkillProposals";
@@ -255,5 +257,99 @@ describe("computeTaskSkillProposals", () => {
       .find((p) => p.name === "terraform-plan-review")?.confidence ?? 0;
 
     expect(scoreWith).toBeGreaterThan(scoreWithout);
+  });
+});
+
+describe("formatSessionStartSkillRecommendations", () => {
+  it("returns empty string when no proposals file exists", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-recs-empty-"));
+    expect(formatSessionStartSkillRecommendations(target)).toBe("");
+  });
+
+  it("returns empty string when all proposals are below the confidence threshold", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-recs-low-"));
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "Test",
+      proposals: [
+        { name: "drawio-diagrams", reason: "weak match", confidence: 40, installed: true },
+      ],
+    });
+    expect(formatSessionStartSkillRecommendations(target)).toBe("");
+  });
+
+  it("renders a numbered top-3 recommendation block, capped even with more eligible entries", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-recs-top3-"));
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "Test",
+      proposals: [
+        {
+          name: "vitest-extension-testing",
+          reason: "vitest.config.ts detected",
+          whyText: "vitest.config.ts detected, used successfully 21 times",
+          confidence: 88,
+          installed: true,
+        },
+        { name: "skill-creator", reason: "skill authoring", confidence: 80, installed: true },
+        { name: "github-actions-ci", reason: "CI work detected", confidence: 75, installed: false },
+        { name: "self-learning", reason: "meta", confidence: 72, installed: true },
+        { name: "drawio-diagrams", reason: "weak match", confidence: 40, installed: true },
+      ],
+    });
+
+    const text = formatSessionStartSkillRecommendations(target);
+    expect(text).toContain("Recommended skills for this workspace:");
+    expect(text).toContain("1. vitest-extension-testing (88%)");
+    expect(text).toContain("Reason: vitest.config.ts detected, used successfully 21 times");
+    expect(text).toContain("Invoke:\n   /vitest-extension-testing");
+    // capped at 3 even though 4 entries (88/80/75/72) clear the 70 default threshold
+    expect((text.match(/^\d+\./gm) ?? []).length).toBe(3);
+    expect(text).not.toContain("drawio-diagrams");
+  });
+});
+
+describe("formatPromptTimeSkillRecommendation", () => {
+  it("returns null when no proposals file exists", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-prompt-empty-"));
+    expect(formatPromptTimeSkillRecommendation(target, new Set())).toBeNull();
+  });
+
+  it("returns the highest-confidence eligible entry not in excludeNames", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-prompt-top-"));
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "Test",
+      proposals: [
+        { name: "vitest-extension-testing", reason: "vitest.config.ts detected", confidence: 88, installed: true },
+        { name: "skill-creator", reason: "skill authoring", confidence: 80, installed: true },
+      ],
+    });
+
+    const first = formatPromptTimeSkillRecommendation(target, new Set());
+    expect(first?.skillName).toBe("vitest-extension-testing");
+    expect(first?.text).toContain("[Skill Recommendation] vitest-extension-testing (88%)");
+    expect(first?.text).toContain("Invoke: /vitest-extension-testing");
+
+    const second = formatPromptTimeSkillRecommendation(target, new Set(["vitest-extension-testing"]));
+    expect(second?.skillName).toBe("skill-creator");
+  });
+
+  it("returns null once all eligible proposals are excluded", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-prompt-exhausted-"));
+    writeTaskSkillProposals(target, {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      taskSummary: "Test",
+      proposals: [
+        { name: "vitest-extension-testing", reason: "vitest.config.ts detected", confidence: 88, installed: true },
+      ],
+    });
+    expect(
+      formatPromptTimeSkillRecommendation(target, new Set(["vitest-extension-testing"]))
+    ).toBeNull();
   });
 });

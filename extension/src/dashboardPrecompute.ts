@@ -15,6 +15,7 @@ import { readPipelineCycle } from "./pipelineCycle";
 import { readWorkspaceSystemState } from "./workspaceSystemState";
 import { CostPipelineResult } from "./costPipeline";
 import { encodeWorkspacePath } from "./workspaceTranscripts";
+import { computeAdoptionFunnel, computeRecommendationQuality } from "./skillAdoption";
 
 // ── Team Economics Cache ──────────────────────────────────────────────────────
 
@@ -159,6 +160,42 @@ export function queueTeamEconomicsPrecompute(target: string, libraryDir: string)
     } finally { inflightPrecompute.delete(key); }
   })();
   inflightPrecompute.set(key, job);
+}
+
+// ── Adoption Funnel Summary ────────────────────────────────────────────────────
+// Single canonical source for the skill-adoption funnel (proposed/accepted/invoked/
+// successful/reused) and its precision/recall/F1, computed once from skillAdoption.ts and
+// shared by both the VS Code Cost Dashboard (which can also call computeAdoptionFunnel /
+// computeRecommendationQuality directly in-process) and the static Learning Dashboard
+// (extension/resources/learning-dashboard.html), which fetches this file over HTTP instead
+// of reimplementing the funnel math a fifth time.
+
+export const ADOPTION_FUNNEL_SUMMARY_REL = path.join(".claude", "learning", "adoption-funnel-summary.json");
+
+export function adoptionFunnelSummaryPath(target: string): string {
+  return path.join(target, ADOPTION_FUNNEL_SUMMARY_REL);
+}
+
+/**
+ * Recomputes and writes the shared adoption-funnel summary. Cheap (filters one JSONL file
+ * and counts), so unlike the team-economics cache this needs no fingerprint gating — just
+ * call it every pipeline cycle. Never throws; a failed write only means the static dashboard
+ * falls back to its last-known summary (or none), it never breaks the pipeline.
+ */
+export function writeAdoptionFunnelSummary(target: string, daysBack = 90): void {
+  try {
+    const funnel = computeAdoptionFunnel(target, daysBack);
+    const quality = computeRecommendationQuality(target, daysBack);
+    writeJsonAtomic(adoptionFunnelSummaryPath(target), {
+      version: 1,
+      computedAt: new Date().toISOString(),
+      daysBack,
+      funnel,
+      quality,
+    });
+  } catch {
+    /* non-fatal — dashboards fall back gracefully when this file is stale or missing */
+  }
 }
 
 // ── Dashboard Snapshot Cache ──────────────────────────────────────────────────

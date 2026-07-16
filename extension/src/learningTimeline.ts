@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
+import { estimateBenefitMinutes } from "./adoptionIntelligence";
 
 export interface TimelineEvent {
   date: string;
@@ -30,7 +31,7 @@ export function buildLearningTimeline(target: string, daysBack = 30): TimelineEv
     cost: r.cost,
     sessionId: r.session_id,
     confidenceDelta: 25, // history boost kicks in for next session
-    savedMin: estimateMinutesSaved(r.skill),
+    savedMin: estimateBenefitMinutes(r.skill),
   }));
 
   // Cross-reference current proposals: skills proposed but with 0 runs are over-predicted
@@ -54,14 +55,6 @@ export function buildLearningTimeline(target: string, daysBack = 30): TimelineEv
   }
 
   return events.sort((a, b) => b.date.localeCompare(a.date));
-}
-
-function estimateMinutesSaved(skill: string): number {
-  const highValue = ["terraform-plan-review", "ci-preflight", "ci-pipeline-debug", "github-actions-ci", "azure-infra-preflight"];
-  const medValue  = ["skill-creator", "mcp-builder", "vscode-extension-publishing"];
-  if (highValue.some((s) => skill.includes(s.split("-")[0]))) return 15;
-  if (medValue.some((s) => skill.includes(s.split("-")[0]))) return 10;
-  return 5;
 }
 
 export function formatLearningTimelineHtml(events: TimelineEvent[]): string {

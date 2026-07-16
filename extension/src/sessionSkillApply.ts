@@ -20,6 +20,7 @@ import {
 import { readTaskFocusLimits } from "./taskFocusConfig";
 import {
   applyTaskSkillFocus,
+  recordTaskFocusDisabled,
   taskSkillFocusEnabled,
 } from "./taskSkillFocus";
 import { AdoptionSource, recordAcceptedSkills } from "./skillAdoption";
@@ -231,7 +232,7 @@ export function applyProposedSkillsLocally(
 ): ApplyProfileResult {
   const unique = mergeWithRequiredPlatformSkills([...new Set(skillNames.filter(Boolean))]);
   if (unique.length === 0) {
-    return { installed: [], removed: [], overridesApplied: 0, skipped: [] };
+    return { installed: [], removed: [], overridesApplied: 0, skipped: [], disabledUndesired: [] };
   }
 
   const branch = getCurrentBranch(target) ?? "unknown";
@@ -243,7 +244,19 @@ export function applyProposedSkillsLocally(
     workspacePath: path.normalize(target),
   };
 
-  const result = applyBranchProfile(libraryDir, target, profile, { removeExtra: false });
+  // disableUndesired follows the same master switch as applyTaskSkillFocus below — this
+  // profile is synthesized from proposal names, not a real saved branch layout, so without
+  // this it would force-disable every other installed skill on every session-apply
+  // regardless of claudeSkills.taskFocus.enabled (the bug: stale "off" overrides kept
+  // getting reintroduced via this shared branch-reconciliation path even when the master
+  // switch was off, since it never checked taskSkillFocusEnabled() at all).
+  const result = applyBranchProfile(libraryDir, target, profile, {
+    removeExtra: false,
+    disableUndesired: taskSkillFocusEnabled(),
+  });
+  if (result.disabledUndesired.length > 0) {
+    recordTaskFocusDisabled(target, result.disabledUndesired);
+  }
   saveBranchProfile(target, libraryDir);
 
   // Adoption funnel: a proposed skill transitioning to installed is an acceptance.

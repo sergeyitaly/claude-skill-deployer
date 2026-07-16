@@ -5,12 +5,20 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as vscode from "vscode";
 import { appendSkillRun, appendToolUse, RunAgent, readCachedEnrichedRuns } from "./runsStore";
+import { notifySuggestion } from "./userNotify";
+import {
+  getApprovedUnappliedSummary,
+  formatApprovedEnrichmentReminderText,
+  ApprovedUnappliedSummary,
+} from "./skillEnrichmentProposal";
 import { readContextFocusConfig, effectiveContextFocusLevel, ContextFocusLevel } from "./contextFocusConfig";
 import { readPracticalFocusConfig, PracticalFocusLevel } from "./practicalFocusConfig";
 import { readBudgetConfig, readBudgetState, writeBudgetState, BudgetDayNotifications } from "./budgetConfig";
 import { readCoachConfig } from "./coachConfig";
 import { disableHighTierSkills } from "./budgetOps";
+import { getActiveEmergencyCutoffReminder, formatEmergencyCutoffReminderText, EmergencyCutoffReminder } from "./emergencyCutoff";
 import { computeTodayCreditUsage } from "./usageCost";
 import { formatTokenCount, readRunRecords } from "./usageStats";
 import {
@@ -30,7 +38,11 @@ import { appendHookHealth } from "./hookHealth";
 import { recordSessionProposalOutcome, recordSessionRejectionFeedback } from "./proposalOutcome";
 import { computeEfficiencyMetrics } from "./efficiencyMetrics";
 import { shouldSurfaceProposals } from "./adoptionIntelligence";
-import { readTaskSkillProposals } from "./taskSkillProposals";
+import {
+  readTaskSkillProposals,
+  formatSessionStartSkillRecommendations,
+  formatPromptTimeSkillRecommendation,
+} from "./taskSkillProposals";
 import { analyzePrompt, appendPromptRecord } from "./promptIntelligence";
 import { getSessionCoachHints } from "./haceCoaching";
 import { recordAdviceShown, shouldShowAdvice, evaluateAdviceOutcome } from "./coachingLearning";
@@ -821,6 +833,7 @@ async function handleOfficialSkills(req: HookRequest): Promise<HookResponse> {
   }
 
   const parts: string[] = [];
+  const libraryDir = resolveSkillsLibraryDir(cwd) ?? path.join(cwd, "skills_library");
 
   // Workspace Intelligence (Phases 2+7) + Skill Lifecycle Intelligence (Phase 5):
   // this "official-skills" hook is the only SessionStart hook actually
@@ -829,10 +842,35 @@ async function handleOfficialSkills(req: HookRequest): Promise<HookResponse> {
   // (workspace-intelligence, profile-init) that nothing ever registers.
   // Independent of the official-skill-updater feature gate below.
   try {
-    const intelLibraryDir = resolveSkillsLibraryDir(cwd) ?? path.join(cwd, "skills_library");
-    const report = computeSessionIntelligence(cwd, intelLibraryDir);
+    const report = computeSessionIntelligence(cwd, libraryDir);
     const intelContext = formatSessionIntelligenceMarkdown(report);
     if (intelContext) parts.push(intelContext);
+  } catch { /* non-fatal */ }
+
+  // Skill recommendations (Fix 1): task-skill-proposals.json is generated correctly by
+  // taskSkillProposals.ts but was previously only ever displayed via handleProfileInit(),
+  // whose hook route isn't registered — surface it here instead, since this is the
+  // SessionStart hook that actually runs.
+  try {
+    const recs = formatSessionStartSkillRecommendations(cwd);
+    if (recs) parts.push(recs);
+  } catch { /* non-fatal */ }
+
+  // Task-skill focus carry-forward (Fix 4): applying task-skill-proposals to
+  // skillOverrides, and telling the agent what's active/ignored (or that it must
+  // refresh proposals for a new task), previously only happened inside
+  // handleProfileInit() — same dead-hook-route problem as the recommendations above.
+  // Without this, a task spanning many sessions never re-synced its active skill set
+  // from accumulated evidence (including MCP usage log signal via
+  // enrichmentRankingAdjustment) at the start of a *new* session; it only refreshed
+  // mid-session if a prompt happened to trigger it.
+  try {
+    const sessionId =
+      String(body.session_id ?? body.sessionId ?? body.conversation_id ?? body.conversationId ?? "") ||
+      `${req.agent}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    applyPendingSkillProposalsForSession(libraryDir, cwd, sessionId);
+    const focusContext = buildTaskSkillFocusContext(cwd);
+    if (focusContext) parts.push(focusContext);
   } catch { /* non-fatal */ }
 
   if (workspaceUsesOfficialSkillUpdater(cwd)) {
@@ -846,8 +884,69 @@ async function handleOfficialSkills(req: HookRequest): Promise<HookResponse> {
     }
   }
 
+  // Approved enrichment reminder (Fix 3): approving a proposal never applies it, and
+  // nothing previously reminded anyone the "Apply to SKILL.md" step was still pending —
+  // real proposals sat approved for 7-17 days as a result.
+  try {
+    const summary = getApprovedUnappliedSummary(cwd);
+    if (summary) {
+      parts.push(formatApprovedEnrichmentReminderText(summary));
+      notifyApprovedEnrichmentsToast(summary, cwd);
+    }
+  } catch { /* non-fatal */ }
+
+  // Emergency cutoff reminder: isEmergencyCutoffActive() previously had no callers at
+  // all, so once the one-time trigger error dialog was dismissed, a cutoff could sit
+  // active indefinitely with zero ongoing visibility — confirmed live, a real cutoff
+  // from weeks earlier was still silently disabling skills. Surface it every session
+  // until reset, same pattern as the enrichment reminder above.
+  try {
+    const reminder = getActiveEmergencyCutoffReminder(cwd);
+    if (reminder) {
+      parts.push(formatEmergencyCutoffReminderText(reminder));
+      notifyEmergencyCutoffToast(reminder, cwd);
+    }
+  } catch { /* non-fatal */ }
+
   if (parts.length === 0) return {};
   return sessionStartOutput(parts.join("\n\n"), req.agent);
+}
+
+/**
+ * Fires a VS Code notification with an "Open Enrichment Panel" button when approved-but-
+ * unapplied proposals exist. Factored out of handleOfficialSkills so the hook's return
+ * value (what tests assert on) stays independent of how this side effect is mocked.
+ * dedupeKey scopes the notification to once-per-workspace until VS Code itself dedupes
+ * it away; notifySuggestion (userNotify.ts) already handles that, not reinvented here.
+ */
+function notifyApprovedEnrichmentsToast(summary: ApprovedUnappliedSummary, cwd: string): void {
+  const msg = `${summary.count} approved skill improvement${summary.count === 1 ? "" : "s"} waiting to be applied.`;
+  void notifySuggestion(msg, ["Open Enrichment Panel", "Dismiss"], {
+    dedupeKey: `enrichment-reminder|${path.normalize(cwd)}`,
+  }).then((choice) => {
+    if (choice === "Open Enrichment Panel") {
+      void vscode.commands.executeCommand("claudeSkills.showEnrichmentProposals");
+    }
+  });
+}
+
+/**
+ * Fires a VS Code notification with a "Reset Emergency Cutoff" button while cutoff is
+ * active. Deliberately never auto-resets — a cost cutoff exists because spending got out
+ * of control, so silently letting it lapse risks the exact runaway cost it was meant to
+ * prevent. This only ever reminds a human to decide; resetEmergencyCutoff() (bound to the
+ * button) still shows its own confirmation dialog.
+ */
+function notifyEmergencyCutoffToast(reminder: EmergencyCutoffReminder, cwd: string): void {
+  const dayLabel = reminder.daysSinceTriggered === 1 ? "1 day" : `${reminder.daysSinceTriggered} days`;
+  const msg = `Emergency cutoff still active (${dayLabel}): ${reminder.disabledCount} skill(s) forced off.`;
+  void notifySuggestion(msg, ["Reset Emergency Cutoff", "Dismiss"], {
+    dedupeKey: `emergency-cutoff-reminder|${path.normalize(cwd)}`,
+  }).then((choice) => {
+    if (choice === "Reset Emergency Cutoff") {
+      void vscode.commands.executeCommand("claudeSkills.resetEmergencyCutoff");
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -955,6 +1054,51 @@ function formatNewSessionTaskContext(): string {
     "Existing proposals may be a stale profile-init seed — replace them when the user starts a new task.",
     "Propose only skills that match this task (typically 3–8, not the whole library). Read and apply the top proposed skills, then answer the user.",
   ].join(" ");
+}
+
+/**
+ * Applies pending task-skill-proposals.json to skillOverrides for this session — same
+ * apply step handleProfileInit() has always done, factored out so handleOfficialSkills
+ * (the SessionStart hook actually registered in settings.json) can run it too. This is
+ * what lets a task spanning many sessions carry its skill focus forward: each new session
+ * re-syncs the active set from the latest proposals (which fold in MCP usage log signal
+ * via enrichmentRankingAdjustment, workspace affinity, and adoption history) instead of
+ * only picking up a refresh mid-session if a prompt happened to trigger one.
+ */
+function applyPendingSkillProposalsForSession(libraryDir: string, cwd: string, sessionId: string): void {
+  const { skills, source } = resolveProposedSkillNamesWithSource(cwd);
+  if (skills.length === 0) return;
+  queueSessionSkillApplyRequest(cwd, skills, source, sessionId);
+  processSessionSkillApplyRequest(libraryDir, cwd);
+  applyTaskSkillFocusFromProposals(libraryDir, cwd);
+}
+
+/**
+ * The operational "these skills are active, these are ignored" (or "refresh proposals
+ * now") instruction for the agent. Mirrors the `base` branch of handleProfileInit's
+ * buildContext() so both the registered and the (command-triggered) profile-init path
+ * describe the same state the same way.
+ */
+function buildTaskSkillFocusContext(cwd: string): string {
+  const deterministicEnabled = (() => {
+    const cfg = readJsonSafe<{ features?: { deterministicTaskProposals?: boolean } }>(
+      path.join(cwd, ".claude", "learning", "cli-config.json")
+    );
+    return cfg?.features?.deterministicTaskProposals !== false;
+  })();
+
+  const proposals = readJsonSafe<{ generatedAt?: string; proposals?: unknown[] }>(
+    path.join(cwd, ".claude", "learning", "task-skill-proposals.json")
+  );
+  const proposalsFresh = (() => {
+    if (!proposals?.generatedAt || !Array.isArray(proposals?.proposals) || !proposals.proposals.length) return false;
+    const ageMs = Date.now() - new Date(proposals.generatedAt).getTime();
+    return ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000;
+  })();
+
+  return deterministicEnabled && proposalsFresh
+    ? formatFreshSessionContext(cwd)
+    : formatNewSessionTaskContext();
 }
 
 function formatProfileInitContext(request: {
@@ -2114,6 +2258,25 @@ function _detectOpportunity(
   } catch { /* non-fatal */ }
 
   const proposedSkills = new Set((readTaskSkillProposals(cwd)?.proposals ?? []).map(p => p.name));
+
+  // Fix 2: try the real, confidence-scored proposal pipeline before the cruder keyword
+  // detector below. Shares the same session cooldown/tracking (_sessionProposalSurfaceCount,
+  // _sessionOpportunityProposals) as the keyword path — both produce the same kind of
+  // artifact (one hint line in the response), so they draw from one interruption budget
+  // rather than each getting their own 3-per-session allowance.
+  const alreadySurfaced = sessionId
+    ? (_sessionOpportunityProposals.get(sessionId) ?? new Set<string>())
+    : new Set<string>();
+  const real = formatPromptTimeSkillRecommendation(cwd, alreadySurfaced);
+  if (real && !isDormantSkill(cwd, real.skillName)) {
+    if (sessionId) {
+      _sessionProposalSurfaceCount.set(sessionId, proposedCount + 1);
+      const set = _sessionOpportunityProposals.get(sessionId) ?? new Set<string>();
+      set.add(real.skillName);
+      _sessionOpportunityProposals.set(sessionId, set);
+    }
+    return real.text;
+  }
 
   for (const { pattern, skill, label } of OPPORTUNITY_SIGNALS) {
     if (!pattern.test(promptText) || signalIsNegated(promptText, pattern)) continue;

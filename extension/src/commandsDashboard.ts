@@ -15,7 +15,6 @@ import {
   formatTeamEconomicsPanelsHtml,
   getOrBuildDashboardMainBody,
 } from "./costDashboard";
-import { getAuditExecutor } from "./auditExecution";
 import { generateOptimizationSuggestions, formatSuggestionsReport, OptimizationType } from "./costOptimizer";
 import { applyOptimizationSuggestions, applySingleOptimizationSuggestion } from "./autoOptimizer";
 import { runCostPipeline, runCostPipelineSync } from "./costPipeline";
@@ -186,29 +185,12 @@ export function registerDashboardCommands(deps: DashboardCommandDeps): vscode.Di
               } else {
                 vscode.window.showWarningMessage(`Claude Skills: could not apply suggestion for ${msg.skill}.`);
               }
-            } else if (msg.command === "runComplianceAudit") {
-              getAuditExecutor().clearCache();
-              const audit = getAuditExecutor().executeAuditSync(ws, libraryDir);
-              const refreshNonce = crypto.randomBytes(16).toString("base64");
-              const refreshPipeline = runCostPipelineSync(ws, libraryDir);
-              buildAndCacheDashboardSnapshot(ws, libraryDir, refreshPipeline);
-              costDashboardPanel!.webview.html = formatCostDashboardHtml(
-                ws, libraryDir, refreshNonce, refreshPipeline,
-                { fastPhase: true, includeTeamEconomics: false }
-              );
-              void enhanceCostDashboardPanel(ws, libraryDir, refreshPipeline, costDashboardPanel!, true);
-              if (!audit) {
-                void notifyUserWarn("Claude Skills: audit execution failed.");
-              } else if (audit.overallStatus === "pass") {
-                void notifyUserSuccess(`Compliance audit passed: ${audit.compliance.length} checks passed.`);
-              } else {
-                const failed = audit.compliance.filter((c) => !c.ok).length;
-                void notifyUserWarn(`Compliance audit: ${failed} check(s) failed — see Telemetry & Export panel.`);
-              }
             } else if (msg.command === "exportReport") {
               await vscode.commands.executeCommand("claudeSkills.exportCostReport");
             } else if (msg.command === "openBudget") {
               await vscode.commands.executeCommand("claudeSkills.openBudgetSettings");
+            } else if (msg.command === "openEnrichmentPanel") {
+              await vscode.commands.executeCommand("claudeSkills.showEnrichmentProposals");
             } else if (msg.command === "clearMcpLogs") {
               await vscode.commands.executeCommand("claudeSkills.clearMcpLogs");
             } else if (msg.command === "applyMcpAutoFixes") {

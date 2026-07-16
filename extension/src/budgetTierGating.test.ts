@@ -38,7 +38,7 @@ describe("applyBudgetTierGating", () => {
       activeSkills: ["light-skill"],
       ignoredSkills: [],
     });
-    writeTodayCostSnapshot(4.5, 1000);
+    writeTodayCostSnapshot(target, 4.5, 1000);
 
     const result = applyBudgetTierGating(target, manifest, {
       mode: "normal",

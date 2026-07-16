@@ -4,14 +4,24 @@ import * as path from "node:path";
 import { BudgetConfig } from "./budgetConfig";
 import { localDateKey } from "./localDate";
 
+// Legacy machine-wide location — used only as a fallback for callers with no workspace
+// target (e.g. a routing suggestion made outside any specific project). Per-project reads
+// and writes go to <target>/.claude/learning/today-cost.json instead, since a single shared
+// snapshot let whichever project's status bar refreshed last silently overwrite the number
+// every other open project's budget-gating check read.
 export const TODAY_COST_PATH = path.join(os.homedir(), ".claude", "learning", "today-cost.json");
 
-export function readTodayCostUsd(): number {
-  if (!fs.existsSync(TODAY_COST_PATH)) {
+function todayCostPath(target?: string): string {
+  return target ? path.join(target, ".claude", "learning", "today-cost.json") : TODAY_COST_PATH;
+}
+
+export function readTodayCostUsd(target?: string): number {
+  const file = todayCostPath(target);
+  if (!fs.existsSync(file)) {
     return 0;
   }
   try {
-    const data = JSON.parse(fs.readFileSync(TODAY_COST_PATH, "utf-8")) as { date?: string; costUsd?: number };
+    const data = JSON.parse(fs.readFileSync(file, "utf-8")) as { date?: string; costUsd?: number };
     if (data.date === localDateKey()) {
       return data.costUsd ?? 0;
     }
@@ -21,22 +31,23 @@ export function readTodayCostUsd(): number {
   return 0;
 }
 
-export function writeTodayCostSnapshot(costUsd: number, tokens: number): void {
+export function writeTodayCostSnapshot(target: string | undefined, costUsd: number, tokens: number): void {
+  const file = todayCostPath(target);
   const payload = {
     date: localDateKey(),
     costUsd,
     tokens,
     updatedAt: new Date().toISOString(),
   };
-  fs.mkdirSync(path.dirname(TODAY_COST_PATH), { recursive: true });
-  fs.writeFileSync(TODAY_COST_PATH, JSON.stringify(payload, null, 2) + "\n", "utf-8");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(payload, null, 2) + "\n", "utf-8");
 }
 
-export function remainingDailyBudgetUsd(config: BudgetConfig): number | null {
+export function remainingDailyBudgetUsd(config: BudgetConfig, target?: string): number | null {
   if (config.dailyBudgetUsd <= 0) {
     return null;
   }
-  const spent = readTodayCostUsd();
+  const spent = readTodayCostUsd(target);
   return Math.max(0, config.dailyBudgetUsd - spent);
 }
 

@@ -26,7 +26,7 @@ describe("featureFlags + project profile", () => {
   });
 
   it("isFeatureEnabled uses VS Code settings when tier does not specify key", () => {
-    setActiveProjectProfileContext({ communityBenchmarks: false }, true);
+    setActiveProjectProfileContext({}, true);
     expect(isFeatureEnabled("autoOptimizer")).toBe(false);
   });
 

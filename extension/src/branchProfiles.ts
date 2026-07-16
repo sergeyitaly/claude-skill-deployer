@@ -118,6 +118,63 @@ function writeStore(store: BranchProfilesStore): void {
   fs.renameSync(tmpPath, BRANCH_PROFILES_PATH);
 }
 
+function sleepSyncMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * branch-profiles.json is shared machine-wide across every project — saveBranchProfile()
+ * is its only writer, but a plain read-mutate-write is a classic cross-process race: two
+ * different projects' extension-host processes can both read the store before either
+ * writes, and the second write silently clobbers the first project's just-saved entry
+ * (the atomic rename in writeStore prevents corruption, not this kind of lost update).
+ * Serializes access with a real cross-process mutex via exclusive file creation ("wx"
+ * fails with EEXIST if the lock already exists, which is atomic at the OS level on both
+ * Windows and POSIX) — not the acquireWriteLock/fileWriteCoordination.ts primitive, which
+ * only arbitrates between different kinds of owners (e.g. "hook" vs "extension"), not
+ * multiple processes that are all this same "extension" owner.
+ */
+/** Exported for testing the cross-process mutex directly; not part of the public API used
+ * by other modules — saveBranchProfile() is the only production caller. */
+export function withBranchProfilesLock<T>(fn: () => T): T {
+  const lockPath = `${BRANCH_PROFILES_PATH}.lock`;
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  const start = Date.now();
+  const maxWaitMs = 2000;
+  const staleAfterMs = 5000;
+  for (;;) {
+    try {
+      fs.closeSync(fs.openSync(lockPath, "wx"));
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw err;
+      }
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > staleAfterMs) {
+          fs.unlinkSync(lockPath); // owning process likely crashed/was killed — steal it
+          continue;
+        }
+      } catch {
+        continue; // lock disappeared between checks — retry acquire immediately
+      }
+      if (Date.now() - start > maxWaitMs) {
+        break; // give up waiting rather than hang the extension host; proceed unlocked
+      }
+      sleepSyncMs(25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      // already removed (e.g. stolen as stale) — fine
+    }
+  }
+}
+
 function getGitApi(): GitApi | undefined {
   if (cachedGitApi) {
     return cachedGitApi;
@@ -294,18 +351,20 @@ export function saveBranchProfile(target: string, libraryDir?: string): BranchSk
     return undefined;
   }
 
-  const store = readStore();
-  const repo = store.repos[key] ?? {
-    remoteUrl: profile.remoteUrl,
-    workspacePath: profile.workspacePath,
-    branches: {},
-  };
-  repo.remoteUrl = profile.remoteUrl ?? repo.remoteUrl;
-  repo.workspacePath = profile.workspacePath;
-  repo.branches[profile.branch] = profile;
-  repo.lastBranch = profile.branch;
-  store.repos[key] = repo;
-  writeStore(store);
+  withBranchProfilesLock(() => {
+    const store = readStore();
+    const repo = store.repos[key] ?? {
+      remoteUrl: profile.remoteUrl,
+      workspacePath: profile.workspacePath,
+      branches: {},
+    };
+    repo.remoteUrl = profile.remoteUrl ?? repo.remoteUrl;
+    repo.workspacePath = profile.workspacePath;
+    repo.branches[profile.branch] = profile;
+    repo.lastBranch = profile.branch;
+    store.repos[key] = repo;
+    writeStore(store);
+  });
   return profile;
 }
 
@@ -322,6 +381,17 @@ export interface ApplyProfileResult {
   removed: string[];
   overridesApplied: number;
   skipped: string[];
+  /** Branch-committed skills this call force-disabled via the disableUndesired sweep —
+   * surfaced so callers can record them in taskSkillFocus's durable ledger; this function
+   * has no ledger access of its own (see taskSkillFocus.ts:recordTaskFocusDisabled). */
+  disabledUndesired: string[];
+}
+
+/** Mirrors taskSkillFocus.ts's taskSkillFocusEnabled() without importing it — taskSkillFocus.ts
+ * already imports profileInit.ts, which calls applyBranchProfile(), so importing it back here
+ * would create a require cycle. */
+function taskFocusMasterSwitchEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.taskFocus").get<boolean>("enabled", true);
 }
 
 /** Reconcile workspace skills with a saved branch profile. */
@@ -329,14 +399,27 @@ export function applyBranchProfile(
   libraryDir: string,
   target: string,
   profile: BranchSkillProfile,
-  opts?: { removeExtra?: boolean }
+  opts?: { removeExtra?: boolean; disableUndesired?: boolean }
 ): ApplyProfileResult {
   const removeExtra = opts?.removeExtra ?? removeExtraOnApply();
+  // Defaults to the task-focus master switch, not unconditional `true` — automatic/background
+  // callers (branch-switch detection, team/agent profile sync, profile-init apply) must never
+  // force-disable skills while claudeSkills.taskFocus.enabled is off. The one explicit user
+  // command that restores a saved profile ("Apply Branch Skill Profile") passes
+  // disableUndesired: true to opt back in, since an explicit restore request should still
+  // restore in full.
+  const disableUndesired = opts?.disableUndesired ?? taskFocusMasterSwitchEnabled();
   const destRoot = path.join(target, ".claude", "skills");
   const globalDir = globalSkillsDir();
   const installed = new Set(listInstalledSkills(target));
   const desired = new Set(profile.skills);
-  const result: ApplyProfileResult = { installed: [], removed: [], overridesApplied: 0, skipped: [] };
+  const result: ApplyProfileResult = {
+    installed: [],
+    removed: [],
+    overridesApplied: 0,
+    skipped: [],
+    disabledUndesired: [],
+  };
 
   for (const skill of profile.skills) {
     if (installed.has(skill)) {
@@ -375,9 +458,14 @@ export function applyBranchProfile(
       continue;
     }
     if (isSkillCommittedOnBranch(target, skill)) {
-      if (currentOverrides[skill] !== "off") {
+      // disableUndesired=false lets a caller (e.g. session-proposal apply) install/refresh
+      // a skill set via this same reconciliation machinery without force-disabling every
+      // other installed skill outside it — that sweep is only correct for a genuine
+      // branch-switch reconciliation, not "these are today's top proposals."
+      if (disableUndesired && currentOverrides[skill] !== "off") {
         setSkillOverride(target, skill, "off");
         result.overridesApplied++;
+        result.disabledUndesired.push(skill);
       }
       continue;
     }
@@ -390,10 +478,19 @@ export function applyBranchProfile(
   }
 
   for (const [skill, value] of Object.entries(profileOverrides)) {
-    if (currentOverrides[skill] !== value) {
-      setSkillOverride(target, skill, value);
-      result.overridesApplied++;
+    if (currentOverrides[skill] === value) {
+      continue;
     }
+    // Reapplying a saved "off" is a disabling action with the same hazard as the
+    // disableUndesired sweep above — this loop had no gate at all before, and was the
+    // actual mechanism silently undoing reclaimOrphanedTaskFocusOverrides()'s work
+    // (confirmed live, 2026-07-15 investigation). Reapplying "on" (or any other value)
+    // never conflicts with task-focus, so only "off" needs the gate.
+    if (value === "off" && !disableUndesired) {
+      continue;
+    }
+    setSkillOverride(target, skill, value);
+    result.overridesApplied++;
   }
 
   if (removeExtra) {

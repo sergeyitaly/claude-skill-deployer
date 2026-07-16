@@ -40,6 +40,10 @@ import {
   rejectEnrichmentProposal,
   applyEnrichmentProposal,
   readEnrichmentProposals,
+  enrichmentProposalsPath,
+  getApprovedUnappliedSummary,
+  formatApprovedEnrichmentReminderText,
+  formatEnrichmentSummaryHtml,
 } from "./skillEnrichmentProposal";
 
 import { appendSkillRun } from "./runsStore";
@@ -566,6 +570,39 @@ describe("Phase 6 — enrichment proposal lifecycle", () => {
     expect(applied.status).toBe("applied");
   });
 
+  it("generateEnrichmentProposals does not re-propose a pattern that was already applied (Fix 4 regression)", () => {
+    // Reproduces the real-data bug: re-mining the same successful pattern after its
+    // proposal was already applied to SKILL.md previously created a duplicate proposal
+    // for identical content, stuck forever in "approved" since the section already exists.
+    const target = tmpDir();
+    const skillsDir = path.join(target, "skills");
+    seedSkillMd(skillsDir, "deployment-practical");
+
+    seedCandidate(target);
+    const cands = findEnrichmentCandidates(target, ["deployment-practical"]);
+    generateEnrichmentProposals(target, cands);
+
+    const pending = readEnrichmentProposals(target).find(p => p.status === "pending")!;
+    approveEnrichmentProposal(target, pending.id);
+    const applyResult = applyEnrichmentProposal(target, pending.id, [skillsDir]);
+    expect(applyResult.applied).toBe(true);
+    expect(readEnrichmentProposals(target).find(p => p.id === pending.id)!.status).toBe("applied");
+
+    // Re-running the mining pipeline with the identical candidate set must not create a
+    // second proposal for a pattern that's already shipped — other candidates from the
+    // same seed may legitimately still be pending (findEnrichmentCandidates can mine more
+    // than one pattern per skill), so assert on the specific dedup key, not the whole set.
+    const key = `${pending.skill}::${pending.patternId}`;
+    const secondRunCount = generateEnrichmentProposals(target, cands);
+    expect(secondRunCount).toBe(0);
+
+    const matchingKey = readEnrichmentProposals(target).filter(
+      p => `${p.skill}::${p.patternId}` === key
+    );
+    expect(matchingKey.length).toBe(1);
+    expect(matchingKey[0].status).toBe("applied");
+  });
+
   it("applyEnrichmentProposal prevents double-application of the same section", () => {
     const target = tmpDir();
     const skillsDir = path.join(target, "skills");
@@ -594,6 +631,121 @@ describe("Phase 6 — enrichment proposal lifecycle", () => {
     const result = applyEnrichmentProposal(target, pending.id, ["/nonexistent/path"]);
     expect(result.applied).toBe(false);
     expect(result.message).toContain("not found");
+  });
+});
+
+// ── Fix 3/5: approved-unapplied summary + SessionStart reminder + dashboard pill ────
+
+function backdateReviewedAt(target: string, proposalId: string, daysAgo: number): void {
+  const proposals = readEnrichmentProposals(target).map(p =>
+    p.id === proposalId
+      ? { ...p, reviewedAt: new Date(Date.now() - daysAgo * 86_400_000).toISOString() }
+      : p
+  );
+  fs.writeFileSync(
+    enrichmentProposalsPath(target),
+    proposals.map(p => JSON.stringify(p)).join("\n") + "\n",
+    "utf-8"
+  );
+}
+
+describe("Fix 3/5 — approved-unapplied summary, reminder text, dashboard pill", () => {
+  function seedCandidate(target: string): void {
+    for (let i = 0; i < MIN_PATTERN_OCCURRENCES; i++) {
+      seedRun(target, "deployment-practical", {
+        success: true, tokens: 5000, cost: 0.05,
+        sessionId: `sess-fix35-${i}-${Date.now()}`,
+        metadata: { source: "skill-invoke-hook-v2", invoked: true, task_type: "argocd sync failed" },
+      });
+    }
+    mineSuccessfulRunPatterns(target);
+  }
+
+  it("getApprovedUnappliedSummary returns null when proposals exist but none are approved", () => {
+    const target = tmpDir();
+    seedCandidate(target);
+    generateEnrichmentProposals(target, findEnrichmentCandidates(target, ["deployment-practical"]));
+    expect(getApprovedUnappliedSummary(target)).toBeNull();
+  });
+
+  it("getApprovedUnappliedSummary counts approved proposals by skill and reports the oldest age", () => {
+    const target = tmpDir();
+    seedCandidate(target);
+    const cands = findEnrichmentCandidates(target, ["deployment-practical"]);
+    generateEnrichmentProposals(target, cands);
+    const pending = readEnrichmentProposals(target).filter(p => p.status === "pending");
+    expect(pending.length).toBeGreaterThan(0);
+    for (const p of pending) approveEnrichmentProposal(target, p.id);
+    backdateReviewedAt(target, pending[0].id, 12);
+
+    const summary = getApprovedUnappliedSummary(target)!;
+    expect(summary).toBeDefined();
+    expect(summary.count).toBe(pending.length);
+    expect(summary.bySkill["deployment-practical"]).toBe(pending.length);
+    expect(summary.oldestAgeDays).toBeGreaterThanOrEqual(12);
+  });
+
+  it("getApprovedUnappliedSummary excludes proposals once applied (dedup terminal state carries through)", () => {
+    const target = tmpDir();
+    const skillsDir = path.join(target, "skills");
+    seedSkillMd(skillsDir, "deployment-practical");
+    seedCandidate(target);
+    const cands = findEnrichmentCandidates(target, ["deployment-practical"]);
+    generateEnrichmentProposals(target, cands);
+    const pending = readEnrichmentProposals(target).find(p => p.status === "pending")!;
+    approveEnrichmentProposal(target, pending.id);
+    applyEnrichmentProposal(target, pending.id, [skillsDir]);
+
+    expect(getApprovedUnappliedSummary(target)).toBeNull();
+  });
+
+  it("formatApprovedEnrichmentReminderText renders count, per-skill breakdown, and the panel prompt", () => {
+    const text = formatApprovedEnrichmentReminderText({
+      count: 4,
+      bySkill: { "skill-creator": 2, "vitest-extension-testing": 1, "skill-feedback-adaptation": 1 },
+      oldestAgeDays: 9,
+    });
+    expect(text).toContain("4 approved skill improvements are waiting.");
+    expect(text).toContain("- skill-creator (2)");
+    expect(text).toContain("- vitest-extension-testing (1)");
+    expect(text).toContain("- skill-feedback-adaptation (1)");
+    expect(text).toContain("Open enrichment panel.");
+  });
+
+  it("formatApprovedEnrichmentReminderText uses singular grammar for exactly one approved proposal", () => {
+    const text = formatApprovedEnrichmentReminderText({
+      count: 1, bySkill: { "skill-creator": 1 }, oldestAgeDays: 2,
+    });
+    expect(text).toContain("1 approved skill improvement is waiting.");
+  });
+
+  it("formatEnrichmentSummaryHtml shows an actionable 'Apply now' pill with the oldest age when approved-unapplied", () => {
+    const target = tmpDir();
+    seedCandidate(target);
+    const cands = findEnrichmentCandidates(target, ["deployment-practical"]);
+    generateEnrichmentProposals(target, cands);
+    const pending = readEnrichmentProposals(target).find(p => p.status === "pending")!;
+    approveEnrichmentProposal(target, pending.id);
+    backdateReviewedAt(target, pending.id, 5);
+
+    const html = formatEnrichmentSummaryHtml(target);
+    expect(html).toContain("approved — Apply now");
+    expect(html).toContain("enrichment-apply-now");
+    expect(html).toContain('data-oldest-days="5"');
+  });
+
+  it("formatEnrichmentSummaryHtml falls back to a passive pending count when nothing is approved yet", () => {
+    const target = tmpDir();
+    seedCandidate(target);
+    generateEnrichmentProposals(target, findEnrichmentCandidates(target, ["deployment-practical"]));
+
+    const html = formatEnrichmentSummaryHtml(target);
+    expect(html).toContain("pending");
+    expect(html).not.toContain("Apply now");
+  });
+
+  it("formatEnrichmentSummaryHtml returns empty string when there are no proposals at all", () => {
+    expect(formatEnrichmentSummaryHtml(tmpDir())).toBe("");
   });
 });
 

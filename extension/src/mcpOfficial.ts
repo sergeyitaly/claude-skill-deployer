@@ -93,11 +93,26 @@ function copyFilesystemServer(extensionPath: string): string {
   return targetFile;
 }
 
+/**
+ * allowed-dirs.json is a single file shared by one filesystem MCP server registered once,
+ * machine-wide, in ~/.claude.json / ~/.cursor/mcp.json / ~/.kiro/settings/mcp.json — not a
+ * per-project config. Every project's activation used to overwrite it with only that
+ * project's own dirs, silently revoking access for any other project open at the same time
+ * (or previously). It now unions the current workspace's dirs into whatever is already
+ * there instead of replacing it, so opening/activating in one project can only grant
+ * access, never take it away from another.
+ */
 function writeAllowedDirsConfig(workspaceDirs: string[]): string[] {
-  const allowedDirs = [CLAUDE_HOME, CURSOR_HOME, KIRO_HOME, ...workspaceDirs].filter(Boolean).map((dir) => path.resolve(dir));
+  const existing = readJsonConfig<{ allowedDirs?: string[]; workspaceLogPath?: string }>(ALLOWED_DIRS_CONFIG_PATH);
+  const newDirs = [CLAUDE_HOME, CURSOR_HOME, KIRO_HOME, ...workspaceDirs].filter(Boolean).map((dir) => path.resolve(dir));
+  const allowedDirs = [...new Set([...(existing?.allowedDirs ?? []), ...newDirs])];
   const config: { allowedDirs: string[]; workspaceLogPath?: string } = { allowedDirs };
   if (workspaceDirs.length > 0) {
     config.workspaceLogPath = path.join(path.resolve(workspaceDirs[0]), ".claude", "mcp-usage.jsonl");
+  } else if (existing?.workspaceLogPath) {
+    // No folder open in this window — keep whatever a previous project's activation set,
+    // rather than dropping it (same overwrite hazard as allowedDirs above).
+    config.workspaceLogPath = existing.workspaceLogPath;
   }
   writeJsonConfig(ALLOWED_DIRS_CONFIG_PATH, config);
   return allowedDirs;

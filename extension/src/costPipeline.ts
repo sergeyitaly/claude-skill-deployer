@@ -16,6 +16,7 @@ import { SystemMode } from "./attributionQuality";
 
 import { queueTeamEconomicsPrecompute } from "./dashboardPrecompute";
 import { queueDashboardSnapshotPrecompute } from "./dashboardPrecompute";
+import { writeAdoptionFunnelSummary } from "./dashboardPrecompute";
 import { maybePromoteIgnoredSkillsOnUnderuse } from "./taskSkillUnderuse";
 
 export interface CostPipelineRunOptions {
@@ -97,6 +98,7 @@ export function runCostPipelineSync(
 
     const status = evaluatePipelineStatus(target, readPipelineCycle(target));
     queueTeamEconomicsPrecompute(target, libraryDir);
+    writeAdoptionFunnelSummary(target);
     queueDashboardSnapshotPrecompute(target, libraryDir, {
       ready: status.ready,
       fresh: status.fresh,

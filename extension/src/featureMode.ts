@@ -20,7 +20,6 @@ const FEATURE_MAP: Record<string, FeatureMode> = {
   "recommendation.funnel": "professional",
   "hook.health":           "professional",
   "repo.affinity":         "professional",
-  "governance":            "professional",
 
   // Power user (+ all professional)
   "adaptation.log":   "power",

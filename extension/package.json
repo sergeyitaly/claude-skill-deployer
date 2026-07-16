@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.112",
+  "version": "1.0.122",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -471,12 +471,6 @@
         "category": "Claude Skills"
       },
       {
-        "command": "claudeSkills.startOnboardingTour",
-        "title": "Start Onboarding Tour (step prompts)",
-        "icon": "$(list-ordered)",
-        "category": "Claude Skills"
-      },
-      {
         "command": "claudeSkills.exportTelemetry",
         "title": "Export Skill Telemetry (CSV)",
         "icon": "$(export)",
@@ -552,24 +546,6 @@
         "command": "claudeSkills.applyLocalProfile",
         "title": "Apply Local Profile (.claude/profile.local.json)",
         "icon": "$(check)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claude-skills.runAuditNow",
-        "title": "Run Compliance Audit Now",
-        "icon": "$(shield-check)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claude-skills.viewAuditReport",
-        "title": "View Audit Report",
-        "icon": "$(document)",
-        "category": "Claude Skills"
-      },
-      {
-        "command": "claude-skills.clearAuditHistory",
-        "title": "Clear Audit History",
-        "icon": "$(trash)",
         "category": "Claude Skills"
       }
     ],
@@ -1189,16 +1165,6 @@
             "type": "boolean",
             "default": false,
             "description": "Enable the auto-optimizer timer (off by default; turn on only after attribution looks reliable)."
-          },
-          "claudeSkills.features.communityBenchmarks": {
-            "type": "boolean",
-            "default": false,
-            "description": "Community cost benchmarks (opt-in telemetry)."
-          },
-          "claudeSkills.features.prCostEstimate": {
-            "type": "boolean",
-            "default": false,
-            "description": "GitHub PR cost estimate via gh CLI."
           }
         }
       },
@@ -1782,8 +1748,6 @@
     "bench:skill-impact": "node scripts/benchmark-skill-impact.mjs",
     "bench:skill-impact:complex": "node scripts/benchmark-skill-impact.mjs --task-file scripts/agent-comparison-fixture-complex/TASK.md",
     "bench:smoke-installed": "node --require ./scripts/vscode-register.cjs scripts/real-install-smoke.mjs",
-    "bench:tier-benefits": "node --require ./scripts/vscode-register.cjs scripts/tier-benefit-benchmark.mjs .",
-    "send-weekly-report": "node --require ./scripts/vscode-register.cjs scripts/send-weekly-report-cli.mjs",
     "sync-skills": "node ./scripts/sync-skills-library.js",
     "package": "npm run sync-skills && vsce package",
     "publish:marketplace": "vsce publish",
@@ -1794,7 +1758,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/test-electron": "^2.4.1",
+    "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.2.0",
     "mocha": "^11.1.0",
     "ovsx": "^0.10.12",

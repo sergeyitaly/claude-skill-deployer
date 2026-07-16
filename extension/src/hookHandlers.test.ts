@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({
   workspace: { getConfiguration: () => ({ get: (_: string, d: unknown) => d }) },
+  commands: { executeCommand: vi.fn() },
 }));
 vi.mock("./runsStore", () => ({
   appendSkillRun: vi.fn(), appendToolUse: vi.fn(), readCachedEnrichedRuns: () => [],
@@ -44,9 +45,24 @@ vi.mock("./hookHealth", () => ({ appendHookHealth: vi.fn() }));
 vi.mock("./proposalOutcome", () => ({
   recordSessionProposalOutcome: vi.fn(), recordSessionRejectionFeedback: vi.fn(),
 }));
-vi.mock("./taskSkillProposals", () => ({ readTaskSkillProposals: () => ({ proposals: [] }) }));
+vi.mock("./taskSkillProposals", () => ({
+  readTaskSkillProposals: vi.fn(() => ({ proposals: [] })),
+  formatSessionStartSkillRecommendations: vi.fn(() => ""),
+  formatPromptTimeSkillRecommendation: vi.fn(() => null),
+}));
+vi.mock("./userNotify", () => ({ notifySuggestion: vi.fn(() => Promise.resolve(undefined)) }));
+vi.mock("./skillEnrichmentProposal", () => ({
+  getApprovedUnappliedSummary: vi.fn(() => null),
+  formatApprovedEnrichmentReminderText: vi.fn(() => ""),
+}));
+vi.mock("./emergencyCutoff", () => ({
+  getActiveEmergencyCutoffReminder: vi.fn(() => null),
+  formatEmergencyCutoffReminderText: vi.fn(() => ""),
+}));
 vi.mock("./promptIntelligence", () => ({
-  analyzePrompt: () => ({ score: 80, recommendations: [] }),
+  // antiPatterns must be present (even empty) — handleSessionCoach reads it
+  // unconditionally on a session's 2nd+ prompt (analysis.antiPatterns.find(...)).
+  analyzePrompt: () => ({ score: 80, recommendations: [], antiPatterns: [] }),
   appendPromptRecord: vi.fn(),
 }));
 vi.mock("./haceCoaching", () => ({ getSessionCoachHints: () => [] }));
@@ -211,6 +227,245 @@ describe("handleHookRequest session coach disabled", () => {
     const output = JSON.stringify(result);
     expect(output).not.toContain("[HACE Coach]");
     expect(output).not.toContain("[Prompt Coach]");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — official-skills session-start recommendations (Fix 1)
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest official-skills — session-start recommendations", () => {
+  it("surfaces the session-start recommendation digest when proposals exist", async () => {
+    const { formatSessionStartSkillRecommendations } = await import("./taskSkillProposals");
+    vi.mocked(formatSessionStartSkillRecommendations).mockReturnValueOnce(
+      "Recommended skills for this workspace:\n\n1. vitest-extension-testing (88%)\n   Reason: vitest.config.ts detected\n\n   Invoke:\n   /vitest-extension-testing"
+    );
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-official-"));
+    const result = await handleHookRequest({
+      hookName: "official-skills",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { source: "startup" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).toContain("Recommended skills for this workspace:");
+    expect(output).toContain("vitest-extension-testing (88%)");
+    expect(output).toContain("/vitest-extension-testing");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("omits the recommendation block when there are no eligible proposals", async () => {
+    const { formatSessionStartSkillRecommendations } = await import("./taskSkillProposals");
+    vi.mocked(formatSessionStartSkillRecommendations).mockReturnValueOnce("");
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-official-empty-"));
+    const result = await handleHookRequest({
+      hookName: "official-skills",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { source: "startup" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("Recommended skills for this workspace:");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — prompt-context real-proposal recommendation (Fix 2)
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest prompt-context — real-proposal recommendation", () => {
+  let tmpDir: string;
+  let transcriptFile: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-fix2-"));
+    transcriptFile = path.join(tmpDir, "session.jsonl");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeTranscript(text: string): void {
+    fs.writeFileSync(
+      transcriptFile,
+      JSON.stringify({ type: "user", message: { content: [{ type: "text", text }] } }) + "\n",
+      "utf-8"
+    );
+  }
+
+  it("surfaces the real proposal recommendation instead of the keyword engine", async () => {
+    const { formatPromptTimeSkillRecommendation } = await import("./taskSkillProposals");
+    vi.mocked(formatPromptTimeSkillRecommendation).mockReturnValueOnce({
+      skillName: "vitest-extension-testing",
+      text: "[Skill Recommendation] vitest-extension-testing (88%) — vitest.config.ts detected. Invoke: /vitest-extension-testing",
+    });
+
+    // Prompt also matches the keyword engine's terraform signal — the real-proposal
+    // path must win and the keyword engine must not additionally fire.
+    writeTranscript("how do I deploy with terraform?");
+    const result = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "fix2-session" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).toContain("[Skill Recommendation]");
+    expect(output).toContain("vitest-extension-testing (88%)");
+    expect(output).not.toContain("[Skill Opportunity]");
+  });
+
+  it("does not repeat the same skill recommendation twice in one session", async () => {
+    const { formatPromptTimeSkillRecommendation } = await import("./taskSkillProposals");
+    vi.mocked(formatPromptTimeSkillRecommendation).mockImplementation(
+      (_target: string, excludeNames: Set<string>) => {
+        if (excludeNames.has("vitest-extension-testing")) return null;
+        return {
+          skillName: "vitest-extension-testing",
+          text: "[Skill Recommendation] vitest-extension-testing (88%) — reason. Invoke: /vitest-extension-testing",
+        };
+      }
+    );
+
+    writeTranscript("run the vitest tests");
+    const first = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "fix2-cooldown-session" },
+    });
+    expect(JSON.stringify(first)).toContain("[Skill Recommendation]");
+
+    const second = await handleHookRequest({
+      hookName: "prompt-context",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { transcript_path: transcriptFile, session_id: "fix2-cooldown-session" },
+    });
+    expect(JSON.stringify(second)).not.toContain("[Skill Recommendation]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — official-skills approved enrichment reminder (Fix 3)
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest official-skills — approved enrichment reminder", () => {
+  it("surfaces the reminder text and fires a notification when proposals are approved", async () => {
+    const { getApprovedUnappliedSummary, formatApprovedEnrichmentReminderText } =
+      await import("./skillEnrichmentProposal");
+    const { notifySuggestion } = await import("./userNotify");
+    vi.mocked(getApprovedUnappliedSummary).mockReturnValueOnce({
+      count: 4,
+      bySkill: { "skill-creator": 2, "vitest-extension-testing": 1, "skill-feedback-adaptation": 1 },
+      oldestAgeDays: 12,
+    });
+    vi.mocked(formatApprovedEnrichmentReminderText).mockReturnValueOnce(
+      "4 approved skill improvements are waiting.\n\n- skill-creator (2)\n- vitest-extension-testing (1)\n- skill-feedback-adaptation (1)\n\nOpen enrichment panel."
+    );
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-enrich-"));
+    const result = await handleHookRequest({
+      hookName: "official-skills",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { source: "startup" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).toContain("4 approved skill improvements are waiting.");
+    expect(output).toContain("skill-creator (2)");
+    expect(output).toContain("Open enrichment panel.");
+    expect(notifySuggestion).toHaveBeenCalledWith(
+      expect.stringContaining("4 approved skill improvements waiting to be applied."),
+      ["Open Enrichment Panel", "Dismiss"],
+      expect.objectContaining({ dedupeKey: expect.stringContaining("enrichment-reminder|") })
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not push a reminder or notify when there are no approved-unapplied proposals", async () => {
+    const { getApprovedUnappliedSummary } = await import("./skillEnrichmentProposal");
+    const { notifySuggestion } = await import("./userNotify");
+    vi.mocked(getApprovedUnappliedSummary).mockReturnValueOnce(null);
+    vi.mocked(notifySuggestion).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-enrich-none-"));
+    const result = await handleHookRequest({
+      hookName: "official-skills",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { source: "startup" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("approved skill improvement");
+    expect(notifySuggestion).not.toHaveBeenCalled();
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — official-skills emergency cutoff reminder
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest official-skills — emergency cutoff reminder", () => {
+  it("surfaces the reminder text and fires a notification while cutoff is active", async () => {
+    const { getActiveEmergencyCutoffReminder, formatEmergencyCutoffReminderText } =
+      await import("./emergencyCutoff");
+    const { notifySuggestion } = await import("./userNotify");
+    vi.mocked(getActiveEmergencyCutoffReminder).mockReturnValueOnce({
+      daysSinceTriggered: 33,
+      costUsd: 126.8,
+      disabledCount: 17,
+    });
+    vi.mocked(formatEmergencyCutoffReminderText).mockReturnValueOnce(
+      "[Claude Skills] Emergency cutoff still active (triggered 33 days ago at ~$126.80 spend): 17 skill(s) forced off."
+    );
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-emergency-"));
+    const result = await handleHookRequest({
+      hookName: "official-skills",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { source: "startup" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).toContain("Emergency cutoff still active");
+    expect(output).toContain("17 skill(s) forced off");
+    expect(notifySuggestion).toHaveBeenCalledWith(
+      expect.stringContaining("Emergency cutoff still active"),
+      ["Reset Emergency Cutoff", "Dismiss"],
+      expect.objectContaining({ dedupeKey: expect.stringContaining("emergency-cutoff-reminder|") })
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not push a reminder or notify when cutoff is not active", async () => {
+    const { getActiveEmergencyCutoffReminder } = await import("./emergencyCutoff");
+    const { notifySuggestion } = await import("./userNotify");
+    vi.mocked(getActiveEmergencyCutoffReminder).mockReturnValueOnce(null);
+    vi.mocked(notifySuggestion).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-emergency-none-"));
+    const result = await handleHookRequest({
+      hookName: "official-skills",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { source: "startup" },
+    });
+    const output = JSON.stringify(result);
+    expect(output).not.toContain("Emergency cutoff");
+    expect(notifySuggestion).not.toHaveBeenCalled();
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

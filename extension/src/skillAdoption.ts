@@ -501,6 +501,15 @@ export interface AdoptionFunnel {
   reuseRatePct: number;
   /** invoked / proposed */
   globalAdoptionRatePct: number;
+  /**
+   * Invocations per accepted skill (a count, not a percent — deliberately uncapped).
+   * "accepted" is recorded once per skill (first-ever acceptance), while "invoked" fires on
+   * every run, so a skill can legitimately be invoked many times per acceptance. Surfacing
+   * that ratio honestly here (instead of folding it into invocationRatePct, which is capped
+   * at 100 below) keeps the "this skill gets reused a lot" signal without it reading as an
+   * impossible percentage.
+   */
+  avgInvocationsPerAcceptedSkill: number;
   /** Composite 0-100: acceptance 30% + invocation 20% + success 30% + reuse 20%. */
   adoptionScore: number;
   hasData: boolean;
@@ -527,10 +536,15 @@ export function computeAdoptionFunnel(target: string, daysBack = 90): AdoptionFu
   const successful = count("successful");
   const reused = count("reused");
 
-  const acceptanceRatePct = pct(accepted, proposed);
-  const invocationRatePct = pct(invoked, accepted);
-  const successRatePct = pct(successful, invoked);
-  const reuseRatePct = pct(reused, successful);
+  // Rate fields are all bounded ratios of a funnel stage — cap at 100 so a skill invoked many
+  // times per acceptance (accepted is recorded once per skill; invoked fires on every run)
+  // can't render as e.g. "1150%". The uncapped signal is preserved honestly, and separately,
+  // as avgInvocationsPerAcceptedSkill below.
+  const acceptanceRatePct = cappedPct(accepted, proposed);
+  const invocationRatePct = cappedPct(invoked, accepted);
+  const successRatePct = cappedPct(successful, invoked);
+  const reuseRatePct = cappedPct(reused, successful);
+  const avgInvocationsPerAcceptedSkill = accepted > 0 ? Math.round((invoked / accepted) * 100) / 100 : 0;
   const adoptionScore = Math.round(
     cappedPct(accepted, proposed) * 0.30 +
     cappedPct(invoked, accepted) * 0.20 +
@@ -541,7 +555,8 @@ export function computeAdoptionFunnel(target: string, daysBack = 90): AdoptionFu
   return {
     daysBack, proposed, accepted, rejected, invoked, successful, reused,
     acceptanceRatePct, invocationRatePct, successRatePct, reuseRatePct,
-    globalAdoptionRatePct: pct(invoked, proposed),
+    avgInvocationsPerAcceptedSkill,
+    globalAdoptionRatePct: cappedPct(invoked, proposed),
     adoptionScore,
     hasData: events.length > 0,
   };
@@ -587,9 +602,11 @@ export function computePerSkillAdoption(target: string, daysBack = 90): SkillAdo
     out.push({
       skill,
       proposed, accepted, rejected: count("rejected"), invoked, successful, reused,
-      acceptanceRatePct: pct(accepted, proposed),
-      successRatePct: pct(successful, invoked),
-      reuseRatePct: pct(reused, successful),
+      // Capped for the same reason as computeAdoptionFunnel above: per-skill "accepted" is
+      // recorded once while "invoked" fires on every run, so an uncapped ratio can exceed 100%.
+      acceptanceRatePct: cappedPct(accepted, proposed),
+      successRatePct: cappedPct(successful, invoked),
+      reuseRatePct: cappedPct(reused, successful),
       adoptionScore: Math.round(
         cappedPct(accepted, proposed) * 0.30 +
         cappedPct(invoked, accepted) * 0.20 +
@@ -734,6 +751,8 @@ export function formatAdoptionFunnelPanelHtml(target: string, daysBack = 90): st
     <span class="val ${pctClass(funnel.successRatePct, 40, 70)}">${funnel.successRatePct}%</span></div>
   <div class="stat-pill" title="reused / successful"><b>Reuse</b>
     <span class="val ${pctClass(funnel.reuseRatePct, 20, 50)}">${funnel.reuseRatePct}%</span></div>
+  <div class="stat-pill" title="invoked / accepted, uncapped — how many times each accepted skill gets reinvoked"><b>Invocations/Accept</b>
+    <span class="val">${funnel.avgInvocationsPerAcceptedSkill}x</span></div>
 </div>`;
 
   const stages: Array<{ label: string; value: number; pctOfPrev: number }> = [

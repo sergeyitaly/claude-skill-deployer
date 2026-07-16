@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mockConfig: Record<string, Record<string, unknown>> = {
@@ -29,6 +30,7 @@ import {
   applyTaskSkillFocusFromProposals,
   taskSkillFocusEnabled,
 } from "./taskSkillFocus";
+import { applyProposedSkillsLocally } from "./sessionSkillApply";
 import { writeTaskSkillProposals } from "./taskSkillProposals";
 import { listInstalledSkills } from "./usageStats";
 
@@ -42,6 +44,16 @@ function makeWorkspace(skillNames: string[]): string {
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, "SKILL.md"), `---\nname: ${name}\n---\n`, "utf-8");
   }
+  return dir;
+}
+
+function makeGitWorkspaceWithCommittedSkills(skillNames: string[]): string {
+  const dir = makeWorkspace(skillNames);
+  execSync("git init", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.email test@test.com", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.name Test", { cwd: dir, stdio: "ignore" });
+  execSync("git add .claude", { cwd: dir, stdio: "ignore" });
+  execSync('git commit -m "seed skills"', { cwd: dir, stdio: "ignore" });
   return dir;
 }
 
@@ -110,4 +122,26 @@ describe("claudeSkills.taskFocus.enabled = false", () => {
     const focus = applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals");
     expect(focus.ignoredSkills).toContain("mcp-builder");
   });
+
+  it(
+    "applyProposedSkillsLocally() does not force-disable other branch-committed installed skills",
+    { timeout: 15000 },
+    () => {
+      // Regression: applyProposedSkillsLocally reuses applyBranchProfile's reconciliation
+      // machinery to install proposed skills. That machinery force-disables any installed,
+      // branch-committed skill outside the "desired" set — a check that never consulted
+      // taskSkillFocusEnabled() at all, so it kept reintroducing "off" overrides on every
+      // session-apply even with the master switch off.
+      const target = makeGitWorkspaceWithCommittedSkills(["mcp-builder", "github-actions-ci"]);
+
+      applyProposedSkillsLocally(
+        path.join(__dirname, "..", "skills_library"),
+        target,
+        ["mcp-builder"]
+      );
+
+      const overrides = readSkillOverrides(target);
+      expect(overrides["github-actions-ci"]).toBeUndefined();
+    }
+  );
 });

@@ -528,6 +528,61 @@ export function filterProposalsByMinConfidence(
   return proposals.filter((p) => required.has(p.name) || p.confidence >= minConfidence);
 }
 
+// ---------------------------------------------------------------------------
+// Recommendation display — SessionStart digest + prompt-time hint
+// ---------------------------------------------------------------------------
+// Both surface the SAME confidence-filtered, ranked list saved by
+// writeTaskSkillProposals() — the goal is for a normal session to actually see
+// what this engine already computes, instead of it only ever reaching
+// .claude/learning/task-skill-proposals.json.
+
+function topEligibleProposals(target: string, minConfidence: number): TaskSkillProposal[] {
+  const saved = readTaskSkillProposals(target);
+  if (!saved || saved.proposals.length === 0) return [];
+  return filterProposalsByMinConfidence(saved.proposals, minConfidence)
+    .slice()
+    .sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name));
+}
+
+/**
+ * Numbered "recommended skills" digest for SessionStart — the display this engine's
+ * output has been missing (see hookHandlers.ts:handleOfficialSkills). Skips proposals
+ * below minProposalConfidence and caps at `limit` entries.
+ */
+export function formatSessionStartSkillRecommendations(target: string, limit = 3): string {
+  const minConfidence = readTaskFocusLimits().minProposalConfidence;
+  const top = topEligibleProposals(target, minConfidence).slice(0, limit);
+  if (top.length === 0) return "";
+
+  const entries = top.map((p, i) => {
+    const reason = p.whyText || p.reason;
+    return `${i + 1}. ${p.name} (${p.confidence}%)\n   Reason: ${reason}\n\n   Invoke:\n   /${p.name}`;
+  });
+
+  return `Recommended skills for this workspace:\n\n${entries.join("\n\n")}`;
+}
+
+/**
+ * Single-line, mid-session recommendation for handlePromptContext/_detectOpportunity —
+ * the compact counterpart to formatSessionStartSkillRecommendations. Returns the
+ * highest-confidence eligible proposal not already present in `excludeNames` (used to
+ * enforce a per-session "don't repeat this skill" cooldown), or null if none qualifies.
+ */
+export function formatPromptTimeSkillRecommendation(
+  target: string,
+  excludeNames: Set<string>
+): { text: string; skillName: string } | null {
+  const minConfidence = readTaskFocusLimits().minProposalConfidence;
+  const top = topEligibleProposals(target, minConfidence).find((p) => !excludeNames.has(p.name));
+  if (!top) return null;
+
+  const reason = top.whyText || top.reason;
+  return {
+    skillName: top.name,
+    text: `[Skill Recommendation] ${top.name} (${top.confidence}%) — ${reason}. Invoke: /${top.name}`,
+  };
+}
+
 /** Rank all candidate skills for a task before capping or building option sets. */
 export function rankAllTaskSkillProposals(
   target: string,

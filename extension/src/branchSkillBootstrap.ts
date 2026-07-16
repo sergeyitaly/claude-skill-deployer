@@ -12,7 +12,7 @@ import {
   Manifest,
   removeSkill,
 } from "./skillOps";
-import { applyTaskSkillFocus } from "./taskSkillFocus";
+import { applyTaskSkillFocus, taskSkillFocusEnabled } from "./taskSkillFocus";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { computeTaskSkillProposals, writeTaskSkillProposals, TaskSkillProposalsFile } from "./taskSkillProposals";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
@@ -172,7 +172,13 @@ export function bootstrapBranchSkillSet(
   };
   writeTaskSkillProposals(target, proposalFile);
 
-  applyTaskSkillFocus(target, plan.skills, "task-skill-proposals", proposalFile.generatedAt);
+  // claudeSkills.taskFocus.enabled is the master switch for auto-disabling installed
+  // skills via skillOverrides; unlike every other applyTaskSkillFocus call site, this
+  // one used to fire unconditionally and would force-disable any installed skill the
+  // capped branch plan didn't include (e.g. mcp-builder on a "general"-flavored branch).
+  if (taskSkillFocusEnabled()) {
+    applyTaskSkillFocus(target, plan.skills, "task-skill-proposals", proposalFile.generatedAt);
+  }
 
   saveBranchProfile(target, libraryDir);
   propagateCostDisciplineToAgents(libraryDir, target);

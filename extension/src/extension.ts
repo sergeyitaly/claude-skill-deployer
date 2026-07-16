@@ -268,7 +268,6 @@ async function promptGetStarted(ctx: vscode.ExtensionContext): Promise<void> {
     await vscode.commands.executeCommand("claudeSkills.startOnboarding");
   }
 }
-import { showOnboardingTour } from "./onboarding";
 import { showOnboardingWizard } from "./onboardingWizard";
 import { formatHookStatusPlain } from "./workspaceHookStatus";
 import { assessAttributionHealth } from "./attributionQuality";
@@ -306,8 +305,6 @@ import {
   revertMcpForcePermissions,
 } from "./mcpForce";
 import { checkAndShowKpiAlert } from "./kpiAlert";
-import { getAuditExecutor, initializeAuditExecutor } from "./auditExecution";
-import { initializeAuditScheduler } from "./backgroundAuditScheduler";
 
 import {
   executeSkillSetResolution,
@@ -582,9 +579,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   outputChannel = vscode.window.createOutputChannel("Claude Skills");
   context.subscriptions.push(outputChannel);
-
-  // Initialize audit framework executor
-  initializeAuditExecutor();
 
   const provider = new SkillsProvider(libraryDir, getWorkspaceTarget);
 
@@ -1166,18 +1160,6 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       }
     });
 
-    // Initialize background audit scheduler to run compliance checks daily
-    if (initialTarget && !integrationTestMode()) {
-      try {
-        const executor = getAuditExecutor();
-        const auditScheduler = initializeAuditScheduler(executor, initialTarget, libraryDir);
-        context.subscriptions.push(auditScheduler);
-        log('Audit scheduler initialized — will run daily compliance checks.');
-      } catch (err) {
-        log(`Failed to initialize audit scheduler: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
     // Watchdog: if MCP force mode is active but MCP server becomes unreachable,
     // auto-revert permissions to prevent agents from being deadlocked.
     context.subscriptions.push(
@@ -1330,56 +1312,6 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       context,
       getTarget: getWorkspaceTarget,
       log,
-    }),
-    vscode.commands.registerCommand('claude-skills.runAuditNow', async () => {
-      const target = getWorkspaceTarget();
-      if (!target) {
-        void notifyUserWarn('Claude Skills: open a workspace folder first.');
-        return;
-      }
-      const executor = getAuditExecutor();
-      if (!executor) {
-        void notifyUserWarn('Audit framework not initialized.');
-        return;
-      }
-      try {
-        void notifyBackground('Running compliance audit...', log);
-        executor.clearCache();
-        const result = await executor.executeAudit(target, libraryDir);
-        if (result) {
-          if (result.overallStatus === 'pass') {
-            void notifyUserSuccess(`Audit passed: ${result.compliance.length} checks passed.`);
-          } else if (result.overallStatus === 'warn') {
-            void notifyUserWarn(`Audit completed with warnings: ${result.compliance.length} checks.`);
-          } else {
-            void notifyUserWarn(`Audit failed: Review compliance results.`);
-          }
-          await vscode.commands.executeCommand('claude-skills.viewAuditReport');
-        } else {
-          void notifyUserWarn('Audit returned no result.');
-        }
-      } catch (err) {
-        void notifyUserWarn(`Audit failed: ${(err as Error).message}`);
-        log(`Audit execution error: ${(err as Error).message}`);
-      }
-    }),
-    vscode.commands.registerCommand('claude-skills.viewAuditReport', async () => {
-      // Compliance audit results are shown inline in the Cost Intelligence
-      // dashboard's "Telemetry & Export" panel — no separate report file.
-      await vscode.commands.executeCommand('claudeSkills.showCostDashboard');
-    }),
-    vscode.commands.registerCommand('claude-skills.clearAuditHistory', async () => {
-      const target = getWorkspaceTarget();
-      if (!target) {
-        void notifyUserWarn('Claude Skills: open a workspace folder first.');
-        return;
-      }
-      const historyPath = `${target}/.claude/learning/auditHistory.jsonl`;
-      if (fs.existsSync(historyPath)) {
-        fs.unlinkSync(historyPath);
-        void notifyUserSuccess('Audit history cleared.');
-        log('Audit history cleared.');
-      }
     }),
   );
 

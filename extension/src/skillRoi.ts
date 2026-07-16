@@ -11,8 +11,13 @@ const TIME_SAVED_MINUTES: Record<CostEstimateTier, number> = {
   high: 15,
 };
 
-/** Skills with known high time-save impact (minutes per invocation). */
-const SKILL_MINUTES_OVERRIDES: Record<string, number> = {
+/**
+ * Skills with known high time-save impact (minutes per invocation).
+ * Canonical minutes-saved override table for the whole extension — adoptionIntelligence.ts
+ * and learningTimeline.ts both defer to this map for any skill listed here, and only fall
+ * back to their own broader/generic estimates for skills not covered by it.
+ */
+export const SKILL_MINUTES_OVERRIDES: Record<string, number> = {
   "deployment-practical": 20,
   "ci-pipeline-debug": 15,
   "terraform-plan-review": 12,

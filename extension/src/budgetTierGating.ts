@@ -1,7 +1,7 @@
 import { BudgetConfig, budgetUsagePercent, readBudgetConfig } from "./budgetConfig";
 import { disableHighTierSkills } from "./budgetOps";
 import { Manifest, readSkillOverrides, setSkillOverride } from "./skillOps";
-import { readTaskActiveSkills } from "./taskSkillFocus";
+import { readTaskActiveSkills, taskSkillFocusEnabled } from "./taskSkillFocus";
 import { readTodayCostUsd } from "./todayCostSnapshot";
 
 export interface BudgetTierGatingResult {
@@ -24,7 +24,7 @@ export function applyBudgetTierGating(
   config: BudgetConfig = readBudgetConfig()
 ): BudgetTierGatingResult {
   void manifest;
-  const todayCost = readTodayCostUsd();
+  const todayCost = readTodayCostUsd(target);
   const pct = budgetUsagePercent(todayCost, config);
   const active = activeSkillSet(target);
   const overrides = readSkillOverrides(target);
@@ -39,6 +39,15 @@ export function applyBudgetTierGating(
   }
 
   if (pct === null || !config.autoDisableHighTierOnBudgetHit) {
+    return { disabled: [] };
+  }
+
+  // These two thresholds exempt only skills in the "active task" set — a signal that
+  // task-skill-proposals/branch-bootstrap maintain. When taskFocus is off, nothing keeps
+  // that set current, so `active` degrades to a stale (or empty) snapshot and this would
+  // otherwise sweep up every high/medium-tier skill regardless of real relevance. Economy
+  // mode above is unaffected: it's an explicit, unconditional opt-in with no such signal.
+  if (!taskSkillFocusEnabled()) {
     return { disabled: [] };
   }
 

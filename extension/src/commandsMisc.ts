@@ -5,7 +5,6 @@ import { isFeatureEnabled, featureFlagLines, FeatureKey, FEATURE_DESCRIPTIONS } 
 import { readCachedEnrichedRuns } from "./runsStore";
 import { pickWorkspaceTarget, workspaceFolderLabel } from "./workspaceTarget";
 import { scanForIssues, repairIssues } from "./errorRecovery";
-import { showOnboardingTour } from "./onboarding";
 import { showOnboardingWizard } from "./onboardingWizard";
 import { recordFeatureUse } from "./analytics";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
@@ -74,11 +73,7 @@ export function registerMiscCommands(deps: MiscCommandDeps): vscode.Disposable[]
 
     vscode.commands.registerCommand("claudeSkills.manageFeatures", async () => {
       const cfg = vscode.workspace.getConfiguration("claudeSkills.features");
-      const keys: FeatureKey[] = [
-        "autoOptimizer",
-        "communityBenchmarks",
-        "prCostEstimate",
-      ];
+      const keys: FeatureKey[] = ["autoOptimizer"];
       const pick = await vscode.window.showQuickPick(
         keys.map((k) => ({
           label: k,
@@ -118,11 +113,6 @@ export function registerMiscCommands(deps: MiscCommandDeps): vscode.Disposable[]
     vscode.commands.registerCommand("claudeSkills.startOnboarding", async () => {
       recordFeatureUse("onboarding");
       await showOnboardingWizard(context, libraryDir, getTarget, refreshAll);
-    }),
-
-    vscode.commands.registerCommand("claudeSkills.startOnboardingTour", async () => {
-      recordFeatureUse("onboarding");
-      await showOnboardingTour(context);
     }),
 
     // ── Phase 9: Toggle commands (replaces enable/disable pairs) ────────────

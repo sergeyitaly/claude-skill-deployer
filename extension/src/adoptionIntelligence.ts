@@ -10,6 +10,7 @@ import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
 import { readProposalOutcomes, ProposalOutcomeRecord } from "./proposalOutcome";
 import { computePromptMetrics } from "./promptIntelligence";
+import { SKILL_MINUTES_OVERRIDES } from "./skillRoi";
 
 // ---------------------------------------------------------------------------
 // Benefit estimates by skill category
@@ -63,8 +64,14 @@ const SKILL_BENEFIT_MINUTES: Record<string, number> = {
 
 const DEFAULT_BENEFIT_MINUTES = 8;
 
+/**
+ * skillRoi.ts's SKILL_MINUTES_OVERRIDES is the canonical minutes-saved table — it wins for
+ * any skill it names (a few of these values previously disagreed with SKILL_BENEFIT_MINUTES
+ * below, e.g. ci-pipeline-debug 15 vs 25 min; skillRoi.ts's number is now authoritative).
+ * SKILL_BENEFIT_MINUTES only fills in skills that table doesn't cover.
+ */
 export function estimateBenefitMinutes(skillName: string): number {
-  return SKILL_BENEFIT_MINUTES[skillName] ?? DEFAULT_BENEFIT_MINUTES;
+  return SKILL_MINUTES_OVERRIDES[skillName] ?? SKILL_BENEFIT_MINUTES[skillName] ?? DEFAULT_BENEFIT_MINUTES;
 }
 
 // ---------------------------------------------------------------------------
@@ -685,18 +692,6 @@ export function formatAdoptionDashboardHtml(metrics: AdoptionMetrics): string {
     <b>Acceptance</b>
     <span class="val ${pctClass(metrics.acceptanceRatePct, 10, 25)}">${metrics.acceptanceRatePct}%</span>
   </div>
-  <div class="stat-pill" title="Of all proposals, what fraction led to invocation">
-    <b>Precision</b>
-    <span class="val ${pctClass(metrics.precisionPct, 15, 40)}">${metrics.precisionPct > 0 ? metrics.precisionPct + "%" : "—"}</span>
-  </div>
-  <div class="stat-pill" title="Of all skills actually used, what fraction was proposed first">
-    <b>Recall</b>
-    <span class="val ${pctClass(metrics.recallPct, 20, 50)}">${metrics.recallPct > 0 ? metrics.recallPct + "%" : "—"}</span>
-  </div>
-  <div class="stat-pill" title="Harmonic mean of Precision and Recall">
-    <b>F1</b>
-    <span class="val ${pctClass(metrics.f1Pct, 15, 35)}">${metrics.f1Pct > 0 ? metrics.f1Pct + "%" : "—"}</span>
-  </div>
   <div class="stat-pill" title="Estimated total developer time saved by skill invocations">
     <b>Time Saved</b>
     <span class="val roi-high">${metrics.totalMinutesSaved >= 60
@@ -751,11 +746,12 @@ export function formatAdoptionDashboardHtml(metrics: AdoptionMetrics): string {
     ? metrics.affinityAreas.map(a => `<span class="stat-pill" style="font-size:11px">${esc(a)}</span>`).join("")
     : `<span class="note">Builds after first few skill invocations.</span>`;
 
+  // Precision/Recall/F1 rows intentionally omitted here — the canonical figures (from
+  // skillAdoption.ts:computeRecommendationQuality) are shown once, in the Skill Adoption
+  // Funnel panel just above this one, instead of a second conflicting set of numbers.
   const targets = `<table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:4px">
   <tr><th style="text-align:left">Metric</th><th>Now</th><th>30d target</th><th>60d target</th></tr>
   <tr><td>Acceptance</td><td class="${pctClass(metrics.acceptanceRatePct,10,25)}">${metrics.acceptanceRatePct}%</td><td>15%</td><td>25%</td></tr>
-  <tr><td>Precision</td><td class="${pctClass(metrics.precisionPct,15,40)}">${metrics.precisionPct}%</td><td>25%</td><td>40%</td></tr>
-  <tr><td>F1</td><td class="${pctClass(metrics.f1Pct,15,35)}">${metrics.f1Pct}%</td><td>20%</td><td>35%</td></tr>
 </table>`;
 
   return `<div class="panel" style="margin-top:6px">

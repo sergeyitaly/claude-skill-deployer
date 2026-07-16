@@ -434,6 +434,27 @@ describe("adoption funnel", () => {
     expect(funnel.adoptionScore).toBeLessThanOrEqual(100);
   });
 
+  it("caps invocationRatePct at 100 when a skill is invoked far more than it was accepted", () => {
+    // Mirrors the real-world shape: "accepted" is recorded once per skill (first-ever
+    // acceptance), while "invoked" fires on every run — a skill invoked 23x after a single
+    // acceptance must never render as 2300%.
+    const target = makeWorkspace();
+    appendAdoptionEvents(target, [
+      { taskId: "t-0", skill: "vitest-extension-testing", event: "accepted", source: "auto" },
+      ...Array.from({ length: 23 }, (_, i) => ({
+        taskId: `t-${i}`,
+        skill: "vitest-extension-testing",
+        event: "invoked" as const,
+        source: "auto" as const,
+      })),
+    ]);
+    const funnel = computeAdoptionFunnel(target);
+    expect(funnel.accepted).toBe(1);
+    expect(funnel.invoked).toBe(23);
+    expect(funnel.invocationRatePct).toBe(100);
+    expect(funnel.avgInvocationsPerAcceptedSkill).toBe(23);
+  });
+
   it("returns zero rates with no data", () => {
     const target = makeWorkspace();
     const funnel = computeAdoptionFunnel(target);

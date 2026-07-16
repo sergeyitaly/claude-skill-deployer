@@ -12,6 +12,102 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.122
+
+### Cleared out legacy and no-op features, and stale docs describing removed ones
+
+An audit against the extension's core purpose — deploying, silently updating, and enriching skills through an MCP-log-driven coaching pipeline that saves tokens and keeps agents focused on the current task — found a handful of leftovers that no longer serve that purpose.
+
+- **The Onboarding Tour is gone.** It was already labeled "Legacy" in this README and duplicated the Setup Wizard (`Claude Skills: Open Setup Wizard`), which remains the one guided-setup flow.
+- **Two feature toggles that never did anything are gone.** `communityBenchmarks` and `prCostEstimate` appeared in Settings and the feature-toggle picker, but neither was wired to real behavior — flipping them was a no-op. The `Claude Skills: Estimate PR Review Cost` command this README described never actually existed.
+- **Stale docs for the weekly-report email feature are gone.** The feature itself was removed from the extension back in v1.0.82; this README still described its setup wizard, commands, and settings 40 releases later. A few leftover CLI scripts that depended on the deleted code (and would have failed if run) are also removed.
+
+## What's new in 1.0.121
+
+### Removed the Compliance Audit Framework
+
+This was a compliance-checklist panel buried at the very bottom of the Cost Dashboard, running a background check every day that almost nobody could find or act on — and two of its five checks (skill provenance signing, audit-export scheduling) are advanced settings that stay unconfigured for virtually all solo use, so the checklist always looked half-broken regardless of real project health.
+
+- **The Telemetry & Export panel's compliance checklist, "Run Compliance Audit" button, and daily background audit are gone.** The panel is now "Export & Maintenance" and keeps the parts people actually used: CSV telemetry export, MCP-hint auto-fixes, and clearing MCP logs.
+
+## What's new in 1.0.120
+
+### Working in more than one project no longer bleeds into another
+
+If you had more than one project open — or just switched between them — several pieces of state that should have been specific to one project were actually shared across your whole machine, so one project's activity could silently affect a completely different one.
+
+- **Opening a second project no longer revokes file access the extension granted to your first one.** The filesystem MCP server's allowed-directories list is now additive across projects instead of being overwritten every time you switch.
+- **A cost cutoff or budget warning triggered in one project can no longer disable skills in an unrelated one.** Both now track spend and cutoff state per project instead of off your total spend across everything open on the machine.
+- **CLI tool usage is now logged against the project it actually ran in**, instead of whichever project's window happened to be activated most recently.
+- **Saving a branch's skill profile from two projects at (nearly) the same time no longer loses one of the saves.**
+
+## What's new in 1.0.119
+
+### Skills that were supposed to come back on their own, stayed stuck off
+
+1.0.117 added automatic recovery for skills accidentally left switched off by old task-focus behavior — but a live check of that fix found a separate, unrelated process could immediately undo the recovery, and once that happened, the extension had already told itself the job was done and would never try again.
+
+- **Skills that 1.0.117's automatic recovery was supposed to fix now actually stay fixed.** The recovery step used to run once, report success, and lock itself out of ever retrying — even when its work got silently overwritten moments later by an unrelated background sync. It now double-checks the fix actually stuck before locking that flag, so a genuinely failed recovery gets another chance instead of being permanently forgotten.
+
+## What's new in 1.0.118
+
+### A stuck emergency cutoff won't go unnoticed anymore
+
+If the extension's emergency cost cutoff ever triggers, it used to show one dialog at the moment it fired — and nothing else after that. If you dismissed it and moved on, the skills it disabled could stay off indefinitely with no reminder they were even affected by it.
+
+- **Emergency cutoff now reminds you every session it's still active** — how long it's been, what it cost when it triggered, and how many skills are off — with a one-click "Reset Emergency Cutoff" action. It never resets itself automatically; you decide when the situation that triggered it is actually resolved.
+
+## What's new in 1.0.117
+
+### Skills stuck off by old task-focus behavior now come back on their own
+
+If a skill got switched off by a task-focus bug from before 1.0.116 — or by any path the extension didn't yet track — turning task-focus back off wouldn't restore it, because the extension's only memory of "why is this off" could itself go stale. There was no way to tell a leftover bug artifact apart from a skill you'd deliberately disabled.
+
+- **Skills stuck off by old task-focus behavior are now restored automatically**, once, the next time task-focus is off. The extension now keeps its own durable record of exactly which skills it disabled, separate from unrelated reasons a skill might be off (an emergency cost cutoff, budget/economy mode) — so this cleanup only ever touches overrides it actually owns, and never repeats once it's run for a workspace.
+
+## What's new in 1.0.116
+
+### A second place skills could get silently switched off, closed
+
+1.0.115 fixed the task-focus setting so it stopped one code path from disabling relevant skills. A closer look found a second, separate path with the same effect — one that had nothing to do with the setting at all.
+
+- **Installing a proposed skill no longer silently turns off your other relevant skills.** Applying a new session's top skill proposals reused the same machinery that reconciles skills when you switch git branches — which is designed to disable anything not in the new branch's remembered set. That's correct when switching branches, but wrong for "here are today's top 3 proposals": it was turning off every other relevant, already-installed skill in the process, regardless of the task-focus setting. It no longer does that.
+- **Turning task-focus off now also undoes what it previously turned off**, instead of just stopping new changes going forward.
+
+## What's new in 1.0.115
+
+### Relevant skills stay enabled, and carry forward across sessions
+
+Skills that clearly matched your project — MCP-related skills, CI/publishing skills, etc. — could get silently switched off by the extension's own task-focus and budget logic, with no way to tell the difference from a skill you'd deliberately turned off. And when you picked up the same task in a new chat session, the extension wasn't consistently re-applying or re-explaining which skills were relevant.
+
+- **Relevant skills no longer get force-disabled on a new branch.** Bootstrapping skills for a new branch could turn off every installed skill that didn't make a small "active" cap — even ones that clearly matched your project — regardless of your task-focus setting. It now respects that setting.
+- **Budget-based skill disabling no longer runs on stale data.** When daily-budget-based skill disabling is enabled, it used to rely on a snapshot of "currently relevant skills" that stops updating once task-focus is off, so it could end up disabling anything outside an old, frozen list. It now skips that check under the same condition.
+- **A new session now actually applies and explains your current skill focus**, instead of only showing a stale recommendation. If you're mid-task across multiple sessions, the extension re-syncs which skills are active for that task — using accumulated signal including MCP tool-usage history — right at session start.
+
+## What's new in 1.0.114
+
+### Recommendations you can actually see, and enrichments that don't get forgotten
+
+The extension was already computing good skill recommendations and mining useful SKILL.md improvements — they just weren't reaching you. Both now do.
+
+- **Recommended skills now show up when a session starts.** You'll see a short numbered list — skill, confidence, why it was suggested, and the exact `/skill-name` command to invoke it — instead of that information only ever sitting in a file you'd have to go find.
+- **Mid-session hints now use the same real recommendation engine**, not a separate, cruder keyword guess — and won't repeat the same suggestion more than once per session.
+- **Approved skill improvements no longer get forgotten.** If you've approved an enrichment proposal but haven't applied it yet, you'll now get a reminder — with the count and which skills are affected — plus a notification with a one-click "Open Enrichment Panel" button.
+- **The dashboard's enrichment count is now actionable.** "4 approved" is now "4 approved — Apply now," and clicking it opens the enrichment panel directly.
+- Fixed a bug where an already-applied enrichment could get proposed again after re-running the enrichment pipeline.
+
+## What's new in 1.0.113
+
+### Dashboard numbers you can trust
+
+A full audit of the Learning Dashboard and Cost Dashboard turned up metrics that were fabricated, mislabeled, or disagreed with each other depending on which panel you looked at. Every finding is fixed.
+
+- **No more fake "100%" KPIs.** The Skill Runs success rate, Skill Adoption success rate, and Hook Health write/failure rates used to show hardcoded 100%/0% regardless of your actual data — they now compute from your real skill and hook telemetry.
+- **ROI is now always shown as a multiple (e.g. "84x"), never mislabeled as a percent.** The Learning Dashboard previously showed the same ROI figure as "84%" where the Cost Dashboard correctly showed "84x" — both now agree, with color bands driven by the real HIGH/MEDIUM/LOW rating.
+- **Adoption funnel percentages can no longer exceed 100%.** A skill invoked many times after a single acceptance used to show impossible rates like 1150% invocation — now capped at 100%, with a new honest "invocations per acceptance" figure alongside it for skills you use a lot.
+- **One Precision/Recall/F1, not four disagreeing ones.** The Cost Dashboard's Adoption Funnel, Prediction Intelligence, and Executive Summary panels used to each compute their own version of these numbers; they now all read from the same source, so the numbers agree wherever you see them.
+- Both dashboards now read the adoption funnel from the same precomputed file, so the static Learning Dashboard and the VS Code Cost Dashboard always show matching figures.
+
 ## What's new in 1.0.111
 
 ### Reliability fixes for the "quiet" skill self-update pipeline
@@ -647,7 +743,7 @@ Each sync cycle: **collect** (transcripts â†’ `cost-attribution.json`) â�
 
 | Roadmap item | Status (v1.0.20) |
 |---|---|
-| **Confidence everywhere** | Usage Report rows + trust banner; weekly report; predictive alerts; pipeline trace |
+| **Confidence everywhere** | Usage Report rows + trust banner; predictive alerts; pipeline trace |
 | **In-memory index** | Runs cache + derived v2 stats; transcript credit cache (mtime fingerprint) |
 | **Real-time optimizer** | `autoDetectOnPipeline` â€” debounced auto-apply after pipeline when `autoApply` is on |
 
@@ -724,46 +820,9 @@ Profile-init local files â€” see [Profile init](#profile-init-role--branch-
 | `Claude Skills: Cycle Skill Sort (ROI / Cost)` | Sort skills tree by relevance, lowest cost, highest ROI, or best value. |
 | `Claude Skills: Reset Emergency Cost Cutoff` | Re-enable skills after hard daily limit triggered. |
 | `Claude Skills: Restore Archived Skill` | Move skill back from `.claude/skills-archived/`. |
-| `Claude Skills: Estimate PR Review Cost` | PR cost estimate via `gh` (feature `prCostEstimate`). |
-| `Claude Skills: Configure Weekly Report Email` | One-time setup: GitHub/GitLab token finds your inbox, SMTP sends the report. |
-| `Claude Skills: Send Weekly AI Usage Report` | Sends benefits + cost summary now (test) or waits for Monday 9:00 schedule. |
-
-### Weekly benefits report (informative email)
-
-When `claudeSkills.weeklyReport.enabled` is on (default), the extension checks every 15 minutes while VS Code/Cursor is open. On the configured day (default **Monday 9:00** local), it sends a plain **informative email** with **extension benefits from your logs** (`runs.jsonl`, `project-profile.json`, attribution) plus AI spend â€” no GitHub/GitLab issues.
-
-The email leads with:
-
-- **Project tier** â€” capability %, overhead saved vs full stack, net benefit index
-- **Skill outcomes** â€” success rate, hook-tracked invocations, reliable vs failing skills
-- **Cross-agent value** â€” measured Cursor savings and multi-agent skill usage
-- **AI usage & spend** â€” weekly tokens/cost, agent breakdown, top skills (as before)
-
-**One-time setup**
-
-1. Open a workspace with a GitHub or GitLab `origin` remote.
-2. Run **Configure Weekly Report Email** (sidebar key icon or Command Palette).
-3. Paste a **personal access token** (stored in VS Code Secret Storage â€” not in `settings.json`), or reuse `gh auth login` / `GITLAB_TOKEN`.
-4. Complete **SMTP** (Gmail app password, Microsoft 365, or custom). Also stored in secrets.
-
-Full token types, scopes, and settings table: see [Weekly AI usage report in the repo README](../README.md#weekly-ai-usage-report-extension).
-
-**GitHub PAT (minimum scopes):** `read:user`, `user:email` (classic) or fine-grained with **Email addresses: Read** + **Profile: Read**. `repo` is not required.
-
-**GitLab PAT (minimum scope):** `read_user`.
-
-**SMTP is required** â€” the git token finds your address; SMTP sends the mail.
-
-**Prerequisites**
-
-1. One-time **Configure Weekly Report Email** (PAT + SMTP).
-2. VS Code/Cursor open at the scheduled time, or run **Send Weekly AI Usage Report** manually.
-
-Advanced: `claudeSkills.weeklyReport.emailTo` or `CLAUDE_SKILLS_SMTP_*` env vars instead of the wizard.
-
 ### Settings highlights
 
-Find all options under **Settings â†’ Extensions â†’ Claude Skills Manager** (or search `@ext:serhiivoinolovych.claude-skill-deployer`). Sections: Budget, Skill feedback & proposals, Agents, Features, Lint, Optimizer, Weekly Report, and more.
+Find all options under **Settings â†’ Extensions â†’ Claude Skills Manager** (or search `@ext:serhiivoinolovych.claude-skill-deployer`). Sections: Budget, Skill feedback & proposals, Agents, Features, Lint, Optimizer, and more.
 
 | Setting | Default | Purpose |
 |---|---|---|
@@ -790,12 +849,8 @@ Find all options under **Settings â†’ Extensions â†’ Claude Skills Man
 | `claudeSkills.features.costIntelligence` | `true` | Dashboard, suggestions, export |
 | `claudeSkills.features.predictiveAlerts` | `true` | Workspace spend vs weekly budget warning (sanitized WoW trend) |
 | `claudeSkills.features.emergencyCutoff` | `true` | Hard daily limit (`claudeSkills.emergency.hardLimitUsd`, default $10) |
-| `claudeSkills.features.communityBenchmarks` | `false` | Opt-in community benchmarks |
 | `claudeSkills.features.sessionSkillAdaptation` | `true` | Auto install/enable proposed skills on new agent session or window |
 | `claudeSkills.optimizer.autoApply` | `false` | Auto-disable expensive idle skills |
-| `claudeSkills.weeklyReport.enabled` | `true` | Monday-morning AI usage report (local time) |
-| `claudeSkills.weeklyReport.dayOfWeek` | `1` | 0=Sun, 1=Mon, â€¦ |
-| `claudeSkills.weeklyReport.hour` | `9` | Local hour |
 | `claudeSkills.search.sortBy` | `relevance` | `lowest_cost`, `highest_roi`, `best_value` |
 
 **Pricing overrides** â€” not a VS Code setting; optional file `.claude/learning/pricing-overrides.json` (see [Cost intelligence](#cost-intelligence--finops-v1017)).
@@ -809,7 +864,6 @@ All results are logged to the **"Claude Skills"** output channel.
 | Command | Purpose |
 |---|---|
 | `Claude Skills: Open Setup Wizard` | WebView checklist: verify global + workspace install, then optional cost features |
-| `Claude Skills: Start Onboarding Tour (step prompts)` | Legacy step-by-step toast tour |
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL, create missing dirs |
 | `Claude Skills: Reset Mis-attributed Cost Data` | Removes legacy equal-split transcript rows from `runs.jsonl` and clears stale `transcriptSkills`; run once after upgrade if Skills detail shows inflated token counts |
 

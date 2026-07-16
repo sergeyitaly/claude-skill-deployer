@@ -184,7 +184,7 @@ async function loadAll() {
     coachState, hookText, costAttrib, teamEcon,
     hotFiles, proposalText, attrTrust, sysState,
     taskDrift, dailyStats, feedbackText, coachEvents,
-    enrichText, contextLog
+    enrichText, contextLog, adoptionSummary
   ] = await Promise.all([
     safeFetch('hace-sessions.jsonl','text'),
     safeFetch('skill-stats.json'),
@@ -204,6 +204,10 @@ async function loadAll() {
     safeFetch('coaching-events.jsonl','text'),
     safeFetch('skill-enrichment-proposals.jsonl','text'),
     safeFetch('context-advisor-log.jsonl','text'),
+    // Canonical skill-adoption funnel + precision/recall/F1, precomputed once by the
+    // extension (dashboardPrecompute.ts:writeAdoptionFunnelSummary) from skillAdoption.ts —
+    // read here instead of reimplementing the funnel math client-side.
+    safeFetch('adoption-funnel-summary.json'),
   ]);
 
   const hace = parseJsonl(haceText);
@@ -218,7 +222,7 @@ async function loadAll() {
   return {
     hace, prompts, hooks, proposals, feedback, coachEvts, enrichProps, ctxLog,
     skillStats, skillProfile, coachState, costAttrib, teamEcon,
-    hotFiles, attrTrust, sysState, taskDrift, dailyStats
+    hotFiles, attrTrust, sysState, taskDrift, dailyStats, adoptionSummary
   };
 }
 
@@ -243,6 +247,10 @@ function compute(d) {
   const hookFires = d.hooks.length;
   const hookBySkill = {};
   d.hooks.forEach(h=>{hookBySkill[h.skill]=(hookBySkill[h.skill]||0)+1});
+  // Real write/failure rate (was previously hardcoded 100%/0% in the Hook Health panel)
+  const hooksWithSkill = d.hooks.filter(h=>h.skill!==null).length;
+  const hooksWritten = d.hooks.filter(h=>h.skill!==null && h.wrote_runs).length;
+  const writeRate = hooksWithSkill > 0 ? Math.round(hooksWritten/hooksWithSkill*100) : 100;
 
   // Skills — merge skill-stats (source of truth for runs/cost) with skill-profile (qualityScore, avgTokens)
   const ss = d.skillStats?.skills || {};
@@ -262,6 +270,9 @@ function compute(d) {
   const unused = Object.values(ss).filter(s => !s.runs);
   const totalRuns = active.reduce((s,x) => s + x.runs, 0);
   const totalCost = active.reduce((s,x) => s + (x.totalCost || 0), 0);
+  // Real success aggregate (was previously a hardcoded "100%" in two KPIs below)
+  const totalSuccesses = active.reduce((s,x) => s + (x.successCount || 0), 0);
+  const overallSuccessPct = totalRuns > 0 ? Math.round(totalSuccesses/totalRuns*100) : 100;
 
   // Proposal acceptance
   const sessWithInvoke = d.proposals.filter(p => p.skills_invoked_count > 0).length;
@@ -283,8 +294,9 @@ function compute(d) {
   const wastedTokens = d.hotFiles?.totalWastedTokens || 0;
   const topWaste = (d.hotFiles?.files||[]).slice(0,8);
 
-  // ROI
+  // ROI — netRoi is a MULTIPLE (e.g. 4 means "4x"), not a percent; render with roiBand, not raw thresholds
   const roi = d.teamEcon?.teamEconomics?.netRoi || 0;
+  const roiBand = d.teamEcon?.teamEconomics?.netRoiBand || 'LOW';
   const estValue = d.teamEcon?.teamEconomics?.estimatedValueUsd || 0;
   const wsCost = d.teamEcon?.teamEconomics?.workspaceCostUsd || 0;
   const minSaved = d.teamEcon?.teamEconomics?.estimatedMinutesSaved || 0;
@@ -303,6 +315,12 @@ function compute(d) {
   // Enrichment
   const enrichPatterns = [...new Set(d.enrichProps.map(e=>e.patternLabel))];
 
+  // Canonical adoption funnel (shared with the VS Code Cost Dashboard — see
+  // dashboardPrecompute.ts:writeAdoptionFunnelSummary). Absent until the first pipeline
+  // cycle after this feature ships; every read below is optional-chained accordingly.
+  const adoptionFunnel = d.adoptionSummary?.funnel || null;
+  const adoptionQuality = d.adoptionSummary?.quality || null;
+
   // Grade computation
   const haceScore = latestH.haceScore || 0;
   const agentGrade = haceScore>=70?'A':haceScore>=55?'B':haceScore>=40?'C':haceScore>=25?'D':'F';
@@ -310,16 +328,16 @@ function compute(d) {
   const learnGrade = enrichPatterns.length>=3?'A':enrichPatterns.length>=1?'B':coach.improvedCount>0?'C':'D';
   const dormPct = unused.length/(active.length+unused.length||1)*100;
   const debtGrade = (wastedTokens>2000000||dormPct>75)?'D':(wastedTokens>500000||dormPct>50)?'C':'B';
-  const matGrade = roi>=70?'A':roi>=50?'B':roi>=25?'C':'D';
+  const matGrade = roiBand==='HIGH'?'A':roiBand==='MEDIUM'?'B':'D';
 
   return {
     latestH, firstH, scores, avgScore, topAP,
-    coach, hookFires, hookBySkill,
-    active, unused, totalRuns, totalCost,
+    coach, hookFires, hookBySkill, hooksWithSkill, hooksWritten, writeRate,
+    active, unused, totalRuns, totalCost, totalSuccesses, overallSuccessPct,
     sessWithInvoke, sessTotal, topIgnored,
-    wastedTokens, topWaste, roi, estValue, wsCost, minSaved,
+    wastedTokens, topWaste, roi, roiBand, estValue, wsCost, minSaved,
     trustPct, trustLevel, followed, ctxSaved, days,
-    enrichPatterns,
+    enrichPatterns, adoptionFunnel, adoptionQuality,
     agentGrade, telGrade, learnGrade, debtGrade, matGrade,
     hace: d.hace, hooks: d.hooks, enrichProps: d.enrichProps
   };
@@ -379,7 +397,7 @@ function renderHeader(m, ts) {
     <span class="badge" style="background:rgba(88,166,255,.1);color:var(--blue);border:1px solid rgba(88,166,255,.3)">HACE <b style="color:${haceColor}">${m.latestH.haceScore||'—'}</b></span>
     <span class="badge b-grey">🔄 ${m.totalRuns} skill runs</span>
     <span class="badge ${m.wastedTokens>1000000?'b-red':'b-yellow'}">⚠ ${(m.wastedTokens/1e6).toFixed(1)}M wasted tokens</span>
-    <span class="badge ${m.roi>=60?'b-green':'b-yellow'}">ROI ${m.roi}%</span>
+    <span class="badge ${m.roiBand==='HIGH'?'b-green':m.roiBand==='MEDIUM'?'b-yellow':'b-red'}">ROI ${m.roi}x</span>
     <span class="badge b-grey">Hook trust ${m.trustPct}%</span>
   </div>`;
 }
@@ -392,13 +410,13 @@ function renderGrades(m) {
       ${gradeCard(m.telGrade, 'Telemetry Health', `${m.trustPct}% hook trust · pipeline healthy`)}
       ${gradeCard(m.learnGrade, 'Learning Quality', `${m.enrichPatterns.length} pattern(s) discovered`)}
       ${gradeCard(m.debtGrade, 'Technical Debt', `${(m.wastedTokens/1e6).toFixed(1)}M wasted · ${m.unused.length}/${m.active.length+m.unused.length} skills unused`)}
-      ${gradeCard(m.matGrade, 'Product Maturity', `${m.roi}% ROI · ${m.active.length} active skills`)}
+      ${gradeCard(m.matGrade, 'Product Maturity', `${m.roi}x ROI · ${m.active.length} active skills`)}
     </div>
     <div class="grid g4 mb12">
       ${kpi(`<span class="${color(m.latestH.haceScore||0,60,40)==='var(--green)'?'c-green':color(m.latestH.haceScore||0,60,40)==='var(--yellow)'?'c-yellow':'c-red'}">${m.latestH.haceScore||'—'}</span>`,'HACE Score',`${delta(m.latestH.haceScore||0, m.firstH.haceScore||0)} from baseline`)}
-      ${kpi(`<span class="${m.totalRuns>0?'c-green':'c-muted'}">${m.totalRuns}</span>`,'Skill Runs','100% success rate')}
+      ${kpi(`<span class="${m.totalRuns>0?'c-green':'c-muted'}">${m.totalRuns}</span>`,'Skill Runs',`${m.overallSuccessPct}% success rate`)}
       ${kpi(`<span class="${m.wastedTokens>2e6?'c-red':m.wastedTokens>500000?'c-yellow':'c-green'}">${(m.wastedTokens/1e6).toFixed(1)}M</span>`,'Wasted Tokens','redundant file reads')}
-      ${kpi(`<span class="${m.roi>=60?'c-green':m.roi>=30?'c-yellow':'c-red'}">$${m.wsCost.toFixed(2)}</span>`,'Workspace Cost',`ROI ${m.roi}% · ${m.roi>=60?'HIGH':'MED'} band`)}
+      ${kpi(`<span class="${m.roiBand==='HIGH'?'c-green':m.roiBand==='MEDIUM'?'c-yellow':'c-red'}">${m.wsCost.toFixed(2)}</span>`,'Workspace Cost',`ROI ${m.roi}x · ${m.roiBand} band`)}
     </div>
   </div>`;
 }
@@ -522,7 +540,7 @@ function renderSkills(m) {
     <div class="grid g4 mb12">
       ${kpi(`<span class="c-green">${m.active.length}</span>`,'Active Skills',`of ${m.active.length+m.unused.length} installed`)}
       ${kpi(`<span class="c-red">${m.unused.length}</span>`,'Unused Skills',`${Math.round(m.unused.length/(m.active.length+m.unused.length||1)*100)}% dormancy`)}
-      ${kpi('<span class="c-green">100%</span>','Success Rate',`${m.totalRuns} runs · all succeeded`)}
+      ${kpi(`<span class="${m.overallSuccessPct>=90?'c-green':m.overallSuccessPct>=70?'c-yellow':'c-red'}">${m.overallSuccessPct}%</span>`,'Success Rate',`${m.totalSuccesses}/${m.totalRuns} runs succeeded`)}
       ${kpi(`<span class="${sessAccept>=40?'c-green':sessAccept>=20?'c-yellow':'c-red'}">${sessAccept}%</span>`,'Session Acceptance',`${m.sessWithInvoke}/${m.sessTotal} sessions`)}
     </div>
     <details open>
@@ -551,6 +569,26 @@ function renderSkills(m) {
       <summary>Dormant Skills (${m.unused.length} unused)</summary>
       <div class="d-body mt8">
         <div class="pill-list">${dormantPills||'<span class="c-dim xs">None</span>'}</div>
+      </div>
+    </details>
+    <details>
+      <summary>Recommendation Funnel (canonical)</summary>
+      <div class="d-body mt8">
+        ${m.adoptionFunnel ? `
+        <div class="row mb12" style="gap:8px;flex-wrap:wrap">
+          <span class="badge b-grey">Proposed ${m.adoptionFunnel.proposed}</span>
+          <span class="badge b-grey">Accepted ${m.adoptionFunnel.accepted}</span>
+          <span class="badge b-grey">Invoked ${m.adoptionFunnel.invoked}</span>
+          <span class="badge b-grey">Successful ${m.adoptionFunnel.successful}</span>
+          <span class="badge b-grey">Reused ${m.adoptionFunnel.reused}</span>
+        </div>
+        <div class="row mb8" style="gap:8px;flex-wrap:wrap">
+          <span class="badge b-green">Precision ${m.adoptionQuality?.precisionPct ?? 0}%</span>
+          <span class="badge b-green">Recall ${m.adoptionQuality?.recallPct ?? 0}%</span>
+          <span class="badge b-green">F1 ${m.adoptionQuality?.f1Pct ?? 0}%</span>
+        </div>
+        <div class="xs c-dim">Same figures as the VS Code Cost Dashboard's Skill Adoption Funnel panel — one funnel (skillAdoption.ts), read here from the precomputed adoption-funnel-summary.json instead of "Session Acceptance" above, which is a separate, session-level metric.</div>
+        ` : `<p class="c-dim xs">No adoption-funnel-summary.json yet — populates after the next pipeline cycle.</p>`}
       </div>
     </details>
   </div>`;
@@ -633,7 +671,7 @@ function renderCost(m) {
     <div class="sh"><span class="sn">5</span><h2>Cost Intelligence</h2></div>
     <div class="grid g4 mb12">
       ${kpi(`<span class="c-yellow">${fmtCost(m.wsCost)}</span>`,'Workspace Cost',`${m.totalRuns} skill runs`)}
-      ${kpi(`<span class="${m.roi>=60?'c-green':m.roi>=30?'c-yellow':'c-red'}">${m.roi}%</span>`,'Net ROI',`${m.roi>=60?'HIGH band':'MED band'} · $${m.estValue} value`)}
+      ${kpi(`<span class="${m.roiBand==='HIGH'?'c-green':m.roiBand==='MEDIUM'?'c-yellow':'c-red'}">${m.roi}x</span>`,'Net ROI',`${m.roiBand} band · ${m.estValue} value`)}
       ${kpi(`<span class="c-green">${m.minSaved} min</span>`,'Time Saved','estimated across all runs')}
       ${kpi(`<span class="c-blue">${m.trustPct}%</span>`,`Attribution Trust`,`${m.trustLevel} tier`)}
     </div>
@@ -713,8 +751,8 @@ function renderHooks(m) {
     <div class="sh"><span class="sn">7</span><h2>Hook Health</h2></div>
     <div class="grid g4 mb12">
       ${kpi(`<span class="c-green">${m.hookFires}</span>`,'Total Hook Fires',`last ${m.hooks.length} recorded`)}
-      ${kpi(`<span class="c-green">100%</span>`,'Write Rate','all hooks wrote to runs.jsonl')}
-      ${kpi('<span class="c-green">0%</span>','Failure Rate','no failed hooks')}
+      ${kpi(`<span class="${m.writeRate>=95?'c-green':m.writeRate>=70?'c-yellow':'c-red'}">${m.writeRate}%</span>`,'Write Rate',`${m.hooksWritten}/${m.hooksWithSkill} wrote to runs.jsonl`)}
+      ${kpi(`<span class="${(100-m.writeRate)===0?'c-green':(100-m.writeRate)<=30?'c-yellow':'c-red'}">${100-m.writeRate}%</span>`,'Failure Rate','hooks that fired but did not write')}
       ${kpi(`<span class="${color(m.trustPct,80,60)}">${m.trustPct}%</span>`,'Trust Score',`${m.trustLevel} tier`)}
     </div>
     <div class="grid g2">

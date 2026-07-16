@@ -301,7 +301,9 @@ export function registerProfileCommands(deps: ProfileCommandDeps): vscode.Dispos
         vscode.window.showWarningMessage(`Claude Skills: no saved profile for branch "${branch}".`);
         return;
       }
-      const result = applyBranchProfile(libraryDir, target, profile);
+      // Explicit user action — restore the saved profile in full regardless of
+      // claudeSkills.taskFocus.enabled (which only gates automatic/background reapplication).
+      const result = applyBranchProfile(libraryDir, target, profile, { disableUndesired: true });
       maybeRevealOutputPanel();
       log(`\n=== Apply branch profile -> ${branch} ===`);
       log(`Installed: ${result.installed.join(", ") || "(none)"}`);

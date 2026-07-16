@@ -639,14 +639,10 @@ export function tierFeaturePreset(
     case "throwaway":
       return {
         autoOptimizer: false,
-        communityBenchmarks: false,
-        prCostEstimate: false,
       };
     case "solo-dev":
       return {
         autoOptimizer: false,
-        communityBenchmarks: false,
-        prCostEstimate: false,
       };
     case "team-multi-agent":
       return {
@@ -659,8 +655,6 @@ export function tierFeaturePreset(
     case "enterprise":
       return {
         autoOptimizer: false,
-        communityBenchmarks: false,
-        prCostEstimate: false,
       };
     default:
       return {};
@@ -963,7 +957,7 @@ export function formatProjectProfileSummary(profile: ProjectProfileFile): string
     `Team (30d): ${s.teamSize} (${effectiveAuthorCount30d(s)} authors)`,
     s.remoteOriginUrl ? `Origin: ${s.remoteOriginUrl} (${s.remoteProbeSource})` : undefined,
     profile.userPlan ? `Plan: ${profile.userPlan}` : undefined,
-    `Features: autoOptimizer=${on("autoOptimizer") ? "on" : "off"}, communityBenchmarks=${on("communityBenchmarks") ? "on" : "off"}, prCostEstimate=${on("prCostEstimate") ? "on" : "off"}`,
+    `Features: autoOptimizer=${on("autoOptimizer") ? "on" : "off"}`,
   ].filter((l): l is string => Boolean(l));
   return lines.join("\n");
 }
@@ -1010,18 +1004,12 @@ export const PROFILE_TYPE_BADGE: Record<ProjectProfileType, string> = {
   throwaway: "THROWAWAY",
 };
 
-export const TIER_FEATURE_KEYS = [
-  "autoOptimizer",
-  "communityBenchmarks",
-  "prCostEstimate",
-] as const satisfies readonly FeatureKey[];
+export const TIER_FEATURE_KEYS = ["autoOptimizer"] as const satisfies readonly FeatureKey[];
 
 export type TierUiFeatureKey = (typeof TIER_FEATURE_KEYS)[number];
 
 export const TIER_FEATURE_LABELS: Record<TierUiFeatureKey, string> = {
   autoOptimizer: "Auto-optimizer",
-  communityBenchmarks: "Community benchmarks",
-  prCostEstimate: "PR cost estimate",
 };
 
 export const TIER_MONTHLY_OVERHEAD_USD: Record<ProjectProfileType, number> = {

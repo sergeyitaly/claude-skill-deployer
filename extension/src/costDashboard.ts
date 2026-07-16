@@ -31,22 +31,20 @@ import {
   topSkillsFromRuns,
 } from "./skillCostFromRuns";
 import { computeEfficiencyMetrics, formatEfficiencyPanelHtml } from "./efficiencyMetrics";
-import { computeHaceMetrics, formatHacePanelHtml } from "./haceMetrics";
 import { computeApiScore } from "./agentPerformanceIndex";
 import { buildLearningTimeline, formatLearningTimelineHtml } from "./learningTimeline";
 import { readAdaptationLog, formatAdaptationTimelineHtml } from "./adaptationLog";
-import { computeProposalFunnel, formatProposalFunnelHtml } from "./proposalOutcome";
+import { computeProposalFunnel } from "./proposalOutcome";
 import { computeHookHealthSummary, formatHookHealthHtml } from "./hookHealth";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { resolveAdaptations } from "./adaptationEffectiveness";
 import { computeAdoptionMetrics, formatAdoptionDashboardHtml, formatAdoptionCoachHtml, formatSkillHealthCard } from "./adoptionIntelligence";
-import { formatAdoptionFunnelPanelHtml } from "./skillAdoption";
+import { formatAdoptionFunnelPanelHtml, computeRecommendationQuality } from "./skillAdoption";
 import { formatEnrichmentIntelligencePanelHtml } from "./enrichmentIntelligence";
 import { formatWorkspaceIntelligencePanelHtml } from "./workspaceAffinity";
 import { formatSkillLifecyclePanelHtml } from "./skillLifecycleIntelligence";
 import { getSkillEvolution } from "./skillEnrichment";
 import { formatEnrichmentSummaryHtml } from "./skillEnrichmentProposal";
-import { AuditResult, tryGetAuditExecutor } from "./auditExecution";
 import { isFeatureAvailable } from "./featureMode";
 import { formatPromptIntelligencePanelHtml } from "./promptIntelligence";
 import { buildCoachingReport, formatCoachingReportHtml } from "./haceCoaching";
@@ -272,11 +270,16 @@ function buildPredictionIntelligenceHtml(
   for (const r of runs) usedSkills.set(r.skill, (usedSkills.get(r.skill) ?? 0) + 1);
 
   const proposedNames = new Set(proposals.map((p) => p.name));
-  let hits = 0;
-  for (const name of usedSkills.keys()) if (proposedNames.has(name)) hits++;
-  const precision = proposedNames.size > 0 ? Math.round((hits / proposedNames.size) * 100) : 0;
-  const recall    = usedSkills.size > 0     ? Math.round((hits / usedSkills.size) * 100)    : 0;
-  const f1 = precision + recall > 0 ? Math.round((2 * precision * recall) / (precision + recall)) : 0;
+
+  // Canonical precision/recall/F1 (skillAdoption.ts:computeRecommendationQuality) — this used
+  // to be a fourth, independently-coded calculation here, disagreeing with the numbers shown
+  // elsewhere on this same dashboard page. The over/under-predicted tables below still use
+  // their own point-in-time proposal-vs-usage comparison, which is genuinely unique content,
+  // not a duplicate metric.
+  const quality = computeRecommendationQuality(target);
+  const precision = quality.precisionPct;
+  const recall = quality.recallPct;
+  const f1 = quality.f1Pct;
 
   const overPredicted = proposals
     .filter((p) => !usedSkills.has(p.name))
@@ -314,58 +317,6 @@ ${overRows ? `<p class="note" style="margin:8px 0 2px"><b>Over-predicted (0 uses
   ${overRows}
 </table>
 <p class="note" style="margin-top:4px">Catch-all glob cap (v1.0.84) reduces false positives going forward.</p>` : ""}`;
-}
-
-// ---------------------------------------------------------------------------
-// Governance Panel
-// ---------------------------------------------------------------------------
-
-function buildGovernancePanelHtml(target: string, auditResult?: AuditResult): string {
-  const runsFile = path.join(target, ".claude", "learning", "runs.jsonl");
-  const mcpFile  = path.join(target, ".claude", "mcp-usage.jsonl");
-  const trustFile = path.join(target, ".claude", "learning", "attribution-trust.json");
-
-  let runsSize = 0, mcpSize = 0, attrPct = 0, runCount = 0;
-  try { const s = fs.statSync(runsFile); runsSize = s.size; } catch { /* */ }
-  try { const s = fs.statSync(mcpFile); mcpSize = s.size; } catch { /* */ }
-  try {
-    const t = JSON.parse(fs.readFileSync(trustFile, "utf-8")) as { scorePct?: number };
-    attrPct = Math.round(t.scorePct ?? 0);
-  } catch { /* */ }
-  try {
-    runCount = fs.readFileSync(runsFile, "utf-8").split("\n").filter(Boolean).length;
-  } catch { /* */ }
-
-  const kb = (b: number) => b >= 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} B`;
-
-  // Build compliance checks — use audit results if available, otherwise fallback to defaults
-  let checks = [
-    { ok: true,  label: "Telemetry is local-only (no cloud egress)" },
-    { ok: true,  label: "No prompt content stored in runs.jsonl" },
-    { ok: attrPct >= 80, label: `Attribution confidence ≥80% (current: ${attrPct}%)` },
-    { ok: false, label: "Skill provenance (author + signedAt) not configured" },
-    { ok: false, label: "Audit export not scheduled" },
-  ];
-
-  if (auditResult) {
-    checks = auditResult.compliance || checks;
-  }
-
-  const checkItems = checks.map((c) =>
-    `<li>${c.ok ? "☑" : "☐"} ${escapeHtml(c.label)}</li>`
-  ).join("");
-
-  const auditStatus = auditResult ? `<p class="note" style="margin:8px 0 2px;font-size:11px">Last audit: ${new Date(auditResult.timestamp).toLocaleString()} · Status: <b>${auditResult.overallStatus.toUpperCase()}</b></p>` : "";
-
-  return `<div class="stat-grid" style="margin-bottom:8px">
-  <div class="stat-pill"><b>runs.jsonl</b><span class="val">${runCount} records · ${kb(runsSize)}</span></div>
-  <div class="stat-pill"><b>mcp-usage.jsonl</b><span class="val">${kb(mcpSize)}</span></div>
-  <div class="stat-pill"><b>Attribution</b><span class="val ${attrPct >= 80 ? "roi-high" : "roi-low"}">${attrPct}%</span></div>
-  <div class="stat-pill"><b>Provenance</b><span class="val ${auditResult?.provenance.configured ? "roi-high" : "roi-low"}">${auditResult?.provenance.configured ? "Configured" : "Not configured"}</span></div>
-</div>
-<p class="note" style="margin:4px 0 2px"><b>Compliance checklist</b></p>
-<ul style="font-size:12px;margin:4px 0">${checkItems}</ul>
-${auditStatus}`;
 }
 
 export interface CostDashboardOptions {
@@ -483,6 +434,11 @@ function dashboardInjectionListenerScript(): string {
           });
         });
       });
+      document.querySelectorAll(".enrichment-apply-now").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          vscode.postMessage({ command: "openEnrichmentPanel" });
+        });
+      });
       document.getElementById("btn-clear-mcp-logs")?.addEventListener("click", () => {
         vscode.postMessage({ command: "clearMcpLogs" });
       });
@@ -491,9 +447,6 @@ function dashboardInjectionListenerScript(): string {
       });
       document.getElementById("btn-export-telemetry")?.addEventListener("click", () => {
         vscode.postMessage({ command: "exportTelemetry" });
-      });
-      document.getElementById("btn-run-audit")?.addEventListener("click", () => {
-        vscode.postMessage({ command: "runComplianceAudit" });
       });
     }
     window.addEventListener("message", (event) => {
@@ -749,11 +702,6 @@ export function buildDashboardMainBodyHtml(
   // ── Prediction ─────────────────────────────────────────────────────────────
   const predictionHtml = isFeatureAvailable("prediction") ? buildPredictionIntelligenceHtml(target, manifest) : "";
 
-  // ── Governance ─────────────────────────────────────────────────────────────
-  const governanceHtml = isFeatureAvailable("governance")
-    ? buildGovernancePanelHtml(target, tryGetAuditExecutor()?.getLatestAuditSync(target, libraryDir) ?? undefined)
-    : "";
-
   const mainBodyHtml = `
   ${buildExecutiveSummaryHtml(target, apiScore, systemState.attribution.confidence, execRoiBand, execNetRoi, todayCost, skillCostSummary.totalCost, credit.totalCost, proposalFunnel?.hasData ?? false)}
 
@@ -967,10 +915,6 @@ export function buildDashboardMainBodyHtml(
     <div class="panel" style="margin-top:6px">
       ${formatLearningTimelineHtml(timelineEvents)}
     </div>
-    ${proposalFunnel ? `<div class="panel" style="margin-top:6px">
-      <h2 style="margin-top:0">Recommendation Funnel · 30d</h2>
-      ${formatProposalFunnelHtml(proposalFunnel)}
-    </div>` : ""}
     ${hookHealth ? `<div class="panel" style="margin-top:6px">
       <h2 style="margin-top:0">Hook Health · Today</h2>
       ${formatHookHealthHtml(hookHealth)}
@@ -1016,12 +960,10 @@ export function buildDashboardMainBodyHtml(
 
   <details>
     <summary style="cursor:pointer;font-weight:600;padding:6px 0;font-size:13px;list-style:none">
-      &#9654; Telemetry &amp; Export
+      &#9654; Export &amp; Maintenance
     </summary>
     <div class="panel" style="margin-top:6px">
-      ${governanceHtml}
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-        <button id="btn-run-audit" class="action-btn" title="Re-run compliance audit now">Run Compliance Audit</button>
         <button id="btn-export-telemetry" class="action-btn" title="Export skill telemetry to CSV">Export Telemetry CSV</button>
         <button id="btn-apply-mcp-autofixes" class="action-btn" title="Write permanent cache rules for hot files and directories to mcp-agent-hints.md">Apply auto-fixes to hints</button>
         <button id="btn-clear-mcp-logs" class="action-btn secondary">Clear MCP Logs</button>

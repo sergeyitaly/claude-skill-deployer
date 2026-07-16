@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { SkillAttributionMap } from "./costAttribution";
 import { computeAuthorAttribution, SkillAuthorAttribution } from "./teamCostSharing";
-import { computeSkillRoi, RoiBand, SkillRoiMetrics, sumRoiValue } from "./skillRoi";
+import { computeSkillRoi, RoiBand, roiBandFromMultiple, SkillRoiMetrics, sumRoiValue } from "./skillRoi";
 import { Manifest } from "./skillOps";
 import { readCachedEnrichedRuns } from "./runsStore";
 import { computeUsageStats } from "./usageStats";
@@ -23,16 +23,6 @@ export interface TeamEconomicsSnapshot {
   byRepo: RepoCostRollup[];
   /** Skill-owner proxy from git blame — not the invoking developer. */
   bySkillOwner: Array<{ author: string; costUsd: number; skills: string[] }>;
-}
-
-function roiBandFromRoi(roi: number): RoiBand {
-  if (roi >= 20) {
-    return "HIGH";
-  }
-  if (roi >= 8) {
-    return "MEDIUM";
-  }
-  return "LOW";
 }
 
 function skillTotalCost(skill: string, attribution: SkillAttributionMap): number {
@@ -106,7 +96,7 @@ export function buildTeamEconomicsSnapshot(
     estimatedMinutesSaved: Math.round(estimatedMinutesSaved),
     estimatedValueUsd,
     netRoi: Math.round(netRoi),
-    netRoiBand: roiBandFromRoi(netRoi),
+    netRoiBand: roiBandFromMultiple(netRoi),
     skillCount: roiMetrics.length,
     byRepo: [...repoMap.values()].sort((a, b) => b.costUsd - a.costUsd),
     bySkillOwner,

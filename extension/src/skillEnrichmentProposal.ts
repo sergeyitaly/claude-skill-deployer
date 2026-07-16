@@ -85,7 +85,7 @@ function rewriteProposals(target: string, proposals: EnrichmentProposal[]): void
 
 /**
  * Creates pending proposals for enrichment candidates that don't yet have
- * an active (pending/approved) proposal. Returns the count of new proposals.
+ * an active (pending/approved/applied) proposal. Returns the count of new proposals.
  */
 export function generateEnrichmentProposals(target: string, candidates: EnrichmentCandidate[]): number {
   const existing = readEnrichmentProposals(target);
@@ -95,6 +95,12 @@ export function generateEnrichmentProposals(target: string, candidates: Enrichme
       .filter(p =>
         p.status === "pending" ||
         p.status === "approved" ||
+        // Applied proposals must stay a terminal dedup state — re-mining the same
+        // successful pattern after it already shipped to SKILL.md previously created
+        // a duplicate proposal for identical content (confirmed twice in real data).
+        // Rejected proposals are NOT included here: rejection means "not this content,"
+        // so re-proposing later if the pattern recurs is fine.
+        p.status === "applied" ||
         // Postponed proposals stay active (no duplicate) until their snooze expires.
         (p.status === "postponed" &&
           (!p.postponedUntil || new Date(p.postponedUntil).getTime() > now))
@@ -269,6 +275,47 @@ export function applyEnrichmentProposal(
   return { applied: true, message: `Appended "${proposal.sectionTitle}" to ${skillMdPath}`, path: skillMdPath };
 }
 
+// ── Approved-but-unapplied reminder ─────────────────────────────────────────────
+// Approving a proposal never applies it (see the safety contract above) — but nothing
+// used to remind anyone the second, manual "Apply to SKILL.md" step was still pending.
+// Real workspaces have shown proposals stuck "approved" for 7-17 days as a result.
+
+export interface ApprovedUnappliedSummary {
+  count: number;
+  bySkill: Record<string, number>;
+  oldestAgeDays: number;
+}
+
+/** Summarizes proposals stuck in "approved" — shared by the SessionStart reminder and the
+ *  dashboard pill so both surfaces always agree on the same count/age. */
+export function getApprovedUnappliedSummary(target: string): ApprovedUnappliedSummary | null {
+  const approved = readEnrichmentProposals(target).filter(p => p.status === "approved");
+  if (approved.length === 0) return null;
+
+  const bySkill: Record<string, number> = {};
+  for (const p of approved) bySkill[p.skill] = (bySkill[p.skill] ?? 0) + 1;
+
+  const oldestTs = Math.min(...approved.map(p => new Date(p.reviewedAt ?? p.ts).getTime()));
+  const oldestAgeDays = Math.max(0, Math.floor((Date.now() - oldestTs) / 86_400_000));
+
+  return { count: approved.length, bySkill, oldestAgeDays };
+}
+
+/** Plain-text SessionStart reminder — kept separate from the dashboard's HTML pill since
+ *  the two have unrelated output shapes; only the underlying summary is shared. */
+export function formatApprovedEnrichmentReminderText(summary: ApprovedUnappliedSummary): string {
+  const lines = [
+    `${summary.count} approved skill improvement${summary.count === 1 ? "" : "s"} ${summary.count === 1 ? "is" : "are"} waiting.`,
+    "",
+    ...Object.entries(summary.bySkill)
+      .sort((a, b) => b[1] - a[1])
+      .map(([skill, n]) => `- ${skill} (${n})`),
+    "",
+    "Open enrichment panel.",
+  ];
+  return lines.join("\n");
+}
+
 // ── HTML rendering ────────────────────────────────────────────────────────────
 
 function esc(s: string): string {
@@ -373,13 +420,28 @@ export function formatEnrichmentProposalsHtml(proposals: EnrichmentProposal[]): 
 export function formatEnrichmentSummaryHtml(target: string): string {
   const proposals = readEnrichmentProposals(target);
   const pending  = proposals.filter(p => p.status === "pending").length;
-  const approved = proposals.filter(p => p.status === "approved").length;
   const applied  = proposals.filter(p => p.status === "applied").length;
+  const approvedSummary = getApprovedUnappliedSummary(target);
 
-  if (pending + approved + applied === 0) return "";
+  if (pending + applied + (approvedSummary?.count ?? 0) === 0) return "";
+
+  // Approved-but-unapplied takes visual priority — it's the actionable-now state,
+  // and a passive "N approved" count is exactly what let real proposals sit
+  // unapplied for 7-17 days (see the reminder above). Clickable via the
+  // .enrichment-apply-now class + data attribute convention costDashboard.ts's
+  // dashboardInjectionListenerScript() already uses for other dashboard actions.
+  if (approvedSummary) {
+    return `<div class="stat-pill" title="Skill Enrichment Proposals">
+  <b>Enrichments</b>
+  <span class="val roi-medium enrichment-apply-now" data-oldest-days="${approvedSummary.oldestAgeDays}"
+        style="cursor:pointer;text-decoration:underline" title="Oldest approved: ${approvedSummary.oldestAgeDays}d ago">
+    ${approvedSummary.count} approved — Apply now
+  </span>
+</div>`;
+  }
 
   return `<div class="stat-pill" title="Skill Enrichment Proposals">
   <b>Enrichments</b>
-  <span class="val ${pending > 0 ? "roi-medium" : "roi-high"}">${pending > 0 ? `${pending} pending` : applied > 0 ? `${applied} applied` : `${approved} approved`}</span>
+  <span class="val ${pending > 0 ? "roi-medium" : "roi-high"}">${pending > 0 ? `${pending} pending` : `${applied} applied`}</span>
 </div>`;
 }

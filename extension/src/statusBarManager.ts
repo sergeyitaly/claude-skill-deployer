@@ -137,14 +137,14 @@ export function refreshCreditStatusBar(target?: string): void {
   const totalCost = todayRow?.cost ?? 0;
   const spendPrefix = spendPrefixForCreditSummary(summary);
   const pct = budgetUsagePercent(totalCost, config);
-  writeTodayCostSnapshot(totalCost, totalTokens);
+  writeTodayCostSnapshot(target, totalCost, totalTokens);
 
   if (totalTokens === 0) {
     _creditStatusBarItem.text = "$(credit-card) —";
     _creditStatusBarItem.tooltip =
       "No AI usage recorded today.\n\nClick for the full usage report.";
   } else {
-    const remaining = remainingDailyBudgetUsd(config);
+    const remaining = remainingDailyBudgetUsd(config, target);
     const overBudget = pct !== null && pct >= 80;
     const icon = overBudget ? "$(warning)" : "$(credit-card)";
     const costLabel = spendPrefix === "API" ? "" : spendPrefix === "Mixed" ? "~" : "~";

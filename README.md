@@ -467,7 +467,7 @@ Auto-enable on startup: `claudeSkills.mcpForce.enableOnStartup: true`
 | `Claude Skills: Reset Mis-attributed Cost Data` | Clear bad attribution, re-collect |
 | `Claude Skills: Export Skill Telemetry (CSV)` | Export runs.jsonl as CSV for audit |
 | `Claude Skills: Repair Claude Skills Data` | Fix corrupted JSON/JSONL files |
-| `Claude Skills: Start Onboarding Tour` | Guided setup for new installs |
+| `Claude Skills: Open Setup Wizard` | Guided setup for new installs |
 
 ---
 

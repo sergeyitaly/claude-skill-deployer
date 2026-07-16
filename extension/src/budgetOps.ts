@@ -190,6 +190,14 @@ export function clearBudgetTrackingForSkill(target: string, skillName: string): 
   writeLocalSettings(target, settings);
 }
 
+/** Skills currently forced off by budget/economy enforcement — used to exclude them from
+ * unrelated cleanup sweeps (e.g. taskSkillFocus.ts's legacy-override reclaim) that must
+ * not touch overrides this subsystem owns. */
+export function budgetDisabledSkillNames(target: string): string[] {
+  const meta = budgetMeta(readLocalSettings(target));
+  return [...new Set([...(meta.disabledByBudget ?? []), ...(meta.disabledByBudgetRestrict ?? [])])];
+}
+
 /** Whether a skill is currently off due to budget/economy (for tree display). */
 export function isBudgetDisabled(target: string, skillName: string): boolean {
   const settings = readLocalSettings(target);

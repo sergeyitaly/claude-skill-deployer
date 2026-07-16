@@ -136,7 +136,15 @@ function appendUsageLog(entry) {
     fs.mkdirSync(path.dirname(MCP_USAGE_LOG), { recursive: true });
     fs.appendFileSync(MCP_USAGE_LOG, line, "utf-8");
   } catch { /* non-fatal */ }
-  const wsLog = getWorkspaceLogPath();
+  // Per-project copy: this server is one shared process registered machine-wide, so
+  // config.workspaceLogPath (whichever project's activation set it most recently) is not
+  // reliably the project this specific call actually ran in. entry.cwd is populated per
+  // call from the tool's own args.cwd and is always correct for that call — prefer it, and
+  // only fall back to the configured path for calls with no cwd of their own (e.g.
+  // list_available_clis).
+  const wsLog = typeof entry.cwd === "string" && entry.cwd
+    ? path.join(entry.cwd, ".claude", "mcp-usage.jsonl")
+    : getWorkspaceLogPath();
   if (wsLog && wsLog !== MCP_USAGE_LOG) {
     try {
       fs.mkdirSync(path.dirname(wsLog), { recursive: true });
