@@ -2,7 +2,7 @@
 name: "self-learning"
 description: "Maintain a project-local self-learning base of task/command outcomes — record successes and failures with timestamps, durations, and fixes; generate a patterns report (pass rates, recurring errors, known fixes); and surface a learned hint before retrying something that failed before. Use at the start of a session to check learned hints, after running a non-trivial command/skill to record the outcome, when asked \"what failed before\" or \"what did we learn\", or to record a manual decision/learning."
 applyTo: "**/*"
-deployedAt: "2026-07-10T09:20:17.046Z"
+deployedAt: "2026-07-16T20:27:21.596Z"
 ---
 
 # self-learning
@@ -209,3 +209,17 @@ request — never clear `session-learnings.md` or `knowledge-cache.md` without
 explicit confirmation, since both are curated and reviewable. For
 `knowledge-cache.md`, removing individual stale/wrong entries on request is
 fine; clearing the whole file is the same as clearing `session-learnings.md`.
+
+
+<!-- Enrichment: added from 8 real-world sessions, 91% confidence, 2026-07-13 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `git status --short && echo --- && git tag --sort=-v:refname | head -20 && echo --- && git log --oneline -10` — 2 successful use(s), 64% confidence
+- `Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ"` — 1 successful use(s), 52% confidence
+- `git branch -vv | head -5 && echo --- && git remote -v` — 1 successful use(s), 52% confidence
+- `git diff --stat -- CLAUDE.md extension/resources/mcp-servers/filesystem/index.js .github/instructions` — 1 successful use(s), 52% confidence
+- `git add -- .github/instructions CLAUDE.md extension/CHANGELOG.md extension/package.json extension/resources/mcp-servers/filesystem/index.js extension/src/auditE` — 1 successful use(s), 52% confidence
+- `git commit -m "$(cat <<'EOF' v1.0.110: Remove legacy Context Efficiency feature Superseded by the Compliance Audit Framework and Workspace Intelligence systems;` — 1 successful use(s), 52% confidence
+- `git push origin main` — 1 successful use(s), 52% confidence

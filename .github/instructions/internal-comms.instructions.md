@@ -2,7 +2,7 @@
 name: "internal-comms"
 description: "A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of internal communications (status reports, leadership updates, 3P updates, company newsletters, FAQs, incident reports, project updates, etc.)."
 applyTo: "**/*.md"
-deployedAt: "2026-07-10T09:20:17.045Z"
+deployedAt: "2026-07-16T20:27:21.593Z"
 ---
 
 # internal-comms

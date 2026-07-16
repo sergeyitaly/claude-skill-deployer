@@ -16,7 +16,7 @@ applyTo:
   - **/README.md
   - **/.env*
   - **/deployment/**
-deployedAt: "2026-07-10T09:20:17.044Z"
+deployedAt: "2026-07-16T20:27:21.589Z"
 ---
 
 # deployment-practical

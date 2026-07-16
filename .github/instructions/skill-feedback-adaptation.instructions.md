@@ -5,7 +5,7 @@ applyTo:
   - **/.claude/learning/skill-feedback.jsonl
   - **/.claude/learning/task-skill-proposals.json
   - **/.claude/learning/**
-deployedAt: "2026-07-10T09:20:17.048Z"
+deployedAt: "2026-07-16T20:27:21.598Z"
 ---
 
 # skill-feedback-adaptation
@@ -201,3 +201,14 @@ On request ("skill feedback status", "inefficient skills"):
 - Count entries per skill in `skill-feedback.jsonl`.
 - Summarize latest `task-skill-proposals.json` if present.
 - Point to Usage Report for visual heat map.
+
+
+<!-- Enrichment: added from 8 real-world sessions, 91% confidence, 2026-07-03 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `git add extension/src/taskSkillProposals.ts extension/src/proposalOutcome.test.ts extension/CHANGELOG.md extension/package.json && git status` — 3 successful use(s), 76% confidence
+- `git commit -m "$(cat <<'EOF' feat: v1.0.99 — dormancy-aware proposals TTL + proposalOutcome unit tests Fix areTaskSkillProposalsFresh() to invalidate the cached` — 2 successful use(s), 64% confidence
+- `git push origin main 2>&1` — 2 successful use(s), 64% confidence
+- `git status && git log --oneline -5` — 1 successful use(s), 52% confidence
