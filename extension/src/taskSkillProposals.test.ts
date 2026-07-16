@@ -125,6 +125,44 @@ describe("computeTaskSkillProposals", () => {
     expect(themeProposal?.reason ?? "").not.toMatch(/matches "the"|mentions "and"/);
   });
 
+  it("generic near-universal filename globs score no higher than bare extension globs", () => {
+    // Reproduces a live false-positive from a real workspace: vscode-extension-publishing /
+    // cursor-kiro-extension-publishing matched **/package.json + **/CHANGELOG.md alone and
+    // reached 83-87% confidence in a pure Kubernetes/Terraform repo with no VS Code extension
+    // anywhere in it, because those globs scored the same "specific" 20pts as a targeted path
+    // glob like **/.vscodeignore. package.json/README.md/CHANGELOG.md/etc. appear in nearly
+    // every repo regardless of stack and must not be treated as a strong relevance signal.
+    const genericGlobManifest: Manifest = {
+      skills: {
+        "generic-file-skill": {
+          description: "Some unrelated tool",
+          detect_globs: ["**/package.json", "**/CHANGELOG.md"],
+        },
+        "extension-glob-skill": {
+          description: "Some other unrelated tool",
+          detect_globs: ["**/*.pdf"],
+        },
+        "specific-path-skill": {
+          description: "Yet another unrelated tool",
+          detect_globs: ["**/.vscodeignore"],
+        },
+      },
+    };
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-generic-glob-"));
+    fs.writeFileSync(path.join(target, "package.json"), "{}", "utf-8");
+    fs.writeFileSync(path.join(target, "CHANGELOG.md"), "# Changelog\n", "utf-8");
+    fs.writeFileSync(path.join(target, "sample.pdf"), "", "utf-8");
+    fs.writeFileSync(path.join(target, ".vscodeignore"), "out/**\n", "utf-8");
+
+    const proposals = computeTaskSkillProposals(target, genericGlobManifest, "Unrelated neutral task");
+    const generic = proposals.find((p) => p.name === "generic-file-skill");
+    const extGlob = proposals.find((p) => p.name === "extension-glob-skill");
+    const specific = proposals.find((p) => p.name === "specific-path-skill");
+
+    expect(generic?.confidence ?? 0).toBe(extGlob?.confidence ?? 0);
+    expect(generic?.confidence ?? 0).toBeLessThan(specific?.confidence ?? 100);
+  });
+
   it("meaningful tokens still score correctly after stop-word filtering", () => {
     const target = fs.mkdtempSync(path.join(os.tmpdir(), "task-proposals-meaningful-"));
     const proposals = computeTaskSkillProposals(

@@ -2,11 +2,40 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
 import { recordRejectedSkills } from "./skillAdoption";
+import { assessClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 
 const PROPOSAL_OUTCOME_REL = path.join(".claude", "learning", "proposalOutcome.jsonl");
 const PENALTY_PER_NOT_USED = 10;
 const PENALTY_DECAY_ON_USE = 20;
 const MAX_PENALTY = 40;
+const ATTRIBUTION_GAP_CACHE_TTL_MS = 5 * 60_000;
+
+let attributionGapCache: { target: string; at: number; unreliable: boolean } | null = null;
+
+/**
+ * True when the Claude VS Code extension's PostToolUse attribution hooks are known to be
+ * silently failing for this workspace (anthropics/claude-code#27014) with no PreToolUse
+ * mitigation picking up the slack. In that state, "not_invoked" entries in
+ * proposalOutcome.jsonl are not trustworthy — the skill may well have been invoked, just never
+ * recorded — so acceptance-based suppression must not penalize a skill for it. Cached briefly
+ * since the underlying check scans recent transcript files and would otherwise re-scan once per
+ * skill in a proposal batch.
+ */
+function isAttributionUnreliable(target: string): boolean {
+  const now = Date.now();
+  if (attributionGapCache && attributionGapCache.target === target &&
+      now - attributionGapCache.at < ATTRIBUTION_GAP_CACHE_TTL_MS) {
+    return attributionGapCache.unreliable;
+  }
+  let unreliable = false;
+  try {
+    unreliable = assessClaudeVscodeAttributionGap(target).detected;
+  } catch {
+    // Non-fatal — if the check itself fails, fall back to trusting the acceptance data.
+  }
+  attributionGapCache = { target, at: now, unreliable };
+  return unreliable;
+}
 
 export interface ProposalOutcomeRecord {
   ts: string;
@@ -268,6 +297,7 @@ export function getAcceptanceRate(target: string, skillName: string): { rate: nu
 export function confidenceCalibration(target: string, skillName: string): number {
   const { rate, sessions } = getAcceptanceRate(target, skillName);
   if (rate < 0) return 1.0; // no data yet
+  if (isAttributionUnreliable(target)) return 1.0; // known invocation-tracking gap — don't trust the signal
   if (sessions >= 5 && rate < 0.05) return 0.0; // dormant — suppress entirely
   if (sessions >= 3 && rate < 0.10) return 0.5; // low signal — halve confidence
   return 1.0;
@@ -288,6 +318,7 @@ export function getSuppressedByFeedback(target: string): Set<string> {
 
 /** Returns the set of dormant skill names (acceptance < 5% after ≥5 sessions). */
 export function getDormantSkills(target: string): Set<string> {
+  if (isAttributionUnreliable(target)) return new Set(); // don't auto-retire skills on unreliable data
   const outcomes = readProposalOutcomes(target);
   const proposed: Record<string, number> = {};
   const invoked: Record<string, number> = {};

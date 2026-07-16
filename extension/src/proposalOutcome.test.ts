@@ -1,13 +1,24 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   computeAllSkillPenalties,
   confidenceCalibration,
   getDormantSkills,
 } from "./proposalOutcome";
 import { isDormantSkill } from "./adoptionIntelligence";
+import { encodeWorkspacePath } from "./workspaceTranscripts";
+
+const mockedHome = vi.hoisted(() => ({ value: "" }));
+
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    homedir: () => mockedHome.value || actual.homedir(),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -323,5 +334,80 @@ describe("computeAllSkillPenalties", () => {
     writeOutcomes(target, nNotInvoked(10, "skill-a")); // 40 (max)
     writeFeedback(target, [{ skill: "skill-a", count: 15 }]); // extra = min(10,10) = 10
     expect(computeAllSkillPenalties(target)["skill-a"]).toBe(40);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Attribution-gap awareness — confidenceCalibration / getDormantSkills must not
+// punish a skill for "not_invoked" data that the known Claude VS Code
+// PostToolUse gap (anthropics/claude-code#27014) makes unreliable.
+// ---------------------------------------------------------------------------
+
+describe("attribution-gap awareness", () => {
+  /** Configures target's .claude/settings.json with a PostToolUse attribution hook,
+   *  then points HOME at a fake dir containing a VS Code transcript with real tool use
+   *  and zero PostToolUse hook fires — reproducing the known gap deterministically. */
+  function simulateActiveGap(target: string): () => void {
+    fs.writeFileSync(
+      path.join(target, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            { matcher: "Skill|Read", hooks: [{ command: "node .claude/hooks/skill-invoke-watch.js claude" }] },
+          ],
+        },
+      }),
+      "utf-8"
+    );
+
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "proposal-outcome-home-"));
+    tempDirs.push(fakeHome);
+    const sessionDir = path.join(fakeHome, ".claude", "projects", encodeWorkspacePath(target));
+    fs.mkdirSync(sessionDir, { recursive: true });
+    const lines = [
+      '{"sessionId":"sess-gap","entrypoint":"claude-vscode"}',
+      ...Array.from({ length: 6 }, () => '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}'),
+    ];
+    const transcript = path.join(sessionDir, "sess-gap.jsonl");
+    fs.writeFileSync(transcript, lines.join("\n") + "\n", "utf-8");
+    fs.utimesSync(transcript, new Date(), new Date());
+
+    const previousHome = mockedHome.value;
+    mockedHome.value = fakeHome;
+    return () => {
+      mockedHome.value = previousHome;
+    };
+  }
+
+  it("confidenceCalibration stays at 1.0 (no suppression) while the attribution gap is active", () => {
+    const target = makeTarget();
+    writeOutcomes(target, nNotInvoked(6, "gapped-skill")); // would normally suppress (>=5, 0%)
+    const restore = simulateActiveGap(target);
+    try {
+      expect(confidenceCalibration(target, "gapped-skill")).toBe(1.0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("getDormantSkills excludes a skill while the attribution gap is active", () => {
+    const target = makeTarget();
+    writeOutcomes(target, nNotInvoked(6, "gapped-skill"));
+    const restore = simulateActiveGap(target);
+    try {
+      expect(getDormantSkills(target).has("gapped-skill")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("still suppresses/dormant-flags normally when no attribution gap is configured", () => {
+    // No .claude/settings.json PostToolUse hook -> assessClaudeVscodeAttributionGap()
+    // short-circuits to detected:false regardless of the real ~/.claude/projects contents
+    // on whatever machine runs this test.
+    const target = makeTarget();
+    writeOutcomes(target, nNotInvoked(6, "genuinely-ignored"));
+    expect(confidenceCalibration(target, "genuinely-ignored")).toBe(0.0);
+    expect(getDormantSkills(target).has("genuinely-ignored")).toBe(true);
   });
 });

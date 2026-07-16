@@ -240,8 +240,20 @@ function tokenize(text: string): string[] {
 // Globs that match everything — provide no discriminative signal for scoring
 const CATCH_ALL_GLOBS = new Set(["**/*", "**/*.*", "**/*.md"]);
 
-// Broad extension-only globs (e.g. **/*.pdf) get half the specificity bonus vs targeted patterns.
+// Filenames that appear in nearly every software repo regardless of stack — matching one
+// says almost nothing about what a project actually is, so they shouldn't score like a
+// targeted signal (e.g. **/*.tf or **/.vscodeignore). Confirmed false-positive: package.json
+// + CHANGELOG.md alone pushed unrelated extension-publishing skills to 83-87% confidence in
+// a pure infra/Kubernetes repo with no VS Code extension anywhere in it.
+const GENERIC_REPO_FILES = new Set([
+  "**/package.json", "**/README.md", "**/CHANGELOG.md", "**/LICENSE", "**/LICENSE.md",
+  "**/LICENSE.txt", "**/.gitignore", "**/Makefile", "**/CONTRIBUTING.md",
+]);
+
+// Broad extension-only globs (e.g. **/*.pdf) and generic near-universal filenames
+// (e.g. **/package.json) get half the specificity bonus vs targeted patterns.
 function globSpecificityScore(glob: string): number {
+  if (GENERIC_REPO_FILES.has(glob)) return 10;
   // Generic extension glob: **/*.ext — low specificity
   return /^\*\*\/\*\.[a-z0-9]+$/i.test(glob) ? 10 : 20;
 }

@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.125** | Recommendation trust & attribution reliability — generic repository files score weakly, and Claude VS Code hook gaps no longer retire valid skills |
 | **1.0.124** | Recommendation precision, part 2 — the 1.0.123 generic-filename fix covered two extension-publishing skills but missed `deployment-practical`, whose `detect_globs` still included `**/README.md` and `**/.github/workflows/*.yml`; live telemetry showed it proposed 6 times in a row with 0% acceptance in a repo with zero Docker/Terraform/Azure evidence |
 | **1.0.123** | Recommendation precision — a live workspace's real proposal history caught `globSpecificityScore()` scoring near-universal filenames (`package.json`, `CHANGELOG.md`, `README.md`) as strongly as a targeted path glob, pushing two unrelated extension-publishing skills to 83-87% confidence in a pure Kubernetes/Terraform repo |
 | **1.0.122** | Simplification — four more dead/legacy features removed (Onboarding Tour, two no-op feature flags, orphaned weekly-report/tier-benefit scripts) plus README documentation drift left behind by v1.0.82's earlier, incomplete removal of the weekly-report email subsystem |
@@ -71,6 +72,20 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.125] - 2026-07-17
+
+**Summary:** Recommendation and adoption signals are now more trustworthy in two common edge cases. Near-universal repository files no longer make unrelated skills look highly relevant, and a known Claude VS Code `PostToolUse` attribution gap no longer causes valid skills to be suppressed or marked dormant based on incomplete invocation data.
+
+**Theme:** Recommendation trust & attribution reliability — extends the precision fixes from 1.0.123-1.0.124 while making adoption feedback safer when the host agent cannot reliably emit hook events.
+
+### Fixed
+
+- **Generic repository files no longer look like stack evidence.** `globSpecificityScore()` (`taskSkillProposals.ts`) now assigns low specificity to `package.json`, `README.md`, `CHANGELOG.md`, license files, `.gitignore`, `Makefile`, and `CONTRIBUTING.md`, so those files cannot boost an unrelated skill like a targeted project marker does.
+- **Claude VS Code hook gaps no longer retire valid skills.** `confidenceCalibration()` and `getDormantSkills()` (`proposalOutcome.ts`) now detect recent VS Code transcripts with tool use but zero configured `PostToolUse` fires and skip acceptance-based suppression while attribution is unreliable, preventing missing telemetry from being treated as repeated rejection.
+- **Added regression coverage for both safeguards.** `taskSkillProposals.test.ts` covers generic-glob scoring, while `proposalOutcome.test.ts` reproduces the Claude VS Code attribution gap and verifies normal suppression still applies when no gap is present.
 
 ---
 

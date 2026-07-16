@@ -12,6 +12,15 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.125
+
+### Recommendations and adoption feedback are more trustworthy
+
+Two kinds of incomplete project signals could make the extension recommend the wrong skill or treat a useful skill as ignored. This release makes both decisions more cautious.
+
+- **Common repository files have less influence on recommendations.** Files such as `package.json`, `README.md`, and `CHANGELOG.md` are no longer treated like strong evidence of a specific technology or workflow, so unrelated skills are less likely to crowd out relevant ones.
+- **Missing Claude VS Code hook events no longer suppress skills.** When the Claude VS Code extension shows tool activity but does not record its configured attribution hooks, the extension avoids marking skills dormant until the usage signal is reliable again.
+
 ## What's new in 1.0.124
 
 ### One more over-eager recommendation, fixed
