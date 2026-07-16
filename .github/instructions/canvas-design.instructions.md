@@ -2,7 +2,7 @@
 name: "canvas-design"
 description: "Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations."
 applyTo: "**/*"
-deployedAt: "2026-07-16T20:27:21.586Z"
+deployedAt: "2026-07-16T22:53:05.743Z"
 ---
 
 # canvas-design

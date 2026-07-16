@@ -2,7 +2,7 @@
 name: "claude-api"
 description: "Reference for the Claude API and Anthropic SDK (models, pricing, streaming, tool use, MCP, agents, caching, migration). Use when the prompt names Claude/Anthropic or for unstated LLM/agent tasks; see \"When to use\" below for skip rules."
 applyTo: "**/*"
-deployedAt: "2026-07-16T20:27:21.587Z"
+deployedAt: "2026-07-16T22:53:05.743Z"
 ---
 
 # claude-api

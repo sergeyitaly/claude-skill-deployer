@@ -4,7 +4,7 @@ description: "Analyze recorded skill usage in this project (.claude/learning/run
 applyTo:
   - **/.claude/learning/runs.jsonl
   - **/.claude/skills/**
-deployedAt: "2026-07-16T20:27:21.599Z"
+deployedAt: "2026-07-16T22:53:05.754Z"
 ---
 
 # skill-usage-insights
@@ -119,3 +119,16 @@ table.
 - Installing a recommended-to-add skill, or removing one → the
   `claude-skills-deployer` CLI (`generate_skills.py`) or its VS Code
   extension's tree view / "Install to Workspace" command.
+
+
+<!-- Enrichment: added from 7 real-world sessions, 89% confidence, 2026-07-16 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `git status` — 2 successful use(s), 64% confidence
+- `git log --oneline -5` — 1 successful use(s), 52% confidence
+- `git diff --stat` — 1 successful use(s), 52% confidence
+- `git add skills_library/manifest.json extension/CHANGELOG.md extension/README.md extension/package.json extension/src/skillOps.test.ts && git status --short` — 1 successful use(s), 52% confidence
+- `git commit -m "$(cat <<'EOF' v1.0.124: fix deployment-practical false-positive detection deployment-practical's detect_globs matched **/README.md and **/.github` — 1 successful use(s), 52% confidence
+- `git push origin main` — 1 successful use(s), 52% confidence

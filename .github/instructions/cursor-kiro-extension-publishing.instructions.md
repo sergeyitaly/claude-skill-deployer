@@ -6,9 +6,7 @@ applyTo:
   - **/publish-openvsx.js
   - **/.github/workflows/publish*.yml
   - **/00-extension-registries.md
-  - **/package.json
-  - **/CHANGELOG.md
-deployedAt: "2026-07-16T20:27:21.588Z"
+deployedAt: "2026-07-16T22:53:05.745Z"
 ---
 
 # cursor-kiro-extension-publishing
@@ -130,3 +128,14 @@ Kiro can use **synced skill files** (`.kiro/skills/`) without the extension UI; 
 - Cross-platform scripts (PS5.1 vs bash) → **`cross-platform-scripting`**.
 - CI workflow failures → **`ci-pipeline-debug`** / **`ci-preflight`**.
 - Record namespace/PAT quirks via **`self-learning`**.
+
+
+<!-- Enrichment: added from 7 real-world sessions, 89% confidence, 2026-07-16 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `git status --porcelain=v1 | wc -l && git status --porcelain=v1` — 3 successful use(s), 76% confidence
+- `git log --diff-filter=D --name-only --pretty=format:"%h %ad %s" --date=short -- extension/src/weeklyReport.ts extension/src/weeklyReportBenefits.ts extension/sr` — 2 successful use(s), 64% confidence
+- `git diff --stat` — 1 successful use(s), 52% confidence
+- `grep -o '"command":"[^"]*test:integration[^"]*"[^}]*"success":[a-z]*' .claude/learning/runs.jsonl 2>/dev/null | tail -5 echo "---" grep -l "test:integration\|MO` — 1 successful use(s), 52% confidence

@@ -2,7 +2,7 @@
 name: "brand-guidelines"
 description: "Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visual formatting, or company design standards apply."
 applyTo: "**/*"
-deployedAt: "2026-07-16T20:27:21.586Z"
+deployedAt: "2026-07-16T22:53:05.742Z"
 ---
 
 # brand-guidelines

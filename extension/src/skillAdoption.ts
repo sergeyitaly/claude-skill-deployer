@@ -25,6 +25,7 @@ export type AdoptionEventType =
   | "proposed"
   | "accepted"
   | "rejected"
+  | "ignored"
   | "invoked"
   | "successful"
   | "reused";
@@ -61,7 +62,7 @@ export const ADOPTION_LOG_RELATIVE = path.join(".claude", "learning", "skill-ado
 const ADOPTION_STATE_RELATIVE = path.join(".claude", "learning", "skill-adoption-state.json");
 
 const VALID_EVENTS = new Set<string>([
-  "proposed", "accepted", "rejected", "invoked", "successful", "reused",
+  "proposed", "accepted", "rejected", "ignored", "invoked", "successful", "reused",
 ]);
 
 export function adoptionLogPath(target: string): string {
@@ -488,6 +489,7 @@ export interface AdoptionFunnel {
   proposed: number;
   accepted: number;
   rejected: number;
+  ignored: number;
   invoked: number;
   successful: number;
   reused: number;
@@ -532,6 +534,7 @@ export function computeAdoptionFunnel(target: string, daysBack = 90): AdoptionFu
   const proposed = count("proposed");
   const accepted = count("accepted");
   const rejected = count("rejected");
+  const ignored = count("ignored");
   const invoked = count("invoked");
   const successful = count("successful");
   const reused = count("reused");
@@ -553,7 +556,7 @@ export function computeAdoptionFunnel(target: string, daysBack = 90): AdoptionFu
   );
 
   return {
-    daysBack, proposed, accepted, rejected, invoked, successful, reused,
+    daysBack, proposed, accepted, rejected, ignored, invoked, successful, reused,
     acceptanceRatePct, invocationRatePct, successRatePct, reuseRatePct,
     avgInvocationsPerAcceptedSkill,
     globalAdoptionRatePct: cappedPct(invoked, proposed),

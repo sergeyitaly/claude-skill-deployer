@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
-import { recordRejectedSkills } from "./skillAdoption";
 import { assessClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 
 const PROPOSAL_OUTCOME_REL = path.join(".claude", "learning", "proposalOutcome.jsonl");
@@ -44,6 +43,9 @@ export interface ProposalOutcomeRecord {
   proposed: string[];
   invoked: string[];
   not_invoked: string[];
+  accepted?: string[];
+  ignored?: string[];
+  rejected?: string[];
   acceptance_rate: number;
   skills_proposed_count: number;
   skills_invoked_count: number;
@@ -135,10 +137,8 @@ export function recordSessionRejectionFeedback(
       reason: "ignored", // skill was proposed but not used this session
     });
   }
-  // Adoption funnel: proposal expired without invocation this session -> rejected.
-  try {
-    recordRejectedSkills(target, sessionId, ignored.map((name) => ({ name })));
-  } catch { /* non-fatal */ }
+  // Passive non-use is not an explicit rejection. Keep it in the proposal
+  // outcome and feedback logs, but do not emit a rejected adoption event.
 }
 
 /** Record a specific rejection reason for a Copilot instruction or skill. */
@@ -226,7 +226,7 @@ export function computeAllSkillPenalties(target: string): Record<string, number>
     for (const sk of (r.invoked ?? [])) {
       penalties[sk] = Math.max(0, (penalties[sk] ?? 0) - PENALTY_DECAY_ON_USE);
     }
-    for (const sk of (r.not_invoked ?? [])) {
+    for (const sk of (r.ignored ?? r.not_invoked ?? [])) {
       penalties[sk] = Math.min(MAX_PENALTY, (penalties[sk] ?? 0) + PENALTY_PER_NOT_USED);
     }
   }
@@ -235,7 +235,10 @@ export function computeAllSkillPenalties(target: string): Record<string, number>
   const feedback = readRecommendationFeedback(target);
   const rejectionCounts: Record<string, number> = {};
   for (const f of feedback) {
-    if (!f.accepted) rejectionCounts[f.skill] = (rejectionCounts[f.skill] ?? 0) + 1;
+    if (!f.accepted) {
+      const weight = f.reason && f.reason !== "ignored" ? 4 : 1;
+      rejectionCounts[f.skill] = (rejectionCounts[f.skill] ?? 0) + weight;
+    }
   }
   for (const [sk, count] of Object.entries(rejectionCounts)) {
     if (count >= 3) {
@@ -365,12 +368,16 @@ export function recordSessionProposalOutcome(
   const invokedSet = new Set(runs.map(r => r.skill));
   const invoked = names.filter(s => invokedSet.has(s));
   const not_invoked = names.filter(s => !invokedSet.has(s));
+  const accepted = invoked;
   appendProposalOutcome(target, {
     session_id: sessionId,
     event: "session_end",
     proposed: names,
     invoked,
     not_invoked,
+    accepted,
+    ignored: not_invoked,
+    rejected: [],
     acceptance_rate: names.length > 0 ? invoked.length / names.length : 0,
     skills_proposed_count: names.length,
     skills_invoked_count: invoked.length,

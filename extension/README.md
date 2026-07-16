@@ -12,6 +12,17 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.126
+
+### Learning and routing are more useful by default
+
+The extension now closes more of the loop between agent sessions, skill learning, and prompt handling. New settings let teams keep automatic behavior or opt back into manual review.
+
+- **Enrichment can apply updates automatically.** Pending skill improvements can be approved and applied in the background at session start, with a single summary notification. Use `claudeSkills.enrichment.autoApply` or `claudeSkills.enrichment.runOnSessionStart` to control it.
+- **Workspace learning stays current.** Session boundaries refresh readable learning artifacts, and dashboard snapshots notice changes to learning data instead of showing stale results.
+- **Prompts receive internal model-tier guidance.** The extension recognizes quick edits, implementation, debugging, architecture, infrastructure, audit, cost, and coaching work and records a silent tier recommendation for compatible agents.
+- **Adoption metrics separate “ignored” from “rejected.”** Not using a proposed skill is no longer counted as an explicit rejection, making feedback and suppression decisions more accurate.
+
 ## What's new in 1.0.125
 
 ### Recommendations and adoption feedback are more trustworthy

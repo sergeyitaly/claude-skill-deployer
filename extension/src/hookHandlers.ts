@@ -37,6 +37,7 @@ import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branc
 import { appendHookHealth } from "./hookHealth";
 import { recordSessionProposalOutcome, recordSessionRejectionFeedback } from "./proposalOutcome";
 import { computeEfficiencyMetrics } from "./efficiencyMetrics";
+import { refreshLearningArtifacts } from "./learningArtifacts";
 import { shouldSurfaceProposals } from "./adoptionIntelligence";
 import {
   readTaskSkillProposals,
@@ -49,6 +50,8 @@ import { recordAdviceShown, shouldShowAdvice, evaluateAdviceOutcome } from "./co
 import { isDormantSkill } from "./adoptionIntelligence";
 import { recordInvokedSkill, recordProposedSkills, recordSessionAdoptionOutcomes } from "./skillAdoption";
 import { computeSessionIntelligence, formatSessionIntelligenceMarkdown } from "./sessionIntelligence";
+import { enrichmentSessionStartEnabled } from "./commandsEnrichment";
+import { modelRoutingContext } from "./modelRouting";
 
 export interface HookRequest {
   hookName: string;
@@ -834,6 +837,13 @@ async function handleOfficialSkills(req: HookRequest): Promise<HookResponse> {
 
   const parts: string[] = [];
   const libraryDir = resolveSkillsLibraryDir(cwd) ?? path.join(cwd, "skills_library");
+
+  // Enrichment is deliberately dispatched in the background so SessionStart
+  // remains responsive. The command owns auto-approval, application, and the
+  // single user notification.
+  if (enrichmentSessionStartEnabled()) {
+    try { void vscode.commands.executeCommand("claudeSkills.runEnrichmentPipeline"); } catch { /* non-fatal */ }
+  }
 
   // Workspace Intelligence (Phases 2+7) + Skill Lifecycle Intelligence (Phase 5):
   // this "official-skills" hook is the only SessionStart hook actually
@@ -2392,6 +2402,7 @@ function handlePromptContext(req: HookRequest): HookResponse {
   })();
 
   const parts = [
+    modelRoutingContext(req.cwd, req.agent, promptText),
     coachHint,
     opportunity,
     extractPromptContent(handleSessionSize(req), req.agent),
@@ -2438,6 +2449,7 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
 function handleSessionStop(req: HookRequest): HookResponse {
   const body = req.body as Record<string, unknown>;
   const cwd = req.cwd;
+  try { refreshLearningArtifacts(cwd); } catch { /* non-fatal */ }
   if (!cwd) return {};
 
   const sessionId = resolveSessionId(body, cwd);

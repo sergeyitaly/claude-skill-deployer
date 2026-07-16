@@ -208,6 +208,7 @@ export interface DashboardSnapshotFingerprint extends TeamEconomicsCacheFingerpr
   pipelineAnalyzedAt: string;
   systemStateAt: string;
   haceSessionsMtimeMs: string;
+  learningArtifactsHash: string;
 }
 
 export interface DashboardSnapshotPayload {
@@ -248,12 +249,19 @@ export function buildDashboardSnapshotFingerprint(
   const base = buildTeamEconomicsCacheFingerprint(target);
   const cycle = pipeline?.cycle ?? readPipelineCycle(target);
   const state = readWorkspaceSystemState(target);
+  const learningDir = path.join(target, ".claude", "learning");
+  const learningArtifactsHash = crypto.createHash("sha256").update([
+    "prompt-intelligence.jsonl", "coaching-events.jsonl", "proposalOutcome.jsonl",
+    "recommendation-feedback.jsonl", "confidence-history.jsonl", "adaptation-log.jsonl",
+    "skill-adoption.jsonl", "runs.jsonl",
+  ].map(name => `${name}:${fileStatToken(path.join(learningDir, name))}`).join("|")).digest("hex");
   return {
     ...base,
     pipelineIndexedAt: cycle.indexedAt ?? "",
     pipelineAnalyzedAt: cycle.analyzedAt ?? "",
     systemStateAt: state?.updatedAt ?? "",
     haceSessionsMtimeMs: latestHaceSessionMtimeMs(target),
+    learningArtifactsHash,
   };
 }
 
@@ -262,6 +270,7 @@ function dashboardFingerprintMatches(a: DashboardSnapshotFingerprint, b: Dashboa
     a.gitHead === b.gitHead && a.skillsHash === b.skillsHash && a.attributionHash === b.attributionHash &&
     a.pipelineIndexedAt === b.pipelineIndexedAt && a.pipelineAnalyzedAt === b.pipelineAnalyzedAt &&
     a.systemStateAt === b.systemStateAt && a.haceSessionsMtimeMs === b.haceSessionsMtimeMs
+    && a.learningArtifactsHash === b.learningArtifactsHash
   );
 }
 

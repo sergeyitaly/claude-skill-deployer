@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.126** | Learning & routing intelligence — automatic enrichment, durable learning artifacts, clearer adoption outcomes, and prompt-aware model tiers |
 | **1.0.125** | Recommendation trust & attribution reliability — generic repository files score weakly, and Claude VS Code hook gaps no longer retire valid skills |
 | **1.0.124** | Recommendation precision, part 2 — the 1.0.123 generic-filename fix covered two extension-publishing skills but missed `deployment-practical`, whose `detect_globs` still included `**/README.md` and `**/.github/workflows/*.yml`; live telemetry showed it proposed 6 times in a row with 0% acceptance in a repo with zero Docker/Terraform/Azure evidence |
 | **1.0.123** | Recommendation precision — a live workspace's real proposal history caught `globSpecificityScore()` scoring near-universal filenames (`package.json`, `CHANGELOG.md`, `README.md`) as strongly as a targeted path glob, pushing two unrelated extension-publishing skills to 83-87% confidence in a pure Kubernetes/Terraform repo |
@@ -72,6 +73,25 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.126] - 2026-07-17
+
+**Summary:** The extension now turns more of its learning signals into useful workspace behavior. Enrichment can apply approved updates automatically, session boundaries refresh durable learning artifacts, passive non-use is separated from explicit rejection, and prompt context can carry a silent model-tier recommendation.
+
+**Theme:** Learning & routing intelligence — connects the self-learning pipeline, adoption metrics, and agent prompt handling into a more reliable workspace loop.
+
+### Added
+
+- **Automatic enrichment on session start.** `commandsEnrichment.ts` can run the enrichment pipeline asynchronously from the official SessionStart hook, auto-approve and apply pending proposals by default, and send one summary notification; `claudeSkills.enrichment.autoApply` and `claudeSkills.enrichment.runOnSessionStart` control the behavior.
+- **Durable learning artifacts.** `learningArtifacts.ts` materializes `patterns.md`, `knowledge-cache.md`, and `skill-feedback.jsonl` at session stop, while `dashboardPrecompute.ts` includes learning-file changes in snapshot invalidation so the dashboard does not serve stale intelligence.
+- **Prompt-aware model routing.** `modelRouting.ts` classifies prompt scenarios into fast, balanced, reasoning, or planning tiers and records decisions silently; routing settings expose model identifiers without changing the user-facing prompt.
+
+### Changed
+
+- **Adoption outcomes distinguish ignored from rejected.** `proposalOutcome.ts` no longer treats passive non-use as an explicit rejection, and `skillAdoption.ts` exposes an `ignored` funnel stage so penalties and adoption rates reflect actual user feedback more accurately.
+- **Skill instruction mirrors stay aligned.** Generated `.github/instructions` content is refreshed with the current skill library, including removal of the retired deployment-practical mirror.
 
 ---
 

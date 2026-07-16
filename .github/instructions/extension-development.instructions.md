@@ -2,7 +2,7 @@
 name: "extension-development"
 description: "Orient before changing extension/src or extension/resources in the claude-skills-deployer VS Code extension — find out whether a computation, score, or dashboard panel already exists somewhere before writing a new one, follow the shared-precompute pattern for cross-dashboard data, and know which test suites lock in exact formula values so a refactor doesn't silently break them. Use this whenever adding a new metric/score/KPI, wiring a new dashboard panel, touching costDashboard.ts or learning-dashboard.html, or making any change that spans more than one or two files in extension/src. Not needed for a single-file bug fix with an obvious, already-known location."
 applyTo: "**/*"
-deployedAt: "2026-07-16T20:27:21.590Z"
+deployedAt: "2026-07-16T22:53:05.746Z"
 ---
 
 # extension-development

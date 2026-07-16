@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.125",
+  "version": "1.0.126",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -594,6 +594,41 @@
               "All notifications ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â previous behavior including auto-apply and suggestion toasts."
             ],
             "description": "How chatty the extension is with VS Code notification toasts."
+          },
+          "claudeSkills.enrichment.autoApply": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically approve and apply generated skill enrichments to SKILL.md. The extension shows one summary notification after updates. Disable to restore manual review."
+          },
+          "claudeSkills.enrichment.runOnSessionStart": {
+            "type": "boolean",
+            "default": true,
+            "description": "Run the enrichment pipeline asynchronously whenever a new agent session starts."
+          },
+          "claudeSkills.modelRouting.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Silently classify prompts and provide an internal model-tier recommendation when the active agent supports model selection."
+          },
+          "claudeSkills.modelRouting.fast": {
+            "type": "string",
+            "default": "fast",
+            "description": "Model identifier used for quick edits."
+          },
+          "claudeSkills.modelRouting.balanced": {
+            "type": "string",
+            "default": "balanced",
+            "description": "Model identifier used for standard implementation work."
+          },
+          "claudeSkills.modelRouting.reasoning": {
+            "type": "string",
+            "default": "reasoning",
+            "description": "Model identifier used for debugging, architecture, and review work."
+          },
+          "claudeSkills.modelRouting.planning": {
+            "type": "string",
+            "default": "planning",
+            "description": "Model identifier used for architecture, migration, and multi-step strategy work."
           },
           "claudeSkills.autoUpdateExtension": {
             "type": "boolean",

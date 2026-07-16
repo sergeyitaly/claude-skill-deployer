@@ -2,7 +2,7 @@
 name: "webapp-testing"
 description: "Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs."
 applyTo: "**/*"
-deployedAt: "2026-07-16T20:27:21.601Z"
+deployedAt: "2026-07-16T22:53:05.756Z"
 ---
 
 # webapp-testing

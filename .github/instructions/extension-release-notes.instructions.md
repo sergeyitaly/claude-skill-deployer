@@ -2,7 +2,7 @@
 name: "extension-release-notes"
 description: "Keep extension/CHANGELOG.md, extension/README.md, and extension/package.json's version in sync whenever a notable fix or feature lands in the VS Code extension. Use this at the end of a session that changed extension/src or extension/resources in a user-visible or architecturally notable way, before declaring the work done — and always when explicitly asked to \"update the changelog\", \"bump the version\", \"update the README\", or \"write release notes\". Do not use for typo fixes, test-only changes, or internal refactors with zero behavior change and no bug fixed."
 applyTo: "**/*"
-deployedAt: "2026-07-16T20:27:21.591Z"
+deployedAt: "2026-07-16T22:53:05.746Z"
 ---
 
 # extension-release-notes

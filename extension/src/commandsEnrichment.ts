@@ -34,7 +34,7 @@ import {
 } from "./enrichmentIntelligence";
 import { listInstalledSkills } from "./usageStats";
 import { globalSkillsDir } from "./skillOps";
-import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
+import { notifyInfo, notifyUserSuccess, notifyUserWarn } from "./userNotify";
 import { recordFeatureUse } from "./analytics";
 
 // ── Deps ──────────────────────────────────────────────────────────────────────
@@ -45,6 +45,45 @@ export interface EnrichmentCommandDeps {
   getTarget: () => string | undefined;
   log: (line: string) => void;
   refreshAll: () => void;
+}
+
+function enrichmentAutoApplyEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.enrichment").get<boolean>("autoApply", true);
+}
+
+export function enrichmentSessionStartEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.enrichment").get<boolean>("runOnSessionStart", true);
+}
+
+function autoApplyEnrichmentProposals(
+  target: string,
+  libraryDir: string,
+  log: (line: string) => void,
+): { applied: number; failed: number; skills: string[] } {
+  if (!enrichmentAutoApplyEnabled()) return { applied: 0, failed: 0, skills: [] };
+  const proposals = readEnrichmentProposals(target);
+  const pending = proposals.filter(p => p.status === "pending");
+  for (const proposal of pending) approveEnrichmentProposal(target, proposal.id);
+  const candidates = readEnrichmentProposals(target).filter(p => p.status === "approved");
+  let applied = 0;
+  let failed = 0;
+  const skills = new Set<string>();
+  for (const proposal of candidates) {
+    const result = applyEnrichmentProposal(target, proposal.id, [
+      path.join(target, ".claude", "skills"),
+      globalSkillsDir(),
+      path.join(libraryDir, ".."),
+    ]);
+    if (result.applied) {
+      applied++;
+      skills.add(proposal.skill);
+      log(`Enrichment auto-applied: ${result.message}`);
+    } else if (!result.message.includes("already exists")) {
+      failed++;
+      log(`Enrichment auto-apply failed: ${result.message}`);
+    }
+  }
+  return { applied, failed, skills: [...skills] };
 }
 
 // ── Webview panel ─────────────────────────────────────────────────────────────
@@ -233,6 +272,7 @@ export function registerEnrichmentCommands(deps: EnrichmentCommandDeps): vscode.
       const allCandidates = [...result.candidates, ...minedCandidates];
       const resurfaced = resurfacePostponedProposals(target);
       const newProposals = generateEnrichmentProposals(target, allCandidates);
+      const autoApplied = autoApplyEnrichmentProposals(target, libraryDir, log);
 
       // Phase 8 + 10: refresh impact deltas and staleness warnings
       const impact = computeEnrichmentImpact(target);
@@ -257,7 +297,12 @@ export function registerEnrichmentCommands(deps: EnrichmentCommandDeps): vscode.
         for (const w of stale) log(`  ${w.skill} — ${w.message}`);
       }
 
-      if (newProposals > 0) {
+      if (autoApplied.applied > 0) {
+        void notifyInfo(
+          `Claude Skills: ${autoApplied.applied} enrichment update(s) applied to ${autoApplied.skills.length} skill(s).`,
+          { category: "important", dedupeKey: `enrichment-auto-applied|${target}|${autoApplied.applied}|${autoApplied.skills.join(",")}` },
+        );
+      } else if (newProposals > 0 && !enrichmentAutoApplyEnabled()) {
         void notifyUserSuccess(
           `Claude Skills: ${newProposals} new enrichment proposal(s) generated — open Enrichment Intelligence to review.`
         );
