@@ -12,6 +12,28 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.124
+
+### One more over-eager recommendation, fixed
+
+The 1.0.123 release stopped two extension-publishing skills from being proposed based on generic
+filenames alone. This release closes the same gap for `deployment-practical`, which could still be
+suggested for any project with a README and a GitHub Actions workflow — even one with no Docker,
+Terraform, or cloud deployment configuration at all.
+
+- **`deployment-practical` is now only proposed when real deployment evidence exists** — a Dockerfile,
+  Terraform files, an Azure/GitLab pipeline config, or similar. Having a README and a CI workflow (true
+  of almost every project) is no longer enough on its own.
+
+## What's new in 1.0.123
+
+### Skill recommendations are more precise — irrelevant proposals no longer crowd out real ones
+
+A practical test against a real, weeks-old workspace found the extension confidently proposing VS Code/Cursor/Kiro extension-publishing skills — at the very top of the recommendation list — in a project with no VS Code extension in it anywhere. The cause: the recommendation engine treated common filenames like `package.json` and `CHANGELOG.md` as strong project-relevance signals, when almost every repo has them regardless of what it actually does.
+
+- **Recommendation scoring no longer over-trusts generic filenames.** `package.json`, `README.md`, `CHANGELOG.md`, `LICENSE`, `.gitignore`, and similar near-universal files now score the same low relevance as a bare file-extension match, instead of scoring as if they were a targeted signal. This applies to every installed skill, not just the two caught in this test.
+- **The two extension-publishing skills' own detection rules were tightened** to drop `package.json`/`CHANGELOG.md` entirely — they still correctly detect real VS Code/Open VSX extension projects via their genuinely distinctive markers (`.vscodeignore`, `src/extension.ts`, `PUBLISHING.md`, etc.).
+
 ## What's new in 1.0.122
 
 ### Cleared out legacy and no-op features, and stale docs describing removed ones

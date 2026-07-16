@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.124** | Recommendation precision, part 2 — the 1.0.123 generic-filename fix covered two extension-publishing skills but missed `deployment-practical`, whose `detect_globs` still included `**/README.md` and `**/.github/workflows/*.yml`; live telemetry showed it proposed 6 times in a row with 0% acceptance in a repo with zero Docker/Terraform/Azure evidence |
+| **1.0.123** | Recommendation precision — a live workspace's real proposal history caught `globSpecificityScore()` scoring near-universal filenames (`package.json`, `CHANGELOG.md`, `README.md`) as strongly as a targeted path glob, pushing two unrelated extension-publishing skills to 83-87% confidence in a pure Kubernetes/Terraform repo |
 | **1.0.122** | Simplification — four more dead/legacy features removed (Onboarding Tour, two no-op feature flags, orphaned weekly-report/tier-benefit scripts) plus README documentation drift left behind by v1.0.82's earlier, incomplete removal of the weekly-report email subsystem |
 | **1.0.121** | Simplification — the Compliance Audit Framework (shipped 1.0.109) is removed entirely: its dashboard panel was the last of ~15 collapsed sections at the bottom of the Cost Dashboard, and 2 of its 5 compliance checks were permanently red for typical solo use regardless of actual project health |
 | **1.0.120** | Workspace isolation — five places skill-affecting state (MCP filesystem allowed-dirs, emergency cost cutoff, budget spend tracking, branch-profile saves, CLI usage attribution) was stored or computed machine-wide instead of per-project, so one project's activity could silently affect another's; all five are now correctly scoped |
@@ -69,6 +71,47 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.124] - 2026-07-17
+
+**Summary:** A follow-up audit of the recommendation engine — extending 1.0.123's generic-filename fix —
+found `deployment-practical` still matching on `**/README.md` and `**/.github/workflows/*.yml`, both
+present in nearly every repository regardless of whether it deploys anything. Live telemetry
+(`recommendation-feedback.jsonl`, session `d5383429`) showed the skill proposed 6 consecutive times with
+a 0% acceptance rate in a repo containing no Dockerfile, Terraform, or Azure configuration whatsoever.
+
+**Theme:** Recommendation precision, part 2 — same root-cause class as 1.0.123 (near-universal filenames
+scored as targeted signals), found in a skill 1.0.123's pass didn't cover.
+
+### Fixed
+
+- **`deployment-practical` no longer matches on README/workflow presence alone.** Its `detect_globs` in
+  `skills_library/manifest.json` (kept in sync in `extension/skills_library/manifest.json`) dropped
+  `**/README.md`, `**/.github/workflows/*.yml`, and `**/.github/workflows/*.yaml`, leaving only genuine
+  deployment/IaC signals: `**/*.tf`, `**/*.bicep`, `**/azure.yaml`/`.yml`, `**/Dockerfile`(`.*`),
+  `**/docker-compose*.yml`, `**/.gitlab-ci.yml`, `**/azure-pipelines.yml`, `**/.env*`, `**/deployment/**`.
+- **Added regression coverage for `detectRelevantSkills()`/`patternMatchesAny()`**
+  (`extension/src/skillOps.test.ts`), the first direct unit tests for the glob-matching functions every
+  proposal path (`agentOps.ts`, `taskSkillProposals.ts`, `branchSkillBootstrap.ts`, `skillSetResolver.ts`)
+  calls through. Tests load the real bundled manifest and assert `deployment-practical` doesn't fire on a
+  README+CI-only workspace, and still fires on one with real IaC evidence (`main.tf`, `Dockerfile`).
+
+---
+
+## [1.0.123] - 2026-07-17
+
+**Summary:** A practical usefulness test against a real, 3.5-week-old workspace (33 skills installed, 82 invocations, 775 HACE sessions) found the dashboard's own "Skill Utilization: LOW" and "ROI: LOW" flags had a concrete, reproducible cause: `vscode-extension-publishing` and `cursor-kiro-extension-publishing` were repeatedly proposed at 83-87% confidence — the top of that workspace's entire proposal queue — in a pure Kubernetes/Terraform/Kong infra repo containing no VS Code extension whatsoever, while the skills actually being invoked (`k3s-observability`, `dataviz`, `artifact-design`) went unproposed in the same batch. This release fixes the root cause.
+
+**Theme:** Recommendation precision — a live-workspace-verified fix, in the same spirit as the task-focus reliability passes (1.0.115-1.0.119): a real reproduction, not a hypothetical.
+
+### Fixed
+
+- **`globSpecificityScore()` (`taskSkillProposals.ts`) treated near-universal filenames as strong signals.** The function gave any glob that wasn't a bare `**/*.ext` wildcard the full 20-point "specific" bonus — including `**/package.json` and `**/CHANGELOG.md`, which appear in nearly every software repo regardless of stack. Combined with the +40 base for already-installed skills, that alone reached ~60 points before any affinity/history boosts, which is exactly how two unrelated extension-publishing skills reached 83-87% confidence against a repo with zero VS Code extension code. Added a `GENERIC_REPO_FILES` set (`package.json`, `README.md`, `CHANGELOG.md`, `LICENSE`/`LICENSE.md`/`.txt`, `.gitignore`, `Makefile`, `CONTRIBUTING.md`) that now scores 10 points — the same low tier as a bare extension wildcard — since matching one of these says almost nothing about what a project actually is. This is a general fix: it protects every skill's manifest from the same mistake, not just the two that were caught live.
+- **`vscode-extension-publishing` and `cursor-kiro-extension-publishing` manifests (`skills_library/manifest.json`, `extension/skills_library/manifest.json`) still listed `**/package.json`/`**/CHANGELOG.md` as detect globs.** Removed both from each skill — their genuinely distinctive markers (`.vscodeignore`, `vsc-extension-quickstart.md`, `*.vsix`, `src/extension.ts`, `PUBLISHING.md`, `publish-openvsx.js`, `.github/workflows/publish*.yml`, `00-extension-registries.md`) are untouched and still correctly detect real extension projects (including this repo's own `extension/` folder) without false-positiving on unrelated repos that merely have a package.json and a changelog.
+
+Verified against the exact reproduction: a real workspace's `skill-adoption.jsonl` (841 proposed / 70 invoked / 11 accepted — an 8.3% propose→invoke rate) showing these two skills as the two highest-confidence entries in the most recent proposal batch, with zero invocations ever recorded for either. Added `taskSkillProposals.test.ts`: "generic near-universal filename globs score no higher than bare extension globs" — asserts a skill matched only by `package.json`/`CHANGELOG.md` scores identically to one matched only by a bare extension wildcard, and strictly lower than one matched by a genuinely specific path glob. Full suite: 877/877 passing, clean `tsc --noEmit`.
 
 ---
 
