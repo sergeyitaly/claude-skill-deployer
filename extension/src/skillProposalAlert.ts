@@ -254,7 +254,8 @@ let promptInFlight = false;
 export async function maybePromptHighUsageSkillProposals(
   target: string,
   libraryDir: string,
-  applyProposals: (names: string[]) => Promise<string[]>
+  applyProposals: (names: string[]) => Promise<string[]>,
+  log?: (line: string) => void
 ): Promise<void> {
   if (promptInFlight) {
     return;
@@ -289,7 +290,7 @@ export async function maybePromptHighUsageSkillProposals(
     if (choice === "Apply suggested skills") {
       const installed = await applyProposals(toInstall.map((p) => p.name));
       if (installed.length > 0) {
-        notifyBackground(`Installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`);
+        notifyBackground(`Installed ${installed.length} suggested skill(s): ${installed.join(", ")}.`, log);
       }
     } else if (choice === "View usage report") {
       await vscode.commands.executeCommand("claudeSkills.showUsageStats");

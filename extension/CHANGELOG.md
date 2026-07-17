@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.137** | Agent debuggability — an agent driving this extension can't click VS Code's UI, which made every live test this project's own reliability work needed require a human round-trip; adds an output-log file mirror, a full-state-dump debug command, and a cache/throttle-bypassing force-refresh debug command, closing that gap for future sessions |
 | **1.0.136** | Budget/task-focus coupling visibility — a static audit (not live-verified like 1.0.129-135, but grounded in real code paths) found budget's threshold auto-disable was a silent, undocumented no-op whenever task focus was off; now surfaced in the output log and both settings' descriptions |
 | **1.0.135** | MCP-Force health check, part 2 — live-testing 1.0.134 against a brand-new workspace with no MCP activity of its own found it still refused; a workspace that's only ever had extension commands run in it (not an agent chat session) generates no usage log at all, so the check now also accepts proof from any other workspace the server has ever served |
 | **1.0.134** | MCP-Force health check — "Enable MCP-Force Mode" refused to enable with "MCP server has not been used yet" on every workspace, regardless of real usage, because its activity check read a global log file that nothing has ever actually written real entries to; now also checks the workspace's own (real) usage log |
@@ -83,6 +84,26 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.137] - 2026-07-17
+
+**Summary:** Every live test this whole reliability effort has run (1.0.129 through 1.0.136) needed a human to click through VS Code's UI and report back, because the agent driving the work has no way to invoke commands or read output itself. Added three things to close that: an output-log file mirror, a full-state-dump debug command, and a debug command that clears the refresh-loop's caches/throttles for a deterministic re-run. Also found, while auditing for missing notification-log wiring, that `claudeSkills.features.autoOptimizer` — a real, documented, tier-defaulted-on feature — has no code path that ever calls its own entry point; see "Known gaps" below.
+
+**Theme:** Agent debuggability — infrastructure for the extension-devops-growth playbook, not a bug fix.
+
+### Added
+
+- **The "Claude Skills" output channel now mirrors to `.claude/learning/extension-output.log`.** `log()` (`extension.ts`) previously only called `outputChannel.appendLine()`, with no durable form — every debugging exchange this session that needed real output content required a manual copy-paste. Same content, also written to disk now, size-capped at 2MB (oldest half dropped) matching `mcpUsageLog.ts`'s existing convention.
+- **New command: "Debug: Dump Full State to File"** (`claudeSkills.debugDumpState`, new `commandsDebug.ts`). Writes MCP health, Force Mode status, task-focus active/ignored skills, budget config and usage, and installed-skill count to `.claude/learning/debug-state-dump.json` in one shot — previously this required cross-referencing `task-active-skills.json`, `settings.local.json`, `mcp-usage.jsonl`, and `allowed-dirs.json` by hand, which this whole session's benchmarking did repeatedly.
+- **New command: "Debug: Force Full Refresh (Clear Caches)"** (`claudeSkills.debugForceFullRefresh`). Clears `skillOps.ts`'s stack-detection cache and the refresh-loop's in-memory throttle/dedup timers (`lastWorkspaceStateAt`, `lastCostDisciplineLogged`), then immediately re-runs a full workspace-state refresh. Previously, testing a fix meant waiting on a cache TTL or reloading the whole window as a workaround — both happened this session.
+- **`maybePromptHighUsageSkillProposals()`'s (`skillProposalAlert.ts`) install-confirmation toast now logs.** Found during the same audit that motivated the two items above — it called `notifyBackground()` with no `log` argument, so accepting the high-usage-alert prompt never left a trace anywhere.
+
+### Known gaps (not fixed this release — flagged for a deliberate decision, not a silent patch)
+
+- **`claudeSkills.features.autoOptimizer` has no code path that ever invokes it.** `runAutoOptimizePass()` (`autoOptimizer.ts`) is fully implemented — feature-flag check, safety caps, notifications — but is never called from anywhere in the codebase (confirmed by exhaustive reference search). `projectProfile.ts` defaults this feature to **on** for the `team-multi-agent` and `budget-sensitive` tiers, meaning those users see "Auto-optimizer: on" in their feature status with a feature that can never actually do anything. Not fixed here because wiring up a real periodic timer that auto-disables/archives/upgrades skills without per-action confirmation is a real behavioral decision, not a mechanical fix.
+- Two more `notifySuggestion()` call sites without a `log` option remain: `notifyApprovedEnrichmentsToast()` and `notifyEmergencyCutoffToast()` (`hookHandlers.ts`) — both real, reachable, hook-triggered notifications. Not threaded through this release given `hookHandlers.ts`'s size and its role as a hot path for every tool-use hook; worth a dedicated pass.
 
 ---
 

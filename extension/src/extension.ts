@@ -194,6 +194,7 @@ import { registerDashboardCommands } from "./commandsDashboard";
 import { registerLearningDashboardCommands } from "./commandsLearningDashboard";
 import { registerEnrichmentCommands } from "./commandsEnrichment";
 import { registerMcpCommands } from "./commandsMcp";
+import { registerDebugCommands } from "./commandsDebug";
 import { registerSkillsCommands } from "./commandsSkills";
 import { registerUsageCommands } from "./commandsUsage";
 import { registerHooksCommands } from "./commandsHooks";
@@ -372,8 +373,38 @@ function getWorkspaceTarget(): string | undefined {
   return resolveWorkspaceTarget();
 }
 
+// Mirrors the "Claude Skills" output channel to a plain-text file so it can be read
+// without VS Code's UI (a screen reader, an agent, a CI log collector). The channel itself
+// has no durable form otherwise — every debugging session before this one that needed real
+// output content required a human to open the panel and copy-paste it.
+const EXTENSION_LOG_MAX_BYTES = 2 * 1024 * 1024; // 2 MB, matches mcpUsageLog.ts's cap
+const EXTENSION_LOG_RELATIVE = path.join(".claude", "learning", "extension-output.log");
+
+function appendToExtensionLogFile(line: string): void {
+  const target = getWorkspaceTarget();
+  if (!target) return; // no workspace open — nothing to mirror to
+  try {
+    const file = path.join(target, EXTENSION_LOG_RELATIVE);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, `[${new Date().toISOString()}] ${line}\n`, "utf-8");
+
+    // Best-effort size cap — drop the oldest half rather than let this grow unbounded.
+    const size = fs.statSync(file).size;
+    if (size > EXTENSION_LOG_MAX_BYTES) {
+      const content = fs.readFileSync(file, "utf-8");
+      const midpoint = Math.floor(content.length / 2);
+      const nextLineBreak = content.indexOf("\n", midpoint);
+      const truncated = nextLineBreak === -1 ? "" : content.slice(nextLineBreak + 1);
+      fs.writeFileSync(file, truncated, "utf-8");
+    }
+  } catch {
+    // non-fatal — mirroring to disk must never block or throw from the real log call
+  }
+}
+
 function log(line: string) {
   outputChannel.appendLine(line);
+  appendToExtensionLogFile(line);
 }
 
 /** Open the output panel when the user opts in (setting) or clicks "Open Output". */
@@ -690,7 +721,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       return;
     }
     lastHighUsageAlertCheckMs = now;
-    void maybePromptHighUsageSkillProposals(target, libraryDir, (names) => applyProposalSkillNames(target, names));
+    void maybePromptHighUsageSkillProposals(target, libraryDir, (names) => applyProposalSkillNames(target, names), log);
   }
 
   let lastWorkspaceStateAt = 0;
@@ -1324,6 +1355,21 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
       revealOutputPanel,
       maybeRevealOutputPanel,
       refreshProvider: () => provider.refreshMcpServerStatus(),
+    }),
+    ...registerDebugCommands({
+      context,
+      getTarget: getWorkspaceTarget,
+      log,
+      getRefreshDebugInfo: () => ({
+        lastWorkspaceStateAtIso: lastWorkspaceStateAt ? new Date(lastWorkspaceStateAt).toISOString() : undefined,
+        msSinceLastWorkspaceState: lastWorkspaceStateAt ? Date.now() - lastWorkspaceStateAt : undefined,
+        lastCostDisciplineLogged,
+      }),
+      resetRefreshThrottles: () => {
+        lastWorkspaceStateAt = 0;
+        lastCostDisciplineLogged = undefined;
+      },
+      refreshAll,
     }),
     ...registerDashboardCommands({
       context,
