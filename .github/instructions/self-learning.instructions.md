@@ -2,7 +2,7 @@
 name: "self-learning"
 description: "Maintain a project-local self-learning base of task/command outcomes — record successes and failures with timestamps, durations, and fixes; generate a patterns report (pass rates, recurring errors, known fixes); and surface a learned hint before retrying something that failed before. Use at the start of a session to check learned hints, after running a non-trivial command/skill to record the outcome, when asked \"what failed before\" or \"what did we learn\", or to record a manual decision/learning."
 applyTo: "**/*"
-deployedAt: "2026-07-16T22:53:05.751Z"
+deployedAt: "2026-07-17T18:59:18.681Z"
 ---
 
 # self-learning
@@ -223,3 +223,27 @@ Commands proven in real sessions with this skill:
 - `git add -- .github/instructions CLAUDE.md extension/CHANGELOG.md extension/package.json extension/resources/mcp-servers/filesystem/index.js extension/src/auditE` — 1 successful use(s), 52% confidence
 - `git commit -m "$(cat <<'EOF' v1.0.110: Remove legacy Context Efficiency feature Superseded by the Compliance Audit Framework and Workspace Intelligence systems;` — 1 successful use(s), 52% confidence
 - `git push origin main` — 1 successful use(s), 52% confidence
+
+
+<!-- Enrichment: added from 4 real-world sessions, 96% confidence, 2026-07-16 -->
+## Self-Learning Update Patterns
+
+This skill runs at session start to inject prior learning context.
+
+**What it reads:**
+- `MEMORY.md` — index of persistent memory files
+- `memory/*.md` — individual user/feedback/project/reference records
+- `.claude/learning/skill-feedback.jsonl` — accumulated correction signals
+
+**Update triggers:**
+- User says "remember X" → save to appropriate memory type file
+- User corrects the same mistake 2+ times → save as `feedback` memory
+- New project context discovered → save as `project` memory
+
+**Memory types written:**
+| Type | File pattern | When |
+|------|-------------|------|
+| user | `user_*.md` | Role, preferences, expertise |
+| feedback | `feedback_*.md` | Corrections and validated approaches |
+| project | `project_*.md` | Goals, deadlines, context |
+| reference | `reference_*.md` | External system pointers |

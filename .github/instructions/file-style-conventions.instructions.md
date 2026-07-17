@@ -2,7 +2,7 @@
 name: "file-style-conventions"
 description: "Apply two lightweight file-hygiene conventions when writing or editing files - no emoji characters outside Markdown (.md) files, and YAML files (.yml/.yaml) end with exactly one trailing newline. Use whenever creating or editing non-Markdown files that might contain emoji, or any .yml/.yaml file."
 applyTo: "**/*"
-deployedAt: "2026-07-16T22:53:05.747Z"
+deployedAt: "2026-07-17T18:59:18.677Z"
 ---
 
 # file-style-conventions
@@ -60,3 +60,16 @@ editing — don't do a repo-wide sweep reformatting unrelated files unless
 asked. If a pre-existing file already violates one of these conventions and
 you're touching it for an unrelated reason, fix the convention issue too
 while you're there (it's a one-line change), but mention it briefly.
+
+
+<!-- Enrichment: added from 26 real-world sessions, 95% confidence, 2026-07-13 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `grep -n "^export function\|Funnel" extension/src/skillAdoption.ts | head -30` — 19 successful use(s), 100% confidence
+- `find extension/src -maxdepth 1 -name "*.ts" | sort` — 2 successful use(s), 64% confidence
+- `sed -n '150,185p' extension/src/costPredictor.ts` — 2 successful use(s), 64% confidence
+- `mkdir -p "C:\Users\SERHII~1\AppData\Local\Temp\claude\c--Users-SerhiiVoinolovich-claude-skills-deployer\0c87a2b4-d583-480a-8233-46cda88949aa\scratchpad"` — 1 successful use(s), 52% confidence
+- `find . -iname "*.html" -not -path "*/node_modules/*" 2>/dev/null` — 1 successful use(s), 52% confidence
+- `node -e " const d=require('./.claude/learning/skill-stats.json'); const skills=Object.values(d.skills||{}); const active=skills.filter(s=>s.runs>0); const total` — 1 successful use(s), 52% confidence

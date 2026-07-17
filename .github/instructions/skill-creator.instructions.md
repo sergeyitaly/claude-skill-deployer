@@ -2,7 +2,7 @@
 name: "skill-creator"
 description: "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy."
 applyTo: "**/*"
-deployedAt: "2026-07-16T22:53:05.752Z"
+deployedAt: "2026-07-17T18:59:18.682Z"
 ---
 
 # skill-creator
@@ -496,3 +496,38 @@ Repeating one more time the core loop here for emphasis:
 Please add steps to your TodoList, if you have such a thing, to make sure you don't forget. If you're in Cowork, please specifically put "Create evals JSON and run `eval-viewer/generate_review.py` so human can review test cases" in your TodoList to make sure it happens.
 
 Good luck!
+
+
+<!-- Enrichment: added from 7 real-world sessions, 89% confidence, 2026-07-06 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `$path = "c:\Users\SerhiiVoinolovich\claude-skills-deployer\extension\skills_library\skill-creator\_test_fix_skill\SKILL.md" $bytes = [System.IO.File]::ReadAllBy` — 2 successful use(s), 64% confidence
+- `git status --short extension/skills_library/skill-creator` — 2 successful use(s), 64% confidence
+- `python -m pytest tests/test_audit_check_integrity.py -v 2>&1 | tail -80` — 2 successful use(s), 64% confidence
+- `git check-ignore -v extension/skills_library/skill-creator/SKILL.md extension/skills_library/skill-creator/scripts/utils.py 2>&1; echo "---"; git ls-files exten` — 1 successful use(s), 52% confidence
+
+
+<!-- Enrichment: added from 3 real-world sessions, 92% confidence, 2026-07-06 -->
+## Skill Feedback Patterns
+
+Negative signals that trigger adaptation:
+
+| Signal | Meaning |
+|--------|---------|
+| "no", "not that", "wrong" | Output misaligned with intent |
+| "stop", "don't" | Unwanted action taken |
+| "actually", "instead" | Correction of approach |
+| "you missed", "you forgot" | Incomplete output |
+
+**Workflow this skill runs:**
+1. Detects negative signals in the current user message
+2. Appends a `SkillFeedbackRecord` to `skill-feedback.jsonl`
+3. Surfaces a digest in the next session if the pattern repeats ≥ 3×
+4. Writes an adaptation note to `adaptation-log.jsonl`
+
+**When to invoke:**
+- After a skill produces output the user explicitly rejects
+- To audit which skills have the highest inefficiency score
+- To review `skill-feedback.jsonl` for a specific skill before updating its SKILL.md

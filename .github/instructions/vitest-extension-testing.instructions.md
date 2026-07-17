@@ -6,7 +6,7 @@ applyTo:
   - **/*.bench.test.ts
   - **/*.solo.test.ts
   - **/src/**/*.test.ts
-deployedAt: "2026-07-16T22:53:05.755Z"
+deployedAt: "2026-07-17T18:59:18.685Z"
 ---
 
 # vitest-extension-testing

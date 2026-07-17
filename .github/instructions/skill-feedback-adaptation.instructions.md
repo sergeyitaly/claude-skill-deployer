@@ -5,7 +5,7 @@ applyTo:
   - **/.claude/learning/skill-feedback.jsonl
   - **/.claude/learning/task-skill-proposals.json
   - **/.claude/learning/**
-deployedAt: "2026-07-16T22:53:05.753Z"
+deployedAt: "2026-07-17T18:59:18.683Z"
 ---
 
 # skill-feedback-adaptation
@@ -212,3 +212,27 @@ Commands proven in real sessions with this skill:
 - `git commit -m "$(cat <<'EOF' feat: v1.0.99 — dormancy-aware proposals TTL + proposalOutcome unit tests Fix areTaskSkillProposalsFresh() to invalidate the cached` — 2 successful use(s), 64% confidence
 - `git push origin main 2>&1` — 2 successful use(s), 64% confidence
 - `git status && git log --oneline -5` — 1 successful use(s), 52% confidence
+
+
+<!-- Enrichment: added from 3 real-world sessions, 92% confidence, 2026-07-16 -->
+## Skill Feedback Patterns
+
+Negative signals that trigger adaptation:
+
+| Signal | Meaning |
+|--------|---------|
+| "no", "not that", "wrong" | Output misaligned with intent |
+| "stop", "don't" | Unwanted action taken |
+| "actually", "instead" | Correction of approach |
+| "you missed", "you forgot" | Incomplete output |
+
+**Workflow this skill runs:**
+1. Detects negative signals in the current user message
+2. Appends a `SkillFeedbackRecord` to `skill-feedback.jsonl`
+3. Surfaces a digest in the next session if the pattern repeats ≥ 3×
+4. Writes an adaptation note to `adaptation-log.jsonl`
+
+**When to invoke:**
+- After a skill produces output the user explicitly rejects
+- To audit which skills have the highest inefficiency score
+- To review `skill-feedback.jsonl` for a specific skill before updating its SKILL.md

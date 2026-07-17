@@ -2,7 +2,7 @@
 name: "extension-release-notes"
 description: "Keep extension/CHANGELOG.md, extension/README.md, and extension/package.json's version in sync whenever a notable fix or feature lands in the VS Code extension. Use this at the end of a session that changed extension/src or extension/resources in a user-visible or architecturally notable way, before declaring the work done — and always when explicitly asked to \"update the changelog\", \"bump the version\", \"update the README\", or \"write release notes\". Do not use for typo fixes, test-only changes, or internal refactors with zero behavior change and no bug fixed."
 applyTo: "**/*"
-deployedAt: "2026-07-16T22:53:05.746Z"
+deployedAt: "2026-07-17T18:59:18.677Z"
 ---
 
 # extension-release-notes
@@ -146,3 +146,13 @@ README section entirely rather than writing a hollow bullet — but still
 consider whether a terse CHANGELOG-only entry belongs there for the
 historical record. Use judgment; don't manufacture a "What's new" bullet
 for something a user would never notice.
+
+
+<!-- Enrichment: added from 4 real-world sessions, 83% confidence, 2026-07-16 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `git log --diff-filter=D --name-only --pretty=format:"%h %ad %s" --date=short -- extension/src/weeklyReport.ts extension/src/weeklyReportBenefits.ts extension/sr` — 2 successful use(s), 64% confidence
+- `git status --porcelain=v1 | wc -l && git status --porcelain=v1` — 1 successful use(s), 52% confidence
+- `git diff --stat` — 1 successful use(s), 52% confidence

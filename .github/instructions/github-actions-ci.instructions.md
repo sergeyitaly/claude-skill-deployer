@@ -9,7 +9,7 @@ applyTo:
   - **/src/**
   - **/*.test.ts
   - **/*.test.js
-deployedAt: "2026-07-16T22:53:05.748Z"
+deployedAt: "2026-07-17T18:59:18.678Z"
 ---
 
 # github-actions-ci
@@ -77,3 +77,36 @@ Mismatches cause silent test-passes-in-CI / prod-failures.
 ## Workflow Files in This Repo
 - [.github/workflows/ci.yml](../../.github/workflows/ci.yml) — unit + integration tests on push/PR
 - [.github/workflows/publish-extension.yml](../../.github/workflows/publish-extension.yml) — VSIX package + Marketplace/Open VSX publish
+
+
+<!-- Enrichment: added from 3 real-world sessions, 92% confidence, 2026-07-13 -->
+## GitHub Actions Debugging
+
+Inspect and re-run failing workflows:
+
+```bash
+gh run list --workflow=<workflow.yml>
+gh run view <run-id> --log-failed
+gh run rerun <run-id> --failed
+```
+
+**Common failures:**
+- Secret unavailable in fork PRs — use environment-level secrets with explicit approval
+- `actions/checkout` depth insufficient for tag push — set `fetch-depth: 0`
+- Publish step fails — verify `NODE_AUTH_TOKEN` (npm) or `GITHUB_TOKEN` scope
+- Concurrency lock — check `concurrency:` group settings for race conditions
+
+
+<!-- Enrichment: added from 28 real-world sessions, 95% confidence, 2026-07-13 -->
+## Frequently Used Commands
+
+Commands proven in real sessions with this skill:
+
+- `git status --short && echo --- && git tag --sort=-v:refname | head -20 && echo --- && git log --oneline -10` — 5 successful use(s), 100% confidence
+- `git add -- .github/instructions CLAUDE.md extension/CHANGELOG.md extension/package.json extension/resources/mcp-servers/filesystem/index.js extension/src/auditE` — 3 successful use(s), 76% confidence
+- `git commit -m "$(cat <<'EOF' v1.0.110: Remove legacy Context Efficiency feature Superseded by the Compliance Audit Framework and Workspace Intelligence systems;` — 3 successful use(s), 76% confidence
+- `git push origin main` — 3 successful use(s), 76% confidence
+- `Write-Host '--- current 4895/64757/65155 owner ---' Get-NetTCPConnection -State Listen -LocalPort 4895,64757,65155 -ErrorAction SilentlyContinue | Select-Object` — 3 successful use(s), 76% confidence
+- `Write-Host "--- root window processes (have --folder-uri, no --type=) ---" Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'Code.exe' -and $_.Command` — 3 successful use(s), 76% confidence
+- `netstat -ano | grep -E "4895|LISTENING" | grep 4895` — 2 successful use(s), 64% confidence
+- `powershell -NoProfile -Command "Get-Process -Id 20256 | Select-Object Id,ProcessName,Path,StartTime | Format-List"` — 2 successful use(s), 64% confidence

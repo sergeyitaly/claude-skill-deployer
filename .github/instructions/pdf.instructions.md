@@ -9,7 +9,7 @@ applyTo:
   - **/pdf*.js
   - **/generate*pdf*
   - **/*pdf*generator*
-deployedAt: "2026-07-16T22:53:05.750Z"
+deployedAt: "2026-07-17T18:59:18.680Z"
 ---
 
 # pdf

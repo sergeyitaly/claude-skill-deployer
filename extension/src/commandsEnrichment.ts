@@ -72,7 +72,7 @@ export function enrichmentSessionStartEnabled(): boolean {
   return vscode.workspace.getConfiguration("claudeSkills.enrichment").get<boolean>("runOnSessionStart", true);
 }
 
-function autoApplyEnrichmentProposals(
+export function autoApplyEnrichmentProposals(
   target: string,
   libraryDir: string,
   log: (line: string) => void,
