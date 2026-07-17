@@ -45,6 +45,7 @@ import {
   removeSkillFromAllWorkspaceAgents,
   shouldSyncGlobalToAll,
   shouldSyncWorkspaceToAll,
+  syncClaudeBootstrap,
   syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
 import {
@@ -902,6 +903,11 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
             }
           }
         }
+        // Unconditional — independent of whether task focus itself decided anything
+        // changed (that gate is keyed to proposals/installed-set staleness, not to
+        // whether CLAUDE.md is up to date). A solo Claude-only workspace with no
+        // Cursor/Kiro/Copilot mirroring enabled should still get its own summary.
+        syncClaudeBootstrap(target, libraryDir);
         const discipline = runCostDisciplinePass(libraryDir, target);
         const disciplineKey = `${target}|${JSON.stringify(discipline)}`;
         if (disciplineKey !== lastCostDisciplineLogged) {

@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.133** | Reliability — live-verifying 1.0.132's CLAUDE.md parity feature in a real "settled" workspace found it never actually ran: the sync call was nested inside task-focus's own re-apply gate, so once a workspace stopped needing re-assignment, CLAUDE.md silently stopped syncing too; moved to run unconditionally |
 | **1.0.132** | CLAUDE.md parity — Claude Code was the only one of the four supported agents with no auto-maintained project-instructions file; it now gets an installed-skills summary in CLAUDE.md unconditionally, independent of MCP-Force Mode, matching what Copilot's `copilot-instructions.md` already provided |
 | **1.0.131** | Benchmark fixes — a live practical benchmark against a synthetic Terraform/Azure/AKS/GitHub-Actions repo found "Install Relevant Skills for Workspace" installing 8 skills that match literally every project (`detect_globs: ["**/*"]`), and task focus never pruning them because its re-sync guard only reacted to proposal regeneration, not installed-set drift |
 | **1.0.130** | Release process — the published 1.0.129 package was built before its own CLAUDE.md-repair fix landed in source, so that fix shipped as a version-number claim with no code behind it; this release actually contains it, and documents the packaging gap |
@@ -79,6 +80,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.133] - 2026-07-17
+
+**Summary:** Live-verifying 1.0.132's CLAUDE.md parity feature against a real workspace that had already settled (no pending task-focus re-assignment) found `CLAUDE.md` still wasn't being created. Traced to a placement bug: the sync call never actually ran for a settled workspace. Fixed by moving it out of task-focus's own re-apply gate.
+
+**Theme:** Reliability — same pattern as 1.0.129→1.0.130 (a version number claiming a fix the code path didn't actually reach); caught by re-testing against the exact real workspace the feature was built for, not a fresh one.
+
+### Fixed
+
+- **`syncClaudeBootstrap()` was nested inside `applyTaskSkillFocusFromProposals()`'s own early-return guard, so it only ran when task focus itself decided something needed re-applying.** Once a workspace's `task-active-skills.json` state matched the current proposals and nothing was installed-drifted (exactly the state the benchmark workspace was left in after the 1.0.131 fixes), `applyTaskSkillFocusFromProposals()` returned `{ applied: false }` at its very first opportunity — before ever reaching the `syncClaudeBootstrap()` call added in 1.0.132. `CLAUDE.md` syncing has nothing to do with whether task-focus's active/ignored assignment changed; it only depends on `listEffectiveEnabledSkills()`, which is always computable regardless. Moved the call out of `taskSkillFocus.ts` entirely and into `extension.ts`'s workspace-state refresh loop, called unconditionally right after `applyTaskSkillFocusFromProposals()` regardless of its `applied` result — matching how `syncCopilotBootstrap()`'s sibling call already behaves in the same refresh cycle.
 
 ---
 

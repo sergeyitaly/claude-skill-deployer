@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
-import { syncClaudeBootstrap } from "./agentOps";
 import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
@@ -210,10 +209,6 @@ export function applyTaskSkillFocusFromProposals(
   const names = resolveProposalSkillNames(proposals).filter(Boolean);
   const focus = applyTaskSkillFocus(target, names, "task-skill-proposals", proposals.generatedAt);
   bootstrapWorkspaceForHostAgent(libraryDir, target);
-  // Unconditional (unlike propagateCostDisciplineToAgents below, which is gated on
-  // multi-agent mirror settings) — a solo Claude-only workspace with no Cursor/Kiro/Copilot
-  // mirroring enabled should still get its own CLAUDE.md skills summary.
-  syncClaudeBootstrap(target, libraryDir);
   propagateCostDisciplineToAgents(libraryDir, target);
   return { applied: true, focus };
 }
