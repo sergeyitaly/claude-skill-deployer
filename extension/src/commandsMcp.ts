@@ -61,9 +61,9 @@ export function registerMcpCommands(deps: McpCommandDeps): vscode.Disposable[] {
 
   return [
     vscode.commands.registerCommand("claudeSkills.showMcpHealth", () => {
-      const health = checkMcpHealth();
-      const cliStatus = getCliMcpServerStatus();
       const target = getTarget();
+      const health = checkMcpHealth(target);
+      const cliStatus = getCliMcpServerStatus();
       const logPath = target ? workspaceMcpLogPath(target) : undefined;
       const summary = summarizeMcpUsage(1, logPath);
       const { score, grade, totalOps, wastefulOps, notEnoughData } = summary.efficiencyScore;

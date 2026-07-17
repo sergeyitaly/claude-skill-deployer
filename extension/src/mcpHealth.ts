@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readMcpUsageLog } from "./mcpUsageLog";
+import { readMcpUsageLog, workspaceMcpLogPath } from "./mcpUsageLog";
 
 const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 const FILESYSTEM_SERVER_DIR = path.join(CLAUDE_HOME, "mcp-servers", "filesystem");
@@ -37,7 +37,7 @@ function isFilesystemServerEntry(entry: { command: string; args?: string[] } | u
   return entry?.command === "node" && (entry?.args?.length ?? 0) >= 1;
 }
 
-export function checkMcpHealth(): McpHealth {
+export function checkMcpHealth(target?: string): McpHealth {
   const errors: string[] = [];
 
   // Check 1: Server binary
@@ -70,8 +70,15 @@ export function checkMcpHealth(): McpHealth {
     errors.push("Filesystem MCP server not configured for any agent (Claude, Cursor, or Kiro).");
   }
 
-  // Check 3: Activity (last 24h across all agents — shared log)
-  const logEntries = readMcpUsageLog();
+  // Check 3: Activity (last 24h across all agents). The global log (MCP_USAGE_LOG_PATH)
+  // is never actually appended to by real tool-call recording — the only code that
+  // touches it besides reading is clearMcpLogs(), which truncates it — so real usage
+  // lives exclusively in each workspace's own <target>/.claude/mcp-usage.jsonl. Checking
+  // only the global log meant this always reported "no-activity" regardless of how much
+  // real, successful MCP usage had actually happened, permanently blocking
+  // enableMcpForcePermissions()'s health gate. Check both when a target is available.
+  const workspaceLogEntries = target ? readMcpUsageLog(workspaceMcpLogPath(target)) : [];
+  const logEntries = [...readMcpUsageLog(), ...workspaceLogEntries];
   const now = Date.now();
   const dayAgo = now - 24 * 60 * 60 * 1000;
   const recentEntries = logEntries.filter((e) => new Date(e.ts).getTime() >= dayAgo);

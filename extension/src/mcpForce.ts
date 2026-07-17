@@ -93,7 +93,7 @@ export function isMcpForceActive(target: string): boolean {
  * or has not yet been verified to respond (no-activity on a fresh install).
  */
 export function enableMcpForcePermissions(target: string): McpForceEnableResult {
-  const health = checkMcpHealth();
+  const health = checkMcpHealth(target);
   if (health.status === "config-issue") {
     return {
       ok: false,
@@ -209,7 +209,7 @@ export function removeClaudeMdBlock(target: string, blockStart: string, blockEnd
 }
 
 export function injectMcpForceClaude(target: string): McpForceInjectResult {
-  const health = checkMcpHealth();
+  const health = checkMcpHealth(target);
   if (health.status === "config-issue") {
     return {
       ok: false,

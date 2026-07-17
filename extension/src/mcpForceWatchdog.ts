@@ -25,7 +25,7 @@ export function startMcpForceWatchdog(
     const target = getTarget();
     if (!target || !isMcpForceActive(target)) return;
 
-    const health = checkMcpHealth();
+    const health = checkMcpHealth(target);
     if (health.status !== "config-issue") return;
 
     // MCP server is broken while force mode is active — revert immediately to

@@ -12,6 +12,14 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.134
+
+### "Enable MCP-Force Mode" actually enables now
+
+It used to refuse with "MCP server has not been used yet and cannot be verified as working" — every time, on every workspace, no matter how much you'd actually used it. The health check was reading a log file that nothing ever wrote real data into.
+
+- **The MCP activity check now looks at where real usage actually gets recorded.** It previously only checked a global log that's effectively dead (only ever cleared, never appended to); it now also checks the current workspace's own usage log, where your real tool-call history has been all along.
+
 ## What's new in 1.0.132
 
 ### Claude Code now gets its own CLAUDE.md skills summary, no setup required

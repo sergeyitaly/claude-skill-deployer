@@ -87,7 +87,7 @@ export function refreshMcpStatusBars(workspaceTarget?: string): void {
   lastMcpBarRefreshMs = now;
 
   // ── Health bar ────────────────────────────────────────────────────────────
-  const health = checkMcpHealth();
+  const health = checkMcpHealth(workspaceTarget);
   const agentCount = health.configuredAgents.length;
   const agentLabel = agentCount > 0 ? ` · ${agentCount} agents` : "";
 

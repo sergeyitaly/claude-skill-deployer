@@ -16,6 +16,7 @@ vi.mock("node:fs", async () => {
 // Stub readMcpUsageLog to avoid reading the real global log.
 vi.mock("./mcpUsageLog", () => ({
   readMcpUsageLog: vi.fn(() => []),
+  workspaceMcpLogPath: (root: string) => `${root}/.claude/mcp-usage.jsonl`,
 }));
 
 // Import after mocks are declared.
@@ -136,5 +137,35 @@ describe("checkMcpHealth", () => {
     });
     const health = checkMcpHealth();
     expect(health.configValid).toBe(true);
+  });
+
+  it("regression: reports ready from workspace-log activity even when the global log has none", async () => {
+    // Real-world bug: the global log (MCP_USAGE_LOG_PATH) is only ever truncated by
+    // clearMcpLogs(), never appended to by real tool-call recording — actual usage lives
+    // in <target>/.claude/mcp-usage.jsonl. Passing no target meant checkMcpHealth() always
+    // read the (perpetually empty) global log and reported "no-activity" regardless of how
+    // much real MCP usage had happened, permanently blocking enableMcpForcePermissions().
+    const { readMcpUsageLog } = await import("./mcpUsageLog");
+    vi.mocked(readMcpUsageLog).mockImplementation((logPath?: string) => {
+      if (logPath === "/my/workspace/.claude/mcp-usage.jsonl") {
+        return [{ ts: new Date().toISOString(), tool: "read_file", path: "/a.ts", durationMs: 5 }];
+      }
+      return []; // global log: empty, as it always is in practice
+    });
+    fakeExistsSync([FILESYSTEM_SERVER_PATH]);
+    fakeReadFileSync({
+      [CLAUDE_CONFIG_PATH]: JSON.stringify({
+        mcpServers: {
+          filesystem: { command: "node", args: [FILESYSTEM_SERVER_PATH] },
+        },
+      }),
+    });
+
+    const withoutTarget = checkMcpHealth();
+    expect(withoutTarget.status).toBe("no-activity");
+
+    const withTarget = checkMcpHealth("/my/workspace");
+    expect(withTarget.status).toBe("ready");
+    expect(withTarget.hasActivity).toBe(true);
   });
 });

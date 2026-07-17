@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.134** | MCP-Force health check — "Enable MCP-Force Mode" refused to enable with "MCP server has not been used yet" on every workspace, regardless of real usage, because its activity check read a global log file that nothing has ever actually written real entries to; now also checks the workspace's own (real) usage log |
 | **1.0.133** | Reliability — live-verifying 1.0.132's CLAUDE.md parity feature in a real "settled" workspace found it never actually ran: the sync call was nested inside task-focus's own re-apply gate, so once a workspace stopped needing re-assignment, CLAUDE.md silently stopped syncing too; moved to run unconditionally |
 | **1.0.132** | CLAUDE.md parity — Claude Code was the only one of the four supported agents with no auto-maintained project-instructions file; it now gets an installed-skills summary in CLAUDE.md unconditionally, independent of MCP-Force Mode, matching what Copilot's `copilot-instructions.md` already provided |
 | **1.0.131** | Benchmark fixes — a live practical benchmark against a synthetic Terraform/Azure/AKS/GitHub-Actions repo found "Install Relevant Skills for Workspace" installing 8 skills that match literally every project (`detect_globs: ["**/*"]`), and task focus never pruning them because its re-sync guard only reacted to proposal regeneration, not installed-set drift |
@@ -80,6 +81,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.134] - 2026-07-17
+
+**Summary:** Trying to run "Claude Skills: Enable MCP-Force Mode" against a real workspace, after both extensive real MCP filesystem usage that session and a brand-new benchmark workspace, refused every time with "MCP server has not been used yet and cannot be verified as working." Traced to the health check's activity gate reading a log file that nothing in the codebase actually writes real entries to. Fixed.
+
+**Theme:** MCP-Force health check — this gate has likely been silently broken for every user on every machine since it was written; nothing about it is workspace-specific.
+
+### Fixed
+
+- **`checkMcpHealth()`'s activity check read a global log that is never populated with real usage.** `MCP_USAGE_LOG_PATH` (`~/.claude/learning/mcp-usage.jsonl`) is the *only* thing `readMcpUsageLog()` defaulted to when called with no argument, and the only code in the entire codebase that ever writes to that exact path is `clearMcpLogs()` — which truncates it to empty. Real tool-call activity has only ever been recorded per-workspace, in `<target>/.claude/mcp-usage.jsonl` (confirmed live: this repo's own workspace log had 8,427 real entries at the time the global log was sitting at 0 bytes). Since `enableMcpForcePermissions()`/`injectMcpForceClaude()`/the auto-enable-on-startup path/the watchdog/the status bar all called `checkMcpHealth()` with no target, `hasActivity` was structurally guaranteed to be `false` forever, regardless of real usage — meaning "Enable MCP-Force Mode" could never actually succeed anywhere, for anyone, unless someone bypassed it by hand-editing `permissions.deny` directly (which is exactly how force mode got enabled in this session's own `verify-mcpforce-ws` test workspace, sidestepping the bug without realizing it). `checkMcpHealth()` now takes an optional `target` and also checks that workspace's own usage log; all 5 call sites (`mcpForce.ts` ×2, `mcpForceWatchdog.ts`, `commandsMcp.ts`, `mcpStatusBars.ts`) now pass the workspace target they already had in scope. `mcpHealth.test.ts` gained a regression test proving `checkMcpHealth()` reports `"no-activity"` without a target and `"ready"` with one, from the exact same (real) workspace-log data.
 
 ---
 
