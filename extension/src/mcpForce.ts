@@ -5,6 +5,10 @@ import { checkMcpHealth } from "./mcpHealth";
 
 const MCP_FORCE_DENY = [
   "Read", "Write", "Edit", "Glob", "Grep", "Bash",
+  // PowerShell is a separate tool from Bash on Windows hosts — without denying it too,
+  // force mode is leaky there: Bash gets blocked but the agent's primary Windows shell
+  // tool doesn't, leaving raw file I/O (and its Windows-only encoding/persistence bugs) reachable.
+  "PowerShell",
   // CLI MCP tools — block shell access too so force mode is fully hermetic.
   "mcp__claude-skills-cli__run_command",
   "mcp__claude-skills-cli__list_available_clis",
@@ -17,7 +21,7 @@ const FORCE_CLAUDE_MD_BLOCK = `${FORCE_BLOCK_START}
 
 Use ONLY MCP filesystem tools for file operations.
 
-❌ Do NOT use: \`Read\`, \`Write\`, \`Edit\`, \`Glob\`, \`Grep\`, \`Bash\`, or CLI MCP (\`run_command\`, \`list_available_clis\`)
+❌ Do NOT use: \`Read\`, \`Write\`, \`Edit\`, \`Glob\`, \`Grep\`, \`Bash\`, \`PowerShell\`, or CLI MCP (\`run_command\`, \`list_available_clis\`)
 
 ✅ Use:
 - \`mcp__filesystem__read_file\` (pass \`offset\`/\`limit\` to page through large files)

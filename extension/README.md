@@ -12,6 +12,16 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.129
+
+### Three bugs found by using the extension for real work, all fixed
+
+Real dogfooding in another project (not synthetic testing) turned up a Windows-only gap in MCP-Force Mode and a silent-disable gap in task focus; live-verifying the first fix then turned up a third.
+
+- **MCP-Force Mode now actually blocks native file tools on Windows.** It previously denied `Bash` but not `PowerShell` — on Windows those are separate tools, so enabling Force Mode still left the door open to raw PowerShell file edits (which have their own encoding/persistence bugs on Windows). `PowerShell` is now included in the block list.
+- **MCP-Force Mode now repairs a missing CLAUDE.md instead of skipping it forever.** If `claudeSkills.mcpForce.enableOnStartup` was on and the permission block was already in place but `CLAUDE.md` was missing (deleted, or never synced to this machine), the extension used to give up silently and never recreate it. It now checks and repairs each half independently.
+- **Task focus now tells you when it turns a skill off.** If `claudeSkills.taskFocus.enabled` disables a skill you were actively using mid-session, you'll now get a notification naming it, instead of only a log line in the output channel. Controlled by the new `claudeSkills.taskFocus.notifyOnDisable` setting (on by default).
+
 ## What's new in 1.0.127
 
 ### Enrichment auto-apply is now opt-in

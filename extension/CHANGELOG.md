@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.129** | Dogfooding fixes — MCP-Force Mode was leaky on Windows (PowerShell missing from the deny list) and could permanently skip repairing a missing CLAUDE.md; task focus could silently disable an in-use skill mid-session with no visible notice |
+| **1.0.128** | Test coverage — the 1.0.127 fixes shipped with no automated tests; added real regression tests for both, and hardened the test harness after it was found writing into the developer's actual global skills directory |
 | **1.0.127** | Learning & routing intelligence, part 2 — live-runtime verification of 1.0.126 found enrichment auto-apply silently rewrote SKILL.md by default with no confirmation, and the new ignored/rejected funnel split never actually recorded an ignored event; both fixed |
 | **1.0.126** | Learning & routing intelligence — automatic enrichment, durable learning artifacts, clearer adoption outcomes, and prompt-aware model tiers |
 | **1.0.125** | Recommendation trust & attribution reliability — generic repository files score weakly, and Claude VS Code hook gaps no longer retire valid skills |
@@ -74,6 +76,37 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.129] - 2026-07-17
+
+**Summary:** Dogfooding the extension in a real workspace (a k3s-observability/Kong-charts session) surfaced two bugs: MCP-Force Mode didn't actually block all native file access on Windows, and task focus's skill auto-disable had no user-visible signal at all. Verifying the first fix live turned up a third: the auto-enable-on-startup path could skip recreating a missing CLAUDE.md doc block entirely. All three are fixed.
+
+**Theme:** Dogfooding fixes — real usage in another project, not synthetic test cases, found both of these.
+
+### Fixed
+
+- **MCP-Force Mode left PowerShell unblocked on Windows.** `MCP_FORCE_DENY` (`mcpForce.ts`) denied `Bash` but not `PowerShell` — on Windows these are two separate tool names, so enabling Force Mode (`claudeSkills.enableMcpForce`) blocked one shell tool while leaving the other, the primary shell on Windows, completely open. An agent could (and in the reported session, did) fall back to raw `[System.IO.File]::ReadAllText`/`WriteAllText` PowerShell calls for every file edit instead of the mandated `mcp__filesystem__*` tools. That fallback path is exactly what caused two further symptoms in the same session: Windows PowerShell 5.1's `Get-Content`/write-back round-trip silently mangles non-ASCII characters (mojibake), and a delete-then-edit sequence on the same file sometimes failed to persist with no error. `PowerShell` is now included in the deny list (9 tools total) and in the injected `CLAUDE.md` doc block; `mcpForce.test.ts` gained a regression test asserting Force Mode is *not* considered active when `PowerShell` is missing from an otherwise-complete deny list.
+- **Task focus could silently switch off a skill you were actively using.** `applyTaskSkillFocusFromProposals()` (`taskSkillFocus.ts`), called on every workspace-state refresh via `extension.ts`, only ever wrote its result to the output-channel log — never a VS Code notification, unlike the sibling task-drift-reproposal path which already calls `notifyBackground()`. A skill in active use could be set to `skillOverrides: "off"` mid-session with zero visible signal; the only way to notice was opening the output channel or catching the Skills tree view change by eye. `extension.ts` now diffs the previously-active skill set against the newly-ignored list on every re-apply and calls `notifyBackground()` naming the specific skill(s) whenever task focus newly disables one that was active, gated by the new `claudeSkills.taskFocus.notifyOnDisable` setting (default `true`).
+- **`claudeSkills.mcpForce.enableOnStartup` could permanently skip recreating a missing CLAUDE.md.** `maybeAutoEnableMcpForce()` (`extension.ts`) gated both halves of Force Mode (writing `permissions.deny` and injecting the CLAUDE.md doc block) behind a single check, `isMcpForceActive()` — which only reflects the `permissions.deny` half. If `permissions.deny` was already fully set but `CLAUDE.md` was missing (deleted by hand, or a fresh machine that never pulled the file down from git while workspace-scoped settings synced some other way), the function returned immediately and never called `injectMcpForceClaude()` — the doc mandate silently went stale forever with no self-repair. Found while live-verifying the `PowerShell` deny-list fix above, by reproducing exactly that state in a scratch workspace. Fixed by checking `isMcpForcePermissionsActive()` and `isMcpForceClaudeMdInjected()` independently, so each half is (re)applied only if it's actually missing.
+
+---
+
+## [1.0.128] - 2026-07-17
+
+**Summary:** 1.0.127's two fixes (enrichment auto-apply gating, ignored-funnel wiring) shipped with no automated test coverage — the only verification was a manual live run. This adds real regression tests for both, exercising the actual, unmocked functions against real files on disk rather than re-implementing their logic.
+
+**Theme:** Test coverage — closes the gap left by 1.0.127's fixes, and fixes a hazard the test-writing process itself uncovered.
+
+### Added
+
+- **Real regression tests for the 1.0.127 enrichment auto-apply split.** `autoApplyEnrichmentProposals()` (`commandsEnrichment.ts`) is now exported and covered by `commandsEnrichment.test.ts`, which drives it against a real proposal file and a real SKILL.md on disk: confirms defaults (`autoApprove=true` / `autoApply=false`) approve the proposal without writing to SKILL.md, confirms explicitly enabling `autoApply` does write, and confirms the two gates are independent (`autoApprove=false` leaves nothing for `autoApply=true` to act on).
+- **Real regression tests for the ignored-adoption-funnel wiring.** `recordSessionRejectionFeedback()`'s call into `recordIgnoredSkills()` had never actually run in a test — `hookHandlers.test.ts` mocks `recordSessionRejectionFeedback()` out entirely. `proposalOutcomeAdoptionWiring.test.ts` calls the real function and confirms a passively-ignored skill produces a real `"ignored"` event in `skill-adoption.jsonl`, is reflected in `computeAdoptionFunnel().ignored`, never produces a `"rejected"` event, and is idempotent per `(session, skill)` across repeated Stop-hook firings.
+
+### Fixed
+
+- **Test harness could write into the developer's real global skills directory.** `applyEnrichmentProposal()`'s SKILL.md search path includes the real `globalSkillsDir()` (`~/.claude/skills`), which was unmocked in the first draft of `commandsEnrichment.test.ts`. Because the test seeded a proposal for a skill name ("pdf") that happens to exist in the developer's actual global skills directory, running the auto-apply test appended fake enrichment text into the real local `~/.claude/skills/pdf/SKILL.md` twice before this was caught. The file was restored to its original content, and the test now mocks `os.homedir()` to an isolated temp directory so no test in that file can resolve a real path outside its own sandbox.
 
 ---
 

@@ -62,18 +62,26 @@ describe("isMcpForcePermissionsActive", () => {
     expect(isMcpForcePermissionsActive(ws)).toBe(false);
   });
 
-  it("returns true when all eight force tools are in the deny list", () => {
+  it("returns true when all nine force tools are in the deny list", () => {
+    const ws = makeWorkspace();
+    writeSettings(ws, {
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"] },
+    });
+    expect(isMcpForcePermissionsActive(ws)).toBe(true);
+  });
+
+  it("returns false when PowerShell (Windows' primary shell tool) is missing from an otherwise-complete deny list", () => {
     const ws = makeWorkspace();
     writeSettings(ws, {
       permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"] },
     });
-    expect(isMcpForcePermissionsActive(ws)).toBe(true);
+    expect(isMcpForcePermissionsActive(ws)).toBe(false);
   });
 
   it("returns true even when deny list has extra entries", () => {
     const ws = makeWorkspace();
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis", "SomethingElse"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis", "SomethingElse"] },
     });
     expect(isMcpForcePermissionsActive(ws)).toBe(true);
   });
@@ -111,7 +119,7 @@ describe("isMcpForceActive", () => {
     const ws = makeWorkspace();
     expect(isMcpForceActive(ws)).toBe(false);
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "mcp__claude-skills-cli__run_command", "mcp__claude-skills-cli__list_available_clis"] },
     });
     expect(isMcpForceActive(ws)).toBe(true);
   });
@@ -120,7 +128,7 @@ describe("isMcpForceActive", () => {
 // ── enableMcpForcePermissions ─────────────────────────────────────────────────────────────────────────────────────────
 
 describe("enableMcpForcePermissions", () => {
-  it("writes all six force tools to permissions.deny", () => {
+  it("writes all force tools to permissions.deny, including PowerShell", () => {
     const ws = makeWorkspace();
     const result = enableMcpForcePermissions(ws);
     expect(result).toEqual({ ok: true, permissionsWritten: true });
@@ -129,6 +137,7 @@ describe("enableMcpForcePermissions", () => {
     const deny = (settings as { permissions?: { deny?: string[] } }).permissions?.deny ?? [];
     expect(deny).toContain("Read");
     expect(deny).toContain("Bash");
+    expect(deny).toContain("PowerShell");
   });
 
   it("merges with existing deny entries without duplicates", () => {
@@ -170,20 +179,21 @@ describe("revertMcpForcePermissions", () => {
   it("removes force tools from deny list while preserving other entries", () => {
     const ws = makeWorkspace();
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Keeper"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell", "Keeper"] },
     });
     revertMcpForcePermissions(ws);
     const settings = readSettings(ws);
     const deny = (settings as { permissions?: { deny?: string[] } }).permissions?.deny ?? [];
     expect(deny).not.toContain("Read");
     expect(deny).not.toContain("Bash");
+    expect(deny).not.toContain("PowerShell");
     expect(deny).toContain("Keeper");
   });
 
   it("removes permissions.deny key when only force tools were there", () => {
     const ws = makeWorkspace();
     writeSettings(ws, {
-      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"] },
+      permissions: { deny: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell"] },
     });
     revertMcpForcePermissions(ws);
     const settings = readSettings(ws);

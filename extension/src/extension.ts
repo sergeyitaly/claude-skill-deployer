@@ -300,7 +300,8 @@ import { enableOfficialCliServer, disableOfficialCliServer, getCliMcpServerStatu
 import {
   enableMcpForcePermissions,
   injectMcpForceClaude,
-  isMcpForceActive,
+  isMcpForceClaudeMdInjected,
+  isMcpForcePermissionsActive,
   removeMcpForceClaudeBlock,
   revertMcpForcePermissions,
 } from "./mcpForce";
@@ -343,7 +344,7 @@ import {
   processSessionSkillApplyRequest,
   SESSION_APPLY_REQUEST_REL,
 } from "./sessionSkillApply";
-import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
+import { applyTaskSkillFocusFromProposals, readTaskActiveSkills } from "./taskSkillFocus";
 import { PROPOSALS_FILE_RELATIVE } from "./taskSkillProposals";
 import { bootstrapWorkspaceForHostAgent, formatHostBootstrapLog } from "./hostAgentBootstrap";
 import { bootstrapBranchSkillSet, branchSkillBootstrapEnabled } from "./branchSkillBootstrap";
@@ -497,17 +498,26 @@ function maybeAutoEnableMcpForce(target: string): void {
   if (!vscode.workspace.getConfiguration("claudeSkills.mcpForce").get<boolean>("enableOnStartup", false)) {
     return;
   }
-  if (isMcpForceActive(target)) {
+  // Check each half independently — isMcpForceActive only covers permissions.deny, so
+  // gating on it alone would skip re-creating a CLAUDE.md doc block that went missing
+  // (deleted, or never pulled to this machine) while permissions.deny stayed enforced.
+  const permissionsAlreadyActive = isMcpForcePermissionsActive(target);
+  const claudeMdAlreadyInjected = isMcpForceClaudeMdInjected(target);
+  if (permissionsAlreadyActive && claudeMdAlreadyInjected) {
     return;
   }
-  const permResult = enableMcpForcePermissions(target);
-  if (!permResult.ok) {
-    log(`MCP Force Mode auto-enable skipped: ${permResult.reason}`);
-    return;
+  if (!permissionsAlreadyActive) {
+    const permResult = enableMcpForcePermissions(target);
+    if (!permResult.ok) {
+      log(`MCP Force Mode auto-enable skipped: ${permResult.reason}`);
+      return;
+    }
   }
-  const injectResult = injectMcpForceClaude(target);
-  if (!injectResult.ok) {
-    log(`MCP Force Mode CLAUDE.md inject skipped: ${injectResult.reason}`);
+  if (!claudeMdAlreadyInjected) {
+    const injectResult = injectMcpForceClaude(target);
+    if (!injectResult.ok) {
+      log(`MCP Force Mode CLAUDE.md inject skipped: ${injectResult.reason}`);
+    }
   }
   log("MCP Force Mode: auto-enabled on startup.");
 }
@@ -873,11 +883,24 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         log(`Task proposals refreshed locally (${proposalRefresh.file?.proposals.length ?? 0} skills).`);
       }
       void (async () => {
+            const previouslyActive = new Set(readTaskActiveSkills(target)?.activeSkills ?? []);
             const focusApply = applyTaskSkillFocusFromProposals(libraryDir, target);
         if (focusApply.applied && focusApply.focus) {
           log(
             `Task skill focus: ${focusApply.focus.activeSkills.length} active, ${focusApply.focus.ignoredSkills.length} ignored for this task.`
           );
+          // Only newly-ignored skills matter for a user-facing notice — skills that were
+          // already off stay silent so this doesn't fire on every routine re-apply.
+          const newlyIgnored = focusApply.focus.ignoredSkills.filter((name) => previouslyActive.has(name));
+          if (newlyIgnored.length > 0) {
+            const taskFocusSettings = vscode.workspace.getConfiguration("claudeSkills.taskFocus");
+            if (taskFocusSettings.get<boolean>("notifyOnDisable", true)) {
+              notifyBackground(
+                `Task focus disabled skill(s) mid-session: ${newlyIgnored.join(", ")}. Use "Claude Skills: Enable Skill Locally" to turn one back on, or disable claudeSkills.taskFocus.enabled to stop this from happening.`,
+                log
+              );
+            }
+          }
         }
         const discipline = runCostDisciplinePass(libraryDir, target);
         const disciplineKey = `${target}|${JSON.stringify(discipline)}`;

@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.127",
+  "version": "1.0.129",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -199,7 +199,7 @@
       },
       {
         "command": "claudeSkills.enableCliMcpServer",
-        "title": "Enable CLI MCP Server (az, aws, git, kubectlÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦)",
+        "title": "Enable CLI MCP Server (az, aws, git, kubectl...)",
         "icon": "$(terminal)",
         "category": "Claude Skills"
       },
@@ -1238,6 +1238,11 @@
             "minimum": 0,
             "maximum": 100,
             "description": "Only propose task skills at or above this confidence (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“100). Required platform skills (profile-init stack) are always kept. Applies to heuristics, drift refresh, and usage report."
+          },
+          "claudeSkills.taskFocus.notifyOnDisable": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show a toast when task focus disables a skill that was active this session (in addition to the output-channel log). Turn off to keep this silent."
           }
         }
       },

@@ -3,7 +3,7 @@
 
 Use ONLY MCP filesystem tools for file operations.
 
-❌ Do NOT use: `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, or CLI MCP (`run_command`, `list_available_clis`)
+❌ Do NOT use: `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `PowerShell`, or CLI MCP (`run_command`, `list_available_clis`)
 
 ✅ Use:
 - `mcp__filesystem__read_file` (pass `offset`/`limit` to page through large files)
