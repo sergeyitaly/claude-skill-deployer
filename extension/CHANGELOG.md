@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.130** | Release process — the published 1.0.129 package was built before its own CLAUDE.md-repair fix landed in source, so that fix shipped as a version-number claim with no code behind it; this release actually contains it, and documents the packaging gap |
 | **1.0.129** | Dogfooding fixes — MCP-Force Mode was leaky on Windows (PowerShell missing from the deny list) and could permanently skip repairing a missing CLAUDE.md; task focus could silently disable an in-use skill mid-session with no visible notice |
 | **1.0.128** | Test coverage — the 1.0.127 fixes shipped with no automated tests; added real regression tests for both, and hardened the test harness after it was found writing into the developer's actual global skills directory |
 | **1.0.127** | Learning & routing intelligence, part 2 — live-runtime verification of 1.0.126 found enrichment auto-apply silently rewrote SKILL.md by default with no confirmation, and the new ignored/rejected funnel split never actually recorded an ignored event; both fixed |
@@ -76,6 +77,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.130] - 2026-07-17
+
+**Summary:** Live-verifying the 1.0.129 CLAUDE.md-repair fix in a scratch workspace found it didn't fire — the installed and published `1.0.129` package was built and shipped ~15 minutes *before* that fix was written to source, so the version number claimed a fix the actual code didn't contain. No code changed in this release; it exists to make the published artifact match what `1.0.129`'s CHANGELOG entry already claimed.
+
+**Theme:** Release process — closes a build/publish-timing gap the 1.0.129 dogfooding pass itself introduced.
+
+### Fixed
+
+- **`1.0.129`'s CLAUDE.md auto-repair fix was documented but not shipped.** The fix to `maybeAutoEnableMcpForce()` (independently checking `isMcpForcePermissionsActive()`/`isMcpForceClaudeMdInjected()` instead of gating both on `isMcpForceActive()`) was made after the `1.0.129` VSIX had already been built, locally installed, and published to Open VSX — confirmed directly by comparing the installed `out/extension.js` (built 18:02) against the source-file edit (18:17). A live test — pre-seeding `permissions.deny` without a `CLAUDE.md`, then opening the workspace fresh — reproduced the old bug exactly (no `CLAUDE.md` created) against that build, proving the gap. This release is a rebuild/republish so the shipped code actually matches the version number and its changelog claim.
 
 ---
 
