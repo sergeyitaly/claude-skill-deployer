@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.136
+
+### Budget auto-disable now tells you when it can't do its job
+
+If you turn off `claudeSkills.taskFocus.enabled`, budget's threshold-based auto-disable (`claudeSkills.budget.autoDisableHighTier`) has no reliable way to know which skills are actively in use, so it quietly does nothing — that was always true, but nothing ever told you. It now logs a clear message when your spend crosses the warn threshold and this happens, and both settings' descriptions now mention the dependency.
+
 ## What's new in 1.0.134
 
 ### "Enable MCP-Force Mode" actually enables now

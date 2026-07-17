@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.135",
+  "version": "1.0.136",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -702,7 +702,7 @@
           "claudeSkills.budget.autoDisableHighTier": {
             "type": "boolean",
             "default": true,
-            "description": "When the daily budget is exceeded, auto-disable high-tier skills locally via skillOverrides."
+            "description": "When the daily budget is exceeded, auto-disable high-tier skills locally via skillOverrides. Requires claudeSkills.taskFocus.enabled to also be on — without it there is no reliable active-skill set to exempt from disabling, so this silently has no effect."
           },
           "claudeSkills.budget.dailyBudgetUsd": {
             "type": "number",
@@ -1216,7 +1216,7 @@
           "claudeSkills.taskFocus.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Auto-disable installed skills that aren't in the current task-skill-proposals (via skillOverrides) and cap the active set to save tokens. Turn off to keep all installed skills active regardless of task proposals."
+            "description": "Auto-disable installed skills that aren't in the current task-skill-proposals (via skillOverrides) and cap the active set to save tokens. Turn off to keep all installed skills active regardless of task proposals. Note: turning this off also disables claudeSkills.budget.autoDisableHighTier's threshold-based auto-disable, since it depends on this feature's active-skill tracking."
           },
           "claudeSkills.taskFocus.maxActiveSkills": {
             "type": "number",

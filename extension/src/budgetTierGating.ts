@@ -42,16 +42,23 @@ export function applyBudgetTierGating(
     return { disabled: [] };
   }
 
+  const warnAt = config.warnThresholdPercent ?? 80;
+
   // These two thresholds exempt only skills in the "active task" set — a signal that
   // task-skill-proposals/branch-bootstrap maintain. When taskFocus is off, nothing keeps
   // that set current, so `active` degrades to a stale (or empty) snapshot and this would
   // otherwise sweep up every high/medium-tier skill regardless of real relevance. Economy
   // mode above is unaffected: it's an explicit, unconditional opt-in with no such signal.
+  // This is a deliberate no-op, not a bug — but it was previously completely silent even
+  // when it actually mattered, matching the same shape as two other bugs fixed the same
+  // day this comment was written (task-focus disabling a skill with no notice; MCP-Force
+  // health check reading a dead log). Surface it, but only when budget usage is actually
+  // high enough that gating would have engaged — otherwise this would log on every
+  // refresh for the (common, valid) case of task focus off + budget nowhere near the
+  // threshold.
   if (!taskSkillFocusEnabled()) {
-    return { disabled: [] };
+    return { disabled: [], reason: pct >= warnAt ? "task-focus-disabled" : undefined };
   }
-
-  const warnAt = config.warnThresholdPercent ?? 80;
 
   if (pct >= warnAt) {
     const highOutsideActive = config.highTierSkills.filter(

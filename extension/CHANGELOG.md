@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.136** | Budget/task-focus coupling visibility — a static audit (not live-verified like 1.0.129-135, but grounded in real code paths) found budget's threshold auto-disable was a silent, undocumented no-op whenever task focus was off; now surfaced in the output log and both settings' descriptions |
 | **1.0.135** | MCP-Force health check, part 2 — live-testing 1.0.134 against a brand-new workspace with no MCP activity of its own found it still refused; a workspace that's only ever had extension commands run in it (not an agent chat session) generates no usage log at all, so the check now also accepts proof from any other workspace the server has ever served |
 | **1.0.134** | MCP-Force health check — "Enable MCP-Force Mode" refused to enable with "MCP server has not been used yet" on every workspace, regardless of real usage, because its activity check read a global log file that nothing has ever actually written real entries to; now also checks the workspace's own (real) usage log |
 | **1.0.133** | Reliability — live-verifying 1.0.132's CLAUDE.md parity feature in a real "settled" workspace found it never actually ran: the sync call was nested inside task-focus's own re-apply gate, so once a workspace stopped needing re-assignment, CLAUDE.md silently stopped syncing too; moved to run unconditionally |
@@ -82,6 +83,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.136] - 2026-07-17
+
+**Summary:** A static-code audit of subsystems not yet live-tested (budget gating, branch profiles, cost dashboard, adoption funnel — using the same "look for the shape of the six bugs already found today" method, applied without live VS Code driving) found `claudeSkills.budget.autoDisableHighTier`'s threshold auto-disable silently does nothing whenever `claudeSkills.taskFocus.enabled` is off, with zero signal anywhere that this happened — same shape as the 1.0.129 and 1.0.131 silent-gap bugs. The underlying no-op itself is a deliberate, correct safety choice (without task focus's active-skill tracking there's no reliable way to know which high-tier skills are actually in use, so indiscriminately disabling all of them would be worse) — the bug was that it was completely invisible, not that it happened.
+
+**Theme:** Reliability — extends today's "silent gap" pattern-matching to a subsystem this session hadn't live-tested yet, per the extension-devops-growth playbook's backlog item #3.
+
+### Fixed
+
+- **Budget tier gating's task-focus dependency was undocumented and gave zero signal when it silently no-op'd.** `applyBudgetTierGating()` (`budgetTierGating.ts`) returns `{ disabled: [] }` with no `reason` when `taskSkillFocusEnabled()` is false — correct behavior, but neither `claudeSkills.budget.autoDisableHighTier`'s nor `claudeSkills.taskFocus.enabled`'s description mentioned the coupling, and the caller (`costDiscipline.ts` → `extension.ts`) only ever logs when `budgetDisabled.length > 0`, so this specific skip reached neither the output channel nor any setting description. Now: the function reports `reason: "task-focus-disabled"` — but only when spend is actually at/above the warn threshold (i.e. only when the gate would have mattered, not on every routine refresh for the common, valid case of task focus off + low spend); `extension.ts` logs a specific message for that reason; both settings' descriptions in `package.json` now cross-reference each other. `budgetTierGating.test.ts` gained two regression tests: one confirming the reason fires above the warn threshold, one confirming it stays silent below it.
 
 ---
 

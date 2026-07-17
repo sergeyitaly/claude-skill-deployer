@@ -917,6 +917,10 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
           }
           if (discipline.budgetDisabled.length > 0) {
             log(`Budget tier gating: disabled ${discipline.budgetDisabled.join(", ")} (${discipline.reason ?? "budget"}).`);
+          } else if (discipline.reason === "task-focus-disabled") {
+            log(
+              `Budget tier gating: skipped — spend is above the warn threshold but claudeSkills.taskFocus.enabled is off, so auto-disable has no reliable active-skill set to exempt. Enable task focus, or expect no automatic budget-based disabling.`
+            );
           }
           if (discipline.prunedIrrelevant.length > 0) {
             log(`Relevant-only prune: removed ${discipline.prunedIrrelevant.join(", ")}.`);
