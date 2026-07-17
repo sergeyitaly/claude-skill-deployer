@@ -12,6 +12,15 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.127
+
+### Enrichment auto-apply is now opt-in
+
+Testing 1.0.126 against real usage found it was writing to your `SKILL.md` files automatically by default, with no confirmation — this release fixes that, and a related adoption-metrics gap.
+
+- **SKILL.md auto-apply now requires opting in.** `claudeSkills.enrichment.autoApply` used to default to `true`, so approved skill enrichments were written into SKILL.md automatically at session start with no confirmation dialog. Auto-*approval* still defaults on via the new `claudeSkills.enrichment.autoApprove` setting — proposals still get cleared from your review queue automatically — but the SKILL.md write itself now requires explicitly enabling `claudeSkills.enrichment.autoApply`, or applying proposals yourself from Enrichment Intelligence.
+- **The adoption funnel's "ignored" count now reflects real sessions.** 1.0.126 introduced the ignored/rejected distinction for skill proposals, but the "ignored" count never actually populated from real usage. It does now.
+
 ## What's new in 1.0.126
 
 ### Learning and routing are more useful by default

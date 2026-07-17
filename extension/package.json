@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.126",
+  "version": "1.0.127",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -595,10 +595,15 @@
             ],
             "description": "How chatty the extension is with VS Code notification toasts."
           },
-          "claudeSkills.enrichment.autoApply": {
+          "claudeSkills.enrichment.autoApprove": {
             "type": "boolean",
             "default": true,
-            "description": "Automatically approve and apply generated skill enrichments to SKILL.md. The extension shows one summary notification after updates. Disable to restore manual review."
+            "description": "Automatically approve generated skill enrichment proposals. This only marks them approved for review in Enrichment Intelligence — it never writes to SKILL.md by itself. Disable to leave proposals pending until you approve them manually."
+          },
+          "claudeSkills.enrichment.autoApply": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically write approved skill enrichments to SKILL.md with no confirmation dialog, showing one summary notification after updates. Off by default — enable only if you want SKILL.md edited without manual review. When off, use Enrichment Intelligence to apply approved proposals yourself."
           },
           "claudeSkills.enrichment.runOnSessionStart": {
             "type": "boolean",

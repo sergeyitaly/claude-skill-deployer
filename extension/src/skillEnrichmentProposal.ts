@@ -1,14 +1,22 @@
 /**
  * Skill Enrichment Review Workflow — Phase 6
  *
- * SAFETY CONTRACT: This module never modifies SKILL.md automatically.
+ * SAFETY CONTRACT: applyEnrichmentProposal() is the single write path to
+ * SKILL.md, and by default it only ever runs from the user clicking "Apply to
+ * SKILL.md" after an explicit confirmation dialog. The one exception is opt-in:
+ * commandsEnrichment.ts's runEnrichmentPipeline command will call it
+ * automatically, without a dialog, only if the user has explicitly turned on
+ * claudeSkills.enrichment.autoApply (default false). Auto-approval
+ * (claudeSkills.enrichment.autoApprove, default true) never reaches this
+ * function's write path — it only flips proposal status to "approved".
  *
  * Workflow:
  *   1. generateEnrichmentProposals() writes pending proposals to skill-enrichment-proposals.jsonl
- *   2. The user reviews them in the VS Code enrichment panel (commandsEnrichment.ts)
+ *   2. The user reviews them in the VS Code enrichment panel (commandsEnrichment.ts),
+ *      or they're auto-approved per the setting above — either way, no SKILL.md change yet
  *   3. approveEnrichmentProposal() marks a proposal "approved" — still no SKILL.md change
- *   4. applyEnrichmentProposal() is called ONLY when the user clicks "Apply to SKILL.md"
- *      after an explicit confirmation dialog — this is the single write path to SKILL.md
+ *   4. applyEnrichmentProposal() writes to SKILL.md — user-confirmed by default,
+ *      or automatic only when autoApply is explicitly enabled (see contract above)
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

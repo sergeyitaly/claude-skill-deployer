@@ -7,6 +7,14 @@
  *   claudeSkills.approveEnrichmentProposal — mark proposal approved (no SKILL.md change)
  *   claudeSkills.rejectEnrichmentProposal  — mark proposal rejected
  *   claudeSkills.applyEnrichmentProposal   — apply approved proposal to SKILL.md (user-confirmed)
+ *
+ * runEnrichmentPipeline also drives two independent, user-configurable gates:
+ *   claudeSkills.enrichment.autoApprove (default true)  — auto-approves pending
+ *     proposals; never touches SKILL.md, so it's safe to default on.
+ *   claudeSkills.enrichment.autoApply   (default false) — additionally writes
+ *     approved proposals to SKILL.md without the manual "Apply" confirmation.
+ *     Off by default so skillEnrichmentProposal.ts's safety contract holds
+ *     unless the user explicitly opts in.
  */
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -47,8 +55,17 @@ export interface EnrichmentCommandDeps {
   refreshAll: () => void;
 }
 
+// Two separate gates, deliberately: auto-approve only marks proposals "approved"
+// (no SKILL.md write) so it's safe to default on. Auto-apply performs the actual
+// SKILL.md write and defaults OFF, preserving skillEnrichmentProposal.ts's
+// documented safety contract ("never modifies SKILL.md automatically") unless the
+// user explicitly opts in.
+function enrichmentAutoApproveEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.enrichment").get<boolean>("autoApprove", true);
+}
+
 function enrichmentAutoApplyEnabled(): boolean {
-  return vscode.workspace.getConfiguration("claudeSkills.enrichment").get<boolean>("autoApply", true);
+  return vscode.workspace.getConfiguration("claudeSkills.enrichment").get<boolean>("autoApply", false);
 }
 
 export function enrichmentSessionStartEnabled(): boolean {
@@ -59,11 +76,16 @@ function autoApplyEnrichmentProposals(
   target: string,
   libraryDir: string,
   log: (line: string) => void,
-): { applied: number; failed: number; skills: string[] } {
-  if (!enrichmentAutoApplyEnabled()) return { applied: 0, failed: 0, skills: [] };
-  const proposals = readEnrichmentProposals(target);
-  const pending = proposals.filter(p => p.status === "pending");
-  for (const proposal of pending) approveEnrichmentProposal(target, proposal.id);
+): { approved: number; applied: number; failed: number; skills: string[] } {
+  let approved = 0;
+  if (enrichmentAutoApproveEnabled()) {
+    const pending = readEnrichmentProposals(target).filter(p => p.status === "pending");
+    for (const proposal of pending) {
+      approveEnrichmentProposal(target, proposal.id);
+      approved++;
+    }
+  }
+  if (!enrichmentAutoApplyEnabled()) return { approved, applied: 0, failed: 0, skills: [] };
   const candidates = readEnrichmentProposals(target).filter(p => p.status === "approved");
   let applied = 0;
   let failed = 0;
@@ -83,7 +105,7 @@ function autoApplyEnrichmentProposals(
       log(`Enrichment auto-apply failed: ${result.message}`);
     }
   }
-  return { applied, failed, skills: [...skills] };
+  return { approved, applied, failed, skills: [...skills] };
 }
 
 // ── Webview panel ─────────────────────────────────────────────────────────────
@@ -302,7 +324,11 @@ export function registerEnrichmentCommands(deps: EnrichmentCommandDeps): vscode.
           `Claude Skills: ${autoApplied.applied} enrichment update(s) applied to ${autoApplied.skills.length} skill(s).`,
           { category: "important", dedupeKey: `enrichment-auto-applied|${target}|${autoApplied.applied}|${autoApplied.skills.join(",")}` },
         );
-      } else if (newProposals > 0 && !enrichmentAutoApplyEnabled()) {
+      } else if (autoApplied.approved > 0) {
+        void notifyUserSuccess(
+          `Claude Skills: ${autoApplied.approved} enrichment proposal(s) auto-approved — open Enrichment Intelligence to apply them to SKILL.md.`
+        );
+      } else if (newProposals > 0 && !enrichmentAutoApproveEnabled()) {
         void notifyUserSuccess(
           `Claude Skills: ${newProposals} new enrichment proposal(s) generated — open Enrichment Intelligence to review.`
         );

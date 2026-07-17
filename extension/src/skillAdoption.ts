@@ -288,6 +288,39 @@ export function recordRejectedSkills(
 }
 
 /**
+ * Record "ignored" for proposals that expired without invocation but were never
+ * explicitly rejected — passive non-use, distinct from `recordRejectedSkills`.
+ * Idempotent per (session, skill), same rationale as `recordRejectedSkills`.
+ */
+export function recordIgnoredSkills(
+  target: string,
+  sessionId: string,
+  skills: Array<{ name: string; confidence?: number }>,
+  source: AdoptionSource = "auto",
+  agent?: RunAgent
+): void {
+  if (skills.length === 0) return;
+  const alreadyIgnored = new Set(
+    readAdoptionEvents(target)
+      .filter((e) => e.event === "ignored" && e.taskId === sessionId)
+      .map((e) => e.skill)
+  );
+  appendAdoptionEvents(
+    target,
+    skills
+      .filter((s) => !alreadyIgnored.has(s.name))
+      .map((s) => ({
+        taskId: sessionId,
+        skill: s.name,
+        event: "ignored" as const,
+        source,
+        confidence: s.confidence,
+        agent,
+      }))
+  );
+}
+
+/**
  * Record an "invoked" event. When the skill was in the proposal set but no
  * "accepted" event exists yet (skill was already installed, so no install
  * transition fired), invocation is the strongest acceptance signal — an

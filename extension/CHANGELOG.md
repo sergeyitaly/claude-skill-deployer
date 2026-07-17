@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.127** | Learning & routing intelligence, part 2 — live-runtime verification of 1.0.126 found enrichment auto-apply silently rewrote SKILL.md by default with no confirmation, and the new ignored/rejected funnel split never actually recorded an ignored event; both fixed |
 | **1.0.126** | Learning & routing intelligence — automatic enrichment, durable learning artifacts, clearer adoption outcomes, and prompt-aware model tiers |
 | **1.0.125** | Recommendation trust & attribution reliability — generic repository files score weakly, and Claude VS Code hook gaps no longer retire valid skills |
 | **1.0.124** | Recommendation precision, part 2 — the 1.0.123 generic-filename fix covered two extension-publishing skills but missed `deployment-practical`, whose `detect_globs` still included `**/README.md` and `**/.github/workflows/*.yml`; live telemetry showed it proposed 6 times in a row with 0% acceptance in a repo with zero Docker/Terraform/Azure evidence |
@@ -73,6 +74,19 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.127] - 2026-07-17
+
+**Summary:** Live-runtime verification of 1.0.126 — actually exercising the new code paths through the real hook server and command surface instead of just reading them — surfaced two gaps between what it claimed and what it did: enrichment auto-apply silently rewrote SKILL.md by default with no confirmation, and the new ignored/rejected adoption split never wrote an event to the funnel it was meant to fix. Both are corrected here.
+
+**Theme:** Learning & routing intelligence, part 2 — continues 1.0.126's work with fixes found by running the new code paths rather than reading them.
+
+### Fixed
+
+- **Enrichment auto-apply no longer bypasses manual review by default.** `autoApplyEnrichmentProposals()` (`commandsEnrichment.ts`) auto-approved *and* wrote pending proposals straight into SKILL.md whenever `claudeSkills.enrichment.autoApply` was left at its default (`true`), contradicting `skillEnrichmentProposal.ts`'s own documented safety contract ("this module never modifies SKILL.md automatically... applied ONLY when the user clicks Apply... after an explicit confirmation dialog"). The single setting is now split: `claudeSkills.enrichment.autoApprove` (default `true`) only marks proposals approved — no file write — and `claudeSkills.enrichment.autoApply` (default now `false`) gates the actual SKILL.md write, which stays opt-in. Verified live: seeded a pending proposal and fired the exact command SessionStart triggers — SKILL.md now stays untouched by default, with the proposal landing on `approved` instead of `applied`.
+- **Adoption funnel's "ignored" stage is wired up.** 1.0.126 removed `proposalOutcome.ts`'s only call to `skillAdoption.ts`'s `recordRejectedSkills()` (correctly — passive non-use isn't a rejection) but never replaced it with anything, so `computeAdoptionFunnel().ignored` was permanently 0 against real session data even though `recommendation-feedback.jsonl` and `proposalOutcome.jsonl` correctly tracked the same skill as ignored. Added `recordIgnoredSkills()` (mirrors `recordRejectedSkills()`, writes `event: "ignored"`) and called it from `recordSessionRejectionFeedback()`. Verified live: a session with one invoked and one passively-ignored skill now produces a real `ignored` adoption event in `skill-adoption.jsonl`, with no `rejected` event.
 
 ---
 

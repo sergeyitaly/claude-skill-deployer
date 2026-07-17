@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readCachedEnrichedRuns } from "./runsStore";
+import { recordIgnoredSkills } from "./skillAdoption";
 import { assessClaudeVscodeAttributionGap } from "./claudeVscodeAttributionGap";
 
 const PROPOSAL_OUTCOME_REL = path.join(".claude", "learning", "proposalOutcome.jsonl");
@@ -137,8 +138,12 @@ export function recordSessionRejectionFeedback(
       reason: "ignored", // skill was proposed but not used this session
     });
   }
-  // Passive non-use is not an explicit rejection. Keep it in the proposal
-  // outcome and feedback logs, but do not emit a rejected adoption event.
+  // Passive non-use is not an explicit rejection. Emit it as an "ignored"
+  // adoption event — distinct from "rejected" — so the adoption funnel's
+  // ignored stage reflects real sessions instead of staying permanently 0.
+  try {
+    recordIgnoredSkills(target, sessionId, ignored.map((name) => ({ name })));
+  } catch { /* non-fatal */ }
 }
 
 /** Record a specific rejection reason for a Copilot instruction or skill. */
