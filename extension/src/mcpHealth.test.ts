@@ -33,6 +33,13 @@ const FILESYSTEM_SERVER_PATH = path.join(
 const CLAUDE_CONFIG_PATH = path.join(os.homedir(), ".claude.json");
 const CURSOR_CONFIG_PATH = path.join(os.homedir(), ".cursor", "mcp.json");
 const KIRO_CONFIG_PATH = path.join(os.homedir(), ".kiro", "settings", "mcp.json");
+const ALLOWED_DIRS_PATH = path.join(
+  os.homedir(),
+  ".claude",
+  "mcp-servers",
+  "filesystem",
+  "allowed-dirs.json"
+);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -167,5 +174,41 @@ describe("checkMcpHealth", () => {
     const withTarget = checkMcpHealth("/my/workspace");
     expect(withTarget.status).toBe("ready");
     expect(withTarget.hasActivity).toBe(true);
+  });
+
+  it("regression: falls back to any other allowed-dirs workspace's activity for a brand-new workspace with no history of its own", async () => {
+    // Real-world case: a workspace that has never had an agent chat session use MCP
+    // tools inside it (only extension commands run via Command Palette, which don't
+    // generate MCP usage log entries) has no own workspace log at all yet — that's a
+    // chicken-and-egg problem, not proof the server is broken. allowed-dirs.json already
+    // lists every workspace this machine's MCP server has ever served; if any of them has
+    // real recent activity, that's sufficient evidence the server itself works.
+    const { readMcpUsageLog } = await import("./mcpUsageLog");
+    vi.mocked(readMcpUsageLog).mockImplementation((logPath?: string) => {
+      if (logPath === "/other/real-project/.claude/mcp-usage.jsonl") {
+        return [{ ts: new Date().toISOString(), tool: "read_file", path: "/a.ts", durationMs: 5 }];
+      }
+      return []; // global log and the brand-new workspace's own log: both empty
+    });
+    fakeExistsSync([FILESYSTEM_SERVER_PATH]);
+    fakeReadFileSync({
+      [CLAUDE_CONFIG_PATH]: JSON.stringify({
+        mcpServers: {
+          filesystem: { command: "node", args: [FILESYSTEM_SERVER_PATH] },
+        },
+      }),
+      [ALLOWED_DIRS_PATH]: JSON.stringify({
+        allowedDirs: ["/brand/new/workspace", "/other/real-project"],
+      }),
+    });
+
+    const health = checkMcpHealth("/brand/new/workspace");
+
+    expect(health.status).toBe("ready");
+    expect(health.hasActivity).toBe(true);
+    // The displayed count/timestamp stay scoped to this workspace — not blended in from
+    // the unrelated project that actually proved the server works.
+    expect(health.mcpCallsLast24h).toBe(0);
+    expect(health.lastActivityTime).toBeUndefined();
   });
 });

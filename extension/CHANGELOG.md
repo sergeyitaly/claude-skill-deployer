@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.135** | MCP-Force health check, part 2 — live-testing 1.0.134 against a brand-new workspace with no MCP activity of its own found it still refused; a workspace that's only ever had extension commands run in it (not an agent chat session) generates no usage log at all, so the check now also accepts proof from any other workspace the server has ever served |
 | **1.0.134** | MCP-Force health check — "Enable MCP-Force Mode" refused to enable with "MCP server has not been used yet" on every workspace, regardless of real usage, because its activity check read a global log file that nothing has ever actually written real entries to; now also checks the workspace's own (real) usage log |
 | **1.0.133** | Reliability — live-verifying 1.0.132's CLAUDE.md parity feature in a real "settled" workspace found it never actually ran: the sync call was nested inside task-focus's own re-apply gate, so once a workspace stopped needing re-assignment, CLAUDE.md silently stopped syncing too; moved to run unconditionally |
 | **1.0.132** | CLAUDE.md parity — Claude Code was the only one of the four supported agents with no auto-maintained project-instructions file; it now gets an installed-skills summary in CLAUDE.md unconditionally, independent of MCP-Force Mode, matching what Copilot's `copilot-instructions.md` already provided |
@@ -81,6 +82,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.135] - 2026-07-17
+
+**Summary:** Live-testing 1.0.134's fix against `benchmark-devops-project` — a real workspace that had only ever had extension commands run in it via the Command Palette, never an actual agent chat session using MCP tools — found "Enable MCP-Force Mode" still refused. That workspace's own `<target>/.claude/mcp-usage.jsonl` genuinely doesn't exist yet, because MCP tool-call activity is only ever recorded when an agent uses the tools, not when the extension's own commands run. Fixed by also accepting proof from any other workspace the machine's MCP server has ever served.
+
+**Theme:** MCP-Force health check, part 2 — closes the gap 1.0.134 didn't: a genuinely brand-new workspace has no history of its own to check yet, which isn't the same as the server being broken.
+
+### Fixed
+
+- **A brand-new workspace with no MCP activity of its own still failed the health check, even with 1.0.134's per-workspace fix.** `checkMcpHealth(target)` correctly checks `<target>/.claude/mcp-usage.jsonl` now, but a workspace that's only ever had extension commands run against it (install skills, refresh, etc. — none of which are MCP tool calls) has no such file at all; only an actual agent chat session using `mcp__filesystem__*` tools generates entries. Requiring *this exact folder* to have proven the server works first is a chicken-and-egg problem for every new project. `allowed-dirs.json` (`~/.claude/mcp-servers/filesystem/`) already lists every workspace this machine's MCP server has ever been registered for — `checkMcpHealth()` now falls back to checking each of those for recent activity when the target's own log has none, treating proof from *any* of them as sufficient evidence the server itself works. Deliberately doesn't change what `mcpCallsLast24h`/`lastActivityTime` report (still scoped to the current workspace only) — only `hasActivity`/`status`, so the status bar's displayed numbers don't get a confusing count blended in from an unrelated project. `mcpHealth.test.ts` gained a regression test for exactly this: a brand-new workspace with zero activity reports `"ready"` because a different allowed directory has real recent entries, while `mcpCallsLast24h` for the new workspace correctly stays `0`.
 
 ---
 

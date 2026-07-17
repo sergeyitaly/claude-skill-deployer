@@ -25,7 +25,9 @@ export interface McpHealth {
   configuredAgents: string[];
 }
 
-function readJsonConfig(filePath: string): { mcpServers?: Record<string, { command: string; args?: string[] }> } | null {
+function readJsonConfig<T = { mcpServers?: Record<string, { command: string; args?: string[] }> }>(
+  filePath: string
+): T | null {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {
@@ -83,11 +85,30 @@ export function checkMcpHealth(target?: string): McpHealth {
   const dayAgo = now - 24 * 60 * 60 * 1000;
   const recentEntries = logEntries.filter((e) => new Date(e.ts).getTime() >= dayAgo);
   const mcpCallsLast24h = recentEntries.length;
-  const hasActivity = mcpCallsLast24h > 0;
+  let hasActivity = mcpCallsLast24h > 0;
   const lastActivityTime =
     recentEntries.length > 0
       ? recentEntries.slice().sort((a, b) => b.ts.localeCompare(a.ts))[0].ts
       : undefined;
+
+  // A brand-new workspace has no history of its own yet — that's a chicken-and-egg
+  // problem, not evidence the server is broken. allowed-dirs.json already lists every
+  // workspace this machine's MCP server has ever been registered for; if any of them
+  // shows real recent activity, that's sufficient proof the server itself works.
+  // Deliberately doesn't affect mcpCallsLast24h/lastActivityTime above (which stay
+  // scoped to *this* workspace) — otherwise the status bar would show a confusing count
+  // blended in from unrelated projects.
+  if (!hasActivity) {
+    const allowedDirsConfig = readJsonConfig<{ allowedDirs?: string[] }>(allowedDirsPath);
+    for (const dir of allowedDirsConfig?.allowedDirs ?? []) {
+      if (dir === target) continue; // already checked above
+      const entries = readMcpUsageLog(workspaceMcpLogPath(dir));
+      if (entries.some((e) => new Date(e.ts).getTime() >= dayAgo)) {
+        hasActivity = true;
+        break;
+      }
+    }
+  }
 
   let status: McpHealth["status"] = "ready";
   if (!configValid || !serverExists) {
