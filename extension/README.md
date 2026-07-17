@@ -12,6 +12,16 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.138
+
+### Add any MCP server, not just the two built-in ones
+
+"Manage MCP Servers" used to only toggle the bundled filesystem server. Run **"Claude Skills: Add Custom MCP Server"** and give it a name, a command, and arguments — it gets written into Claude Code, Cursor, and Kiro's own configs the same way the built-in servers already are. "Manage MCP Servers" now lists everything you've added so you can remove it just as easily.
+
+### Model-tier suggestions are now things you'll actually see
+
+If you have `claudeSkills.modelRouting.enabled` on, the extension classifies your prompts and used to *silently* try to nudge the active agent toward a different model tier — a mechanism that, it turns out, doesn't exist, so this never did anything. It now surfaces an occasional, brief, human-readable suggestion instead (only for the tasks where model choice plausibly matters most), and the four tier settings (`claudeSkills.modelRouting.fast/balanced/reasoning/planning`) now default to real model names instead of placeholder text.
+
 ## What's new in 1.0.136
 
 ### Budget auto-disable now tells you when it can't do its job

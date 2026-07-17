@@ -84,14 +84,32 @@ export function recordModelRoutingDecision(target: string, decision: ModelRoutin
   } catch { /* non-fatal */ }
 }
 
-/** Returns hidden agent context; it does not create a user-facing notification. */
+/**
+ * Returns agent-visible context suggesting the user consider a stronger model tier for
+ * this task — or "" when there's nothing worth surfacing.
+ *
+ * Previously asked the agent to "use this tier silently" — there is no hook-level
+ * mechanism for a UserPromptSubmit hook to actually change which model is running a
+ * session, so that instruction was unactionable by design. It fired on every single
+ * prompt (confirmed live: 44 real, silently-ineffective decisions recorded in this
+ * repo's own model-routing.jsonl by the time this was found) with, as far as could be
+ * determined, zero real effect. Now: only returns text for the tiers where model choice
+ * plausibly matters most (reasoning/planning) at high confidence, and asks the agent to
+ * surface a brief, one-time, human-actionable suggestion instead of attempting to act on
+ * it itself — reducing both the false "this does something" signal and the per-prompt
+ * token/context cost of injecting a block that, for most prompts, suggested nothing
+ * anyone could use anyway.
+ */
 export function modelRoutingContext(target: string, agent: string, prompt: string): string {
   if (!modelRoutingEnabled() || !prompt.trim()) return "";
   const decision = chooseModelTier(prompt);
-  const model = modelName(decision.tier);
+  const worthSurfacing =
+    (decision.tier === "reasoning" || decision.tier === "planning") && decision.confidence >= 0.85;
   recordModelRoutingDecision(target, {
     ts: new Date().toISOString(), agent, scenario: decision.scenario,
     tier: decision.tier, confidence: decision.confidence, promptLength: prompt.length,
   });
-  return `[Claude Skills internal model routing: scenario=${decision.scenario}; tier=${decision.tier}; preferred_model=${model}; confidence=${Math.round(decision.confidence * 100)}%. Use this tier silently when model selection is available.]`;
+  if (!worthSurfacing) return "";
+  const model = modelName(decision.tier);
+  return `[Claude Skills model-tier suggestion: this looks like a ${decision.scenario} task (${Math.round(decision.confidence * 100)}% confidence). A stronger model ("${model}") may give better results here. There is no mechanism for you to switch models yourself — if this seems relevant, mention it to the user once, briefly, rather than acting on it silently.]`;
 }

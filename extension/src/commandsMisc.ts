@@ -27,6 +27,12 @@ import {
   enableOfficialFilesystemServer,
   disableOfficialFilesystemServer,
 } from "./mcpOfficial";
+import {
+  addCustomMcpServer,
+  CUSTOM_MCP_AGENT_DISPLAY_NAMES,
+  listCustomMcpServers,
+  removeCustomMcpServer,
+} from "./customMcpServers";
 
 export interface MiscCommandDeps {
   context: vscode.ExtensionContext;
@@ -135,13 +141,31 @@ export function registerMiscCommands(deps: MiscCommandDeps): vscode.Disposable[]
     vscode.commands.registerCommand("claudeSkills.manageMcpServers", async () => {
       const status = getFilesystemMcpServerStatus();
       const fsLabel = status.enabled ? "Filesystem MCP  ✓ Enabled" : "Filesystem MCP  ✗ Disabled";
-      const pick = await vscode.window.showQuickPick(
-        [
-          { label: fsLabel, action: "filesystem", enabled: status.enabled },
-        ],
-        { title: "Manage MCP Servers — click to toggle", canPickMany: false }
-      );
+      const customServers = listCustomMcpServers();
+
+      interface McpManagePick extends vscode.QuickPickItem {
+        action: "filesystem" | "add" | "remove";
+        enabled?: boolean;
+        serverName?: string;
+      }
+
+      const items: McpManagePick[] = [
+        { label: fsLabel, action: "filesystem", enabled: status.enabled },
+        ...customServers.map((s): McpManagePick => ({
+          label: `${s.name}  ✓ Custom`,
+          description: `${s.command} ${s.args.join(" ")}`.trim(),
+          action: "remove",
+          serverName: s.name,
+        })),
+        { label: "$(add) Add custom MCP server...", action: "add" },
+      ];
+
+      const pick = await vscode.window.showQuickPick(items, {
+        title: "Manage MCP Servers — click filesystem to toggle, a custom one to remove",
+        canPickMany: false,
+      });
       if (!pick) return;
+
       if (pick.action === "filesystem") {
         if (pick.enabled) {
           await disableOfficialFilesystemServer(log);
@@ -151,6 +175,66 @@ export function registerMiscCommands(deps: MiscCommandDeps): vscode.Disposable[]
           void notifyUserSuccess("Claude Skills: Filesystem MCP server enabled.");
         }
         refreshAll();
+        return;
+      }
+
+      if (pick.action === "remove" && pick.serverName) {
+        const confirm = await vscode.window.showWarningMessage(
+          `Remove custom MCP server "${pick.serverName}" from all configured agents?`,
+          { modal: true },
+          "Remove"
+        );
+        if (confirm !== "Remove") return;
+        const result = removeCustomMcpServer(pick.serverName);
+        log(`Custom MCP server "${result.name}" removed from: ${result.removedFrom.join(", ") || "(none found)"}.`);
+        void notifyUserSuccess(
+          `Claude Skills: removed "${result.name}" from ${result.removedFrom.length} agent config(s). Reload affected agents to apply.`
+        );
+        return;
+      }
+
+      if (pick.action === "add") {
+        await vscode.commands.executeCommand("claudeSkills.addCustomMcpServer");
+      }
+    }),
+
+    vscode.commands.registerCommand("claudeSkills.addCustomMcpServer", async () => {
+      const name = await vscode.window.showInputBox({
+        title: "Add Custom MCP Server (1/3): Name",
+        prompt: 'A short identifier, e.g. "github" or "slack" — the key other tools will see it under.',
+        validateInput: (v) => (v.trim() ? undefined : "Name is required."),
+      });
+      if (!name) return;
+
+      const command = await vscode.window.showInputBox({
+        title: "Add Custom MCP Server (2/3): Command",
+        prompt: 'The executable that runs this server, e.g. "node", "npx", "python".',
+        placeHolder: "npx",
+        validateInput: (v) => (v.trim() ? undefined : "Command is required."),
+      });
+      if (!command) return;
+
+      const argsRaw = await vscode.window.showInputBox({
+        title: "Add Custom MCP Server (3/3): Arguments",
+        prompt: 'Space-separated arguments, e.g. "-y @modelcontextprotocol/server-github". Leave empty for none.',
+        placeHolder: "-y @modelcontextprotocol/server-github",
+      });
+      const args = (argsRaw ?? "").trim().length > 0 ? (argsRaw ?? "").trim().split(/\s+/) : [];
+
+      const result = addCustomMcpServer({ name: name.trim(), command: command.trim(), args });
+      const configuredLabel =
+        result.configured.map((a) => CUSTOM_MCP_AGENT_DISPLAY_NAMES[a]).join(", ") ||
+        "(none — check claudeSkills.agents.enabled)";
+      log(`Custom MCP server "${result.name}" configured for: ${configuredLabel}.`);
+      if (result.errors.length > 0) {
+        log(
+          `Custom MCP server "${result.name}" errors: ${result.errors.map((e) => `${e.agentId}: ${e.message}`).join("; ")}`
+        );
+        void notifyUserWarn(`Claude Skills: "${result.name}" partially configured — see output for details.`);
+      } else {
+        void notifyUserSuccess(
+          `Claude Skills: added MCP server "${result.name}" for ${configuredLabel}. Reload affected agents for it to take effect.`
+        );
       }
     }),
 

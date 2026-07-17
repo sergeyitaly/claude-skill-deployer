@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.138** | Custom MCP servers, and a silent feature made honest — "Manage MCP Servers" only ever handled two hardcoded built-ins; adds a generic add/remove flow for any server, across Claude/Cursor/Kiro. Also found and fixed: model-tier routing has fired on every prompt since it was built (44 real decisions in this repo alone) asking the agent to "silently" switch models — a mechanism that doesn't exist — and defaulted to placeholder model names like `"planning"` instead of real ones |
 | **1.0.137** | Agent debuggability — an agent driving this extension can't click VS Code's UI, which made every live test this project's own reliability work needed require a human round-trip; adds an output-log file mirror, a full-state-dump debug command, and a cache/throttle-bypassing force-refresh debug command, closing that gap for future sessions |
 | **1.0.136** | Budget/task-focus coupling visibility — a static audit (not live-verified like 1.0.129-135, but grounded in real code paths) found budget's threshold auto-disable was a silent, undocumented no-op whenever task focus was off; now surfaced in the output log and both settings' descriptions |
 | **1.0.135** | MCP-Force health check, part 2 — live-testing 1.0.134 against a brand-new workspace with no MCP activity of its own found it still refused; a workspace that's only ever had extension commands run in it (not an agent chat session) generates no usage log at all, so the check now also accepts proof from any other workspace the server has ever served |
@@ -84,6 +85,22 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.138] - 2026-07-17
+
+**Summary:** Researching "could the extension help configure new MCP servers, or silently switch models per task stage" for its own future usefulness found: the first genuinely didn't exist (only two hardcoded servers were manageable); the second already existed, has been running on every single prompt since it was built, and — as far as could be determined — has never once actually worked. Both fixed.
+
+**Theme:** Two research findings acted on immediately, not deferred to a backlog — one net-new capability, one honesty fix for a feature that looked complete but wasn't.
+
+### Added
+
+- **Generic custom MCP server registration.** New `customMcpServers.ts`, kept deliberately separate from `mcpOfficial.ts`'s hardened, load-bearing filesystem-server path rather than generalizing it in place. `claudeSkills.addCustomMcpServer` prompts for name/command/args and writes the entry into Claude/Cursor/Kiro's own config files (Copilot excluded — it only reads `contributes.mcpServers` from `package.json` at install time, so a runtime write can never reach it). `claudeSkills.manageMcpServers`'s QuickPick now lists every custom server alongside the filesystem toggle, click one to remove it. A small registry (`~/.claude/mcp-servers/custom-servers.json`) tracks what this extension added, distinct from anything the user configured by hand. 7 new tests in `customMcpServers.test.ts`.
+
+### Fixed
+
+- **Model-tier routing asked the agent to do something no hook mechanism can do, on every single prompt, with the wrong model names.** `modelRoutingContext()` (`modelRouting.ts`) injected a hidden `UserPromptSubmit` context block on every prompt telling the agent to "use this tier silently when model selection is available" — there is no hook-level API for changing which model runs a session, so this instruction was unactionable by design. Confirmed live: this repo's own `.claude/learning/model-routing.jsonl` had 44 real recorded decisions, all presumably inert. Separately, `claudeSkills.modelRouting.{fast,balanced,reasoning,planning}` defaulted to the literal tier name (e.g. `"planning"`) instead of a real model identifier — even a perfectly-actionable suggestion would have named a nonexistent model. Both fixed: the four settings now default to real model IDs (`claude-haiku-4-5-20251001` / `claude-sonnet-5` / `claude-opus-4-8` / `claude-opus-4-8`), and `modelRoutingContext()` now only surfaces text for the tiers where model choice plausibly matters (reasoning/planning) at high confidence (≥85%), phrased as a one-time, human-actionable suggestion to mention to the user — not an instruction to self-switch. Every decision is still recorded to the log regardless of whether anything is surfaced. 4 new regression tests in `modelRouting.test.ts`.
 
 ---
 

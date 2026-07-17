@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.137",
+  "version": "1.0.138",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -496,8 +496,14 @@
       },
       {
         "command": "claudeSkills.manageMcpServers",
-        "title": "Manage MCP Servers (Filesystem / CLI)",
+        "title": "Manage MCP Servers (Filesystem / Custom)",
         "icon": "$(server)",
+        "category": "Claude Skills"
+      },
+      {
+        "command": "claudeSkills.addCustomMcpServer",
+        "title": "Add Custom MCP Server",
+        "icon": "$(add)",
         "category": "Claude Skills"
       },
       {
@@ -629,22 +635,22 @@
           },
           "claudeSkills.modelRouting.fast": {
             "type": "string",
-            "default": "fast",
+            "default": "claude-haiku-4-5-20251001",
             "description": "Model identifier used for quick edits."
           },
           "claudeSkills.modelRouting.balanced": {
             "type": "string",
-            "default": "balanced",
+            "default": "claude-sonnet-5",
             "description": "Model identifier used for standard implementation work."
           },
           "claudeSkills.modelRouting.reasoning": {
             "type": "string",
-            "default": "reasoning",
+            "default": "claude-opus-4-8",
             "description": "Model identifier used for debugging, architecture, and review work."
           },
           "claudeSkills.modelRouting.planning": {
             "type": "string",
-            "default": "planning",
+            "default": "claude-opus-4-8",
             "description": "Model identifier used for architecture, migration, and multi-step strategy work."
           },
           "claudeSkills.autoUpdateExtension": {
