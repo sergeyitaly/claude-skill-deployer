@@ -9,6 +9,7 @@ import {
   validateInstructionFile,
   writeCopilotBootstrap,
 } from "./copilotTransform";
+import { ClaudeSkillEntry, syncClaudeSkillsBootstrap } from "./claudeBootstrap";
 import { parseSkillFrontmatter } from "./skillLint";
 import {
   copySkill,
@@ -853,6 +854,42 @@ export function syncCopilotBootstrap(target: string, libraryDir: string): string
   }
 
   return writeCopilotBootstrap(target, entries);
+}
+
+/** Write the installed-skills summary block in CLAUDE.md (unconditional — unlike Copilot's
+ * bootstrap file, Claude Code doesn't need this to discover skills; it's a human-readable
+ * summary kept for parity with what Copilot's lack of a native skill system requires). */
+export function syncClaudeBootstrap(target: string, libraryDir: string): boolean {
+  // enabledAgents() throws hard when agents.json is missing (e.g. a bundled-skills-only
+  // libraryDir, or a test fixture) — guard first rather than let a missing manifest crash
+  // the whole task-focus apply chain that calls this.
+  if (!fs.existsSync(path.join(libraryDir, "agents.json"))) {
+    return false;
+  }
+  if (!enabledAgents(libraryDir).includes("claude")) {
+    return false;
+  }
+  const manifest = loadManifest(libraryDir);
+  const effective = listEffectiveEnabledSkills(target);
+  const entries: ClaudeSkillEntry[] = [];
+
+  for (const name of effective) {
+    const skillMd = path.join(target, ".claude", "skills", name, "SKILL.md");
+    const bundledMd = path.join(libraryDir, name, "SKILL.md");
+    const mdPath = fs.existsSync(skillMd) ? skillMd : bundledMd;
+    if (!fs.existsSync(mdPath)) {
+      continue;
+    }
+    const raw = fs.readFileSync(mdPath, "utf-8");
+    const detectGlobs = manifest.skills[name]?.detect_globs ?? ["**/*"];
+    entries.push({
+      name,
+      detectGlobs,
+      description: parseSkillFrontmatter(raw)?.description,
+    });
+  }
+
+  return syncClaudeSkillsBootstrap(target, entries).ok;
 }
 
 /** Mirror learning artifacts (reports, budget, branch profiles) to other agents' learning dirs. */

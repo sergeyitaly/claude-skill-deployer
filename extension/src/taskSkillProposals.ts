@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOps";
+import { CATCH_ALL_GLOBS, detectRelevantSkills, ensureGitExcludeEntry, Manifest } from "./skillOps";
 import { invalidateLearningCache, readCachedEnrichedRuns } from "./runsStore";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
@@ -236,9 +236,6 @@ function tokenize(text: string): string[] {
     .split(/\s+/)
     .filter((t) => t.length >= 3);
 }
-
-// Globs that match everything — provide no discriminative signal for scoring
-const CATCH_ALL_GLOBS = new Set(["**/*", "**/*.*", "**/*.md"]);
 
 // Filenames that appear in nearly every software repo regardless of stack — matching one
 // says almost nothing about what a project actually is, so they shouldn't score like a

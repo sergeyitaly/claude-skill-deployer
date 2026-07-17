@@ -128,42 +128,42 @@ export function revertMcpForcePermissions(target: string): void {
   writeJsonAtomic(settingsFile, settings);
 }
 
-export function injectMcpForceClaude(target: string): McpForceInjectResult {
-  const health = checkMcpHealth();
-  if (health.status === "config-issue") {
-    return {
-      ok: false,
-      reason: `MCP server is not ready (${health.errors[0] ?? "config-issue"}). Fix MCP setup before injecting force instructions.`,
-    };
-  }
+export type ClaudeMdBlockResult = { ok: true } | { ok: false; reason: string };
 
+/**
+ * Atomically inserts/replaces a marker-delimited block in <target>/CLAUDE.md, preserving
+ * everything else in the file (including other subsystems' own marked blocks). Shared by
+ * MCP-Force injection and the skills-bootstrap writer (claudeBootstrap.ts) — both use the
+ * same lock file, so a concurrent write from either subsystem, or another VS Code window,
+ * skips safely instead of racing and corrupting the file.
+ */
+export function upsertClaudeMdBlock(
+  target: string,
+  blockStart: string,
+  blockEnd: string,
+  block: string
+): ClaudeMdBlockResult {
   const claudeMd = path.join(target, "CLAUDE.md");
-
-  // Atomic update: write to a temp file then rename so concurrent writes from
-  // two VS Code windows targeting the same workspace cannot corrupt CLAUDE.md.
   const lockFile = claudeMd + ".mcpforce.lock";
   clearStaleLock(lockFile); // remove lock left by a previously crashed process
   let lockFd: number | undefined;
   try {
     lockFd = fs.openSync(lockFile, "wx"); // exclusive create — fails if another process holds it
   } catch {
-    // Another window is updating concurrently; treat as a transient no-op.
+    // Another window/subsystem is updating concurrently; treat as a transient no-op.
     return { ok: true };
   }
 
   try {
     let content = fs.existsSync(claudeMd) ? fs.readFileSync(claudeMd, "utf-8") : "";
 
-    const startIdx = content.indexOf(FORCE_BLOCK_START);
-    const endIdx = content.indexOf(FORCE_BLOCK_END);
+    const startIdx = content.indexOf(blockStart);
+    const endIdx = content.indexOf(blockEnd);
 
     if (startIdx !== -1 && endIdx !== -1) {
-      content =
-        content.slice(0, startIdx) +
-        FORCE_CLAUDE_MD_BLOCK +
-        content.slice(endIdx + FORCE_BLOCK_END.length);
+      content = content.slice(0, startIdx) + block + content.slice(endIdx + blockEnd.length);
     } else {
-      content = FORCE_CLAUDE_MD_BLOCK + (content ? "\n\n" + content : "");
+      content = block + (content ? "\n\n" + content : "");
     }
 
     fs.mkdirSync(path.dirname(claudeMd), { recursive: true });
@@ -179,7 +179,8 @@ export function injectMcpForceClaude(target: string): McpForceInjectResult {
   }
 }
 
-export function removeMcpForceClaudeBlock(target: string): void {
+/** Removes a marker-delimited block from <target>/CLAUDE.md, if present. No-op otherwise. */
+export function removeClaudeMdBlock(target: string, blockStart: string, blockEnd: string): void {
   const claudeMd = path.join(target, "CLAUDE.md");
   if (!fs.existsSync(claudeMd)) return;
 
@@ -194,10 +195,10 @@ export function removeMcpForceClaudeBlock(target: string): void {
 
   try {
     let content = fs.readFileSync(claudeMd, "utf-8");
-    const startIdx = content.indexOf(FORCE_BLOCK_START);
-    const endIdx = content.indexOf(FORCE_BLOCK_END);
+    const startIdx = content.indexOf(blockStart);
+    const endIdx = content.indexOf(blockEnd);
     if (startIdx === -1 || endIdx === -1) return;
-    content = (content.slice(0, startIdx) + content.slice(endIdx + FORCE_BLOCK_END.length)).trimStart();
+    content = (content.slice(0, startIdx) + content.slice(endIdx + blockEnd.length)).trimStart();
     const tmp = claudeMd + `.tmp-${process.pid}-${Date.now()}`;
     fs.writeFileSync(tmp, content, "utf-8");
     fs.renameSync(tmp, claudeMd);
@@ -205,4 +206,19 @@ export function removeMcpForceClaudeBlock(target: string): void {
     fs.closeSync(lockFd!);
     try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
   }
+}
+
+export function injectMcpForceClaude(target: string): McpForceInjectResult {
+  const health = checkMcpHealth();
+  if (health.status === "config-issue") {
+    return {
+      ok: false,
+      reason: `MCP server is not ready (${health.errors[0] ?? "config-issue"}). Fix MCP setup before injecting force instructions.`,
+    };
+  }
+  return upsertClaudeMdBlock(target, FORCE_BLOCK_START, FORCE_BLOCK_END, FORCE_CLAUDE_MD_BLOCK);
+}
+
+export function removeMcpForceClaudeBlock(target: string): void {
+  removeClaudeMdBlock(target, FORCE_BLOCK_START, FORCE_BLOCK_END);
 }

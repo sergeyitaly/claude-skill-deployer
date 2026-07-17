@@ -12,6 +12,23 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.132
+
+### Claude Code now gets its own CLAUDE.md skills summary, no setup required
+
+GitHub Copilot has always gotten an auto-maintained `copilot-instructions.md` listing every installed skill — it needs one, since Copilot has no native way to discover skills on its own. Claude Code does discover skills natively, so it never got an equivalent file... which meant asking "why isn't there a CLAUDE.md here?" had no good answer beyond "you'd have to turn on MCP-Force Mode for something unrelated." Not anymore.
+
+- **`CLAUDE.md` now gets an installed-skills table for every Claude Code workspace.** As soon as any skill is installed, `CLAUDE.md` gets a summary table (skill name, what triggers it, description) that stays in sync as skills change — no setup, no toggle, and independent of MCP-Force Mode entirely. If you've never installed a skill yet, no file is created prematurely. If you already use MCP-Force Mode, both live in the same `CLAUDE.md` side by side without conflict.
+
+## What's new in 1.0.131
+
+### "Install Relevant Skills for Workspace" stopped installing irrelevant skills
+
+A practical benchmark — a synthetic Terraform/Azure/GitHub-Actions repo built specifically to test this — found "Install Relevant Skills for Workspace" installing 24 skills when only about 6 actually mattered to the project, and task focus never cleaning up the rest.
+
+- **Design/doc/testing skills no longer auto-install into every project.** Several bundled skills (`brand-guidelines`, `canvas-design`, `claude-api`, `frontend-design`, `mcp-builder`, `theme-factory`, `web-artifacts-builder`, `webapp-testing`, `doc-coauthoring`, `internal-comms`) are meant to be pulled in by what you're actually asking Claude to do, not by scanning your file tree — they had no real per-project file signal, so they matched (and installed) everywhere. They're still available on request; they just won't show up uninvited in an infra repo anymore.
+- **Task focus now catches skills installed after its last check.** If a skill landed in `.claude/skills/` between two runs where the underlying task proposals hadn't changed, task focus used to leave it permanently active with no pruning. It now notices and cleans it up on the next pass.
+
 ## What's new in 1.0.129
 
 ### Three bugs found by using the extension for real work, all fixed

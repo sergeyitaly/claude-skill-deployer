@@ -34,6 +34,40 @@ describe("patternMatchesAny", () => {
   });
 });
 
+describe("catch-all detect_globs (regression: universal-match skills shouldn't auto-install)", () => {
+  // Real, bundled manifest — several skills (brand-guidelines, canvas-design, claude-api,
+  // frontend-design, mcp-builder, theme-factory, web-artifacts-builder, webapp-testing)
+  // have detect_globs: ["**/*"], a literal match-everything pattern. A live benchmark run
+  // against a pure Terraform/Azure/GitHub-Actions repo found "Install Relevant Skills for
+  // Workspace" installing all of them anyway — 13 of 24 installed skills had zero real
+  // relevance, because detectRelevantSkills() (unlike the task-skill-proposals confidence
+  // scoring) had no discount for catch-all globs.
+  const manifest = loadManifest(path.join(__dirname, "..", "skills_library"));
+
+  it("does NOT detect brand-guidelines (detect_globs: [\"**/*\"]) for an unrelated infra repo", () => {
+    const root = makeWorkspace({
+      "main.tf": 'resource "null_resource" "x" {}\n',
+      ".github/workflows/ci.yml": "name: CI\non: [push]\n",
+    });
+
+    const detected = detectRelevantSkills(root, manifest);
+
+    expect(detected["brand-guidelines"]).toBeUndefined();
+  });
+
+  it("still detects a skill with a real, specific glob match in the same repo", () => {
+    const root = makeWorkspace({
+      "main.tf": 'resource "null_resource" "x" {}\n',
+      ".github/workflows/ci.yml": "name: CI\non: [push]\n",
+    });
+
+    const detected = detectRelevantSkills(root, manifest);
+
+    expect(detected["terraform-plan-review"]).toBeDefined();
+    expect(detected["github-actions-ci"]).toBeDefined();
+  });
+});
+
 describe("deployment-practical detect_globs (regression: broad-glob false positives)", () => {
   // Real, bundled manifest — catches any future re-widening of detect_globs,
   // not just a hand-written fixture copy.

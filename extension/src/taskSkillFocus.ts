@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
+import { syncClaudeBootstrap } from "./agentOps";
 import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
@@ -194,12 +195,25 @@ export function applyTaskSkillFocusFromProposals(
     return { applied: false };
   }
   const state = readTaskActiveSkills(target);
-  if (state?.proposalsGeneratedAt === proposals.generatedAt) {
+  // A skill can land in .claude/skills through a path this function never sees directly
+  // (e.g. "Install Relevant Skills for Workspace", a manual copy) between two identical
+  // proposals files. Gating solely on proposals.generatedAt would leave it permanently
+  // un-swept — neither active nor ignored — since re-applying the *same* proposals looks
+  // like a no-op otherwise. Re-apply whenever the installed set has drifted from what the
+  // last sweep actually accounted for, even if the proposals themselves are unchanged.
+  const installedDrifted = !!state && listInstalledSkills(target).some(
+    (name) => !state.activeSkills.includes(name) && !state.ignoredSkills.includes(name)
+  );
+  if (state?.proposalsGeneratedAt === proposals.generatedAt && !installedDrifted) {
     return { applied: false };
   }
   const names = resolveProposalSkillNames(proposals).filter(Boolean);
   const focus = applyTaskSkillFocus(target, names, "task-skill-proposals", proposals.generatedAt);
   bootstrapWorkspaceForHostAgent(libraryDir, target);
+  // Unconditional (unlike propagateCostDisciplineToAgents below, which is gated on
+  // multi-agent mirror settings) — a solo Claude-only workspace with no Cursor/Kiro/Copilot
+  // mirroring enabled should still get its own CLAUDE.md skills summary.
+  syncClaudeBootstrap(target, libraryDir);
   propagateCostDisciplineToAgents(libraryDir, target);
   return { applied: true, focus };
 }

@@ -18,6 +18,8 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.132** | CLAUDE.md parity — Claude Code was the only one of the four supported agents with no auto-maintained project-instructions file; it now gets an installed-skills summary in CLAUDE.md unconditionally, independent of MCP-Force Mode, matching what Copilot's `copilot-instructions.md` already provided |
+| **1.0.131** | Benchmark fixes — a live practical benchmark against a synthetic Terraform/Azure/AKS/GitHub-Actions repo found "Install Relevant Skills for Workspace" installing 8 skills that match literally every project (`detect_globs: ["**/*"]`), and task focus never pruning them because its re-sync guard only reacted to proposal regeneration, not installed-set drift |
 | **1.0.130** | Release process — the published 1.0.129 package was built before its own CLAUDE.md-repair fix landed in source, so that fix shipped as a version-number claim with no code behind it; this release actually contains it, and documents the packaging gap |
 | **1.0.129** | Dogfooding fixes — MCP-Force Mode was leaky on Windows (PowerShell missing from the deny list) and could permanently skip repairing a missing CLAUDE.md; task focus could silently disable an in-use skill mid-session with no visible notice |
 | **1.0.128** | Test coverage — the 1.0.127 fixes shipped with no automated tests; added real regression tests for both, and hardened the test harness after it was found writing into the developer's actual global skills directory |
@@ -77,6 +79,42 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.132] - 2026-07-17
+
+**Summary:** Asked directly why `CLAUDE.md` wasn't appearing in a workspace that never enabled MCP-Force Mode, investigation found the honest answer ("that's intentional — Force Mode is the only thing that ever writes it") pointed at a real asymmetry: Copilot gets an auto-maintained project-instructions file (`copilot-instructions.md`) unconditionally, because it has no native skill system and can't use skills without one, while Claude Code — which discovers `.claude/skills/*` natively and needs no such file to function — got nothing at all unless Force Mode happened to be on. Claude now gets a CLAUDE.md installed-skills summary too, purely for documentation/discoverability parity, independent of Force Mode.
+
+**Theme:** CLAUDE.md parity — closes a real gap the CLAUDE.md-repair work in 1.0.129/1.0.130 didn't touch, since that was about the Force Mode block specifically, not this.
+
+### Added
+
+- **CLAUDE.md now gets an installed-skills summary for every Claude Code workspace, independent of MCP-Force Mode.** New `claudeBootstrap.ts`: `buildClaudeSkillsBootstrapBlock()` renders a markdown table (skill name, `detect_globs`, description) under its own marker pair (`<!-- claude-skills-manager:installed-skills -->`), explicitly noting in its own text that this is documentation only — Claude discovers skills on its own regardless. `syncClaudeSkillsBootstrap()` writes/refreshes the block and is a no-op (doesn't even create `CLAUDE.md`) when there are zero installed skills yet. New `agentOps.ts` function `syncClaudeBootstrap()` mirrors the existing `syncCopilotBootstrap()`'s manifest/`listEffectiveEnabledSkills()` pattern, and is wired into `taskSkillFocus.ts`'s `applyTaskSkillFocusFromProposals()` — deliberately alongside `bootstrapWorkspaceForHostAgent()`, not inside the multi-agent-mirror-gated `propagateCostDisciplineToAgents()`, so a solo Claude-only workspace with Cursor/Kiro/Copilot mirroring entirely disabled still gets its own summary.
+- **`mcpForce.ts`'s CLAUDE.md read/write logic is now shared, reusable infrastructure.** The marker-splice-and-atomic-write logic `injectMcpForceClaude()`/`removeMcpForceClaudeBlock()` used inline is now two exported functions, `upsertClaudeMdBlock()`/`removeClaudeMdBlock()`, using the same lock file (`CLAUDE.md.mcpforce.lock`) as before — a pure refactor with zero behavior change (all 26 pre-existing `mcpForce.test.ts` tests pass unchanged). This is what lets the new skills-bootstrap writer safely coexist with a Force Mode block in the same file without either one racing or clobbering the other's write.
+
+### Fixed
+
+- **`syncClaudeBootstrap()` could crash the entire task-focus apply chain on a missing `agents.json`.** `enabledAgents()` throws hard when `libraryDir` has no `agents.json` — `syncCopilotBootstrap()`'s only caller already guards against this, but `syncClaudeBootstrap()`'s new call site didn't, and a real test run (`taskDriftReproposal.test.ts`) caught it immediately. Fixed by adding the same `fs.existsSync` guard directly inside `syncClaudeBootstrap()`, so it's robust regardless of caller.
+
+`claudeBootstrap.test.ts` (new, 6 tests) covers table rendering, pipe-character escaping in descriptions, the zero-entries no-op, block replacement on re-sync without touching surrounding user content, and — the important one — coexistence with an already-present MCP-Force block in the same file.
+
+---
+
+## [1.0.131] - 2026-07-17
+
+**Summary:** A live practical benchmark — a synthetic Terraform+Azure+AKS+GitHub-Actions repo, built solely to test stack detection, task-focus pruning, multi-agent sync, and cost dashboard accuracy — found that "Install Relevant Skills for Workspace" installed 24 skills when only ~6 were genuinely stack-relevant. Traced to two compounding bugs, both fixed. (Multi-agent sync and cost dashboard accuracy passed cleanly in the same benchmark — no changes needed there.)
+
+**Theme:** Benchmark fixes — real usage against a realistic project, not synthetic unit-test fixtures, found both of these.
+
+### Fixed
+
+- **`detectRelevantSkills()` (`skillOps.ts`) had no discount for match-everything globs.** 8 skills' entire `detect_globs` is the literal `["**/*"]` (`brand-guidelines`, `canvas-design`, `claude-api`, `frontend-design`, `mcp-builder`, `theme-factory`, `web-artifacts-builder`, `webapp-testing`), and 2 more (`doc-coauthoring`, `internal-comms`) match on the near-universal `**/*.md` — so all 10 "detected" as relevant for literally any project, including a pure Terraform/Azure/GitHub-Actions repo with nothing design-, doc-, or MCP-related in it. The sibling `task-skill-proposals.json` confidence engine already solved this with a `CATCH_ALL_GLOBS` discount inside `globSpecificityScore()` (added in 1.0.123), but `detectRelevantSkills()` — used by `generateForWorkspace()` ("Install Relevant Skills for Workspace") and every other caller (`agentOps.ts`, `branchSkillBootstrap.ts`, `skillSetResolver.ts`, `usageStats.ts`'s `computeSuggestedSkills`) — never shared it. `CATCH_ALL_GLOBS` is now exported from `skillOps.ts` as the single source of truth (`taskSkillProposals.ts` imports it instead of keeping its own copy), and `detectRelevantSkills()` now requires at least one non-catch-all glob match before treating a skill as relevant. These 10 skills are task/prompt-driven (design requests, MCP-server-building, testing), not stack-detected — they're still installable manually or proposed via prompt content, just no longer force-installed by file-glob stack detection alone. `skillOps.test.ts` gained regression tests against the real bundled manifest confirming `brand-guidelines` is no longer detected for a pure Terraform+GitHub-Actions repo while `terraform-plan-review`/`github-actions-ci` still correctly are.
+- **Task focus never pruned skills installed after the last sweep, if proposals hadn't regenerated.** `applyTaskSkillFocusFromProposals()` (`taskSkillFocus.ts`) gated its entire re-sync on `state?.proposalsGeneratedAt === proposals.generatedAt` — if that timestamp was unchanged, it returned `{ applied: false }` unconditionally, even though the *installed skill set* could have grown in the meantime (e.g. from the bug above, or any other out-of-band install). In the benchmark this meant `settings.local.json` had **zero** `skillOverrides` despite 13 of 24 installed skills (54%) being objectively irrelevant — they were neither active nor ignored, just permanent noise. Fixed by also checking whether any installed skill is missing from both the last sweep's `activeSkills` and `ignoredSkills` — re-applying in that case even when the proposals themselves haven't changed. `taskSkillFocus.test.ts` gained two regression tests: one confirming a skill installed after the last sweep gets correctly pruned on the next call with unchanged proposals, one confirming the function still stays a no-op when nothing has actually drifted.
+
+### Notes
+
+- Confirmed during the same benchmark: `CLAUDE.md` is only ever created by MCP-Force Mode (`mcpForce.ts` and its two callers `extension.ts`/`commandsMcp.ts` are the only places in the codebase that reference it) — a workspace that never enables Force Mode correctly has no `CLAUDE.md`. That's intended behavior, not a bug.
 
 ---
 

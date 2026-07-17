@@ -26,6 +26,12 @@ export function skillCatalogVersion(rule: SkillRule | undefined): string {
   return rule?.version?.trim() || "1.0.0";
 }
 
+// Globs that match essentially every project — matching one says nothing about what a
+// project actually is, so it shouldn't count as a real detection signal by itself. Shared
+// with taskSkillProposals.ts's confidence scoring so both the install path and the
+// proposal/task-focus path agree on what counts as "detected".
+export const CATCH_ALL_GLOBS = new Set(["**/*", "**/*.*", "**/*.md"]);
+
 export interface Manifest {
   skills: Record<string, SkillRule>;
 }
@@ -434,7 +440,13 @@ export function detectRelevantSkills(
   const results: Record<string, string[]> = {};
   for (const [skillName, rule] of Object.entries(manifest.skills)) {
     const matched = rule.detect_globs.filter((g) => patternMatchesAny(g, paths));
-    if (matched.length > 0) {
+    // A skill whose only matches are catch-all globs (e.g. **/*) has no real
+    // discriminative signal — every project would "match" it. These skills (design,
+    // testing, MCP-building, etc.) are meant to be surfaced via task/prompt content,
+    // not auto-installed by file-based stack detection — require at least one
+    // specific glob match before treating the skill as relevant here.
+    const hasSpecificMatch = matched.some((g) => !CATCH_ALL_GLOBS.has(g));
+    if (matched.length > 0 && hasSpecificMatch) {
       results[skillName] = matched;
     }
   }
