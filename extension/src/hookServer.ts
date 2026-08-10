@@ -1,5 +1,6 @@
 import * as http from "node:http";
 import { handleHookRequest } from "./hookHandlers";
+import { appendHookHealth } from "./hookHealth";
 
 export const DEFAULT_HOOK_PORT = 4895;
 
@@ -65,7 +66,11 @@ function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): vo
           try { bodyJson = JSON.parse(body); } catch { /* use empty object */ }
         }
 
+        const startedAt = Date.now();
         const result = await handleHookRequest({ hookName, agent, cwd, body: bodyJson });
+        try {
+          appendHookHealth(cwd, { event: "hook_request", agent, hookName, durationMs: Date.now() - startedAt });
+        } catch { /* non-fatal — latency tracking must never break hook dispatch */ }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result ?? {}));
       } catch {

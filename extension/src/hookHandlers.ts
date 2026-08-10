@@ -245,6 +245,28 @@ function estimateTokensFromBody(body: Record<string, unknown>): number {
   return 0;
 }
 
+function saveDedupeState(
+  stateFile: string,
+  state: Record<string, string>,
+  key: string,
+  maxKeys: number,
+  maxAgeMs: number
+): void {
+  state[key] = new Date().toISOString();
+  const nowMs = Date.now();
+  let trimmed = Object.fromEntries(
+    Object.entries(state).filter(([, ts]) => {
+      const t = Date.parse(ts);
+      return !Number.isNaN(t) && nowMs - t < maxAgeMs;
+    })
+  );
+  if (Object.keys(trimmed).length > maxKeys) {
+    const entries = Object.entries(trimmed).sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]));
+    trimmed = Object.fromEntries(entries.slice(0, maxKeys));
+  }
+  writeJsonSafe(stateFile, trimmed);
+}
+
 function handleSkillInvoke(req: HookRequest): HookResponse {
   const body = req.body as Record<string, unknown>;
   const cwd = req.cwd;
@@ -256,33 +278,17 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
   const toolUseId = String(body.tool_use_id ?? body.toolUseId ?? "");
 
   const skill = extractSkillName(toolName, toolInput);
-  
-  // Log non-skill tools (native IDE tools like run_task, run_in_terminal, etc.)
-  if (!skill) {
-    appendToolUse(cwd, {
-      tool: String(toolName).toLowerCase() || "unknown",
-      agent: req.agent as RunAgent,
-      sessionId,
-      metadata: {
-        source: "skill-invoke-hook-v2",
-        tool_name: String(toolName),
-        tool_use_id: toolUseId || undefined,
-        hook_agent: req.agent,
-        model: typeof body.model === "string" ? body.model : undefined,
-      },
-    });
-    return {};
-  }
 
   const stateFile = path.join(cwd, ".claude", "learning", "skill-invoke-state.json");
   const MAX_STATE_KEYS = 3000;
   const MAX_STATE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-  // Dedup strategy:
+  // Dedup strategy (shared by both branches below — every matched Read/Skill/mcp filesystem
+  // call fires this handler from BOTH PreToolUse and PostToolUse in .claude/settings.json):
   // - When toolUseId is present (PostToolUse with specific call ID): use it — exact match.
   // - When toolUseId is absent (PreToolUse / VS Code workaround): bucket by 10-second window.
   //   This prevents Pre+Post double-writes for the same tool call while allowing the SAME
-  //   skill to be recorded again after the bucket expires (i.e., genuine re-invocations
+  //   skill/tool to be recorded again after the bucket expires (i.e., genuine re-invocations
   //   within the same session are captured, not permanently collapsed to one record).
   const hasResponse = !!(body.tool_response ?? body.toolResult ?? body.tool_result);
   const dedupeId = toolUseId
@@ -297,8 +303,30 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
   // allow the PreToolUse record through so attribution is never silently dropped.
   if (!hasResponse && toolUseId) return {}; // Pre with ID: skip — Post will write
 
+  const state: Record<string, string> = readJsonSafe<Record<string, string>>(stateFile) ?? {};
+
+  // Log non-skill tools (native IDE tools like run_task, run_in_terminal, etc.). Namespaced
+  // "tool|" so these keys never collide with the skill-keyed ones below in the same state file.
+  if (!skill) {
+    const toolKey = `tool|${sessionId}|${String(toolName).toLowerCase()}|${dedupeId}`;
+    if (state[toolKey]) return {};
+    appendToolUse(cwd, {
+      tool: String(toolName).toLowerCase() || "unknown",
+      agent: req.agent as RunAgent,
+      sessionId,
+      metadata: {
+        source: "skill-invoke-hook-v2",
+        tool_name: String(toolName),
+        tool_use_id: toolUseId || undefined,
+        hook_agent: req.agent,
+        model: typeof body.model === "string" ? body.model : undefined,
+      },
+    });
+    saveDedupeState(stateFile, state, toolKey, MAX_STATE_KEYS, MAX_STATE_AGE_MS);
+    return {};
+  }
+
   const key = `${sessionId}|${skill}|${dedupeId}`;
-  let state: Record<string, string> = readJsonSafe<Record<string, string>>(stateFile) ?? {};
   if (state[key]) return {};
 
   const tokens = estimateTokensFromBody(body);
@@ -364,20 +392,7 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
   // GAP 2: record hook health for learning loop diagnostics
   appendHookHealth(cwd, { event: "hook_fired", skill, wrote_runs: wroteRuns, agent: req.agent, session_id: sessionId });
 
-  const now = new Date().toISOString();
-  state[key] = now;
-  const nowMs = Date.now();
-  state = Object.fromEntries(
-    Object.entries(state).filter(([, ts]) => {
-      const t = Date.parse(ts);
-      return !Number.isNaN(t) && nowMs - t < MAX_STATE_AGE_MS;
-    })
-  );
-  if (Object.keys(state).length > MAX_STATE_KEYS) {
-    const entries = Object.entries(state).sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]));
-    state = Object.fromEntries(entries.slice(0, MAX_STATE_KEYS));
-  }
-  writeJsonSafe(stateFile, state);
+  saveDedupeState(stateFile, state, key, MAX_STATE_KEYS, MAX_STATE_AGE_MS);
   return {};
 }
 

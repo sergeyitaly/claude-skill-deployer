@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.140
+
+### The hook pipeline no longer double-logs plain file reads, and its latency is finally visible
+
+A user pushed back on 1.0.139's telemetry framing, correctly pointing out that every matched Read/Skill/mcp filesystem call fires two separate hook round-trips (Pre and Post) with no way to tell if the local hook server ever slowed down. Checking that turned up a real bug: ordinary file reads that didn't match a skill were being logged twice per call. Both are fixed — the double-write is gone, and the existing Hook Health dashboard panel now shows average/max/slow-call latency instead of nothing. The Pre+Post duplication itself is intentionally left in place; it's a workaround for a real upstream bug where `PostToolUse` hooks never fire inside the Claude VS Code extension chat participant.
+
 ## What's new in 1.0.139
 
 ### A quiet end-of-session summary, so the usage data you're already recording actually reaches you

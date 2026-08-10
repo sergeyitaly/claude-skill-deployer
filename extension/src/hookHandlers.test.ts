@@ -557,3 +557,65 @@ describe("handleHookRequest session-stop — routine session summary", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — skill-invoke: non-skill Read double-write regression
+// (PreToolUse and PostToolUse in .claude/settings.json both hit this route for
+// every matched Read/Skill/mcp filesystem call; when neither the skill-specific
+// dedup path nor a matching general-tool dedup applied, an ordinary Read that
+// didn't resolve to a SKILL.md file wrote a mcp-usage.jsonl record twice.)
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest skill-invoke — non-skill tool dedup", () => {
+  it("does not write on PreToolUse (no tool_response, has tool_use_id) — Post will write", async () => {
+    const { appendToolUse } = await import("./runsStore");
+    vi.mocked(appendToolUse).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-skill-invoke-dedup-"));
+    await handleHookRequest({
+      hookName: "skill-invoke",
+      agent: "claude",
+      cwd: tmpDir,
+      body: {
+        session_id: "dedup-session-1",
+        tool_name: "Read",
+        tool_input: { path: "/repo/src/index.ts" },
+        tool_use_id: "call-1",
+        // no tool_response — this is the PreToolUse shape
+      },
+    });
+
+    expect(appendToolUse).not.toHaveBeenCalled();
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("writes exactly once across a Pre+Post pair for the same tool_use_id", async () => {
+    const { appendToolUse } = await import("./runsStore");
+    vi.mocked(appendToolUse).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-skill-invoke-dedup-"));
+    const base = {
+      hookName: "skill-invoke",
+      agent: "claude",
+      cwd: tmpDir,
+      body: {
+        session_id: "dedup-session-2",
+        tool_name: "Read",
+        tool_input: { path: "/repo/src/other.ts" },
+        tool_use_id: "call-2",
+      },
+    };
+
+    // PreToolUse: no tool_response — skipped (Post will record it).
+    await handleHookRequest(base);
+    // PostToolUse: same tool_use_id, now with a response — this is what should write.
+    await handleHookRequest({ ...base, body: { ...base.body, tool_response: "file contents" } });
+    // A duplicate PostToolUse delivery for the same call (e.g. a retry) — must not double-write.
+    await handleHookRequest({ ...base, body: { ...base.body, tool_response: "file contents" } });
+
+    expect(appendToolUse).toHaveBeenCalledTimes(1);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});

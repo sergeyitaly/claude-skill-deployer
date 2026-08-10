@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.140** | Hook overhead honesty — live user feedback on 1.0.139 questioned whether the hook pipeline itself was silently costly; investigating found a real duplicate-write bug (ordinary Reads double-logged) and zero latency instrumentation anywhere, fixed both; left the Pre+Post duplication itself alone since it's a documented workaround for a real upstream Claude VS Code bug, not accidental waste |
 | **1.0.139** | Session summary — the telemetry pipeline (`runs.jsonl`) genuinely works but had zero proactive visibility outside a dashboard nobody opens mid-session; adds a once-per-session usage summary toast, independent of `kpiAlert.ts`'s problem-only alerts |
 | **1.0.138** | Custom MCP servers, and a silent feature made honest — "Manage MCP Servers" only ever handled two hardcoded built-ins; adds a generic add/remove flow for any server, across Claude/Cursor/Kiro. Also found and fixed: model-tier routing has fired on every prompt since it was built (44 real decisions in this repo alone) asking the agent to "silently" switch models — a mechanism that doesn't exist — and defaulted to placeholder model names like `"planning"` instead of real ones |
 | **1.0.137** | Agent debuggability — an agent driving this extension can't click VS Code's UI, which made every live test this project's own reliability work needed require a human round-trip; adds an output-log file mirror, a full-state-dump debug command, and a cache/throttle-bypassing force-refresh debug command, closing that gap for future sessions |
@@ -86,6 +87,26 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.140] - 2026-08-10
+
+**Summary:** Live user feedback on 1.0.139 pushed back on the "telemetry is harmless" framing — pointed out that `.claude/settings.json` fires both `PreToolUse` and `PostToolUse` hooks against the same `/hook/skill-invoke` endpoint for every matched Read/Skill/mcp filesystem call, each a real curl subprocess + HTTP round trip (measured live: 132-160ms), with zero latency instrumentation anywhere to notice if the local hook server ever degraded. Investigating that claim found it was correct, and surfaced a real, previously-unknown bug along the way: ordinary (non-skill) file reads were double-writing to `mcp-usage.jsonl` because the existing Pre/Post dedup logic only covered the skill-specific code path.
+
+**Theme:** Acting on an external correctness/observability finding within the same session it was reported, not deferring it — closes both the "I'd never know if it was slow" gap and a genuine duplicate-write bug it surfaced.
+
+### Fixed
+
+- **Non-skill Read/mcp calls double-wrote `mcp-usage.jsonl`.** `handleSkillInvoke()` (`hookHandlers.ts`) already had careful Pre+Post dedup (by `tool_use_id`, falling back to a 10-second bucket) for skill-file matches, but that logic lived *after* the branch that logs ordinary tool use — so every plain file Read matched by both the `PreToolUse` and `PostToolUse` hooks wrote two `appendToolUse()` records instead of one. The dedup check now runs before both branches; a shared `saveDedupeState()` helper keeps the skill and non-skill code paths using identical logic instead of two copies that could drift. 2 new regression tests.
+
+### Added
+
+- **Real per-request hook latency, recorded for the first time.** `hookServer.ts` now times every `handleHookRequest()` call and logs it to `.claude/learning/hook-health.jsonl` as a new `hook_request` event (`hookName`, `durationMs`) — previously this file only recorded whether a skill-invoke hook fired, never how long any hook actually took, so a stalled or slow local server left no trace. `computeHookHealthSummary()` (`hookHealth.ts`) now surfaces avg/max latency and a "slow calls" count (≥2000ms) in the existing Hook Health dashboard panel, reusing that panel rather than adding a new one. 3 new tests in `hookHealth.test.ts`.
+
+### Known gaps (not fixed this release — flagged for a deliberate decision, not a silent patch)
+
+- **The Pre+Post duplication itself is not removed**, despite being raised as a candidate fix. `installClaudeAttributionHook()` (`hookOps.ts`) installs the `PreToolUse` hook unconditionally for every Claude install, not just when it's needed — but it *is* needed for a real, referenced upstream bug (anthropics/claude-code#27014): `PostToolUse` hooks never fire at all inside the Claude VS Code extension chat participant (`entrypoint: claude-vscode`), only in the CLI. `claudeVscodeAttributionGap.ts` already contains gap-detection logic, but it's dashboard-only diagnostics — nothing wires it into the install decision. Removing `PreToolUse` unconditionally would silently break attribution for VS Code chat sessions (this repo's own dev environment is very likely one); making it conditional on gap-detection has its own bootstrapping problem (a brand-new VS Code chat workspace has no history yet to detect the gap from, so it would lose attribution until enough evidence accumulates). Needs a real design decision, not a mechanical removal.
 
 ---
 
