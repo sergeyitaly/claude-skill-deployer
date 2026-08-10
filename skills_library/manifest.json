@@ -81,6 +81,12 @@
       "detect_globs": ["**/.claude/learning/runs.jsonl", "**/.claude/skills/**"],
       "cost_estimate": "medium"
     },
+    "extension-value-audit": {
+      "description": "Honest, evidence-based verdict on whether the Claude Skills Manager extension itself (adaptive suggestions, task-focus, budget gating, MCP-Force, cross-agent sync, hooks pipeline) is delivering real value in this project - recorded telemetry vs. what the agent actually observed",
+      "detect_globs": ["**/.claude/learning/hook-health.jsonl", "**/.claude/learning/task-skill-proposals.json", "**/.claude/learning/skill-adoption.jsonl", "**/.claude/learning/runs.jsonl"],
+      "cost_estimate": "medium",
+      "version": "1.0.0"
+    },
     "skill-feedback-adaptation": {
       "description": "Register user negative feedback on agent/skill behavior; propose skills for new tasks via task-skill-proposals.json",
       "detect_globs": ["**/.claude/learning/skill-feedback.jsonl", "**/.claude/learning/task-skill-proposals.json", "**/.claude/learning/**"],
