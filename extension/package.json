@@ -2,7 +2,7 @@
   "name": "claude-skill-deployer",
   "displayName": "Claude Skills Manager",
   "description": "Detect project stack and deploy AI agent skills (Claude, Cursor, Kiro, Copilot) with budget controls, branch profiles, and usage reports.",
-  "version": "1.0.138",
+  "version": "1.0.139",
   "publisher": "serhiivoinolovych",
   "license": "MIT",
   "repository": {
@@ -612,6 +612,11 @@
               "All notifications ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â previous behavior including auto-apply and suggestion toasts."
             ],
             "description": "How chatty the extension is with VS Code notification toasts."
+          },
+          "claudeSkills.sessionSummary.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show a one-time summary toast at the end of each session with skill invocation count, success rate, cost, and top skills used — even when nothing went wrong. Shown at most once per session, independent of claudeSkills.notificationLevel."
           },
           "claudeSkills.enrichment.autoApprove": {
             "type": "boolean",

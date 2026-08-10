@@ -11,9 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("vscode", () => ({
   workspace: { getConfiguration: () => ({ get: (_: string, d: unknown) => d }) },
   commands: { executeCommand: vi.fn() },
+  window: { showInformationMessage: vi.fn(() => Promise.resolve(undefined)) },
 }));
 vi.mock("./runsStore", () => ({
-  appendSkillRun: vi.fn(), appendToolUse: vi.fn(), readCachedEnrichedRuns: () => [],
+  appendSkillRun: vi.fn(), appendToolUse: vi.fn(), readCachedEnrichedRuns: vi.fn(() => []),
 }));
 vi.mock("./contextFocusConfig", () => ({
   readContextFocusConfig: () => ({ enabled: false }), effectiveContextFocusLevel: () => "balanced",
@@ -466,6 +467,92 @@ describe("handleHookRequest official-skills — emergency cutoff reminder", () =
     const output = JSON.stringify(result);
     expect(output).not.toContain("Emergency cutoff");
     expect(notifySuggestion).not.toHaveBeenCalled();
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — session-stop routine session summary
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest session-stop — routine session summary", () => {
+  it("shows a one-time summary toast when a session has enough recorded runs", async () => {
+    const { readCachedEnrichedRuns } = await import("./runsStore");
+    const vscode = await import("vscode");
+    const sessionId = "session-summary-enough-runs";
+    // recordSessionAdoptionOutcomes (unmocked, real implementation) also calls
+    // readCachedEnrichedRuns before maybeNotifySessionSummary does, so a *Once queue
+    // entry would be consumed by that earlier call — use a persistent return value.
+    vi.mocked(readCachedEnrichedRuns).mockReturnValue([
+      { session_id: sessionId, skill: "cross-platform-scripting", cost: 0.1, success: true },
+      { session_id: sessionId, skill: "cross-platform-scripting", cost: 0.2, success: true },
+      { session_id: sessionId, skill: "pdf", cost: 0.05, success: false },
+      { session_id: "other-session", skill: "pdf", cost: 5, success: true },
+    ] as any);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-session-summary-"));
+    await handleHookRequest({
+      hookName: "session-stop",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { session_id: sessionId },
+    });
+
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining("3 skill invocation(s)"),
+      "Show Usage Report"
+    );
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      expect.stringContaining("67% successful"),
+      "Show Usage Report"
+    );
+
+    vi.mocked(readCachedEnrichedRuns).mockReset();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not show a summary when a session has too few recorded runs", async () => {
+    const { readCachedEnrichedRuns } = await import("./runsStore");
+    const vscode = await import("vscode");
+    const sessionId = "session-summary-too-few-runs";
+    vi.mocked(readCachedEnrichedRuns).mockReturnValue([
+      { session_id: sessionId, skill: "pdf", cost: 0.05, success: true },
+    ] as any);
+    vi.mocked(vscode.window.showInformationMessage).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-session-summary-few-"));
+    await handleHookRequest({
+      hookName: "session-stop",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { session_id: sessionId },
+    });
+
+    expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+
+    vi.mocked(readCachedEnrichedRuns).mockReset();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("only shows the summary once per session even if session-stop fires again", async () => {
+    const { readCachedEnrichedRuns } = await import("./runsStore");
+    const vscode = await import("vscode");
+    const sessionId = "session-summary-idempotent";
+    const runs = [
+      { session_id: sessionId, skill: "pdf", cost: 0.1, success: true },
+      { session_id: sessionId, skill: "pdf", cost: 0.1, success: true },
+      { session_id: sessionId, skill: "pdf", cost: 0.1, success: true },
+    ] as any;
+    vi.mocked(readCachedEnrichedRuns).mockReturnValue(runs);
+    vi.mocked(vscode.window.showInformationMessage).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-session-summary-once-"));
+    await handleHookRequest({ hookName: "session-stop", agent: "claude", cwd: tmpDir, body: { session_id: sessionId } });
+    await handleHookRequest({ hookName: "session-stop", agent: "claude", cwd: tmpDir, body: { session_id: sessionId } });
+
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+    vi.mocked(readCachedEnrichedRuns).mockReset();
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

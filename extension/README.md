@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.139
+
+### A quiet end-of-session summary, so the usage data you're already recording actually reaches you
+
+The extension has been logging every skill invocation, its cost, and whether it succeeded to `.claude/learning/runs.jsonl` for a while now — but the only way to see any of it was opening the dashboard yourself, which most sessions never do. Once a session has run at least 3 skills, you'll now get a single toast when it ends: invocation count, success rate, total cost, and your top skills used, with a button to open the full usage report. Shown at most once per session; turn it off with `claudeSkills.sessionSummary.enabled`.
+
 ## What's new in 1.0.138
 
 ### Add any MCP server, not just the two built-in ones

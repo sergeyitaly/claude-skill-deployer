@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.139** | Session summary — the telemetry pipeline (`runs.jsonl`) genuinely works but had zero proactive visibility outside a dashboard nobody opens mid-session; adds a once-per-session usage summary toast, independent of `kpiAlert.ts`'s problem-only alerts |
 | **1.0.138** | Custom MCP servers, and a silent feature made honest — "Manage MCP Servers" only ever handled two hardcoded built-ins; adds a generic add/remove flow for any server, across Claude/Cursor/Kiro. Also found and fixed: model-tier routing has fired on every prompt since it was built (44 real decisions in this repo alone) asking the agent to "silently" switch models — a mechanism that doesn't exist — and defaulted to placeholder model names like `"planning"` instead of real ones |
 | **1.0.137** | Agent debuggability — an agent driving this extension can't click VS Code's UI, which made every live test this project's own reliability work needed require a human round-trip; adds an output-log file mirror, a full-state-dump debug command, and a cache/throttle-bypassing force-refresh debug command, closing that gap for future sessions |
 | **1.0.136** | Budget/task-focus coupling visibility — a static audit (not live-verified like 1.0.129-135, but grounded in real code paths) found budget's threshold auto-disable was a silent, undocumented no-op whenever task focus was off; now surfaced in the output log and both settings' descriptions |
@@ -85,6 +86,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.139] - 2026-08-10
+
+**Summary:** Real dogfooding in a different project (not this repo) found that the extension's hook-based telemetry pipeline — the thing that actually records skill invocations, cost, and success/failure into `runs.jsonl` — genuinely works and had real numbers in it the whole time, but never once surfaced any of that during the session that generated them, because the only place to see it was a dashboard nobody opened mid-session. Added a quiet, once-per-session summary toast so a routine, healthy session gets *some* proactive visibility, not just `kpiAlert.ts`'s existing "something went wrong" alerts.
+
+**Theme:** Closing the last "technically works, zero visible effect" gap found this cycle — same root pattern as 1.0.115/1.0.129/1.0.134/1.0.136 (feature runs, nothing observable happens), this time in the telemetry layer itself rather than in gating logic.
+
+### Added
+
+- **One-time, end-of-session usage summary toast.** New `maybeNotifySessionSummary()` in `hookHandlers.ts`, fired from the `session-stop` handler after the existing adoption-outcome bookkeeping. When a session recorded at least 3 skill invocations, shows a toast with invocation count, success rate, total cost, and the top 3 skills used, with a "Show Usage Report" button that opens the existing dashboard command. Capped at once per session (in-memory `Set` keyed by session ID) and gated by new setting `claudeSkills.sessionSummary.enabled` (default `true`). Deliberately bypasses the usual `notifyBackground()`/`claudeSkills.notificationLevel` quiet-by-default gate — that gate defaults to `"minimal"` and would otherwise suppress this the same way it silently suppressed task-focus disables, budget gating, and model-routing suggestions earlier this cycle; the once-per-session cap is what keeps this from reintroducing that noise. 3 new tests in `hookHandlers.test.ts`.
 
 ---
 

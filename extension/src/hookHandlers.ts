@@ -2441,6 +2441,66 @@ export async function handleHookRequest(req: HookRequest): Promise<HookResponse>
 }
 
 // ---------------------------------------------------------------------------
+// Session summary: a quiet, once-per-session notification of what actually
+// happened this session — distinct from checkAndShowKpiAlert (kpiAlert.ts),
+// which only ever fires when something is going WRONG (efficiency < 60%,
+// wasted tokens, agent loops). A routine, healthy session had zero proactive
+// visibility outside manually opening the dashboard — confirmed independently
+// via a real project's dogfooding: runs.jsonl/skill-stats.json had real,
+// useful numbers (skill invocations, cost, success rate) that were never once
+// surfaced during the session that generated them, because the only viewer
+// was a dashboard nobody opened mid-session.
+//
+// Deliberately bypasses the usual notifyBackground()/notificationLevel()
+// quiet-by-default gate (which suppresses "background"/"suggestion" category
+// toasts unless the user has opted into claudeSkills.notificationLevel =
+// "normal") — that gate is exactly what made task-focus disables, budget
+// gating, and model routing all invisible earlier the same day this was
+// written. Capped at once per session, so showing it unconditionally doesn't
+// reintroduce the noise the quiet-by-default philosophy exists to prevent.
+// ---------------------------------------------------------------------------
+
+const MIN_RUNS_FOR_SESSION_SUMMARY = 3;
+const _sessionSummaryShown = new Set<string>();
+
+function sessionSummaryEnabled(): boolean {
+  return vscode.workspace.getConfiguration("claudeSkills.sessionSummary").get<boolean>("enabled", true);
+}
+
+function maybeNotifySessionSummary(cwd: string, sessionId: string): void {
+  if (!sessionSummaryEnabled() || _sessionSummaryShown.has(sessionId)) return;
+
+  let runs;
+  try {
+    runs = readCachedEnrichedRuns(cwd).filter((r) => r.session_id === sessionId);
+  } catch {
+    return;
+  }
+  if (runs.length < MIN_RUNS_FOR_SESSION_SUMMARY) return;
+
+  _sessionSummaryShown.add(sessionId);
+
+  const totalCost = runs.reduce((sum, r) => sum + r.cost, 0);
+  const successRate = Math.round((runs.filter((r) => r.success).length / runs.length) * 100);
+  const skillCounts = new Map<string, number>();
+  for (const r of runs) skillCounts.set(r.skill, (skillCounts.get(r.skill) ?? 0) + 1);
+  const topSkills = [...skillCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, count]) => `${name} (${count})`)
+    .join(", ");
+
+  void vscode.window.showInformationMessage(
+    `Claude Skills: this session — ${runs.length} skill invocation(s), ${successRate}% successful, ~$${totalCost.toFixed(2)}. Top: ${topSkills}.`,
+    "Show Usage Report"
+  ).then((choice) => {
+    if (choice === "Show Usage Report") {
+      void vscode.commands.executeCommand("claudeSkills.showUsageStats");
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Handler: session-stop (PreSessionStop / Stop)
 // Writes a proposalOutcome record for every session — including zero-invocation
 // sessions — so the learning loop can track non-use and decay confidence.
@@ -2504,6 +2564,8 @@ function handleSessionStop(req: HookRequest): HookResponse {
   // Adoption funnel Phases 4+5: mark invoked skills successful (no correction signal)
   // and detect reuse across sessions (7d/30d/90d windows). Idempotent per session.
   try { recordSessionAdoptionOutcomes(cwd, sessionId, req.agent as RunAgent); } catch { /* non-fatal */ }
+
+  try { maybeNotifySessionSummary(cwd, sessionId); } catch { /* non-fatal */ }
 
   // Snapshot HACE metrics on every session stop so hace-sessions.jsonl accumulates
   // trend data without requiring the dashboard panel to be open.
