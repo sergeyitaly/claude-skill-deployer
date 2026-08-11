@@ -6,9 +6,11 @@ import { listEffectiveEnabledSkills, readSkillOverrides } from "./skillOps";
 import {
   applyTaskSkillFocus,
   applyTaskSkillFocusFromProposals,
+  clearTaskFocusTrackingForSkill,
   readTaskActiveSkills,
   taskActiveSkillsPath,
 } from "./taskSkillFocus";
+import { setSkillOverride } from "./skillOps";
 import { writeTaskSkillProposals } from "./taskSkillProposals";
 import { listInstalledSkills } from "./usageStats";
 
@@ -48,6 +50,30 @@ describe("applyTaskSkillFocus", () => {
     applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals");
     applyTaskSkillFocus(target, ["pdf", "mcp-builder"], "task-skill-proposals", "2026-06-14T01:00:00.000Z");
 
+    expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
+    expect(listEffectiveEnabledSkills(target)).toContain("mcp-builder");
+  });
+
+  it("regression: a manually re-enabled skill stays on across the next re-sweep, even though it's still outside the active set", () => {
+    // Reported bug: a user re-enables a skill task-focus had disabled, but
+    // applyTaskSkillFocus() recomputes its full sweep from scratch on every call with no
+    // memory of the manual action — the very next re-apply (proposals regenerating, or the
+    // installed set drifting) silently disables it again, sometimes within seconds since
+    // re-applies are driven by ordinary tool-call activity.
+    const target = makeWorkspace();
+    // Pass 1: mcp-builder is outside the active set — task-focus disables it.
+    applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T00:00:00.000Z");
+    expect(readSkillOverrides(target)["mcp-builder"]).toBe("off");
+
+    // User re-enables it locally — exactly what claudeSkills.enableSkillLocally does.
+    setSkillOverride(target, "mcp-builder", undefined);
+    clearTaskFocusTrackingForSkill(target, "mcp-builder");
+
+    // Pass 2: task set is unchanged (mcp-builder is still outside it) — must NOT be swept
+    // back off.
+    const second = applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T01:00:00.000Z");
+
+    expect(second.ignoredSkills).not.toContain("mcp-builder");
     expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
     expect(listEffectiveEnabledSkills(target)).toContain("mcp-builder");
   });

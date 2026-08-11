@@ -29,6 +29,16 @@ interface TaskFocusMeta {
    * never re-examines unattributed overrides again (anything unattributed after this
    * point is presumed to be a real, intentional user override). */
   legacyMigrationDone?: boolean;
+  /**
+   * Skills the user explicitly re-enabled after task-focus disabled them. applyTaskSkillFocus()
+   * recomputes its full sweep from scratch on every call (see the comment above its
+   * `disabledByTaskFocus` write) with no memory of its own between calls — a manual re-enable
+   * would otherwise get silently swept back to "off" on the very next re-apply (proposals
+   * regenerating, or the installed set drifting), which can happen within seconds of the user's
+   * action. Mirrors budgetOps.ts's BudgetMeta.userReenabledSkills, same underlying problem in a
+   * different subsystem. Cleared only by an explicit re-disable, not by time.
+   */
+  userReenabledSkills?: string[];
 }
 
 interface LocalSettingsWithTaskFocusMeta {
@@ -61,12 +71,26 @@ function readTaskFocusMeta(target: string): TaskFocusMeta {
 
 function writeTaskFocusMeta(target: string, meta: TaskFocusMeta): void {
   const settings = readRawLocalSettings(target);
-  if (!meta.disabledByTaskFocus?.length && !meta.legacyMigrationDone) {
+  if (!meta.disabledByTaskFocus?.length && !meta.legacyMigrationDone && !meta.userReenabledSkills?.length) {
     delete settings[TASK_FOCUS_META_KEY];
   } else {
     settings[TASK_FOCUS_META_KEY] = meta;
   }
   writeRawLocalSettings(target, settings);
+}
+
+/** Used when the user manually re-enables a skill (claudeSkills.enableSkillLocally) — records
+ *  it so applyTaskSkillFocus()'s next full re-sweep won't silently disable it again. See
+ *  TaskFocusMeta.userReenabledSkills. Mirrors budgetOps.ts's clearBudgetTrackingForSkill(). */
+export function clearTaskFocusTrackingForSkill(target: string, skillName: string): void {
+  const meta = readTaskFocusMeta(target);
+  if (meta.userReenabledSkills?.includes(skillName)) {
+    return;
+  }
+  writeTaskFocusMeta(target, {
+    ...meta,
+    userReenabledSkills: [...(meta.userReenabledSkills ?? []), skillName].sort((a, b) => a.localeCompare(b)),
+  });
 }
 
 /** Merge skill names into the durable task-focus ledger without touching skillOverrides
@@ -137,6 +161,7 @@ export function applyTaskSkillFocus(
   const overrides = readSkillOverrides(target);
   const ignoredSkills: string[] = [];
   let overridesApplied = 0;
+  const userReenabled = new Set(readTaskFocusMeta(target).userReenabledSkills ?? []);
 
   for (const name of installed) {
     if (activeSet.has(name)) {
@@ -144,6 +169,12 @@ export function applyTaskSkillFocus(
         setSkillOverride(target, name, undefined);
         overridesApplied++;
       }
+      continue;
+    }
+    // User explicitly re-enabled this after a prior task-focus sweep disabled it (see
+    // TaskFocusMeta.userReenabledSkills) — leave it alone even though it's outside the
+    // active set, rather than silently re-disabling it on this recompute.
+    if (userReenabled.has(name)) {
       continue;
     }
     if (overrides[name] !== "off") {

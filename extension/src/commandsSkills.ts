@@ -23,6 +23,7 @@ import { propagateWorkspaceSkillChange } from "./workspaceSkillSync";
 import { ensureLearningDir, formatTokenCount } from "./usageStats";
 import { notifyUserSuccess, notifyUserWarn } from "./userNotify";
 import { clearBudgetTrackingForSkill } from "./budgetOps";
+import { clearTaskFocusTrackingForSkill } from "./taskSkillFocus";
 import { listOutdatedSkills, upgradeOutdatedSkills } from "./skillLifecycle";
 import { refreshSkillsCatalog } from "./profileInit";
 import { SkillSortMode } from "./skillRoi";
@@ -286,6 +287,7 @@ export function registerSkillsCommands(deps: SkillsCommandDeps): vscode.Disposab
       }
       setSkillOverride(target, item.status.name, undefined);
       clearBudgetTrackingForSkill(target, item.status.name);
+      clearTaskFocusTrackingForSkill(target, item.status.name);
       log(`${item.status.name}: re-enabled locally (removed override from .claude/settings.local.json)`);
       invalidateWorkspaceSyncFingerprint(target);
       propagateWorkspaceSkillChange(context.extensionPath, target, libraryDir, log, {

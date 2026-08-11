@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.143** | Task-focus race fixed — same-day follow-up to 1.0.142: a live report from a separate real project showed the identical "manual re-enable silently reverted" symptom, this time via task-focus's re-sweep rather than budget gating; same fix shape applied |
 | **1.0.142** | Budget-gating race fixed — a manually re-enabled skill could be silently re-disabled within seconds by either of two independent, uncoordinated budget-gating mechanisms that had no memory of the user's action; both now respect it |
 | **1.0.141** | CI actually green — fixed 3 real, previously-documented bugs in the recommendation-confidence breakdown and penalty engine that had left `main`'s test suite red for about a month; updated 4 older tests that had unknowingly locked in the pre-fix behavior |
 | **1.0.140** | Hook overhead honesty — live user feedback on 1.0.139 questioned whether the hook pipeline itself was silently costly; investigating found a real duplicate-write bug (ordinary Reads double-logged) and zero latency instrumentation anywhere, fixed both; left the Pre+Post duplication itself alone since it's a documented workaround for a real upstream Claude VS Code bug, not accidental waste |
@@ -89,6 +90,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.143] - 2026-08-11
+
+**Summary:** Same-day follow-up to 1.0.142's budget-gating race fix — a live report from a separate real project showed the identical symptom (a manually re-enabled skill reverting within seconds, a live watcher winning the race against direct file edits) for a skill that budget gating wasn't touching. Inspecting that project's actual `settings.local.json` showed the skill sitting in `disabledByTaskFocus`, not `claudeSkillsBudget` — the same missing-piece bug in a second, independent subsystem: `taskSkillFocus.ts`'s re-apply sweep recomputes from scratch on every call with no memory of a manual re-enable, exactly like `budgetTierGating.ts` before yesterday's fix.
+
+**Theme:** Same root cause, second subsystem — applying the identical fix shape from 1.0.142 to `taskSkillFocus.ts`.
+
+### Fixed
+
+- **A manually re-enabled skill could be silently re-disabled by task-focus's next re-sweep, even without any budget involvement.** `applyTaskSkillFocus()` (`taskSkillFocus.ts`) recomputes "installed skills outside the active task set" from scratch on every call (proposals regenerating, or the installed set drifting) with no memory of a prior manual re-enable — mirrors the exact gap `disableHighTierSkills()` had before 1.0.142. Fixed the same way: a new `TaskFocusMeta.userReenabledSkills` list (in the `claudeSkillsTaskFocus` `settings.local.json` block), checked by the sweep loop and populated by a new `clearTaskFocusTrackingForSkill()`, now called alongside the existing `clearBudgetTrackingForSkill()` from `claudeSkills.enableSkillLocally`. Cleared only by an explicit re-disable, not by time. 1 new end-to-end regression test.
 
 ---
 

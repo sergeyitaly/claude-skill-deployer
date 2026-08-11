@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.143
+
+### Re-enabling a skill sticks even when task-focus disagrees, not just under budget pressure
+
+Same-day follow-up to 1.0.142: turning a skill back on with "Enable Skill Locally" could still get silently reverted, this time by task-focus's own re-sweep rather than budget gating — it recomputes which skills are "outside the current task" from scratch on every pass, with no memory of a manual override. Now it does.
+
 ## What's new in 1.0.142
 
 ### Re-enabling a skill during a high-spend day now actually sticks
