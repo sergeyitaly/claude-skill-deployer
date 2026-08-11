@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.142** | Budget-gating race fixed — a manually re-enabled skill could be silently re-disabled within seconds by either of two independent, uncoordinated budget-gating mechanisms that had no memory of the user's action; both now respect it |
 | **1.0.141** | CI actually green — fixed 3 real, previously-documented bugs in the recommendation-confidence breakdown and penalty engine that had left `main`'s test suite red for about a month; updated 4 older tests that had unknowingly locked in the pre-fix behavior |
 | **1.0.140** | Hook overhead honesty — live user feedback on 1.0.139 questioned whether the hook pipeline itself was silently costly; investigating found a real duplicate-write bug (ordinary Reads double-logged) and zero latency instrumentation anywhere, fixed both; left the Pre+Post duplication itself alone since it's a documented workaround for a real upstream Claude VS Code bug, not accidental waste |
 | **1.0.139** | Session summary — the telemetry pipeline (`runs.jsonl`) genuinely works but had zero proactive visibility outside a dashboard nobody opens mid-session; adds a once-per-session usage summary toast, independent of `kpiAlert.ts`'s problem-only alerts |
@@ -88,6 +89,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.142] - 2026-08-11
+
+**Summary:** Live user report: re-enabling a skill kept reverting to disabled — not via task-focus (that path had already been ruled out and stayed fixed), so something else was winning a race against manual edits. Traced it to two independent, uncoordinated budget-gating mechanisms (`budgetTierGating.ts`'s refresh-loop caller, `hookHandlers.ts`'s `handleBudget` UserPromptSubmit caller) that both funnel into `disableHighTierSkills()`, neither of which had any memory of a user's manual re-enable — once daily spend crosses the warn threshold (which, once true, typically stays true for the rest of the day), the very next refresh recomputes "high-tier skills outside the active set" from scratch and silently disables the skill again, sometimes within seconds.
+
+**Theme:** A real, reported "I can't win this race" bug, root-caused to actual code rather than worked around — the existing `clearBudgetTrackingForSkill()` (already called on manual re-enable) only cleared bookkeeping about *who* disabled a skill, not a "don't touch this again" signal either gating path would actually check.
+
+### Fixed
+
+- **A manually re-enabled skill could be silently re-disabled by budget gating within seconds.** `disableHighTierSkills()` (`budgetOps.ts`) now checks a new `BudgetMeta.userReenabledSkills` list before disabling any skill, and skips ones on it — both independent callers funnel through this one function, so the fix covers both without touching either's own logic. `clearBudgetTrackingForSkill()` (already invoked by `claudeSkills.enableSkillLocally`) now records the skill onto that list. Cleared only by an explicit restore/mode-change, not by time — a deliberate user action should stick until the user changes it back, not expire on a timer. 4 new tests (`budgetOps.test.ts` ×3, `budgetTierGating.test.ts` ×1 full end-to-end regression reproducing the reported race through the actual refresh-loop entry point).
 
 ---
 

@@ -12,6 +12,18 @@ interface BudgetMeta {
   disabledByBudgetRestrict?: string[];
   /** Why those skills were disabled */
   disabledReason?: string;
+  /**
+   * Skills the user explicitly re-enabled after budget/economy enforcement disabled them.
+   * Two independent, uncoordinated callers can invoke disableHighTierSkills() for the same
+   * skill — budgetTierGating.ts on every throttled workspace refresh (no memory of its own),
+   * and hookHandlers.ts's handleBudget on every UserPromptSubmit (date-scoped idempotency,
+   * but for a different reason set). Without this list, a user re-enabling a skill mid-day
+   * while spend is still above the warn threshold would see it silently re-disabled by
+   * whichever of the two next happened to run — sometimes within seconds, since both are
+   * driven by ordinary tool-call activity. Cleared only by an explicit restore/mode-change,
+   * not by time — an explicit user action should stick until the user changes it back.
+   */
+  userReenabledSkills?: string[];
 }
 
 interface LocalSettingsWithBudget {
@@ -54,14 +66,23 @@ function budgetMeta(settings: LocalSettingsWithBudget): BudgetMeta {
 }
 
 function setBudgetMeta(settings: LocalSettingsWithBudget, meta: BudgetMeta): void {
-  if (!meta.disabledByBudget?.length && !meta.disabledByBudgetRestrict?.length && !meta.disabledReason) {
+  if (
+    !meta.disabledByBudget?.length &&
+    !meta.disabledByBudgetRestrict?.length &&
+    !meta.disabledReason &&
+    !meta.userReenabledSkills?.length
+  ) {
     delete settings[BUDGET_META_KEY];
     return;
   }
   settings[BUDGET_META_KEY] = meta;
 }
 
-/** Disable high-tier skills locally, tracking which ones we disabled for restore. */
+/** Disable high-tier skills locally, tracking which ones we disabled for restore. Skips any
+ *  skill the user has explicitly re-enabled since (see BudgetMeta.userReenabledSkills) —
+ *  without this, a user's manual re-enable gets silently undone by whichever of the two
+ *  independent budget-gating callers (budgetTierGating.ts's refresh loop, hookHandlers.ts's
+ *  handleBudget) next happens to run, sometimes within seconds. */
 export function disableHighTierSkills(
   target: string,
   highTierSkills: string[],
@@ -71,9 +92,13 @@ export function disableHighTierSkills(
   const overrides = { ...settings.skillOverrides };
   const meta = budgetMeta(settings);
   const previouslyBudgetDisabled = new Set(meta.disabledByBudget ?? []);
+  const userReenabled = new Set(meta.userReenabledSkills ?? []);
   const disabledNow: string[] = [];
 
   for (const skill of highTierSkills) {
+    if (userReenabled.has(skill)) {
+      continue;
+    }
     if (overrides[skill] === "off" && !previouslyBudgetDisabled.has(skill)) {
       continue;
     }
@@ -91,6 +116,7 @@ export function disableHighTierSkills(
 
   settings.skillOverrides = overrides;
   setBudgetMeta(settings, {
+    ...meta,
     disabledByBudget: [...new Set([...(meta.disabledByBudget ?? []), ...disabledNow])].sort((a, b) =>
       a.localeCompare(b)
     ),
@@ -159,15 +185,15 @@ export function syncAndApplyBudgetMode(
   return { config, disabled: [], restored: clearEconomyMode(target) };
 }
 
-/** Used when user manually re-enables a skill — drop it from budget tracking. */
+/** Used when user manually re-enables a skill — drop it from budget tracking, and record
+ *  the re-enable so disableHighTierSkills() won't silently undo it on its next pass (see
+ *  BudgetMeta.userReenabledSkills). Always records the re-enable, even for a skill budget
+ *  gating never touched — harmless, and covers the case where gating disables it later. */
 export function clearBudgetTrackingForSkill(target: string, skillName: string): void {
   const settings = readLocalSettings(target);
   const meta = budgetMeta(settings);
   const inBudget = meta.disabledByBudget?.includes(skillName) ?? false;
   const inRestrict = meta.disabledByBudgetRestrict?.includes(skillName) ?? false;
-  if (!inBudget && !inRestrict) {
-    return;
-  }
 
   const updated: BudgetMeta = { ...meta };
   if (inBudget) {
@@ -184,6 +210,11 @@ export function clearBudgetTrackingForSkill(target: string, skillName: string): 
   }
   if (!updated.disabledByBudget?.length && !updated.disabledByBudgetRestrict?.length) {
     delete updated.disabledReason;
+  }
+  if (!meta.userReenabledSkills?.includes(skillName)) {
+    updated.userReenabledSkills = [...(meta.userReenabledSkills ?? []), skillName].sort((a, b) =>
+      a.localeCompare(b)
+    );
   }
 
   setBudgetMeta(settings, updated);

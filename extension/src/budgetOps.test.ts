@@ -150,7 +150,7 @@ describe("clearBudgetTrackingForSkill", () => {
     expect(settings.claudeSkillsBudget.disabledReason).toBe("budget-95pct-restrict");
   });
 
-  it("drops disabledReason once both tracking lists are empty", () => {
+  it("drops disabledReason once both tracking lists are empty, but records the re-enable", () => {
     const target = makeWorkspace();
     writeSettings(target, {
       skillOverrides: { "adx-schema-check": "off" },
@@ -160,15 +160,60 @@ describe("clearBudgetTrackingForSkill", () => {
     clearBudgetTrackingForSkill(target, "adx-schema-check");
 
     const settings = readSettings(target);
-    expect(settings.claudeSkillsBudget).toBeUndefined();
+    expect(settings.claudeSkillsBudget.disabledByBudgetRestrict).toBeUndefined();
+    expect(settings.claudeSkillsBudget.disabledReason).toBeUndefined();
+    // Recorded so disableHighTierSkills() won't silently re-disable it on its next pass.
+    expect(settings.claudeSkillsBudget.userReenabledSkills).toEqual(["adx-schema-check"]);
   });
 
-  it("is a no-op when the skill isn't tracked", () => {
+  it("leaves skillOverrides untouched when the skill isn't tracked, but still records the re-enable", () => {
     const target = makeWorkspace();
     writeSettings(target, { skillOverrides: { "manual-skill": "off" } });
 
     clearBudgetTrackingForSkill(target, "manual-skill");
 
-    expect(readSettings(target).skillOverrides).toEqual({ "manual-skill": "off" });
+    const settings = readSettings(target);
+    expect(settings.skillOverrides).toEqual({ "manual-skill": "off" });
+    expect(settings.claudeSkillsBudget.userReenabledSkills).toEqual(["manual-skill"]);
+  });
+});
+
+describe("disableHighTierSkills — respects a user's manual re-enable", () => {
+  it("skips a skill recorded in userReenabledSkills even though it's still in the input list", () => {
+    // Reproduces the reported bug: a user re-enables a high-tier skill, but two independent,
+    // uncoordinated callers (budgetTierGating.ts's refresh loop, hookHandlers.ts's
+    // handleBudget) both keep recomputing the same "high-tier skills outside the active set"
+    // list and calling disableHighTierSkills() with it again on their own next pass — with
+    // no memory of the user's action, it silently wins the race and re-disables the skill.
+    const target = makeWorkspace();
+    writeSettings(target, {
+      skillOverrides: {},
+      claudeSkillsBudget: { userReenabledSkills: ["aidlc-doc-writer"] },
+    });
+
+    const disabled = disableHighTierSkills(target, ["aidlc-doc-writer", "drawio-diagrams"], "budget-warn");
+
+    expect(disabled).toEqual(["drawio-diagrams"]);
+    const settings = readSettings(target);
+    expect(settings.skillOverrides).toEqual({ "drawio-diagrams": "off" });
+    expect(settings.claudeSkillsBudget.userReenabledSkills).toEqual(["aidlc-doc-writer"]);
+  });
+
+  it("end-to-end: clearBudgetTrackingForSkill followed by disableHighTierSkills leaves the skill on", () => {
+    const target = makeWorkspace();
+    disableHighTierSkills(target, ["aidlc-doc-writer"], "budget-warn");
+    expect(readSettings(target).skillOverrides).toEqual({ "aidlc-doc-writer": "off" });
+
+    // User manually re-enables it (claudeSkills.enableSkillLocally command path).
+    clearBudgetTrackingForSkill(target, "aidlc-doc-writer");
+    const overrides = { ...readSettings(target).skillOverrides };
+    delete overrides["aidlc-doc-writer"]; // setSkillOverride(target, name, undefined)
+    writeSettings(target, { ...readSettings(target), skillOverrides: overrides });
+
+    // Budget gating's next pass recomputes the same candidate list and tries again.
+    const disabledAgain = disableHighTierSkills(target, ["aidlc-doc-writer"], "budget-warn");
+
+    expect(disabledAgain).toEqual([]);
+    expect(readSettings(target).skillOverrides ?? {}).not.toHaveProperty("aidlc-doc-writer");
   });
 });

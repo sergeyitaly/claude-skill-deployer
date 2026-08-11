@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.142
+
+### Re-enabling a skill during a high-spend day now actually sticks
+
+If you turned a high-tier skill back on ("Enable Skill Locally") while today's spend was already above the budget warning threshold, it could get silently disabled again within seconds — there are two separate mechanisms that auto-disable high-tier skills under budget pressure, and neither remembered that you'd just chosen to turn one back on. Both now respect a manual re-enable until you explicitly restore/change budget mode yourself.
+
 ## What's new in 1.0.141
 
 ### Confidence breakdown numbers now actually add up, and ignoring a suggestion no longer counts against it the same as rejecting it
