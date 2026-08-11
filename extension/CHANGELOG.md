@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.141** | CI actually green — fixed 3 real, previously-documented bugs in the recommendation-confidence breakdown and penalty engine that had left `main`'s test suite red for about a month; updated 4 older tests that had unknowingly locked in the pre-fix behavior |
 | **1.0.140** | Hook overhead honesty — live user feedback on 1.0.139 questioned whether the hook pipeline itself was silently costly; investigating found a real duplicate-write bug (ordinary Reads double-logged) and zero latency instrumentation anywhere, fixed both; left the Pre+Post duplication itself alone since it's a documented workaround for a real upstream Claude VS Code bug, not accidental waste |
 | **1.0.139** | Session summary — the telemetry pipeline (`runs.jsonl`) genuinely works but had zero proactive visibility outside a dashboard nobody opens mid-session; adds a once-per-session usage summary toast, independent of `kpiAlert.ts`'s problem-only alerts |
 | **1.0.138** | Custom MCP servers, and a silent feature made honest — "Manage MCP Servers" only ever handled two hardcoded built-ins; adds a generic add/remove flow for any server, across Claude/Cursor/Kiro. Also found and fixed: model-tier routing has fired on every prompt since it was built (44 real decisions in this repo alone) asking the agent to "silently" switch models — a mechanism that doesn't exist — and defaulted to placeholder model names like `"planning"` instead of real ones |
@@ -87,6 +88,21 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.141] - 2026-08-11
+
+**Summary:** CI on `main` has been red for roughly a month (`learningLoopAuditFixes.bugCondition.test.ts` last touched 2026-07-17) on 3 real, previously-documented bugs in the recommendation-confidence and penalty engines — the test file was written deliberately failing, as counterexample proof the bugs existed, but the corresponding source fixes were never made. Fixed all three, updated 4 older tests that had (unknowingly) locked in the pre-fix behavior, and confirmed the full suite is genuinely green (114/114 files, 952/952 tests) for the first time in this file's history.
+
+**Theme:** Closing a known-red CI gap discovered via user pushback during dogfooding — the same "recorded but nobody looked" pattern (v1.0.139/1.0.140), this time in the test suite's own gating rather than telemetry.
+
+### Fixed
+
+- **Confidence breakdown didn't sum to the displayed confidence score whenever a skill's task-type multiplier was below 1.0.** `scoreSkillForTask()` and the parallel glob-only proposal path (`taskSkillProposals.ts`) captured `semanticMatch` and the other breakdown components *before* `taskTypeMultiplier()` was applied, so anything rendering the confidence breakdown (dashboard, `extension-value-audit`) would show components that added up to a different number than the actual confidence shown next to them. Fixed: every component is now scaled by the same multiplier before the breakdown is built.
+- **`recordSessionProposalOutcome()` wrote a redundant `accepted` field that was always an exact copy of `invoked`.** No code anywhere read `.accepted` off a proposal-outcome record — it was pure dead weight on every session-end write. Removed.
+- **Passive non-use ("ignored") was penalized identically to active rejection.** `computeAllSkillPenalties()` treated any skill in a session's `ignored` list the same as one explicitly rejected, applying the same `PENALTY_PER_NOT_USED` — even though the codebase's own comments elsewhere already said "passive non-use is not an explicit rejection." Separately, `recommendation-feedback.jsonl` records with `reason: "ignored"` still contributed a weight-1 extra penalty instead of being skipped. Both fixed: ignored skills are excluded from the per-session penalty loop, and `reason: "ignored"` feedback records now contribute zero extra penalty — only genuine rejection reasons (`dismissed`, `not_relevant`, etc.) do.
+- **4 older tests (`proposalOutcome.test.ts` ×2, `v1098-e2e-validation.test.ts` ×2) had encoded the pre-fix behavior as correct**, using `reason: "ignored"` as a stand-in for "any rejection" without the semantic distinction the codebase had since documented. Updated to use a genuine active-rejection reason where that was the actual intent, plus 2 new tests confirming `reason: "ignored"` correctly contributes nothing.
 
 ---
 

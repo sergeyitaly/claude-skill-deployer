@@ -1,22 +1,29 @@
 /**
- * Bug Condition Exploration Tests — Learning Loop Audit Fixes
+ * Bug Condition Regression Tests — Learning Loop Audit Fixes
  *
- * Task 1: Write bug condition exploration property tests on UNFIXED code.
- * These tests MUST FAIL to confirm the bugs exist.
+ * Originally written as bug-condition exploration tests against UNFIXED code (hence the
+ * `isBugConditionBugN` naming) — at that point they were expected to fail, documenting
+ * three real bugs by counterexample. All three are now fixed in source; these tests now
+ * pin the corrected behavior down as a regression guard. Left un-renamed (describe blocks
+ * still say "isBugConditionBugN") purely for traceability back to the original findings.
  *
- * Bug 1 — Breakdown Miscalculation (isBugConditionBug1):
- *   scoreSkillForTask captures semanticMatch before taskTypeMultiplier is applied,
- *   so breakdown components do not sum to the pre-calibration score when multiplier < 1.0.
+ * Bug 1 — Breakdown Miscalculation (isBugConditionBug1), fixed in taskSkillProposals.ts:
+ *   scoreSkillForTask() (and the parallel glob-only proposal path) captured semanticMatch
+ *   and the other breakdown components before taskTypeMultiplier was applied, so the
+ *   breakdown didn't sum to the pre-calibration score when multiplier < 1.0. Fix: scale
+ *   every component by the same multiplier before building the breakdown.
  *   Validates: Requirements 1.1, 1.2
  *
- * Bug 2 — Accepted Field Duplication (isBugConditionBug2):
- *   recordSessionProposalOutcome writes accepted = invoked into every session_end record,
- *   making the accepted field redundant and misleading.
+ * Bug 2 — Accepted Field Duplication (isBugConditionBug2), fixed in proposalOutcome.ts:
+ *   recordSessionProposalOutcome() wrote accepted = invoked into every session_end record
+ *   — a redundant duplicate field. Fix: stopped writing it.
  *   Validates: Requirements 1.3, 1.4
  *
- * Bug 3 — Ignored Penalty (isBugConditionBug3):
- *   computeAllSkillPenalties applies PENALTY_PER_NOT_USED to r.ignored skills (passive
- *   non-use), and weight-1 extra penalty for reason:"ignored" feedback records.
+ * Bug 3 — Ignored Penalty (isBugConditionBug3), fixed in proposalOutcome.ts:
+ *   computeAllSkillPenalties applied PENALTY_PER_NOT_USED to r.ignored skills (passive
+ *   non-use is not a rejection signal) and gave reason:"ignored" feedback records a
+ *   weight-1 penalty instead of skipping them. Fix: ignored skills are excluded from the
+ *   not_invoked penalty loop, and reason:"ignored" feedback records are skipped entirely.
  *   Validates: Requirements 1.5, 1.6, 1.7
  */
 
@@ -125,7 +132,7 @@ const minimalManifest: Manifest = {
 // The breakdown components will NOT sum to the pre-calibration score when multiplier < 1.0.
 // ---------------------------------------------------------------------------
 
-describe("isBugConditionBug1 — Breakdown Miscalculation (expected to FAIL on unfixed code)", () => {
+describe("isBugConditionBug1 — Breakdown Miscalculation (fixed — regression guard)", () => {
   /**
    * Validates: Requirements 1.1, 1.2
    *
@@ -268,7 +275,7 @@ describe("isBugConditionBug1 — Breakdown Miscalculation (expected to FAIL on u
 // The written session_end record will have an `accepted` field equal to `invoked`.
 // ---------------------------------------------------------------------------
 
-describe("isBugConditionBug2 — Accepted Field Duplication (expected to FAIL on unfixed code)", () => {
+describe("isBugConditionBug2 — Accepted Field Duplication (fixed — regression guard)", () => {
   /**
    * Validates: Requirements 1.3, 1.4
    *
@@ -373,7 +380,7 @@ describe("isBugConditionBug2 — Accepted Field Duplication (expected to FAIL on
 // and will add extra penalty for reason:"ignored" feedback records.
 // ---------------------------------------------------------------------------
 
-describe("isBugConditionBug3 — Ignored Penalty (expected to FAIL on unfixed code)", () => {
+describe("isBugConditionBug3 — Ignored Penalty (fixed — regression guard)", () => {
   /**
    * Validates: Requirements 1.5, 1.7
    *

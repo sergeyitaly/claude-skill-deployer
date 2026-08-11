@@ -489,10 +489,21 @@ function scoreSkillForTask(
 
   // GAP 4: non-use penalty — skills consistently proposed but ignored lose confidence
   score -= penalty;
-  const semanticMatch = score + penalty - repositoryAffinity - workspaceAffinityPts - adoptionSuccess;
 
   // Task-type classification: skills that don't match the detected task type are penalised.
-  score = Math.round(score * taskTypeMultiplier(skillName, taskType));
+  // Scale every component by the same multiplier here — not just `score` — so the
+  // breakdown (semanticMatch + workspaceAffinity + repositoryAffinity + adoptionSuccess +
+  // penalty) still sums back to the post-multiplier score. Previously semanticMatch was
+  // derived from the PRE-multiplier score, so the breakdown didn't match confidence
+  // whenever taskTypeMultiplier() < 1.0 (see extension-devops-growth ledger,
+  // isBugConditionBug1).
+  const multiplier = taskTypeMultiplier(skillName, taskType);
+  score = Math.round(score * multiplier);
+  repositoryAffinity = Math.round(repositoryAffinity * multiplier);
+  workspaceAffinityPts = Math.round(workspaceAffinityPts * multiplier);
+  adoptionSuccess = Math.round(adoptionSuccess * multiplier);
+  penalty = Math.round(penalty * multiplier);
+  const semanticMatch = score + penalty - repositoryAffinity - workspaceAffinityPts - adoptionSuccess;
 
   if (score < 20) {
     return null;
@@ -670,13 +681,16 @@ export function rankAllTaskSkillProposals(
     const globEnrichAdj = target ? enrichmentRankingAdjustment(target, name) : 0;
     const finalConf = Math.min(100, Math.max(20, Math.round(baseConf * calibration) + globAdoptionAdj + globEnrichAdj));
     const reasonText = `Workspace files match ${specificGlobs.slice(0, 2).join(", ")}${affinityPts > 0 ? `; repo stack match (+${affinityPts})` : ""}${workspaceAffinityPts > 0 ? `; workspace affinity ${workspaceAffinityScore}/100 (+${workspaceAffinityPts})` : ""}`;
+    // Same fix as scoreSkillForTask (isBugConditionBug1): scale every raw component by
+    // typeMultiplier before it goes into the breakdown, so the breakdown sums back to
+    // finalConf instead of the pre-multiplier raw values.
     const breakdown: ConfidenceBreakdown = {
-      semanticMatch: (installed.has(name) ? 40 : 30) + specificityMax,
-      workspaceAffinity: workspaceAffinityPts,
-      repositoryAffinity: affinityPts,
-      adoptionSuccess: histBoost + acceptBoost + globAdoptionAdj,
+      semanticMatch: Math.round(((installed.has(name) ? 40 : 30) + specificityMax) * typeMultiplier),
+      workspaceAffinity: Math.round(workspaceAffinityPts * typeMultiplier),
+      repositoryAffinity: Math.round(affinityPts * typeMultiplier),
+      adoptionSuccess: Math.round((histBoost + acceptBoost) * typeMultiplier) + globAdoptionAdj,
       enrichment: globEnrichAdj,
-      penalty: -penalty,
+      penalty: -Math.round(penalty * typeMultiplier),
     };
     const enriched = target ? enrichProposal(target, name, finalConf, reasonText) : null;
     proposals.set(name, {

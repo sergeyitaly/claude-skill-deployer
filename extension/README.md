@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.141
+
+### Confidence breakdown numbers now actually add up, and ignoring a suggestion no longer counts against it the same as rejecting it
+
+Two accuracy fixes in the recommendation engine. First: the confidence breakdown shown for a proposed skill (semantic match, workspace affinity, repo affinity, etc.) didn't always sum to the confidence score displayed next to it — components were captured before a task-type adjustment was applied in some cases, so the math looked wrong even though the final score was right. Second: a skill you simply never got around to using was being penalized exactly as hard as one you actively dismissed, which isn't the same signal — passive non-use no longer counts against a skill's future confidence the way an explicit rejection does.
+
 ## What's new in 1.0.140
 
 ### The hook pipeline no longer double-logs plain file reads, and its latency is finally visible

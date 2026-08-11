@@ -62,11 +62,19 @@ function writeOutcomes(
   fs.writeFileSync(file, lines.join("\n") + "\n", "utf-8");
 }
 
-/** Write recommendation-feedback.jsonl with the given ignored entries. */
-function writeFeedback(target: string, entries: Array<{ skill: string; count: number }>): void {
+/**
+ * Write recommendation-feedback.jsonl entries. Defaults to reason: "ignored" — passive
+ * non-use, which computeAllSkillPenalties() must NOT treat as a rejection signal (see
+ * learningLoopAuditFixes.bugCondition.test.ts, isBugConditionBug3). Pass an explicit active
+ * reason (e.g. "dismissed") to test the genuine extra-penalty-for-rejection path instead.
+ */
+function writeFeedback(
+  target: string,
+  entries: Array<{ skill: string; count: number; reason?: string }>
+): void {
   const file = path.join(target, ".claude", "learning", "recommendation-feedback.jsonl");
   const lines: string[] = [];
-  for (const { skill, count } of entries) {
+  for (const { skill, count, reason } of entries) {
     for (let i = 0; i < count; i++) {
       lines.push(JSON.stringify({
         ts: new Date().toISOString(),
@@ -74,7 +82,7 @@ function writeFeedback(target: string, entries: Array<{ skill: string; count: nu
         skill,
         proposed: true,
         accepted: false,
-        reason: "ignored",
+        reason: reason ?? "ignored",
       }));
     }
   }
@@ -304,21 +312,32 @@ describe("computeAllSkillPenalties", () => {
     expect(penalties["skill-b"]).toBe(0);  // invoked once → max(0, 0-20)
   });
 
-  it("adds extra penalty when rejection feedback count >= 3", () => {
+  it("adds extra penalty when active-rejection feedback count >= 3", () => {
     // 2 sessions of non-use → base penalty = 20
-    // 3 feedback records → extra = min(10, floor(3/3)×2) = 2
+    // 3 records with an active rejection reason (not "ignored" — passive non-use gets
+    // no weight at all, see isBugConditionBug3) → weight 4 each → rejectionCount = 12
+    // → extra = min(10, floor(12/3)×2) = 8
     const target = makeTarget();
     writeOutcomes(target, nNotInvoked(2, "skill-a"));
-    writeFeedback(target, [{ skill: "skill-a", count: 3 }]);
-    expect(computeAllSkillPenalties(target)["skill-a"]).toBe(22);
+    writeFeedback(target, [{ skill: "skill-a", count: 3, reason: "dismissed" }]);
+    expect(computeAllSkillPenalties(target)["skill-a"]).toBe(28);
   });
 
-  it("scales extra penalty with more feedback records", () => {
-    // 6 feedback records → extra = min(10, floor(6/3)×2) = 4
+  it("scales extra penalty with more active-rejection feedback records", () => {
+    // 6 records × weight 4 = rejectionCount 24 → extra = min(10, floor(24/3)×2) = 10 (capped)
     const target = makeTarget();
     writeOutcomes(target, nNotInvoked(2, "skill-a"));
-    writeFeedback(target, [{ skill: "skill-a", count: 6 }]);
-    expect(computeAllSkillPenalties(target)["skill-a"]).toBe(24);
+    writeFeedback(target, [{ skill: "skill-a", count: 6, reason: "dismissed" }]);
+    expect(computeAllSkillPenalties(target)["skill-a"]).toBe(30);
+  });
+
+  it("reason:'ignored' feedback records contribute zero extra penalty regardless of count", () => {
+    // Passive non-use is not a rejection signal — even 9 reason:"ignored" records must
+    // add nothing on top of the base session penalty (isBugConditionBug3).
+    const target = makeTarget();
+    writeOutcomes(target, nNotInvoked(2, "skill-a"));
+    writeFeedback(target, [{ skill: "skill-a", count: 9 }]); // default reason: "ignored"
+    expect(computeAllSkillPenalties(target)["skill-a"]).toBe(20);
   });
 
   it("does not add extra penalty when feedback count is below 3", () => {

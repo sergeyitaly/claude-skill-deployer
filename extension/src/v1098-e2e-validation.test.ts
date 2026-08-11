@@ -513,25 +513,27 @@ describe("Phase 8 — Affinity Floor Validation (via proposal suppression)", () 
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe("Phase 9 — Feedback Penalty Engine", () => {
-  it("3 ignored feedback records add extra penalty to computeAllSkillPenalties", () => {
+  it("3 active-rejection feedback records add extra penalty to computeAllSkillPenalties", () => {
     const target = tmpDir();
-    // Seed 3 ignored records for deployment-practical
+    // reason: "ignored" is passive non-use, not a rejection signal — it must contribute
+    // zero extra penalty regardless of count (learningLoopAuditFixes.bugCondition.test.ts,
+    // isBugConditionBug3). Use a genuine active-rejection reason here instead.
     for (let i = 0; i < 3; i++) {
       appendRecommendationFeedback(target, {
         session_id: `fb-sess-${i}`,
         skill: "deployment-practical",
         proposed: true,
         accepted: false,
-        reason: "ignored",
+        reason: "dismissed",
       });
     }
 
     const penalties = computeAllSkillPenalties(target);
-    // Extra feedback penalty: Math.floor(3/3)*2 = 2 extra points
+    // 3 records × weight 4 = 12 → extra = min(10, floor(12/3)*2) = 8 extra points
     expect((penalties["deployment-practical"] ?? 0)).toBeGreaterThan(0);
   });
 
-  it("Penalty grows with more feedback records", () => {
+  it("Penalty grows with more active-rejection feedback records", () => {
     const target = tmpDir();
     const seedFeedback = (n: number) => {
       const t = tmpDir();
@@ -541,7 +543,7 @@ describe("Phase 9 — Feedback Penalty Engine", () => {
           skill: "deployment-practical",
           proposed: true,
           accepted: false,
-          reason: "ignored",
+          reason: "dismissed",
         });
       }
       return computeAllSkillPenalties(t)["deployment-practical"] ?? 0;
@@ -550,6 +552,22 @@ describe("Phase 9 — Feedback Penalty Engine", () => {
     const penalty3 = seedFeedback(3);
     const penalty9 = seedFeedback(9);
     expect(penalty9).toBeGreaterThan(penalty3);
+  });
+
+  it("reason:'ignored' feedback records contribute zero extra penalty, unlike active rejection", () => {
+    const target = tmpDir();
+    for (let i = 0; i < 9; i++) {
+      appendRecommendationFeedback(target, {
+        session_id: `fb-ignored-${i}`,
+        skill: "deployment-practical",
+        proposed: true,
+        accepted: false,
+        reason: "ignored",
+      });
+    }
+
+    const penalties = computeAllSkillPenalties(target);
+    expect(penalties["deployment-practical"] ?? 0).toBe(0);
   });
 
   it("Accepted feedback records do NOT contribute to penalty", () => {
