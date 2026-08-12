@@ -161,7 +161,14 @@ export function applyTaskSkillFocus(
   const overrides = readSkillOverrides(target);
   const ignoredSkills: string[] = [];
   let overridesApplied = 0;
-  const userReenabled = new Set(readTaskFocusMeta(target).userReenabledSkills ?? []);
+  const priorMeta = readTaskFocusMeta(target);
+  const userReenabled = new Set(priorMeta.userReenabledSkills ?? []);
+  // Skills the LAST sweep disabled — used below to detect an implicit re-enable (any way
+  // the override got cleared since then: the enableSkillLocally command, a direct edit to
+  // settings.local.json, another tool). userReenabledSkills only catches the command path;
+  // this catches every other path too, without needing to know how the clear happened.
+  const previouslyIgnored = new Set(priorMeta.disabledByTaskFocus ?? []);
+  const newlyReclaimed: string[] = [];
 
   for (const name of installed) {
     if (activeSet.has(name)) {
@@ -175,6 +182,14 @@ export function applyTaskSkillFocus(
     // TaskFocusMeta.userReenabledSkills) — leave it alone even though it's outside the
     // active set, rather than silently re-disabling it on this recompute.
     if (userReenabled.has(name)) {
+      continue;
+    }
+    // Implicit re-enable: the last sweep disabled this skill, but its override isn't "off"
+    // anymore — something cleared it since then, by whatever means. Respect that instead of
+    // re-disabling it on this pass, and promote it to the durable ledger so it stays
+    // protected on every future sweep too, not just this one.
+    if (previouslyIgnored.has(name) && overrides[name] !== "off") {
+      newlyReclaimed.push(name);
       continue;
     }
     if (overrides[name] !== "off") {
@@ -199,8 +214,17 @@ export function applyTaskSkillFocus(
 
   // Ledger reflects exactly what this run just computed as "outside the active set" —
   // this call recomputes the whole picture every time, so replace rather than merge.
+  // userReenabledSkills grows with anything reclaimed above (implicitly or via the command)
+  // so it stays protected on every future sweep, not just this one.
   const meta = readTaskFocusMeta(target);
-  writeTaskFocusMeta(target, { ...meta, disabledByTaskFocus: sortedIgnored.length ? sortedIgnored : undefined });
+  const mergedUserReenabled = newlyReclaimed.length
+    ? [...new Set([...(meta.userReenabledSkills ?? []), ...newlyReclaimed])].sort((a, b) => a.localeCompare(b))
+    : meta.userReenabledSkills;
+  writeTaskFocusMeta(target, {
+    ...meta,
+    disabledByTaskFocus: sortedIgnored.length ? sortedIgnored : undefined,
+    userReenabledSkills: mergedUserReenabled?.length ? mergedUserReenabled : undefined,
+  });
 
   return { activeSkills, ignoredSkills, overridesApplied };
 }

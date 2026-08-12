@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.144
+
+### Manual skill re-enables now stick no matter how you cleared the override
+
+1.0.142 and 1.0.143 fixed budget-gating and task-focus silently re-disabling a skill you'd just re-enabled — but only when done through "Enable Skill Locally." Editing `.claude/settings.local.json` directly (common when driving Claude Code as an agent) wasn't covered and could still lose the race. Both mechanisms now recognize a cleared override regardless of how it was cleared.
+
 ## What's new in 1.0.143
 
 ### Re-enabling a skill sticks even when task-focus disagrees, not just under budget pressure

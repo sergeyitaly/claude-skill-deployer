@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.144** | Both re-enable races' fixes made implicit — 1.0.142/1.0.143 only protected a manual re-enable via the VS Code command path; a direct settings.local.json edit (the way agents actually clear overrides) still lost the race. Now detected regardless of how the override got cleared |
 | **1.0.143** | Task-focus race fixed — same-day follow-up to 1.0.142: a live report from a separate real project showed the identical "manual re-enable silently reverted" symptom, this time via task-focus's re-sweep rather than budget gating; same fix shape applied |
 | **1.0.142** | Budget-gating race fixed — a manually re-enabled skill could be silently re-disabled within seconds by either of two independent, uncoordinated budget-gating mechanisms that had no memory of the user's action; both now respect it |
 | **1.0.141** | CI actually green — fixed 3 real, previously-documented bugs in the recommendation-confidence breakdown and penalty engine that had left `main`'s test suite red for about a month; updated 4 older tests that had unknowingly locked in the pre-fix behavior |
@@ -90,6 +91,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.144] - 2026-08-11
+
+**Summary:** 1.0.143 shipped the same day and the bug immediately reproduced again — a live audit from the same separate project showed task-focus still disabling a manually re-enabled skill. Root cause: 1.0.143's fix only triggers via the `claudeSkills.enableSkillLocally` command (`clearTaskFocusTrackingForSkill()`), but the actual re-enable in that session was a direct edit to `settings.local.json` — a normal thing for an agent to do, and one that never calls any extension command. 1.0.142's budget-gating fix had the exact same narrow coverage. Both now detect the re-enable *implicitly*, regardless of how the override got cleared.
+
+**Theme:** The previous two fixes were correct but incomplete — they protected the one supported UI path and missed the one agents actually use most.
+
+### Fixed
+
+- **1.0.142/1.0.143's "respect a manual re-enable" fixes only covered the VS Code command path, not a direct edit to `settings.local.json`.** Both `disableHighTierSkills()` (`budgetOps.ts`) and `applyTaskSkillFocus()` (`taskSkillFocus.ts`) now compare each skill's *current* override against what their own last sweep recorded as disabled (`disabledByBudget` / `disabledByTaskFocus`): if a skill was disabled last time but its override isn't `"off"` anymore, that's evidence something cleared it — by the command, a direct file edit, or anything else — and it's now treated the same as an explicit re-enable (skipped this pass, and promoted to the durable `userReenabledSkills` ledger so it stays protected on every future sweep too). `disableHighTierSkills()` refactored (`classifySkillForBudgetDisable()`) to keep cognitive complexity down after the added branch. 2 new tests reproducing the exact reported scenario — a direct settings.local.json edit with no command call.
 
 ---
 

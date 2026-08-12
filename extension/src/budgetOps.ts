@@ -78,11 +78,43 @@ function setBudgetMeta(settings: LocalSettingsWithBudget, meta: BudgetMeta): voi
   settings[BUDGET_META_KEY] = meta;
 }
 
+type SkillDisableAction = "skip" | "reclaim" | "disable" | "already-disabled";
+
+/** Classifies a single skill for disableHighTierSkills()'s sweep — pulled out to keep that
+ *  function's own cognitive complexity down (SonarQube S3776). */
+function classifySkillForBudgetDisable(
+  skill: string,
+  overrides: Record<string, SkillOverrideValue>,
+  previouslyBudgetDisabled: Set<string>,
+  userReenabled: Set<string>
+): SkillDisableAction {
+  if (userReenabled.has(skill)) {
+    return "skip";
+  }
+  const wasBudgetDisabled = previouslyBudgetDisabled.has(skill);
+  const isOff = overrides[skill] === "off";
+  if (wasBudgetDisabled && !isOff) {
+    // Budget disabled this last time, but its override isn't "off" anymore — something
+    // cleared it since then, by whatever means (the enableSkillLocally command, a direct
+    // edit to settings.local.json, another tool). Respect that instead of re-disabling it.
+    return "reclaim";
+  }
+  if (isOff && !wasBudgetDisabled) {
+    return "skip"; // already off for a different reason — not budget's business
+  }
+  if (!isOff) {
+    return "disable";
+  }
+  return wasBudgetDisabled ? "already-disabled" : "skip";
+}
+
 /** Disable high-tier skills locally, tracking which ones we disabled for restore. Skips any
  *  skill the user has explicitly re-enabled since (see BudgetMeta.userReenabledSkills) —
  *  without this, a user's manual re-enable gets silently undone by whichever of the two
  *  independent budget-gating callers (budgetTierGating.ts's refresh loop, hookHandlers.ts's
- *  handleBudget) next happens to run, sometimes within seconds. */
+ *  handleBudget) next happens to run, sometimes within seconds. Also detects an *implicit*
+ *  re-enable via classifySkillForBudgetDisable()'s "reclaim" case, since userReenabledSkills
+ *  alone only catches the command path. */
 export function disableHighTierSkills(
   target: string,
   highTierSkills: string[],
@@ -94,33 +126,37 @@ export function disableHighTierSkills(
   const previouslyBudgetDisabled = new Set(meta.disabledByBudget ?? []);
   const userReenabled = new Set(meta.userReenabledSkills ?? []);
   const disabledNow: string[] = [];
+  const newlyReclaimed: string[] = [];
 
   for (const skill of highTierSkills) {
-    if (userReenabled.has(skill)) {
-      continue;
-    }
-    if (overrides[skill] === "off" && !previouslyBudgetDisabled.has(skill)) {
-      continue;
-    }
-    if (overrides[skill] !== "off") {
+    const action = classifySkillForBudgetDisable(skill, overrides, previouslyBudgetDisabled, userReenabled);
+    if (action === "reclaim") {
+      newlyReclaimed.push(skill);
+    } else if (action === "disable") {
       overrides[skill] = "off";
       disabledNow.push(skill);
-    } else if (previouslyBudgetDisabled.has(skill)) {
+    } else if (action === "already-disabled") {
       disabledNow.push(skill);
     }
   }
 
-  if (disabledNow.length === 0) {
+  if (disabledNow.length === 0 && newlyReclaimed.length === 0) {
     return [];
   }
 
-  settings.skillOverrides = overrides;
+  if (disabledNow.length > 0) {
+    settings.skillOverrides = overrides;
+  }
+  const remainingDisabledByBudget = (meta.disabledByBudget ?? []).filter((s) => !newlyReclaimed.includes(s));
   setBudgetMeta(settings, {
     ...meta,
-    disabledByBudget: [...new Set([...(meta.disabledByBudget ?? []), ...disabledNow])].sort((a, b) =>
+    disabledByBudget: [...new Set([...remainingDisabledByBudget, ...disabledNow])].sort((a, b) =>
       a.localeCompare(b)
     ),
     disabledReason: reason,
+    userReenabledSkills: newlyReclaimed.length
+      ? [...new Set([...(meta.userReenabledSkills ?? []), ...newlyReclaimed])].sort((a, b) => a.localeCompare(b))
+      : meta.userReenabledSkills,
   });
   writeLocalSettings(target, settings);
   return disabledNow;

@@ -77,6 +77,29 @@ describe("applyTaskSkillFocus", () => {
     expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
     expect(listEffectiveEnabledSkills(target)).toContain("mcp-builder");
   });
+
+  it("implicit reclaim: a direct settings.local.json edit (no clearTaskFocusTrackingForSkill call) is respected too", () => {
+    // Live-reported gap: userReenabledSkills only got populated via the command path. An
+    // agent directly editing settings.local.json to remove the override — a common pattern
+    // in agentic workflows — never calls clearTaskFocusTrackingForSkill, so the very next
+    // re-sweep silently disabled the skill again despite the 1.0.143 fix.
+    const target = makeWorkspace();
+    applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T00:00:00.000Z");
+    expect(readSkillOverrides(target)["mcp-builder"]).toBe("off");
+
+    // Direct file edit — no clearTaskFocusTrackingForSkill call at all.
+    setSkillOverride(target, "mcp-builder", undefined);
+
+    const second = applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T01:00:00.000Z");
+
+    expect(second.ignoredSkills).not.toContain("mcp-builder");
+    expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
+
+    // Promoted to the durable ledger so it stays protected on every future sweep too.
+    const third = applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T02:00:00.000Z");
+    expect(third.ignoredSkills).not.toContain("mcp-builder");
+    expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
+  });
 });
 
 describe("applyTaskSkillFocusFromProposals (regression: installed-set drift with unchanged proposals)", () => {

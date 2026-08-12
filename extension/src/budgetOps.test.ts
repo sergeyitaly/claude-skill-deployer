@@ -216,4 +216,29 @@ describe("disableHighTierSkills — respects a user's manual re-enable", () => {
     expect(disabledAgain).toEqual([]);
     expect(readSettings(target).skillOverrides ?? {}).not.toHaveProperty("aidlc-doc-writer");
   });
+
+  it("implicit reclaim: a direct settings.local.json edit (no command call) is respected too", () => {
+    // Live-reported gap: userReenabledSkills only gets populated by the enableSkillLocally
+    // command's call to clearBudgetTrackingForSkill(). An agent or user directly editing
+    // settings.local.json to clear the override (a common pattern for agentic tools) never
+    // goes through that command — this must still be respected on the very next pass.
+    const target = makeWorkspace();
+    disableHighTierSkills(target, ["aidlc-doc-writer"], "budget-warn");
+    expect(readSettings(target).skillOverrides).toEqual({ "aidlc-doc-writer": "off" });
+    expect(readSettings(target).claudeSkillsBudget.disabledByBudget).toEqual(["aidlc-doc-writer"]);
+
+    // Direct file edit — no clearBudgetTrackingForSkill call at all.
+    const settings = readSettings(target);
+    delete settings.skillOverrides["aidlc-doc-writer"];
+    writeSettings(target, settings);
+
+    const disabledAgain = disableHighTierSkills(target, ["aidlc-doc-writer"], "budget-warn");
+
+    expect(disabledAgain).toEqual([]);
+    const after = readSettings(target);
+    expect(after.skillOverrides ?? {}).not.toHaveProperty("aidlc-doc-writer");
+    // Promoted to the durable ledger so it stays protected on every future pass too.
+    expect(after.claudeSkillsBudget.userReenabledSkills).toEqual(["aidlc-doc-writer"]);
+    expect(after.claudeSkillsBudget.disabledByBudget ?? []).not.toContain("aidlc-doc-writer");
+  });
 });
