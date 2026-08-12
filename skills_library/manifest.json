@@ -1,5 +1,11 @@
 {
   "skills": {
+    "task-evidence-report": {
+      "description": "Evidence-based explanation of completed work - real diffs, real test output, real command results, diagrams only when they carry information, checks for leftover code from superseded approaches. Not a confident-sounding AI summary; built to survive a skeptical reviewer",
+      "detect_globs": ["**/.git/**"],
+      "cost_estimate": "medium",
+      "version": "1.0.0"
+    },
     "mcp-server-creation": {
       "description": "Build, wire, and debug a stdio MCP server bundled inside a VS Code extension (claude-skills-deployer pattern)",
       "detect_globs": ["**/mcp-servers/**/*.js", "**/mcpCli.ts", "**/mcpOfficial.ts", "**/resources/mcp-servers/**"],
