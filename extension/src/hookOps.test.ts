@@ -189,6 +189,60 @@ describe("installCostControlHooks", () => {
       expect(hook.hooks?.UserPromptSubmit?.every((h) => !("bash" in h))).toBe(true);
     }
   });
+
+  it("registers the Stop hook (session-stop) — handleSessionStop's only trigger, previously never installed by any code path", () => {
+    const target = makeWorkspace();
+    installCostControlHooks(EXTENSION_PATH, target);
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { Stop?: { hooks: { command: string }[] }[] } };
+    const commands = (settings.hooks?.Stop ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(commands.some((c) => c.includes("/hook/session-stop"))).toBe(true);
+  });
+
+  it("migrates a partially-configured workspace: adds the missing Stop hook and consolidates legacy session-size/context-focus/practical-focus even though budget already existed", () => {
+    // Reproduces a live-reported gap: a workspace whose UserPromptSubmit hooks predate the
+    // prompt-context consolidation (still has separate session-size/context-focus/
+    // practical-focus entries) and has no Stop hook at all — installCostControlHooks() must
+    // still catch it up, not just no-op because "budget" already looked configured.
+    const target = makeWorkspace();
+    const settingsDir = path.join(target, ".claude");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const legacySettings = {
+      hooks: {
+        UserPromptSubmit: [
+          {
+            matcher: "",
+            hooks: [{
+              type: "command",
+              command: `curl -sf -X POST --data @- "http://127.0.0.1:4895/hook/session-size?agent=claude&cwd=\${CLAUDE_PROJECT_DIR}" || true`,
+              timeout: 8,
+            }],
+          },
+          {
+            matcher: "",
+            hooks: [{
+              type: "command",
+              command: `curl -sf -X POST --data @- "http://127.0.0.1:4895/hook/budget?agent=claude&cwd=\${CLAUDE_PROJECT_DIR}" || true`,
+              timeout: 8,
+            }],
+          },
+        ],
+      },
+    };
+    fs.writeFileSync(path.join(settingsDir, "settings.json"), JSON.stringify(legacySettings), "utf-8");
+
+    installCostControlHooks(EXTENSION_PATH, target);
+
+    const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8")) as {
+      hooks?: { UserPromptSubmit?: { hooks: { command: string }[] }[]; Stop?: { hooks: { command: string }[] }[] };
+    };
+    const promptCommands = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(promptCommands.some((c) => c.includes("/hook/session-size"))).toBe(false);
+    expect(promptCommands.some((c) => c.includes("/hook/prompt-context"))).toBe(true);
+    const stopCommands = (settings.hooks?.Stop ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(stopCommands.some((c) => c.includes("/hook/session-stop"))).toBe(true);
+  });
 });
 
 describe("installProfileInitSessionHook", () => {

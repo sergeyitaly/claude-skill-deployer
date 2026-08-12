@@ -48,6 +48,7 @@ const HOOK_BUDGET = "budget";
 const HOOK_TASK_DRIFT = "task-drift";
 const HOOK_OFFICIAL_SKILLS = "official-skills";
 const HOOK_PROFILE_INIT = "profile-init";
+const HOOK_SESSION_STOP = "session-stop";
 
 /** curl command for Claude Code hooks (uses ${CLAUDE_PROJECT_DIR} shell variable). */
 function claudeHookCmd(hookName: string): string {
@@ -179,6 +180,11 @@ function hasSessionStartHook(settings: Settings, hookName: string): boolean {
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(`/hook/${hookName}`)));
 }
 
+function hasStopHook(settings: Settings, hookName: string): boolean {
+  const matchers = settings.hooks?.Stop ?? [];
+  return matchers.some((m) => m.hooks.some((h) => h.command.includes(`/hook/${hookName}`)));
+}
+
 function hasTerminalWatchHook(settings: Settings): boolean {
   const matchers = settings.hooks?.PostToolUse ?? [];
   return matchers.some((m) => m.hooks.some((h) => h.command.includes(TERMINAL_WATCH_SCRIPT)));
@@ -278,6 +284,15 @@ export function isBudgetHookConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));
     return hasHook(settings, HOOK_BUDGET);
+  } catch {
+    return false;
+  }
+}
+
+export function isStopHookConfigured(target: string): boolean {
+  try {
+    const settings = readSettings(path.join(target, ".claude", "settings.json"));
+    return hasStopHook(settings, HOOK_SESSION_STOP);
   } catch {
     return false;
   }
@@ -775,6 +790,33 @@ function ensureSessionStartHookRegistered(
   return true;
 }
 
+/** Registers the Stop hook (session-stop) — handleSessionStop()'s only trigger, needed for
+ *  proposal-outcome tracking, adoption-funnel completion, and the session-summary toast
+ *  (1.0.139) to ever fire. No installer wired this category up before 1.0.145; a workspace
+ *  configured entirely through the extension's own install flow never got one. */
+function ensureStopHookRegistered(settings: Settings, hookName: string, command: string): boolean {
+  settings.hooks = settings.hooks ?? {};
+  settings.hooks.Stop = settings.hooks.Stop ?? [];
+
+  for (const entry of settings.hooks.Stop) {
+    for (let i = 0; i < entry.hooks.length; i++) {
+      const h = entry.hooks[i];
+      if (h.command.includes(`/hook/${hookName}`) && h.command !== command) {
+        entry.hooks[i] = { ...h, command };
+        return true;
+      }
+    }
+  }
+
+  if (hasStopHook(settings, hookName)) return false;
+
+  settings.hooks.Stop.push({
+    matcher: "",
+    hooks: [{ type: "command", command, timeout: 10 }],
+  });
+  return true;
+}
+
 // ── Attribution hook detection ───────────────────────────────────────────────
 
 function isClaudeAttributionHookConfigured(target: string): boolean {
@@ -959,8 +1001,9 @@ export function installCostControlHooks(extensionPath: string, target: string): 
   const addedBudget = ensureHookRegistered(settings, [LEGACY_BUDGET_HOOK], HOOK_BUDGET, claudeHookCmd(HOOK_BUDGET));
   const addedTaskDrift = ensureHookRegistered(settings, [LEGACY_TASK_DRIFT_HOOK], HOOK_TASK_DRIFT, claudeHookCmd(HOOK_TASK_DRIFT));
   const addedTerminal = ensureTerminalWatchHookRegistered(settings, extensionPath);
+  const addedStop = ensureStopHookRegistered(settings, HOOK_SESSION_STOP, claudeHookCmd(HOOK_SESSION_STOP));
 
-  if (addedPromptContext || addedBudget || addedTaskDrift || addedTerminal) {
+  if (addedPromptContext || addedBudget || addedTaskDrift || addedTerminal || addedStop) {
     writeJsonFile(settingsFile, settings);
   }
 

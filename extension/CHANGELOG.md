@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.145** | Hook-migration catch-up — a second audit run confirmed "no Stop hook" and "5 UserPromptSubmit hooks instead of 3" are real; both traced to one root cause: an already-configured workspace never re-runs the (idempotent) hook installer when the extension adds or consolidates hook categories. Now it does |
 | **1.0.144** | Both re-enable races' fixes made implicit — 1.0.142/1.0.143 only protected a manual re-enable via the VS Code command path; a direct settings.local.json edit (the way agents actually clear overrides) still lost the race. Now detected regardless of how the override got cleared |
 | **1.0.143** | Task-focus race fixed — same-day follow-up to 1.0.142: a live report from a separate real project showed the identical "manual re-enable silently reverted" symptom, this time via task-focus's re-sweep rather than budget gating; same fix shape applied |
 | **1.0.142** | Budget-gating race fixed — a manually re-enabled skill could be silently re-disabled within seconds by either of two independent, uncoordinated budget-gating mechanisms that had no memory of the user's action; both now respect it |
@@ -91,6 +92,20 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.145] - 2026-08-12
+
+**Summary:** A second, independent extension-value-audit run on the same real project surfaced two more concrete, checkable findings beyond the override-race bugs already fixed this week: "still no Stop hook" (confirmed — no code anywhere ever installed one) and "every prompt fires 5 separate UserPromptSubmit hooks" (confirmed — that workspace was stuck on the pre-consolidation hook set). Both traced to the same root cause: the migration/install logic that would fix either one is correct and idempotent, but was gated behind a check that treated "some cost-control hook already exists, in any form" as "fully up to date, nothing to do" — so an already-configured workspace never got remigrated when the extension shipped a consolidation or added a new hook category.
+
+**Theme:** The recurring lesson from this week's fixes, one level up — not a bug in what a mechanism does, but in whether it ever runs again for a workspace that was configured before the mechanism existed or changed.
+
+### Fixed
+
+- **No code path anywhere installed the `Stop` hook, so `handleSessionStop()` — proposal-outcome tracking, adoption-funnel completion, and the 1.0.139 session-summary toast — never fired for a workspace configured through the extension's normal install flow.** New `ensureStopHookRegistered()` (`hookOps.ts`) registers it, wired into `installCostControlHooks()`.
+- **`ensureCostControlHooksActive()`'s gate (`costControlHooksActive()` — true if *any* cost-control hook exists, in any form) skipped re-running `installCostControlHooks()` entirely once one hook existed, so a workspace that predated the session-size/context-focus/practical-focus → `prompt-context` consolidation never got migrated — explaining "5 hooks fire per prompt instead of 3."** `installCostControlHooks()` is itself fully idempotent (each `ensureXHookRegistered()` call is a no-op when nothing needs to change), so the gate added no real protection, only prevented catch-up. Now called unconditionally; the one-time `cost_control_enabled` adaptation-log event still only fires the first time cost control genuinely wasn't active, so no new log spam.
+- **This unconditional call was previously only reachable via a skill-change event** (`workspaceSkillSync.ts`'s `propagateWorkspaceSkillChange`, triggered by install/enable/disable) — a workspace that never installs another skill after initial setup would never get remigrated even with the gate fixed. `ensureCostControlHooksActive()` is now also called from the main workspace-state refresh loop (`extension.ts`), matching how `syncClaudeBootstrap()` and `ensureAttributionHooksActive()` already run there. 4 new tests, including two full regressions reproducing the exact reported symptoms (a workspace with only a legacy `budget` hook, migrated on the next call).
 
 ---
 

@@ -51,6 +51,7 @@ import {
 import {
   autoInstallAttributionHooksEnabled,
   ensureAttributionHooksActive,
+  ensureCostControlHooksActive,
   propagateWorkspaceSkillChange,
 } from "./workspaceSkillSync";
 import { applyHostOnlyTierMirrorCleanup } from "./agentMirrorSync";
@@ -867,6 +868,14 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     if (autoInstallAttributionHooksEnabled() && !areAttributionHooksConfigured(target, context.extensionPath)) {
       ensureAttributionHooksActive(context.extensionPath, target, log);
     }
+    // Unconditional (unlike the attribution-hook call above) — installCostControlHooks() is
+    // itself idempotent, and a workspace whose cost-control hooks were installed before a
+    // migration (e.g. session-size/context-focus/practical-focus -> prompt-context, or the
+    // Stop hook added in 1.0.145) needs this to actually run again to catch up, not just once
+    // at first install. Previously only reachable via a skill-change event
+    // (workspaceSkillSync.ts's propagateWorkspaceSkillChange) — a workspace that never
+    // installs/enables/disables a skill again after initial setup never got remigrated.
+    ensureCostControlHooksActive(context.extensionPath, target, log);
     installTerminalWatchHook(context.extensionPath, target);
 
     if (!shouldRunWorkspaceState(lastWorkspaceStateAt, { workspaceState: opts.workspaceState })) {

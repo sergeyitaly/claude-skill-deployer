@@ -3,7 +3,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { areAttributionHooksConfigured, costControlHooksActive, installCostControlHooks } from "./hookOps";
-import { ensureAttributionHooksActive, flushDebouncedWorkspaceSkillSync, propagateWorkspaceSkillChange, resetWorkspaceSyncQueueForTests } from "./workspaceSkillSync";
+import {
+  ensureAttributionHooksActive,
+  ensureCostControlHooksActive,
+  flushDebouncedWorkspaceSkillSync,
+  propagateWorkspaceSkillChange,
+  resetWorkspaceSyncQueueForTests,
+} from "./workspaceSkillSync";
 
 vi.mock("vscode", () => ({
   workspace: {
@@ -52,6 +58,48 @@ describe("ensureAttributionHooksActive", () => {
     expect(status === "installed" || status === "updated").toBe(true);
     expect(areAttributionHooksConfigured(target, EXTENSION_PATH)).toBe(true);
     expect(logs.some((l) => l.includes("Attribution v2 hooks"))).toBe(true);
+  });
+});
+
+describe("ensureCostControlHooksActive", () => {
+  it("regression: catches up a workspace that already has one cost-control hook but is missing the Stop hook and still uses legacy session-size", () => {
+    // Live-reported gap: the old gate skipped re-running installCostControlHooks() entirely
+    // once ANY cost-control hook existed (e.g. just "budget"), so a workspace stuck on the
+    // pre-consolidation session-size/context-focus/practical-focus hooks — and missing the
+    // Stop hook, added later — never got migrated.
+    const target = makeWorkspace();
+    const settingsDir = path.join(target, ".claude");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(settingsDir, "settings.json"),
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [
+            {
+              matcher: "",
+              hooks: [{
+                type: "command",
+                command: `curl -sf -X POST --data @- "http://127.0.0.1:4895/hook/budget?agent=claude&cwd=\${CLAUDE_PROJECT_DIR}" || true`,
+                timeout: 8,
+              }],
+            },
+          ],
+        },
+      }),
+      "utf-8"
+    );
+    expect(costControlHooksActive(target)).toBe(true); // already "active" per the old gate
+
+    const logs: string[] = [];
+    ensureCostControlHooksActive(EXTENSION_PATH, target, (line) => logs.push(line));
+
+    const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8")) as {
+      hooks?: { UserPromptSubmit?: { hooks: { command: string }[] }[]; Stop?: { hooks: { command: string }[] }[] };
+    };
+    const promptCommands = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(promptCommands.some((c) => c.includes("/hook/prompt-context"))).toBe(true);
+    const stopCommands = (settings.hooks?.Stop ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(stopCommands.some((c) => c.includes("/hook/session-stop"))).toBe(true);
   });
 });
 

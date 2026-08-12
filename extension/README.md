@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.145
+
+### Hooks configured before an update now actually catch up to it
+
+If your workspace's hooks were set up a while ago, two things could stay permanently out of date: the session-end hook (needed for the end-of-session summary toast and adoption tracking) might never have been installed at all, and per-prompt hooks could still be running as five separate calls instead of the current consolidated set. Both are now caught up automatically on the next session — no need to reinstall hooks by hand.
+
 ## What's new in 1.0.144
 
 ### Manual skill re-enables now stick no matter how you cleared the override

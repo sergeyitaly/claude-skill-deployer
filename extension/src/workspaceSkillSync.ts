@@ -90,19 +90,26 @@ export function ensureAttributionHooksActive(
   return status;
 }
 
-/** Idempotent: auto-install session-size and budget hooks when not yet active. */
+/** Idempotent: install/migrate session-size, budget, task-drift, and Stop hooks. Previously
+ *  gated behind costControlHooksActive() (skip if ANY of them already existed in any form) —
+ *  that meant a workspace with e.g. only the legacy pre-consolidation "budget" hook already
+ *  present never got installCostControlHooks()'s own migration logic (session-size ->
+ *  prompt-context consolidation, Stop hook registration) re-run, since "already active" was
+ *  true the moment even one hook existed. installCostControlHooks() is itself idempotent
+ *  (each ensureXHookRegistered() call no-ops when nothing needs to change), so calling it
+ *  unconditionally is safe and lets it actually catch up a partially-migrated workspace. */
 export function ensureCostControlHooksActive(
   extensionPath: string,
   target: string,
   log: (line: string) => void
 ): HookInstallStatus | undefined {
-  if (costControlHooksActive(target)) {
-    return undefined;
-  }
+  const wasActive = costControlHooksActive(target);
   const status = installCostControlHooks(extensionPath, target);
   if (status === "installed" || status === "updated") {
     log(`Cost control hooks ${status} (session-size + budget warnings enabled).`);
-    appendAdaptationEvent(target, { type: "cost_control_enabled", description: "Cost control hooks enabled (session-size + daily budget warnings)" });
+    if (!wasActive) {
+      appendAdaptationEvent(target, { type: "cost_control_enabled", description: "Cost control hooks enabled (session-size + daily budget warnings)" });
+    }
   }
   return status;
 }
