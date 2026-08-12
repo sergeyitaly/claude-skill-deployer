@@ -46,6 +46,7 @@ import {
   shouldSyncGlobalToAll,
   shouldSyncWorkspaceToAll,
   syncClaudeBootstrap,
+  syncCopilotBootstrap,
   syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
 import {
@@ -948,6 +949,14 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
         // whether CLAUDE.md is up to date). A solo Claude-only workspace with no
         // Cursor/Kiro/Copilot mirroring enabled should still get its own summary.
         syncClaudeBootstrap(target, libraryDir);
+        // Same reasoning, Copilot's side: syncCopilotBootstrap() previously only ran from
+        // inside applyTaskSkillFocusFromProposals's conditional re-apply path (via
+        // propagateCostDisciplineToAgents), so a workspace whose task-focus proposals had
+        // already settled never got .github/copilot-instructions.md refreshed again — a real
+        // live-audited workspace was found stuck on a 7-skill snapshot from months earlier
+        // despite dozens more skills installed since. No-ops on its own (early-returns) for
+        // any workspace where Copilot isn't an enabled agent.
+        syncCopilotBootstrap(target, libraryDir);
         const discipline = runCostDisciplinePass(libraryDir, target);
         const disciplineKey = `${target}|${JSON.stringify(discipline)}`;
         if (disciplineKey !== lastCostDisciplineLogged) {

@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.147** | Copilot bootstrap sync unstuck — `.github/copilot-instructions.md` could go stale for months once a workspace's task-focus proposals settled, the third occurrence this week of "conditional call never re-runs once settled" (after CLAUDE.md and cost-control hooks); now unconditional |
 | **1.0.146** | Adoption-funnel backfill — closes the loop on 1.0.145: since the Stop hook never fired historically, "successful"/"reused" counts were stuck near zero even on workspaces with a long, genuinely successful run history; one-time backfill recovers it from existing runs.jsonl data |
 | **1.0.145** | Hook-migration catch-up — a second audit run confirmed "no Stop hook" and "5 UserPromptSubmit hooks instead of 3" are real; both traced to one root cause: an already-configured workspace never re-runs the (idempotent) hook installer when the extension adds or consolidates hook categories. Now it does |
 | **1.0.144** | Both re-enable races' fixes made implicit — 1.0.142/1.0.143 only protected a manual re-enable via the VS Code command path; a direct settings.local.json edit (the way agents actually clear overrides) still lost the race. Now detected regardless of how the override got cleared |
@@ -93,6 +94,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.147] - 2026-08-12
+
+**Summary:** A third live-audit finding from the same real project, verified directly against its own files: `.github/copilot-instructions.md` hadn't been updated since June 19 and still listed only 7 of the dozens of skills installed since — the exact same "conditional call, never re-runs once settled" shape as 1.0.133 (`syncClaudeBootstrap`) and 1.0.145 (`installCostControlHooks`), just for Copilot's sync target this time. Separately confirmed, by reading that project's own `mcp-usage.jsonl` directly, that the "41% duplicate tool_use_id rows" finding from the same audit is real but entirely historical — 0 duplicates in the most recent 6 hours of activity, all 287 duplicates predate 1.0.140 actually being live there.
+
+**Theme:** Third occurrence of the exact same root-cause shape this week (#14/#15/#17 in the growth ledger) — a mechanism that's correct but only reachable via a conditional path that stops firing once a workspace settles.
+
+### Fixed
+
+- **`.github/copilot-instructions.md` could go permanently stale.** `syncCopilotBootstrap()` (`agentOps.ts`) was only ever called from inside `applyTaskSkillFocusFromProposals()`'s conditional re-apply path — once a workspace's task-focus proposals settled (no longer regenerating), new skills installed afterward never made it into Copilot's bootstrap file, sometimes for months. Now called unconditionally from the main workspace-state refresh loop, matching `syncClaudeBootstrap()`'s existing pattern; it already no-ops on its own for any workspace where Copilot isn't an enabled agent. 1 new regression test reproducing the exact reported staleness (a skill installed after the bootstrap file's last write, with no task-focus re-apply in between).
 
 ---
 

@@ -6,6 +6,7 @@ import {
   agentMirrorsNeedSync,
   buildWorkspaceSyncFingerprint,
   missingAgentMirrorSkills,
+  syncCopilotBootstrap,
   syncWorkspaceSkillsToAllAgents,
 } from "./agentOps";
 
@@ -85,5 +86,34 @@ describe("agent mirror sync", () => {
     const partial = syncWorkspaceSkillsToAllAgents(libraryDir, target, { skillNames: ["beta-skill"] });
     expect(partial.some((r) => r.skill === "beta-skill" && r.agent === "cursor")).toBe(true);
     expect(fs.existsSync(path.join(target, ".cursor", "skills", "beta-skill", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("syncCopilotBootstrap — catches up a stale copilot-instructions.md", () => {
+  const libraryDir = path.join(__dirname, "..", "skills_library");
+
+  it("regression: reflects a skill installed after the bootstrap file was last written, even without a task-focus re-apply in between", () => {
+    // Live-reported gap: syncCopilotBootstrap() previously only ran from inside
+    // applyTaskSkillFocusFromProposals's conditional re-apply path — a workspace whose
+    // task-focus proposals had already settled never got .github/copilot-instructions.md
+    // refreshed again, so it could sit stuck on an old, smaller skill snapshot for months
+    // even as more skills were installed. Calling syncCopilotBootstrap() directly (as the
+    // now-unconditional refresh-loop call in extension.ts does) must catch it up regardless.
+    const target = makeWorkspace(libraryDir);
+    const first = syncCopilotBootstrap(target, libraryDir);
+    expect(first).toBeDefined();
+    let bootstrap = fs.readFileSync(path.join(target, ".github", "copilot-instructions.md"), "utf-8");
+    expect(bootstrap).toContain("alpha-skill");
+    expect(bootstrap).toContain("beta-skill");
+    expect(bootstrap).not.toContain("gamma-skill");
+
+    // A skill lands on disk through some other path (manual install, a different sync flow)
+    // — copilot-instructions.md is not touched by that alone.
+    writeSkill(path.join(target, ".claude", "skills"), "gamma-skill");
+
+    syncCopilotBootstrap(target, libraryDir);
+    bootstrap = fs.readFileSync(path.join(target, ".github", "copilot-instructions.md"), "utf-8");
+    expect(bootstrap).toContain("gamma-skill");
+    expect(fs.existsSync(path.join(target, ".github", "instructions", "gamma-skill.instructions.md"))).toBe(true);
   });
 });

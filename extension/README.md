@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.147
+
+### Copilot's project instructions file stays current, even in a workspace that's settled down
+
+If you use GitHub Copilot alongside Claude Code, `.github/copilot-instructions.md` could quietly stop reflecting newly installed skills once your task-focus proposals stopped regenerating — it was only refreshed as a side effect of that regeneration. It's now refreshed on its own, independent of whether task-focus decided there was anything else to do.
+
 ## What's new in 1.0.146
 
 ### Adoption stats now reflect your actual history, not just what happens from today
