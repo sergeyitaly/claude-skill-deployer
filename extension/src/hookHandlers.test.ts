@@ -559,6 +559,47 @@ describe("handleHookRequest session-stop — routine session summary", () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleHookRequest session-stop — backfillMissedAdoptionOutcomes wiring
+// (skillAdoption.ts is unmocked in this file — real file side effects verify this)
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest session-stop — adoption outcome backfill", () => {
+  it("backfills successful outcomes for a session that never got recordSessionAdoptionOutcomes before this Stop hook fired", async () => {
+    const { readCachedEnrichedRuns } = await import("./runsStore");
+    const otherSessionId = "backfill-other-session";
+    const currentSessionId = "backfill-current-session";
+    // A run from a DIFFERENT, older session — simulating history left behind by a workspace
+    // whose Stop hook was never installed before 1.0.145 (see extension-devops-growth
+    // ledger). recordSessionAdoptionOutcomes(cwd, currentSessionId, ...) only ever touches
+    // the current session; the backfill is what should reach the other one.
+    vi.mocked(readCachedEnrichedRuns).mockReturnValue([
+      { session_id: otherSessionId, skill: "pdf", cost: 0.05, success: true, agent: "claude" },
+      { session_id: currentSessionId, skill: "pdf", cost: 0.05, success: true, agent: "claude" },
+    ] as any);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-backfill-"));
+    await handleHookRequest({
+      hookName: "session-stop",
+      agent: "claude",
+      cwd: tmpDir,
+      body: { session_id: currentSessionId },
+    });
+
+    const adoptionLog = fs.readFileSync(
+      path.join(tmpDir, ".claude", "learning", "skill-adoption.jsonl"),
+      "utf-8"
+    );
+    const events = adoptionLog.trim().split("\n").map((l) => JSON.parse(l));
+    const successfulTaskIds = events.filter((e) => e.event === "successful").map((e) => e.taskId);
+    expect(successfulTaskIds).toContain(otherSessionId);
+    expect(successfulTaskIds).toContain(currentSessionId);
+
+    vi.mocked(readCachedEnrichedRuns).mockReset();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleHookRequest — skill-invoke: non-skill Read double-write regression
 // (PreToolUse and PostToolUse in .claude/settings.json both hit this route for
 // every matched Read/Skill/mcp filesystem call; when neither the skill-specific

@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.146
+
+### Adoption stats now reflect your actual history, not just what happens from today
+
+1.0.145 fixed the missing session-end hook, but historical sessions never got the chance to record their outcomes in the first place — so success and reuse counts on the adoption dashboard could look near-zero even after a long, genuinely successful history. A one-time backfill recovers those outcomes from your existing usage data the next time a session ends.
+
 ## What's new in 1.0.145
 
 ### Hooks configured before an update now actually catch up to it

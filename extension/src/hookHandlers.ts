@@ -48,7 +48,12 @@ import { analyzePrompt, appendPromptRecord } from "./promptIntelligence";
 import { getSessionCoachHints } from "./haceCoaching";
 import { recordAdviceShown, shouldShowAdvice, evaluateAdviceOutcome } from "./coachingLearning";
 import { isDormantSkill } from "./adoptionIntelligence";
-import { recordInvokedSkill, recordProposedSkills, recordSessionAdoptionOutcomes } from "./skillAdoption";
+import {
+  backfillMissedAdoptionOutcomes,
+  recordInvokedSkill,
+  recordProposedSkills,
+  recordSessionAdoptionOutcomes,
+} from "./skillAdoption";
 import { computeSessionIntelligence, formatSessionIntelligenceMarkdown } from "./sessionIntelligence";
 import { enrichmentSessionStartEnabled } from "./commandsEnrichment";
 import { modelRoutingContext } from "./modelRouting";
@@ -2579,6 +2584,11 @@ function handleSessionStop(req: HookRequest): HookResponse {
   // Adoption funnel Phases 4+5: mark invoked skills successful (no correction signal)
   // and detect reuse across sessions (7d/30d/90d windows). Idempotent per session.
   try { recordSessionAdoptionOutcomes(cwd, sessionId, req.agent as RunAgent); } catch { /* non-fatal */ }
+
+  // One-time backfill for a workspace where this Stop hook itself was never installed
+  // before 1.0.145 — every prior session's success/reuse outcomes were silently never
+  // recorded. Safe to run unconditionally: no-ops instantly once already done.
+  try { backfillMissedAdoptionOutcomes(cwd); } catch { /* non-fatal */ }
 
   try { maybeNotifySessionSummary(cwd, sessionId); } catch { /* non-fatal */ }
 

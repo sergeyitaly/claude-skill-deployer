@@ -155,6 +155,8 @@ interface AdoptionState {
   version: 1;
   /** generatedAt ids of proposal batches already recorded (last 50 kept). */
   recordedBatches?: string[];
+  /** Set once backfillMissedAdoptionOutcomes() has run for this workspace. */
+  backfilledMissedOutcomes?: boolean;
 }
 
 function readAdoptionState(target: string): AdoptionState {
@@ -511,6 +513,46 @@ export function recordSessionAdoptionOutcomes(
   }
   appendAdoptionEvents(target, toAppend);
   return result;
+}
+
+/**
+ * One-time backfill: recordSessionAdoptionOutcomes() only ever ran from handleSessionStop,
+ * which only ever fired via the Stop hook — and no installer wired that hook up at all until
+ * 1.0.145. On any workspace configured before that fix, "successful"/"reused" adoption
+ * events were never recorded for a single session, ever, even though the underlying success
+ * data was always present in runs.jsonl — producing the exact contradiction a live audit
+ * found: runs.jsonl showing 100% self-reported success on the same invocations
+ * adoption-funnel-summary.json showed as 0% successful.
+ *
+ * Safe to run against every historical session: recordSessionAdoptionOutcomes() is already
+ * idempotent per session+skill (checks alreadySuccessful/alreadyReused before appending), so
+ * sessions that already have correct outcomes recorded (from a workspace that already had a
+ * working Stop hook) simply no-op here. Runs once per workspace (gated by
+ * AdoptionState.backfilledMissedOutcomes) since it iterates every distinct session_id in
+ * runs.jsonl — cheap for one pass, wasteful to repeat every refresh cycle.
+ */
+export function backfillMissedAdoptionOutcomes(
+  target: string
+): { sessionsProcessed: number; successful: number; reused: number } | null {
+  const state = readAdoptionState(target);
+  if (state.backfilledMissedOutcomes) return null;
+
+  const runs = readCachedEnrichedRuns(target);
+  const sessionAgents = new Map<string, RunAgent>();
+  for (const r of runs) {
+    if (r.session_id && !sessionAgents.has(r.session_id)) sessionAgents.set(r.session_id, r.agent);
+  }
+
+  let successful = 0;
+  let reused = 0;
+  for (const [sessionId, agent] of sessionAgents) {
+    const result = recordSessionAdoptionOutcomes(target, sessionId, agent);
+    successful += result.successful.length;
+    reused += result.reused.length;
+  }
+
+  writeAdoptionState(target, { ...state, backfilledMissedOutcomes: true });
+  return { sessionsProcessed: sessionAgents.size, successful, reused };
 }
 
 // ---------------------------------------------------------------------------

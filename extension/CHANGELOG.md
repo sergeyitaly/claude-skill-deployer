@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.146** | Adoption-funnel backfill — closes the loop on 1.0.145: since the Stop hook never fired historically, "successful"/"reused" counts were stuck near zero even on workspaces with a long, genuinely successful run history; one-time backfill recovers it from existing runs.jsonl data |
 | **1.0.145** | Hook-migration catch-up — a second audit run confirmed "no Stop hook" and "5 UserPromptSubmit hooks instead of 3" are real; both traced to one root cause: an already-configured workspace never re-runs the (idempotent) hook installer when the extension adds or consolidates hook categories. Now it does |
 | **1.0.144** | Both re-enable races' fixes made implicit — 1.0.142/1.0.143 only protected a manual re-enable via the VS Code command path; a direct settings.local.json edit (the way agents actually clear overrides) still lost the race. Now detected regardless of how the override got cleared |
 | **1.0.143** | Task-focus race fixed — same-day follow-up to 1.0.142: a live report from a separate real project showed the identical "manual re-enable silently reverted" symptom, this time via task-focus's re-sweep rather than budget gating; same fix shape applied |
@@ -92,6 +93,18 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.146] - 2026-08-12
+
+**Summary:** Direct follow-through on 1.0.145's Stop-hook finding: since `handleSessionStop()` never fired on any workspace that predated it, `recordSessionAdoptionOutcomes()` — the only code path that ever writes a `"successful"`/`"reused"` adoption event — never ran either. This fully explains a live audit's second finding: `runs.jsonl` showing 100% self-reported success on the same invocations `adoption-funnel-summary.json` showed as 0% successful. The data was never contradictory — one side of it was simply never written.
+
+**Theme:** Closing the loop on 1.0.145 — fixing *why* the Stop hook never fired is necessary but not sufficient when historical sessions already have the underlying data sitting unused in `runs.jsonl`.
+
+### Fixed
+
+- **Adoption-funnel "successful" and "reused" counts were structurally stuck at (near) zero on any workspace whose Stop hook was only just installed by 1.0.145, because no historical session ever got the chance to record them.** New one-time `backfillMissedAdoptionOutcomes()` (`skillAdoption.ts`) re-runs the existing, already-idempotent `recordSessionAdoptionOutcomes()` across every distinct `session_id` found in `runs.jsonl` — sessions that already have correct outcomes recorded simply no-op, so this is safe to layer on top of a workspace with a working history too. Wired into `handleSessionStop()`, gated to run once per workspace. 3 new tests in `skillAdoption.test.ts`, 1 end-to-end regression in `hookHandlers.test.ts` proving a *different, older* session's outcomes get backfilled by the current session's Stop hook firing.
 
 ---
 

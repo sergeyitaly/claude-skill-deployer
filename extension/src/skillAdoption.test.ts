@@ -7,6 +7,7 @@ import {
   adoptionLogPath,
   appendAdoptionEvent,
   appendAdoptionEvents,
+  backfillMissedAdoptionOutcomes,
   classifyReuseWindow,
   computeAdoptionFunnel,
   computePerSkillAdoption,
@@ -302,6 +303,56 @@ describe("success detection", () => {
     writeRuns(target, [{ skill: "ci-preflight", session_id: "sess-1", success: true }]);
     recordSessionAdoptionOutcomes(target, "sess-1");
     recordSessionAdoptionOutcomes(target, "sess-1");
+    expect(readAdoptionEvents(target).filter((e) => e.event === "successful")).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backfill: a workspace whose Stop hook was never installed (before 1.0.145)
+// ---------------------------------------------------------------------------
+
+describe("backfillMissedAdoptionOutcomes", () => {
+  it("retroactively records successful/reused outcomes for every historical session, reproducing the reported contradiction (runs.jsonl 100% vs funnel 0%) as fixed", () => {
+    const target = makeWorkspace();
+    // Three distinct sessions, none of which ever had recordSessionAdoptionOutcomes() run —
+    // exactly the state of a workspace whose Stop hook was never installed.
+    writeRuns(target, [
+      { skill: "ci-preflight", session_id: "sess-old-1", success: true, ts: isoDaysAgo(10) },
+      { skill: "ci-preflight", session_id: "sess-old-2", success: true, ts: isoDaysAgo(5) },
+      { skill: "pdf", session_id: "sess-old-3", success: true, ts: isoDaysAgo(1) },
+    ]);
+
+    const result = backfillMissedAdoptionOutcomes(target);
+
+    expect(result).not.toBeNull();
+    expect(result?.sessionsProcessed).toBe(3);
+    expect(result?.successful).toBe(3);
+    const successEvents = readAdoptionEvents(target).filter((e) => e.event === "successful");
+    expect(successEvents.map((e) => e.taskId).sort()).toEqual(["sess-old-1", "sess-old-2", "sess-old-3"]);
+  });
+
+  it("is a one-time no-op on the second call — does not re-scan or duplicate events", () => {
+    const target = makeWorkspace();
+    writeRuns(target, [{ skill: "ci-preflight", session_id: "sess-1", success: true }]);
+
+    const first = backfillMissedAdoptionOutcomes(target);
+    expect(first?.successful).toBe(1);
+
+    const second = backfillMissedAdoptionOutcomes(target);
+    expect(second).toBeNull();
+    expect(readAdoptionEvents(target).filter((e) => e.event === "successful")).toHaveLength(1);
+  });
+
+  it("does not duplicate outcomes for a session that already had them recorded normally", () => {
+    const target = makeWorkspace();
+    writeRuns(target, [{ skill: "ci-preflight", session_id: "sess-1", success: true }]);
+    // Simulates a workspace where the Stop hook DID fire for this session already.
+    recordSessionAdoptionOutcomes(target, "sess-1");
+    expect(readAdoptionEvents(target).filter((e) => e.event === "successful")).toHaveLength(1);
+
+    const result = backfillMissedAdoptionOutcomes(target);
+
+    expect(result?.successful).toBe(0); // already recorded — correctly a no-op for this session
     expect(readAdoptionEvents(target).filter((e) => e.event === "successful")).toHaveLength(1);
   });
 });
