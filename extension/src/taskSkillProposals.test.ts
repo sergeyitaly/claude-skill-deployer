@@ -6,6 +6,7 @@ import { Manifest } from "./skillOps";
 import { appendAdoptionEvents } from "./skillAdoption";
 import {
   areTaskSkillProposalsFresh,
+  computeAffinityAdoptionWeight,
   computeTaskSkillProposals,
   ensureWorkspaceTaskProposals,
   filterProposalsByMinConfidence,
@@ -389,5 +390,76 @@ describe("formatPromptTimeSkillRecommendation", () => {
     expect(
       formatPromptTimeSkillRecommendation(target, new Set(["vitest-extension-testing"]))
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeAffinityAdoptionWeight — recency window + floor, not permanent hard zero
+// ---------------------------------------------------------------------------
+
+describe("computeAffinityAdoptionWeight", () => {
+  function writeProposalOutcomes(
+    target: string,
+    records: Array<{ proposed: string[]; invoked: string[]; ts: string }>
+  ): void {
+    const file = path.join(target, ".claude", "learning", "proposalOutcome.jsonl");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const lines = records.map((r, i) =>
+      JSON.stringify({
+        ts: r.ts,
+        session_id: `sess-${i}`,
+        event: "session_end",
+        proposed: r.proposed,
+        invoked: r.invoked,
+        not_invoked: r.proposed.filter((s) => !r.invoked.includes(s)),
+        acceptance_rate: r.proposed.length > 0 ? r.invoked.length / r.proposed.length : 0,
+        skills_proposed_count: r.proposed.length,
+        skills_invoked_count: r.invoked.length,
+      })
+    );
+    fs.writeFileSync(file, lines.join("\n") + "\n", "utf-8");
+  }
+
+  const isoDaysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+
+  it("regression: a floor (0.3), not a permanent hard zero, once a skill is proposed >=5 times with 0% recent acceptance", () => {
+    // Live-reported bug: this returned 0.0, contradicting its own docstring ("0.3 (hard
+    // floor, not 0 — affinity still valid signal)") and eliminating repositoryAffinity
+    // entirely rather than discounting it.
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "affinity-weight-"));
+    writeProposalOutcomes(
+      target,
+      Array.from({ length: 5 }, (_, i) => ({
+        proposed: ["never-picked"],
+        invoked: [],
+        ts: isoDaysAgo(i),
+      }))
+    );
+
+    expect(computeAffinityAdoptionWeight(target, "never-picked")).toBe(0.3);
+  });
+
+  it("regression: old (pre-window) rejection history does not permanently zero a skill's affinity forever", () => {
+    // Reproduces the reported self-reinforcing pattern: a skill rejected 5+ times entirely
+    // outside the 30-day window must not still register as "≥5 proposals, 0% acceptance" —
+    // recentProposalStats() should see it as having no recent history at all.
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "affinity-weight-old-"));
+    writeProposalOutcomes(
+      target,
+      Array.from({ length: 6 }, (_, i) => ({
+        proposed: ["ancient-history-skill"],
+        invoked: [],
+        ts: isoDaysAgo(60 + i),
+      }))
+    );
+
+    expect(computeAffinityAdoptionWeight(target, "ancient-history-skill")).toBe(1.0);
+  });
+
+  it("returns 1.0 for a skill with too little history to judge (proposedCount < 3)", () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), "affinity-weight-sparse-"));
+    writeProposalOutcomes(target, [{ proposed: ["rare-skill"], invoked: [], ts: isoDaysAgo(1) }]);
+
+    expect(computeAffinityAdoptionWeight(target, "rare-skill")).toBe(1.0);
   });
 });

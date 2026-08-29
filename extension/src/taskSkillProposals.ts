@@ -4,7 +4,7 @@ import { CATCH_ALL_GLOBS, detectRelevantSkills, ensureGitExcludeEntry, Manifest 
 import { invalidateLearningCache, readCachedEnrichedRuns } from "./runsStore";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
 import { profileInitRequiredSkills } from "./profileInit";
-import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, getSuppressedByFeedback, historicalSuccess } from "./proposalOutcome";
+import { computeAllSkillPenalties, confidenceCalibration, getDormantSkills, getSuppressedByFeedback, historicalSuccess, recentProposalStats } from "./proposalOutcome";
 import { getOrComputeRepoAffinity } from "./repoAffinity";
 import { enrichProposal, estimateBenefitMinutes } from "./adoptionIntelligence";
 import { appendConfidenceSnapshots } from "./confidenceTrend";
@@ -351,13 +351,22 @@ function buildRecentSkills(target: string): RecentSkills {
  * proposedCount ≥ 3, acceptanceRate 0–0.15  → lerp 0.3–1.0
  * proposedCount ≥ 5, acceptanceRate 0        → 0.3 (hard floor, not 0 — affinity still valid signal)
  */
-function computeAffinityAdoptionWeight(target: string, skillName: string): number {
-  const hist = historicalSuccess(target, skillName);
+export function computeAffinityAdoptionWeight(target: string, skillName: string): number {
+  // Recency-windowed (30d), not all-time: an unbounded lifetime count meant a skill's
+  // affinity could get stuck at the floor forever from history predating a real tracking
+  // bug (e.g. the Stop hook never having been installed until 1.0.145, or the
+  // accepted-outcome backfill in 1.0.146), with no way to recover once tracking was fixed.
+  // A live audit found the resulting self-reinforcing pattern directly: 0/120 proposals
+  // ever accepted over 90 days, and repositoryAffinity: 0 on every one of 128 recorded
+  // confidence snapshots. The 30-day window lets a skill's affinity reconsider once fresh,
+  // correctly-tracked evidence accumulates instead of staying poisoned by old history.
+  const hist = recentProposalStats(target, skillName, 30);
   if (hist.proposedCount < 3) return 1.0;
   if (hist.acceptanceRate >= 0.15) return 1.0;
-  // Hard zero: a skill proposed ≥5 times and never invoked has proven it's not wanted
-  // in this repo's workflow. Affinity eliminated — only explicit prompt signals can revive it.
-  if (hist.proposedCount >= 5 && hist.acceptanceRate === 0) return 0.0;
+  // Floor, not hard zero — this docstring's own contract above already says "0.3 (hard
+  // floor, not 0 — affinity still valid signal)"; the code previously returned 0.0 here,
+  // contradicting it and eliminating the signal entirely rather than just discounting it.
+  if (hist.proposedCount >= 5 && hist.acceptanceRate === 0) return 0.3;
   // Smooth decay: 0% acceptance → 0.3, 15% acceptance → 1.0
   const weight = 0.3 + (hist.acceptanceRate / 0.15) * 0.7;
   return Math.max(0.3, Math.min(1.0, weight));

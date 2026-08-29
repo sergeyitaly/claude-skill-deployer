@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.149
+
+### Recommendation confidence can actually recover now, instead of getting stuck at zero forever
+
+Found the reason skill-recommendation confidence scores could look permanently flat: one of the scoring signals (repository affinity) could get eliminated for good the first time a skill was proposed a handful of times without being used — even if that history predated a real tracking bug that's since been fixed. It now looks at the last 30 days instead of all-time history, so a skill's score can genuinely reflect recent, accurate signal instead of being stuck by something that happened months ago.
+
 ## What's new in 1.0.148
 
 ### A third place skills could silently get re-disabled, closed — plus stale-data and startup-cost cleanup

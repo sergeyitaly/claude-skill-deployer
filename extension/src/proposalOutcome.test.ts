@@ -6,6 +6,7 @@ import {
   computeAllSkillPenalties,
   confidenceCalibration,
   getDormantSkills,
+  recentProposalStats,
 } from "./proposalOutcome";
 import { isDormantSkill } from "./adoptionIntelligence";
 import { encodeWorkspacePath } from "./workspaceTranscripts";
@@ -42,13 +43,13 @@ function makeTarget(): string {
 /** Write proposalOutcome.jsonl with the given session records. */
 function writeOutcomes(
   target: string,
-  records: Array<{ proposed: string[]; invoked: string[]; sessionId?: string }>
+  records: Array<{ proposed: string[]; invoked: string[]; sessionId?: string; ts?: string }>
 ): void {
   const file = path.join(target, ".claude", "learning", "proposalOutcome.jsonl");
   const lines = records.map((r, i) => {
     const not_invoked = r.proposed.filter(s => !r.invoked.includes(s));
     return JSON.stringify({
-      ts: new Date().toISOString(),
+      ts: r.ts ?? new Date().toISOString(),
       session_id: r.sessionId ?? `session-${i}`,
       event: "session_end",
       proposed: r.proposed,
@@ -428,5 +429,49 @@ describe("attribution-gap awareness", () => {
     writeOutcomes(target, nNotInvoked(6, "genuinely-ignored"));
     expect(confidenceCalibration(target, "genuinely-ignored")).toBe(0.0);
     expect(getDormantSkills(target).has("genuinely-ignored")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recentProposalStats — recency window for computeAffinityAdoptionWeight()
+// ---------------------------------------------------------------------------
+
+describe("recentProposalStats", () => {
+  const isoDaysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+
+  it("regression: old (pre-window) proposed/not-invoked history does not count against a skill forever", () => {
+    // Live-reported pattern: computeAffinityAdoptionWeight() used historicalSuccess()'s
+    // all-time count, so a skill's repositoryAffinity could get permanently zeroed by
+    // history predating a real tracking bug (the Stop hook never installed until 1.0.145),
+    // with no way to recover once tracking was fixed. recentProposalStats() must not count
+    // outcomes from outside its window at all.
+    const target = makeTarget();
+    writeOutcomes(target, [
+      { proposed: ["old-skill"], invoked: [], ts: isoDaysAgo(90) },
+      { proposed: ["old-skill"], invoked: [], ts: isoDaysAgo(60) },
+      { proposed: ["old-skill"], invoked: [], ts: isoDaysAgo(45) },
+      { proposed: ["old-skill"], invoked: [], ts: isoDaysAgo(40) },
+      { proposed: ["old-skill"], invoked: [], ts: isoDaysAgo(35) },
+    ]);
+
+    const stats = recentProposalStats(target, "old-skill", 30);
+
+    expect(stats.proposedCount).toBe(0);
+    expect(stats.acceptanceRate).toBe(0);
+  });
+
+  it("counts only outcomes within the window, correctly computing acceptance rate from those alone", () => {
+    const target = makeTarget();
+    writeOutcomes(target, [
+      { proposed: ["skill-a"], invoked: [], ts: isoDaysAgo(90) }, // outside window, ignored
+      { proposed: ["skill-a"], invoked: ["skill-a"], ts: isoDaysAgo(10) },
+      { proposed: ["skill-a"], invoked: [], ts: isoDaysAgo(5) },
+      { proposed: ["skill-a"], invoked: [], ts: isoDaysAgo(1) },
+    ]);
+
+    const stats = recentProposalStats(target, "skill-a", 30);
+
+    expect(stats.proposedCount).toBe(3);
+    expect(stats.acceptanceRate).toBeCloseTo(1 / 3, 5);
   });
 });

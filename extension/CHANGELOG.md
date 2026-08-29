@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.149** | Found the root cause behind "confidence scores never move" — a self-reinforcing bug where repositoryAffinity could be permanently zeroed by history predating a real tracking fix, with no recovery path; now uses a 30-day recency window and a floor instead of a permanent hard zero |
 | **1.0.148** | Fourth audit round, acted on in full — a third independent disable path (branch profiles) with no user-reenable awareness, 39 dead override entries, a structurally-always-false feedback field removed, an "uncached network call every session boot" fix, and a dashboard-render write-amplification bug; 3 other findings verified with real data and confirmed already-fixed/intentional rather than re-fixed blind |
 | **1.0.147** | Copilot bootstrap sync unstuck — `.github/copilot-instructions.md` could go stale for months once a workspace's task-focus proposals settled, the third occurrence this week of "conditional call never re-runs once settled" (after CLAUDE.md and cost-control hooks); now unconditional |
 | **1.0.146** | Adoption-funnel backfill — closes the loop on 1.0.145: since the Stop hook never fired historically, "successful"/"reused" counts were stuck near zero even on workspaces with a long, genuinely successful run history; one-time backfill recovers it from existing runs.jsonl data |
@@ -95,6 +96,25 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.149] - 2026-08-29
+
+**Summary:** A fifth audit round (a different real project) named the most persistent, recurring complaint of this whole cycle with new precision: `workspaceAffinity: 0, repositoryAffinity: 0, adoptionSuccess: 0` on literally every one of 128 recorded confidence snapshots, alongside 0/120 proposals ever accepted over 90 days. Tracing `repositoryAffinity`'s computation found a genuine, self-reinforcing root cause — not a coincidence that both numbers showed up together.
+
+**Theme:** The confidence-score stagnation flagged as "deliberately not investigated" in 1.0.146 and 1.0.148 finally has a real, fixable cause, not just a symptom.
+
+### Fixed
+
+- **`repositoryAffinity` could get permanently zeroed for a skill by history predating a real tracking bug, with no way to recover even after that tracking was fixed.** `computeAffinityAdoptionWeight()` used `historicalSuccess()`'s all-time, unbounded proposal/acceptance count — so a skill that accumulated ≥5 proposed-but-never-invoked outcomes at *any point in its lifetime* (including before 1.0.145's Stop-hook-installer fix or 1.0.146's outcome backfill made that tracking trustworthy) got its repository-affinity signal eliminated permanently, per the code's own comment: "only explicit prompt signals can revive it." Once enough skills cross that threshold, confidence scoring has nothing left to move — exactly the pattern this and prior audit rounds kept finding. New `recentProposalStats()` (`proposalOutcome.ts`) computes the same stats over a 30-day rolling window instead, so a skill's affinity can genuinely reconsider once fresh, correctly-tracked evidence accumulates.
+- **The "hard zero" case also literally contradicted its own docstring.** The comment directly above `computeAffinityAdoptionWeight()` documents the contract as "0.3 (hard floor, not 0 — affinity still valid signal)" — the code returned `0.0`. Fixed to return `0.3`, matching the documented design; a rejected skill now gets discounted, not erased.
+- 5 new regression tests (`proposalOutcome.test.ts` ×2, `taskSkillProposals.test.ts` ×3), including one that reproduces the exact reported pattern (≥5 proposals, 0% recent acceptance → floor, not permanent zero) and one confirming old, out-of-window rejection history no longer counts against a skill at all.
+
+### Not conclusively resolved this round (insufficient data access to confirm root cause)
+
+- **Kiro/Copilot skill mirrors reported 2+ months stale in the same audited project, and `.cursor/` synced today but only carries 15 of 28 skills.** Investigated the sync gating (`agentMirrorsNeedSync()`) — it's already wired into the unconditional refresh loop (not the same "conditional gate" shape as 1.0.133/1.0.145/1.0.147's bugs), so the more likely explanation is that Kiro/Copilot simply aren't enabled agents for that workspace (in which case this is correct, not a bug) — but that can't be confirmed without seeing the workspace's own `claudeSkills.agents.enabled` setting. Flagged rather than guessed at.
+- **`attribution.status: "broken"` (confidence 0.35) alongside "Attribution v2 hooks installed" firing 3 separate times over 4 days.** A repeatedly-refired install event on an idempotent installer means something real changed each time — plausibly the known Windows hook-server port-fallback behavior (an orphaned prior server process holds the default port, forcing a new one on each session, which the self-healing stale-port-replacement logic then has to rewrite hook commands to match) causing brief attribution gaps around each transition — but this is a plausible mechanism, not a confirmed one, without direct access to that project's own hook-health/port history.
 
 ---
 

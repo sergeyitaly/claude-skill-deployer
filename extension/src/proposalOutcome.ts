@@ -295,6 +295,40 @@ export function historicalSuccess(target: string, skillName: string): SkillHisto
   };
 }
 
+/**
+ * Recency-windowed acceptance stats — unlike historicalSuccess()'s all-time count, this is
+ * what taskSkillProposals.ts's computeAffinityAdoptionWeight() should use for its "hard
+ * zero" decision (repositoryAffinity permanently eliminated once a skill is proposed ≥5
+ * times with 0% acceptance). Using the all-time count there meant a skill's affinity could
+ * get permanently zeroed by history predating a real tracking bug (e.g. the Stop hook never
+ * having been installed until 1.0.145, or the accepted-outcome backfill in 1.0.146) — with
+ * no decay or re-evaluation once the underlying tracking was fixed. A live audit found this
+ * exact self-reinforcing pattern: 0/120 proposals ever accepted over 90 days, and
+ * repositoryAffinity: 0 on literally every one of 128 recorded confidence snapshots — once
+ * enough skills cross the permanent-zero threshold, nothing in the scoring can recover, no
+ * matter how good later tracking becomes. A 30-day window lets a skill's affinity
+ * genuinely reconsider once fresh (correctly-tracked) evidence accumulates, instead of
+ * staying poisoned by history from before the tracking itself was trustworthy.
+ */
+export function recentProposalStats(
+  target: string,
+  skillName: string,
+  daysBack = 30
+): { proposedCount: number; acceptanceRate: number } {
+  const cutoffMs = Date.now() - daysBack * 86_400_000;
+  const outcomes = readProposalOutcomes(target);
+  let proposedCount = 0;
+  let invokedCount = 0;
+  for (const o of outcomes) {
+    if (new Date(o.ts).getTime() < cutoffMs) continue;
+    if (o.proposed?.includes(skillName)) {
+      proposedCount++;
+      if (o.invoked?.includes(skillName)) invokedCount++;
+    }
+  }
+  return { proposedCount, acceptanceRate: proposedCount > 0 ? invokedCount / proposedCount : 0 };
+}
+
 /** Acceptance rate for a skill across all recorded sessions. */
 export function getAcceptanceRate(target: string, skillName: string): { rate: number; sessions: number } {
   const outcomes = readProposalOutcomes(target);
