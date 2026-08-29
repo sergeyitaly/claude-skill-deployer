@@ -5,7 +5,7 @@ import { propagateCostDisciplineToAgents } from "./agentMirrorSync";
 import { bootstrapWorkspaceForHostAgent } from "./hostAgentBootstrap";
 import { readJsonFile, writeJsonAtomic } from "./fileWriteCoordination";
 import { mergeProfileInitSkills, profileInitRequiredSkills } from "./profileInit";
-import { setSkillOverride, readSkillOverrides, settingsLocalPath } from "./skillOps";
+import { setSkillOverride, readSkillOverrides, settingsLocalPath, SkillOverrideValue } from "./skillOps";
 import { readTaskSkillProposals, resolveProposalSkillNames } from "./taskSkillProposals";
 import { listInstalledSkills } from "./usageStats";
 import { capActiveSkills, readTaskFocusLimits } from "./taskFocusConfig";
@@ -93,6 +93,14 @@ export function clearTaskFocusTrackingForSkill(target: string, skillName: string
   });
 }
 
+/** True when the user has explicitly re-enabled this skill after task-focus disabled it —
+ *  other disable paths with no awareness of task-focus's own ledger (e.g. branchProfiles.ts's
+ *  branch-committed-skill sweep) should check this before disabling too, or they silently
+ *  undo the user's choice the same way applyTaskSkillFocus() itself used to (see 1.0.144). */
+export function isTaskFocusUserReenabled(target: string, skillName: string): boolean {
+  return !!readTaskFocusMeta(target).userReenabledSkills?.includes(skillName);
+}
+
 /** Merge skill names into the durable task-focus ledger without touching skillOverrides
  * itself — used by callers (e.g. sessionSkillApply.ts) that force-disable skills via
  * applyBranchProfile's disableUndesired sweep, a second writer that has no ledger access
@@ -138,6 +146,91 @@ export function writeTaskActiveSkills(target: string, data: TaskActiveSkillsFile
   writeJsonAtomic(taskActiveSkillsPath(target), data);
 }
 
+type TaskFocusSkillAction = "skip" | "reclaim" | "disable" | "already-disabled";
+
+/** Classifies one non-active skill for applyTaskSkillFocus()'s sweep — pulled out to keep
+ *  that function's own cognitive complexity down (SonarQube S3776), same pattern as
+ *  budgetOps.ts's classifySkillForBudgetDisable(). */
+function classifySkillForTaskFocus(
+  name: string,
+  overrides: Record<string, SkillOverrideValue>,
+  userReenabled: Set<string>,
+  previouslyIgnored: Set<string>
+): TaskFocusSkillAction {
+  if (userReenabled.has(name)) {
+    return "skip";
+  }
+  const isOff = overrides[name] === "off";
+  if (previouslyIgnored.has(name) && !isOff) {
+    // Implicit re-enable: the last sweep disabled this skill, but its override isn't "off"
+    // anymore — something cleared it since then, by whatever means. Respect that instead of
+    // re-disabling it on this pass.
+    return "reclaim";
+  }
+  return isOff ? "already-disabled" : "disable";
+}
+
+/** Prunes skillOverrides entries for skills that no longer exist on disk at all — an
+ *  override for an uninstalled skill can never mean anything again and is pure clutter
+ *  (confirmed live: a real workspace had 39 override entries against 33 installed skills).
+ *  Unconditional: unlike the active-set sweep, there is no "some other subsystem still
+ *  needs this" case for a skill that's been removed entirely. Returns the count cleared. */
+function pruneOverridesForUninstalledSkills(
+  target: string,
+  overrides: Record<string, SkillOverrideValue>,
+  installedSet: Set<string>
+): number {
+  let cleared = 0;
+  for (const name of Object.keys(overrides)) {
+    if (!installedSet.has(name)) {
+      setSkillOverride(target, name, undefined);
+      cleared++;
+    }
+  }
+  return cleared;
+}
+
+/** Runs the per-skill active/reclaim/disable sweep over every installed skill — pulled out
+ *  of applyTaskSkillFocus() to keep that function's own cognitive complexity down. */
+function sweepInstalledSkills(
+  target: string,
+  installed: string[],
+  activeSet: Set<string>,
+  overrides: Record<string, SkillOverrideValue>,
+  userReenabled: Set<string>,
+  previouslyIgnored: Set<string>
+): { ignoredSkills: string[]; overridesApplied: number; newlyReclaimed: string[] } {
+  const ignoredSkills: string[] = [];
+  const newlyReclaimed: string[] = [];
+  let overridesApplied = 0;
+
+  for (const name of installed) {
+    if (activeSet.has(name)) {
+      if (overrides[name] === "off") {
+        setSkillOverride(target, name, undefined);
+        overridesApplied++;
+      }
+      continue;
+    }
+    const action = classifySkillForTaskFocus(name, overrides, userReenabled, previouslyIgnored);
+    if (action === "skip") {
+      continue;
+    }
+    if (action === "reclaim") {
+      // Promote to the durable ledger so it stays protected on every future sweep too.
+      newlyReclaimed.push(name);
+      continue;
+    }
+    if (action === "disable") {
+      setSkillOverride(target, name, "off");
+      overridesApplied++;
+    }
+    ignoredSkills.push(name);
+  }
+
+  return { ignoredSkills, overridesApplied, newlyReclaimed };
+}
+
 /** Personal ignore list: skillOverrides off for installed skills outside the task set. */
 export function applyTaskSkillFocus(
   target: string,
@@ -159,8 +252,6 @@ export function applyTaskSkillFocus(
   const activeSet = new Set(activeSkills);
   const installed = listInstalledSkills(target);
   const overrides = readSkillOverrides(target);
-  const ignoredSkills: string[] = [];
-  let overridesApplied = 0;
   const priorMeta = readTaskFocusMeta(target);
   const userReenabled = new Set(priorMeta.userReenabledSkills ?? []);
   // Skills the LAST sweep disabled — used below to detect an implicit re-enable (any way
@@ -168,38 +259,11 @@ export function applyTaskSkillFocus(
   // settings.local.json, another tool). userReenabledSkills only catches the command path;
   // this catches every other path too, without needing to know how the clear happened.
   const previouslyIgnored = new Set(priorMeta.disabledByTaskFocus ?? []);
-  const newlyReclaimed: string[] = [];
 
-  for (const name of installed) {
-    if (activeSet.has(name)) {
-      if (overrides[name] === "off") {
-        setSkillOverride(target, name, undefined);
-        overridesApplied++;
-      }
-      continue;
-    }
-    // User explicitly re-enabled this after a prior task-focus sweep disabled it (see
-    // TaskFocusMeta.userReenabledSkills) — leave it alone even though it's outside the
-    // active set, rather than silently re-disabling it on this recompute.
-    if (userReenabled.has(name)) {
-      continue;
-    }
-    // Implicit re-enable: the last sweep disabled this skill, but its override isn't "off"
-    // anymore — something cleared it since then, by whatever means. Respect that instead of
-    // re-disabling it on this pass, and promote it to the durable ledger so it stays
-    // protected on every future sweep too, not just this one.
-    if (previouslyIgnored.has(name) && overrides[name] !== "off") {
-      newlyReclaimed.push(name);
-      continue;
-    }
-    if (overrides[name] !== "off") {
-      setSkillOverride(target, name, "off");
-      ignoredSkills.push(name);
-      overridesApplied++;
-    } else {
-      ignoredSkills.push(name);
-    }
-  }
+  const swept = sweepInstalledSkills(target, installed, activeSet, overrides, userReenabled, previouslyIgnored);
+  const { ignoredSkills, newlyReclaimed } = swept;
+  let overridesApplied = swept.overridesApplied;
+  overridesApplied += pruneOverridesForUninstalledSkills(target, overrides, new Set(installed));
 
   const sortedIgnored = [...ignoredSkills].sort((a, b) => a.localeCompare(b));
 

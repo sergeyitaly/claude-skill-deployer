@@ -1,15 +1,29 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import * as childProcess from "node:child_process";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  checkOfficialSkillUpdates,
   classifyOfficialSkillCandidates,
   formatOfficialSkillsSessionContext,
   listLocalSkillNames,
+  OFFICIAL_SKILLS_CHECK_TTL_MS,
   readOfficialSkillsState,
   resolveSkillsLibraryDir,
   workspaceUsesOfficialSkillUpdater,
+  writeOfficialSkillsState,
 } from "./officialSkillsSync";
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  execFileSync: vi.fn(() => "deadbeef1234\tHEAD\n"),
+}));
+
+// No real network calls in tests — fetchUpstreamSkillNames() always fails fast here, which
+// is fine: the TTL-gate tests below only care about whether execFileSync (git ls-remote)
+// ran, and both the success and failure paths after it now cache repoSha the same way.
+vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network disabled in tests"))));
 
 const workspaces: string[] = [];
 
@@ -92,5 +106,56 @@ describe("officialSkillsSync", () => {
     const root = makeLibrary();
     const names = listLocalSkillNames(path.join(root, "skills_library"));
     expect(names.has("existing-skill")).toBe(true);
+  });
+});
+
+describe("checkOfficialSkillUpdates — TTL gate (previously missing entirely)", () => {
+  afterEach(() => {
+    vi.mocked(childProcess.execFileSync).mockClear();
+  });
+
+  it("regression: no state file at all means the network check always ran — now still checks, but persists state for next time", async () => {
+    // Confirmed live: writeOfficialSkillsState() didn't exist anywhere in production code,
+    // so readOfficialSkillsState() always returned null and every single SessionStart paid
+    // a real git-ls-remote round trip (avg ~880ms, up to a 15s timeout), despite the
+    // skill's own docs calling this "a cheap check."
+    const root = makeLibrary();
+    const libraryDir = path.join(root, "skills_library");
+    expect(readOfficialSkillsState(libraryDir)).toBeNull();
+
+    await checkOfficialSkillUpdates(libraryDir);
+
+    expect(childProcess.execFileSync).toHaveBeenCalledTimes(1);
+    const state = readOfficialSkillsState(libraryDir);
+    expect(state?.repoSha).toBe("deadbeef1234");
+    expect(state?.lastCheckedAt).toBeDefined();
+  });
+
+  it("skips the network entirely when the last check is within the TTL window", async () => {
+    const root = makeLibrary();
+    const libraryDir = path.join(root, "skills_library");
+    writeOfficialSkillsState(libraryDir, {
+      repoSha: "cachedsha",
+      lastCheckedAt: new Date(Date.now() - 60_000).toISOString(), // 1 minute ago
+    });
+
+    const result = await checkOfficialSkillUpdates(libraryDir);
+
+    expect(childProcess.execFileSync).not.toHaveBeenCalled();
+    expect(result.unchanged).toBe(true);
+    expect(result.remoteSha).toBe("cachedsha");
+  });
+
+  it("checks the network again once the TTL window has passed", async () => {
+    const root = makeLibrary();
+    const libraryDir = path.join(root, "skills_library");
+    writeOfficialSkillsState(libraryDir, {
+      repoSha: "staleSha",
+      lastCheckedAt: new Date(Date.now() - OFFICIAL_SKILLS_CHECK_TTL_MS - 60_000).toISOString(),
+    });
+
+    await checkOfficialSkillUpdates(libraryDir);
+
+    expect(childProcess.execFileSync).toHaveBeenCalledTimes(1);
   });
 });

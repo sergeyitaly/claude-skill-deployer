@@ -5,7 +5,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { shouldSyncWorkspaceToAll, syncWorkspaceSkillsToAllAgents } from "./agentOps";
+import { isBudgetUserReenabled } from "./budgetOps";
 import { tierForSkill, estimateSessionCostUsd, formatCompactUsd } from "./skillCost";
+import { isTaskFocusUserReenabled } from "./taskSkillFocus";
 import {
   copySkill,
   globalSkillsDir,
@@ -462,7 +464,16 @@ export function applyBranchProfile(
       // a skill set via this same reconciliation machinery without force-disabling every
       // other installed skill outside it — that sweep is only correct for a genuine
       // branch-switch reconciliation, not "these are today's top proposals."
-      if (disableUndesired && currentOverrides[skill] !== "off") {
+      // Third independent disable path with no awareness of the other two subsystems'
+      // "user explicitly re-enabled this" ledgers — confirmed live (extension-value-audit
+      // report, 2026-08-12): a skill just reclaimed by taskSkillFocus.ts's own fix got
+      // silently re-disabled here instead, since this sweep never checked either ledger.
+      if (
+        disableUndesired &&
+        currentOverrides[skill] !== "off" &&
+        !isTaskFocusUserReenabled(target, skill) &&
+        !isBudgetUserReenabled(target, skill)
+      ) {
         setSkillOverride(target, skill, "off");
         result.overridesApplied++;
         result.disabledUndesired.push(skill);
@@ -485,8 +496,12 @@ export function applyBranchProfile(
     // disableUndesired sweep above — this loop had no gate at all before, and was the
     // actual mechanism silently undoing reclaimOrphanedTaskFocusOverrides()'s work
     // (confirmed live, 2026-07-15 investigation). Reapplying "on" (or any other value)
-    // never conflicts with task-focus, so only "off" needs the gate.
-    if (value === "off" && !disableUndesired) {
+    // never conflicts with task-focus, so only "off" needs the gate. Same
+    // userReenabled check as the sweep above, for the same reason (2026-08-12 report).
+    if (
+      value === "off" &&
+      (!disableUndesired || isTaskFocusUserReenabled(target, skill) || isBudgetUserReenabled(target, skill))
+    ) {
       continue;
     }
     setSkillOverride(target, skill, value);

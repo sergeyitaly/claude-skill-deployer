@@ -70,12 +70,22 @@ export type RejectionReason =
   | "missing_context" // skill needed context that wasn't provided
   | "other";
 
+/**
+ * Every record here is, by construction, a rejection — accepted proposals are filtered out
+ * before appendRecommendationFeedback() is ever called (see recordSessionRejectionFeedback's
+ * `if (invokedSet.has(skill)) continue;`), and both call sites only ever run for a
+ * not-invoked/dismissed skill. This file previously carried an `accepted: boolean` field
+ * that could structurally never be anything but `false` — confirmed live: 94/94 recorded
+ * rows, 0 with accepted:true — making every `!f.accepted` read site a dead, always-true
+ * check. Removed rather than fixed forward, since there was never a real "accepted" case
+ * for it to represent; real acceptance is tracked in proposalOutcome.jsonl/skill-adoption.jsonl
+ * instead.
+ */
 export interface RecommendationFeedback {
   ts: string;
   session_id: string;
   skill: string;
   proposed: boolean;
-  accepted: boolean;
   reason: RejectionReason;
   confidence?: number;
   copilot_instruction_file?: string; // Path to the Copilot instruction file if applicable
@@ -134,7 +144,6 @@ export function recordSessionRejectionFeedback(
       session_id: sessionId,
       skill,
       proposed: true,
-      accepted: false,
       reason: "ignored", // skill was proposed but not used this session
     });
   }
@@ -163,7 +172,6 @@ export function recordRejectionReason(
     session_id: sessionId,
     skill: options.skillName,
     proposed: true,
-    accepted: false,
     reason: options.reason,
     confidence: options.confidence,
     copilot_instruction_file: options.copilotInstructionFile,
@@ -189,7 +197,7 @@ export function analyzeRejectionReasons(target: string, skillName: string): Reco
   };
 
   for (const f of feedback) {
-    if (f.skill === skillName && !f.accepted) {
+    if (f.skill === skillName) {
       counts[f.reason] = (counts[f.reason] || 0) + 1;
     }
   }
@@ -246,7 +254,7 @@ export function computeAllSkillPenalties(target: string): Record<string, number>
   const feedback = readRecommendationFeedback(target);
   const rejectionCounts: Record<string, number> = {};
   for (const f of feedback) {
-    if (!f.accepted && f.reason !== "ignored") {
+    if (f.reason !== "ignored") {
       rejectionCounts[f.skill] = (rejectionCounts[f.skill] ?? 0) + 4;
     }
   }
@@ -324,7 +332,7 @@ export function getSuppressedByFeedback(target: string): Set<string> {
   const feedback = readRecommendationFeedback(target);
   const counts: Record<string, number> = {};
   for (const f of feedback) {
-    if (!f.accepted) counts[f.skill] = (counts[f.skill] ?? 0) + 1;
+    counts[f.skill] = (counts[f.skill] ?? 0) + 1;
   }
   return new Set(Object.entries(counts).filter(([, n]) => n >= 3).map(([sk]) => sk));
 }

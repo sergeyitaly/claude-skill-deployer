@@ -24,7 +24,9 @@ vi.mock("vscode", () => ({
 }));
 
 import { applyBranchProfile, BranchSkillProfile } from "./branchProfiles";
-import { readSkillOverrides } from "./skillOps";
+import { clearBudgetTrackingForSkill } from "./budgetOps";
+import { readSkillOverrides, setSkillOverride } from "./skillOps";
+import { clearTaskFocusTrackingForSkill } from "./taskSkillFocus";
 
 const workspaces: string[] = [];
 
@@ -93,6 +95,48 @@ describe("applyBranchProfile — profileOverrides reapplication respects claudeS
     const profile = profileWithOverrides({ "mcp-builder": "off" });
 
     const result = applyBranchProfile("unused-library-dir", target, profile, { disableUndesired: false });
+
+    expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
+    expect(result.overridesApplied).toBe(0);
+  });
+
+  it("regression: does not silently re-disable a skill the user just reclaimed via taskSkillFocus's own userReenabledSkills ledger (extension-value-audit report, 2026-08-12)", () => {
+    // Live-reported bug: taskSkillFocus.ts's applyTaskSkillFocus() and budgetOps.ts's
+    // disableHighTierSkills() both respect userReenabledSkills — but applyBranchProfile()'s
+    // profileOverrides reconciliation is a THIRD, independent setSkillOverride(..., "off")
+    // caller that had no awareness of either ledger, so a skill just reclaimed by one of the
+    // other two fixes got silently re-disabled here instead.
+    const target = makeWorkspace();
+    const profile = profileWithOverrides({ "mcp-builder": "off" });
+
+    // First apply: branch profile disables it as normal (disableUndesired: true, matching
+    // the "Apply Branch Skill Profile" command path).
+    applyBranchProfile("unused-library-dir", target, profile, { disableUndesired: true });
+    expect(readSkillOverrides(target)["mcp-builder"]).toBe("off");
+
+    // User manually re-enables it — exactly what claudeSkills.enableSkillLocally does.
+    setSkillOverride(target, "mcp-builder", undefined);
+    clearTaskFocusTrackingForSkill(target, "mcp-builder");
+
+    // Branch profile reconciliation runs again (e.g. another branch-sync event) with the
+    // SAME saved profile still wanting it off — must not silently undo the user's choice.
+    const result = applyBranchProfile("unused-library-dir", target, profile, { disableUndesired: true });
+
+    expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
+    expect(result.overridesApplied).toBe(0);
+  });
+
+  it("regression: also respects budgetOps's userReenabledSkills ledger, not just taskSkillFocus's", () => {
+    const target = makeWorkspace();
+    const profile = profileWithOverrides({ "mcp-builder": "off" });
+
+    applyBranchProfile("unused-library-dir", target, profile, { disableUndesired: true });
+    expect(readSkillOverrides(target)["mcp-builder"]).toBe("off");
+
+    setSkillOverride(target, "mcp-builder", undefined);
+    clearBudgetTrackingForSkill(target, "mcp-builder");
+
+    const result = applyBranchProfile("unused-library-dir", target, profile, { disableUndesired: true });
 
     expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
     expect(result.overridesApplied).toBe(0);

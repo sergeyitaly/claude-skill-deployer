@@ -81,7 +81,10 @@ describe("recordSessionRejectionFeedback wiring into the adoption funnel", () =>
     const feedbackFile = path.join(target, ".claude", "learning", "recommendation-feedback.jsonl");
     const feedback = fs.readFileSync(feedbackFile, "utf-8").trim().split("\n").map((l) => JSON.parse(l));
     expect(feedback).toHaveLength(1);
-    expect(feedback[0]).toMatchObject({ skill: "skill-ignored", reason: "ignored", accepted: false });
+    // No `accepted` field — removed as a structurally-always-false dead field (every
+    // recommendation-feedback.jsonl record is a rejection by construction).
+    expect(feedback[0]).toMatchObject({ skill: "skill-ignored", reason: "ignored" });
+    expect(feedback[0]).not.toHaveProperty("accepted");
 
     expect(readAdoptionEvents(target).filter((e) => e.event === "ignored")).toHaveLength(1);
   });

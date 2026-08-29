@@ -56,15 +56,15 @@ export function diagnoseCopilotAdoption(target: string, libraryDir: string): Cop
     }
   }
 
-  // Build rejection reason counts
+  // Build rejection reason counts. Every recommendation-feedback.jsonl record is a
+  // rejection by construction (accepted proposals never reach this file) — no accepted
+  // check needed here.
   const rejectionCounts: Record<string, Record<string, number>> = {};
   for (const f of feedback) {
-    if (!f.accepted) {
-      if (!rejectionCounts[f.skill]) {
-        rejectionCounts[f.skill] = {};
-      }
-      rejectionCounts[f.skill][f.reason] = (rejectionCounts[f.skill][f.reason] || 0) + 1;
+    if (!rejectionCounts[f.skill]) {
+      rejectionCounts[f.skill] = {};
     }
+    rejectionCounts[f.skill][f.reason] = (rejectionCounts[f.skill][f.reason] || 0) + 1;
   }
 
   // Analyze each skill

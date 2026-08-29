@@ -212,6 +212,7 @@ export function computeHaceMetrics(
   target: string,
   cliSuccessRate: number,
   daysBack = 14,
+  persistSnapshot = false,
 ): HaceMetrics {
   const cutoffMs = Date.now() - daysBack * 86_400_000;
   const files = sessionFilesForWorkspace(target, cutoffMs);
@@ -301,13 +302,20 @@ export function computeHaceMetrics(
     0.10 * skillLeverageScore
   );
 
-  // Persist session record for trend analysis.
-  appendHaceSession(target, {
-    haceScore, avgSessionMinutes, skillAugmentedPct,
-    promptClarityScore, taskVelocityScore, accuracyScore,
-    cliEfficiencyScore, resolutionVelocityScore, skillLeverageScore,
-    sessions: files.length, turns: n, corrections: correctionTurns,
-  });
+  // Persist session record for trend analysis — opt-in only. Confirmed live: this used to
+  // run unconditionally, so every dashboard render or "show usage report" command (neither
+  // of which represents a new session concluding) appended another near-identical row —
+  // hace-sessions.jsonl grew by a duplicate-looking entry every few minutes regardless of
+  // real activity, purely from the panel being open. Only handleSessionStop (a genuine
+  // "a session just ended" event) opts in now.
+  if (persistSnapshot) {
+    appendHaceSession(target, {
+      haceScore, avgSessionMinutes, skillAugmentedPct,
+      promptClarityScore, taskVelocityScore, accuracyScore,
+      cliEfficiencyScore, resolutionVelocityScore, skillLeverageScore,
+      sessions: files.length, turns: n, corrections: correctionTurns,
+    });
+  }
 
   return { noData: false, sessions: files.length, totalTurns: n, avgResponseSecs, thinkingRate,
     correctionRate, turnsPerMinute, promptClarityScore, taskVelocityScore, accuracyScore,
@@ -367,7 +375,8 @@ export interface EfficiencyMetrics {
 
 export function computeEfficiencyMetrics(
   target: string,
-  daysBack = 14
+  daysBack = 14,
+  persistHaceSnapshot = false
 ): EfficiencyMetrics {
   const cutoff = Date.now() - daysBack * 86_400_000;
   const skillSummary = summarizeSkillCostsFromRuns(target, daysBack);
@@ -458,7 +467,7 @@ export function computeEfficiencyMetrics(
 
   let hace: HaceMetrics;
   try {
-    hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack);
+    hace = computeHaceMetrics(target, cliKpi.overallSuccessRate, daysBack, persistHaceSnapshot);
   } catch {
     // Always preserve CLI efficiency even on unexpected parse failure
     hace = { noData: true, sessions: 0, totalTurns: 0, avgResponseSecs: 0, thinkingRate: 0, correctionRate: 0, turnsPerMinute: 0, promptClarityScore: 0, taskVelocityScore: 0, accuracyScore: 0, cliEfficiencyScore: cliKpi.overallSuccessRate, avgSessionMinutes: 0, skillAugmentedPct: 0, skillLeverageScore: 0, resolutionVelocityScore: 0, haceScore: 0, grade: "—" };

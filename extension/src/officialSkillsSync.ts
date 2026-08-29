@@ -8,7 +8,17 @@ export const OFFICIAL_SKILLS_API = "https://api.github.com/repos/anthropics/skil
 export interface OfficialSkillsState {
   repoSha?: string;
   skills?: Record<string, string>;
+  /** ISO timestamp of the last time a real network check ran (success or failure) — gates
+   *  how often checkOfficialSkillUpdates() actually calls out to GitHub. */
+  lastCheckedAt?: string;
 }
+
+/** How often checkOfficialSkillUpdates() is allowed to actually hit the network. Confirmed
+ *  live: nothing ever wrote this state file, so readOfficialSkillsState() always returned
+ *  null, previousSha was always null, and every single SessionStart paid a real
+ *  git-ls-remote round trip (avg ~880ms, up to a 15s timeout on a slow/unreachable network)
+ *  despite the skill's own docs calling this "a cheap check." */
+export const OFFICIAL_SKILLS_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface OfficialSkillCandidate {
   name: string;
@@ -35,6 +45,15 @@ export function resolveSkillsLibraryDir(cwd: string): string | undefined {
 
 export function officialSkillsStatePath(libraryDir: string): string {
   return path.join(libraryDir, ".official-skills-state.json");
+}
+
+export function writeOfficialSkillsState(libraryDir: string, state: OfficialSkillsState): void {
+  try {
+    fs.mkdirSync(libraryDir, { recursive: true });
+    fs.writeFileSync(officialSkillsStatePath(libraryDir), JSON.stringify(state, null, 2) + "\n", "utf-8");
+  } catch {
+    /* non-fatal — worst case this SessionStart's check just isn't cached for next time */
+  }
 }
 
 export function readOfficialSkillsState(libraryDir: string): OfficialSkillsState | null {
@@ -119,9 +138,22 @@ export async function fetchUpstreamSkillNames(): Promise<string[]> {
 export async function checkOfficialSkillUpdates(libraryDir: string): Promise<OfficialSkillsCheckResult> {
   const state = readOfficialSkillsState(libraryDir);
   const previousSha = state?.repoSha ?? null;
+
+  // Skip the network entirely inside the TTL window — previousSha alone can never gate
+  // this (see OFFICIAL_SKILLS_CHECK_TTL_MS), since a real check is exactly what's needed to
+  // learn whether the remote actually moved.
+  const lastCheckedMs = state?.lastCheckedAt ? Date.parse(state.lastCheckedAt) : Number.NaN;
+  if (!Number.isNaN(lastCheckedMs) && Date.now() - lastCheckedMs < OFFICIAL_SKILLS_CHECK_TTL_MS) {
+    return { libraryDir, remoteSha: previousSha, previousSha, unchanged: true, candidates: [] };
+  }
+
   const remoteSha = fetchRemoteHeadSha();
 
   if (!remoteSha) {
+    // Don't cache a failed attempt as "checked" for the full TTL — a transient network
+    // blip shouldn't silently suppress every check for the next 24h — but do record the
+    // attempt time so a persistently unreachable network doesn't retry every session.
+    writeOfficialSkillsState(libraryDir, { ...state, lastCheckedAt: new Date().toISOString() });
     return {
       libraryDir,
       remoteSha: null,
@@ -133,6 +165,7 @@ export async function checkOfficialSkillUpdates(libraryDir: string): Promise<Off
   }
 
   if (previousSha && previousSha === remoteSha) {
+    writeOfficialSkillsState(libraryDir, { ...state, repoSha: remoteSha, lastCheckedAt: new Date().toISOString() });
     return { libraryDir, remoteSha, previousSha, unchanged: true, candidates: [] };
   }
 
@@ -140,6 +173,7 @@ export async function checkOfficialSkillUpdates(libraryDir: string): Promise<Off
     const upstreamNames = await fetchUpstreamSkillNames();
     const candidates = classifyOfficialSkillCandidates(libraryDir, upstreamNames, state);
     const actionable = candidates.filter((c) => c.kind === "new" || c.kind === "updated");
+    writeOfficialSkillsState(libraryDir, { ...state, repoSha: remoteSha, lastCheckedAt: new Date().toISOString() });
     return {
       libraryDir,
       remoteSha,
@@ -148,6 +182,10 @@ export async function checkOfficialSkillUpdates(libraryDir: string): Promise<Off
       candidates,
     };
   } catch (err) {
+    // The GitHub API call failed, but git ls-remote (above) genuinely succeeded — still
+    // worth caching that SHA so the next check's string comparison has something real to
+    // compare against, even though this run couldn't enumerate candidates.
+    writeOfficialSkillsState(libraryDir, { ...state, repoSha: remoteSha, lastCheckedAt: new Date().toISOString() });
     return {
       libraryDir,
       remoteSha,

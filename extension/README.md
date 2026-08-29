@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.148
+
+### A third place skills could silently get re-disabled, closed — plus stale-data and startup-cost cleanup
+
+Branch profile syncing was a third, independent path that could re-disable a skill you'd just re-enabled, on top of the two fixed in 1.0.142-144 — it's now aware of the same "you chose this" signal they use. Also: stale override entries for uninstalled skills are now pruned automatically, the official-Anthropic-skills check no longer makes a real network call on every single session start (it's cached for 24h, like it was always supposed to be), and the efficiency/HACE trend log no longer grows a near-duplicate entry every time you open the Cost Dashboard.
+
 ## What's new in 1.0.147
 
 ### Copilot's project instructions file stays current, even in a workspace that's settled down

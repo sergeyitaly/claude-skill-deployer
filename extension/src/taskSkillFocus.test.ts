@@ -100,6 +100,21 @@ describe("applyTaskSkillFocus", () => {
     expect(third.ignoredSkills).not.toContain("mcp-builder");
     expect(readSkillOverrides(target)["mcp-builder"]).toBeUndefined();
   });
+
+  it("regression: prunes skillOverrides entries left behind by a skill that's no longer installed (live-reported: 39 override entries against 33 installed skills)", () => {
+    const target = makeWorkspace();
+    applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T00:00:00.000Z");
+    expect(readSkillOverrides(target)["mcp-builder"]).toBe("off");
+
+    // The skill is removed entirely (uninstall, cleanup, whatever) — the override entry
+    // for it has no way to ever mean anything again.
+    fs.rmSync(path.join(target, ".claude", "skills", "mcp-builder"), { recursive: true, force: true });
+
+    const result = applyTaskSkillFocus(target, ["pdf"], "task-skill-proposals", "2026-06-14T01:00:00.000Z");
+
+    expect(readSkillOverrides(target)).not.toHaveProperty("mcp-builder");
+    expect(result.overridesApplied).toBeGreaterThan(0);
+  });
 });
 
 describe("applyTaskSkillFocusFromProposals (regression: installed-set drift with unchanged proposals)", () => {

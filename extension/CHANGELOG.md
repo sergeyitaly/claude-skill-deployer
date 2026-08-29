@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.148** | Fourth audit round, acted on in full — a third independent disable path (branch profiles) with no user-reenable awareness, 39 dead override entries, a structurally-always-false feedback field removed, an "uncached network call every session boot" fix, and a dashboard-render write-amplification bug; 3 other findings verified with real data and confirmed already-fixed/intentional rather than re-fixed blind |
 | **1.0.147** | Copilot bootstrap sync unstuck — `.github/copilot-instructions.md` could go stale for months once a workspace's task-focus proposals settled, the third occurrence this week of "conditional call never re-runs once settled" (after CLAUDE.md and cost-control hooks); now unconditional |
 | **1.0.146** | Adoption-funnel backfill — closes the loop on 1.0.145: since the Stop hook never fired historically, "successful"/"reused" counts were stuck near zero even on workspaces with a long, genuinely successful run history; one-time backfill recovers it from existing runs.jsonl data |
 | **1.0.145** | Hook-migration catch-up — a second audit run confirmed "no Stop hook" and "5 UserPromptSubmit hooks instead of 3" are real; both traced to one root cause: an already-configured workspace never re-runs the (idempotent) hook installer when the extension adds or consolidates hook categories. Now it does |
@@ -94,6 +95,32 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.148] - 2026-08-29
+
+**Summary:** A fourth extension-value-audit run on the same real project, acted on in full this time. The most serious finding — task-focus silently overwriting a manual re-enable within the same turn, despite `userReenabledSkills` already listing it as approved — traced to a *third*, independent `setSkillOverride(..., "off")` caller (`branchProfiles.ts`'s branch-committed-skill sweep) with no awareness of either subsystem's "user re-enabled this" ledger, exactly as flagged as a risk in this ledger's own item #16. Five more findings were checked against real, freshly-read data before deciding whether to act: two turned out to be already fixed or an intentional, documented tradeoff (no code change needed — confirmed, not assumed); three were real, previously-unknown bugs, now fixed.
+
+**Theme:** Closing out this audit cycle — every finding either fixed with a regression test or verified closed with real data, none left as an unconfirmed guess.
+
+### Fixed
+
+- **A third independent disable path (`branchProfiles.ts`'s branch-committed-skill sweep) had no awareness of either `userReenabledSkills` ledger (task-focus's or budget's), so it could silently re-disable a skill the user — or one of the other two subsystems' own fixes — had just reclaimed.** New `isTaskFocusUserReenabled()`/`isBudgetUserReenabled()` exports, checked at both of `branchProfiles.ts`'s `setSkillOverride(..., "off")` call sites. 2 new regression tests.
+- **`skillOverrides` accumulated dead entries for skills no longer installed** (confirmed live: 39 override entries against 33 installed skills). `applyTaskSkillFocus()` now prunes any override entry whose skill no longer exists on disk, unconditionally — there's no "another subsystem still needs this" case for a skill that's gone entirely. Refactored (`classifySkillForTaskFocus()`, `sweepInstalledSkills()`, `pruneOverridesForUninstalledSkills()`) to keep cognitive complexity down after the added logic.
+- **`recommendation-feedback.jsonl`'s `accepted` field was structurally always `false`** (confirmed live: 94/94 recorded rows, 0 with `accepted:true`) — every record in this file is a rejection by construction, since accepted proposals are filtered out before the file is ever written to. Removed the field and the resulting 4 always-true `!f.accepted` dead-check call sites rather than leaving a field that looks like it could vary but never does.
+- **SessionStart's official-skills-updater check made a real, uncached network call (`git ls-remote`) on every single session boot** (confirmed live: avg ~880ms, up to a 15s timeout on a slow/unreachable network) — despite the feature's own docs calling it "a cheap check." The caching mechanism (`OfficialSkillsState`/`readOfficialSkillsState`) was already fully implemented and consulted correctly, but nothing ever *wrote* the state file, so the cache could never have a hit. New `writeOfficialSkillsState()` plus a 24h TTL gate before the network call ever runs. 3 new tests, all network-free (a real, unmocked `fetch`/`execFileSync` would have made this suite slow and flaky).
+- **`hace-sessions.jsonl` grew a near-duplicate row on every Cost Dashboard render or "show usage report" command, not just on a real session ending** (confirmed live: duplicate-looking rows every ~5 minutes regardless of activity). `computeHaceMetrics()`/`computeEfficiencyMetrics()` persisted a snapshot unconditionally on every call; now opt-in via a `persistSnapshot`/`persistHaceSnapshot` parameter, defaulting to `false` — only `handleSessionStop()` (a genuine "a session just ended" event) passes `true`. 3 new tests in a new `efficiencyMetrics.test.ts` (this file had zero prior test coverage).
+
+### Verified, not changed (checked against real data first)
+
+- **"5 duplicate `skill-invoke` hook_request events, ~2x actual reads"**: real and ongoing, but not a new bug — it's the already-documented, deliberate Pre+Post dual-registration workaround for `anthropics/claude-code#27014` (see 1.0.140's "Known gaps"), where `PostToolUse` never fires at all inside the Claude VS Code extension chat participant.
+- **"3 separate hooks fire per prompt (budget/task-drift/prompt-context), ~234ms"**: this *is* the already-fixed, consolidated state (down from 5 pre-1.0.145 hooks) — read that project's own `hook-health.jsonl` directly and confirmed the legacy `session-size`/`context-focus`/`practical-focus` hooks last fired 2026-08-12T18:47, immediately before the consolidated `prompt-context` hook took over. Nothing to fix; the audit's number describes the correct end state.
+- **"41% duplicate `mcp-usage.jsonl` rows"** (from the previous audit round): confirmed entirely historical — 0 duplicates in the most recent 6h of that project's own real data, all recorded duplicates predate 1.0.140 being live there.
+
+### Deliberately not investigated this pass (different kind of problem — see extension-devops-growth ledger)
+
+- Confidence scores static for 27/36 tracked skills, and the $151.30/day vs. $31.27/2mo cost-tracker scope mismatch — both are real, but open-ended architecture/data-model questions rather than a single fixable call site, and deserve their own scoped investigation rather than a rushed guess.
 
 ---
 

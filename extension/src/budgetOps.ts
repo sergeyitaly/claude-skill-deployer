@@ -257,6 +257,15 @@ export function clearBudgetTrackingForSkill(target: string, skillName: string): 
   writeLocalSettings(target, settings);
 }
 
+/** True when the user has explicitly re-enabled this skill after budget/economy enforcement
+ *  disabled it — other disable paths with no awareness of budget's own ledger (e.g.
+ *  branchProfiles.ts's branch-committed-skill sweep) should check this before disabling too,
+ *  or they silently undo the user's choice the same way disableHighTierSkills() itself used
+ *  to (see 1.0.142). */
+export function isBudgetUserReenabled(target: string, skillName: string): boolean {
+  return !!budgetMeta(readLocalSettings(target)).userReenabledSkills?.includes(skillName);
+}
+
 /** Skills currently forced off by budget/economy enforcement — used to exclude them from
  * unrelated cleanup sweeps (e.g. taskSkillFocus.ts's legacy-override reclaim) that must
  * not touch overrides this subsystem owns. */

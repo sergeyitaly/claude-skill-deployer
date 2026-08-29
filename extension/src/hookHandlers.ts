@@ -2593,9 +2593,13 @@ function handleSessionStop(req: HookRequest): HookResponse {
   try { maybeNotifySessionSummary(cwd, sessionId); } catch { /* non-fatal */ }
 
   // Snapshot HACE metrics on every session stop so hace-sessions.jsonl accumulates
-  // trend data without requiring the dashboard panel to be open.
+  // trend data without requiring the dashboard panel to be open. persistHaceSnapshot=true
+  // here specifically — this is the one call site that represents a real "a session just
+  // ended" event; computeEfficiencyMetrics()'s other callers (dashboard render, "show
+  // usage report") must NOT also persist, or the trend log fills with duplicate-looking
+  // rows every time the panel happens to redraw (confirmed live).
   setImmediate(() => {
-    try { computeEfficiencyMetrics(cwd, 14); } catch { /* non-fatal */ }
+    try { computeEfficiencyMetrics(cwd, 14, true); } catch { /* non-fatal */ }
     // Evaluate coaching advice outcome at session end so the decay loop fires even
     // when a session has only one prompt — the pre-prompt handler only calls
     // evaluateAdviceOutcome at promptIndex >= 2, which never triggers in short sessions.
