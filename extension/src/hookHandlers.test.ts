@@ -682,7 +682,7 @@ describe("handleHookRequest skill-invoke — skills_library catalog vs. installe
       body: {
         session_id: "library-session-1",
         tool_name: "Read",
-        tool_input: { path: path.join(tmpDir, "skills_library", "manage-saa-c03-reference", "notes.md") },
+        tool_input: { path: path.join(tmpDir, "skills_library", "some-uninstalled-skill", "notes.md") },
         tool_use_id: "call-lib-1",
         tool_response: "file contents",
       },
