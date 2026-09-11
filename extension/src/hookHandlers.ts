@@ -175,9 +175,16 @@ const SKILL_FILE_PATTERNS = [
   /[\\/](?:\.claude|\.cursor|\.kiro)[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
   /[\\/]\.cursor[\\/]skills-cursor[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
   /[\\/]\.agents[\\/]skills[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
-  /[\\/]skills_library[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i,
   /[\\/]\.github[\\/]instructions[\\/]([a-z][a-z0-9-]*)\.instructions\.md/i,
 ];
+
+// skills_library/ is the deployer's own source catalog, not a location any agent is ever
+// instructed to run a skill from — a Read anywhere under skills_library/<name>/ (e.g. the
+// deployer or skill-creator browsing/editing a candidate skill's files) is not the same signal
+// as an agent actually using that skill to do the user's task. Matched separately from
+// SKILL_FILE_PATTERNS so it can be required to also be an *installed* skill (see skillFromPath)
+// instead of being counted as a real invocation just because the catalog folder was touched.
+const SKILLS_LIBRARY_PATTERN = /[\\/]skills_library[\\/]([a-z][a-z0-9-]*)(?:[\\/]SKILL\.md)?/i;
 
 const SKILL_DENYLIST = new Set([
   "claude", "cursor", "api", "claude-api", "unknown", "base",
@@ -190,10 +197,17 @@ function plausibleSkillName(name: unknown): name is string {
   return typeof name === "string" && /^[a-z][a-z0-9-]{2,}$/.test(name) && !SKILL_DENYLIST.has(name);
 }
 
-function skillFromPath(filePath: string): string | null {
+function skillFromPath(filePath: string, cwd: string): string | null {
   for (const pattern of SKILL_FILE_PATTERNS) {
     const match = filePath.match(pattern);
     if (match && plausibleSkillName(match[1].toLowerCase())) return match[1].toLowerCase();
+  }
+  const libraryMatch = filePath.match(SKILLS_LIBRARY_PATTERN);
+  if (libraryMatch && plausibleSkillName(libraryMatch[1].toLowerCase())) {
+    const name = libraryMatch[1].toLowerCase();
+    // Only count it if the skill is actually installed (active) here — otherwise this is just
+    // the catalog being browsed/maintained, not the skill being used.
+    if (fs.existsSync(path.join(cwd, ".claude", "skills", name))) return name;
   }
   return null;
 }
@@ -215,7 +229,7 @@ function collectToolPaths(toolInput: unknown): string[] {
   return paths;
 }
 
-function extractSkillName(toolName: unknown, toolInput: unknown): string | null {
+function extractSkillName(toolName: unknown, toolInput: unknown, cwd: string): string | null {
   const tool = String(toolName ?? "").trim().toLowerCase();
   if (tool === "skill" || tool === "useskill") {
     const ti = (toolInput && typeof toolInput === "object" ? toolInput : {}) as Record<string, unknown>;
@@ -228,7 +242,7 @@ function extractSkillName(toolName: unknown, toolInput: unknown): string | null 
      "mcp__filesystem__read_file", "mcp__filesystem__search_in_file", "mcp__filesystem__search_files"].includes(tool)
   ) {
     for (const p of collectToolPaths(toolInput)) {
-      const skill = skillFromPath(p);
+      const skill = skillFromPath(p, cwd);
       if (skill) return skill;
     }
   }
@@ -282,7 +296,7 @@ function handleSkillInvoke(req: HookRequest): HookResponse {
   const toolInput = body.tool_input ?? body.toolArgs ?? body.toolInput ?? {};
   const toolUseId = String(body.tool_use_id ?? body.toolUseId ?? "");
 
-  const skill = extractSkillName(toolName, toolInput);
+  const skill = extractSkillName(toolName, toolInput, cwd);
 
   const stateFile = path.join(cwd, ".claude", "learning", "skill-invoke-state.json");
   const MAX_STATE_KEYS = 3000;

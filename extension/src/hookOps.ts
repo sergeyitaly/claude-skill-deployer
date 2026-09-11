@@ -1229,6 +1229,40 @@ export function removeCliLoopGuardHook(target: string): boolean {
   return false;
 }
 
+// Hook scripts deleted outright in the pre-HTTP-hook-server cleanup (see CHANGELOG.md's
+// "Dead hook removal" entry). None of the LEGACY_* migrations above target these filenames —
+// those only rename/replace a hook, they don't handle one being removed with no replacement.
+// A workspace whose settings.json still references one of these calls a file that no longer
+// ships with the extension, failing silently (MODULE_NOT_FOUND) on every trigger forever.
+const DEAD_HOOK_SCRIPTS = [
+  "skill-gap-detector.js",
+  "session-apply.js",
+  "task-skill-focus.js",
+  "file-split-advisor.js",
+  "commit-cost-record.js",
+];
+
+/** Removes any hook entry (in any category) whose command references a fully-deleted hook script. */
+export function removeDeadHookScriptReferences(target: string): boolean {
+  const settingsFile = path.join(target, ".claude", "settings.json");
+  const settings = readSettings(settingsFile);
+  if (!settings.hooks) return false;
+
+  let changed = false;
+  for (const category of Object.keys(settings.hooks)) {
+    const matchers = settings.hooks[category];
+    if (!Array.isArray(matchers)) continue;
+    const before = matchers.length;
+    settings.hooks[category] = matchers.filter(
+      (m) => !m.hooks.some((h) => DEAD_HOOK_SCRIPTS.some((f) => h.command.includes(f)))
+    );
+    if (settings.hooks[category].length !== before) changed = true;
+  }
+
+  if (changed) writeJsonFile(settingsFile, settings);
+  return changed;
+}
+
 export function isMcpForceHookConfigured(target: string): boolean {
   try {
     const settings = readSettings(path.join(target, ".claude", "settings.json"));

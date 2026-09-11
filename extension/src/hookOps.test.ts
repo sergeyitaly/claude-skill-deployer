@@ -9,6 +9,7 @@ import {
   installCostControlHooks,
   installProfileInitSessionHook,
   areProfileInitHooksConfigured,
+  removeDeadHookScriptReferences,
 } from "./hookOps";
 
 vi.mock("vscode", () => ({
@@ -295,6 +296,63 @@ describe("installProfileInitSessionHook", () => {
     const sessionStart = copilotHook.hooks?.SessionStart ?? copilotHook.hooks?.sessionStart ?? [];
     expect(sessionStart.some((h) => h.powershell?.includes("/hook/profile-init"))).toBe(true);
     expect(sessionStart.every((h) => !("bash" in h))).toBe(true);
+  });
+});
+
+describe("removeDeadHookScriptReferences", () => {
+  it("removes a SessionStart hook left over from before skill-gap-detector.js was deleted", () => {
+    // Reproduces a live-reported gap: a workspace set up before the "Dead hook removal" cleanup
+    // (see CHANGELOG.md) kept a direct node-script SessionStart hook pointing at a file that no
+    // longer ships with the extension — no installer's legacy-filename migration targets this
+    // name, so it silently MODULE_NOT_FOUND's on every session start forever until removed.
+    const target = makeWorkspace();
+    const settingsDir = path.join(target, ".claude");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const staleSettings = {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup|resume|clear",
+            hooks: [
+              {
+                type: "command",
+                command: 'node "c:/old/extensions/serhiivoinolovych.claude-skill-deployer-1.0.79/resources/hooks/skill-gap-detector.js" claude',
+                timeout: 20,
+              },
+            ],
+          },
+        ],
+        Stop: [
+          {
+            matcher: "",
+            hooks: [{ type: "command", command: "curl -sf http://127.0.0.1:4895/hook/session-stop || true", timeout: 10 }],
+          },
+        ],
+      },
+    };
+    fs.writeFileSync(path.join(settingsDir, "settings.json"), JSON.stringify(staleSettings), "utf-8");
+
+    const changed = removeDeadHookScriptReferences(target);
+    expect(changed).toBe(true);
+
+    const updated = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8")) as {
+      hooks?: { SessionStart?: unknown[]; Stop?: { hooks: { command: string }[] }[] };
+    };
+    expect(updated.hooks?.SessionStart ?? []).toHaveLength(0);
+    // Unrelated hook categories are left untouched
+    expect(updated.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain("/hook/session-stop");
+  });
+
+  it("is a no-op when no dead hook script is referenced", () => {
+    const target = makeWorkspace();
+    installCostControlHooks(EXTENSION_PATH, target);
+    const before = fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8");
+
+    const changed = removeDeadHookScriptReferences(target);
+    expect(changed).toBe(false);
+
+    const after = fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8");
+    expect(after).toBe(before);
   });
 });
 

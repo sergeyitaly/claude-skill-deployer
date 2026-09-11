@@ -140,6 +140,7 @@ import {
   installOfficialSkillsSessionHook,
   installTerminalWatchHook,
   removeMcpForceHooks,
+  removeDeadHookScriptReferences,
 } from "./hookOps";
 import { startHookServer, stopHookServer } from "./hookServer";
 import { syncCliConfigToWorkspace } from "./cliConfig";
@@ -878,6 +879,7 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
     // installs/enables/disables a skill again after initial setup never got remigrated.
     ensureCostControlHooksActive(context.extensionPath, target, log);
     installTerminalWatchHook(context.extensionPath, target);
+    removeDeadHookScriptReferences(target);
 
     if (!shouldRunWorkspaceState(lastWorkspaceStateAt, { workspaceState: opts.workspaceState })) {
       return;

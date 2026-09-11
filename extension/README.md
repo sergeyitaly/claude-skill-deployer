@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.150
+
+### Two real bugs found while checking a value-audit report's specific claims
+
+A pasted report claimed a dead SessionStart hook and a phantom "skill" polluting usage data. The exact numbers didn't check out against this repo's own files, but chasing why turned up two real, general bugs: upgrading past a version that had a hook script deleted outright (not renamed) could leave a permanently-broken hook behind that fails silently on every session; and just reading a reference file inside this extension's own skill catalog (`skills_library/`) — without that skill ever being installed — could get logged as if you'd actually used it, skewing usage/cost data. Both are fixed now.
+
 ## What's new in 1.0.149
 
 ### Recommendation confidence can actually recover now, instead of getting stuck at zero forever

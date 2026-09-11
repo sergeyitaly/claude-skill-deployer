@@ -660,3 +660,64 @@ describe("handleHookRequest skill-invoke — non-skill tool dedup", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleHookRequest — skill-invoke: skills_library is the deployer's source catalog,
+// not a location any agent is instructed to run a skill from. A Read under
+// skills_library/<name>/ must not be attributed as a real skill invocation unless
+// that skill is actually installed under .claude/skills/<name>/.
+// ---------------------------------------------------------------------------
+
+describe("handleHookRequest skill-invoke — skills_library catalog vs. installed skill", () => {
+  it("does not attribute a skill run for an uninstalled skills_library file", async () => {
+    const { appendSkillRun, appendToolUse } = await import("./runsStore");
+    vi.mocked(appendSkillRun).mockClear();
+    vi.mocked(appendToolUse).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-skill-invoke-library-"));
+    await handleHookRequest({
+      hookName: "skill-invoke",
+      agent: "claude",
+      cwd: tmpDir,
+      body: {
+        session_id: "library-session-1",
+        tool_name: "Read",
+        tool_input: { path: path.join(tmpDir, "skills_library", "manage-saa-c03-reference", "notes.md") },
+        tool_use_id: "call-lib-1",
+        tool_response: "file contents",
+      },
+    });
+
+    expect(appendSkillRun).not.toHaveBeenCalled();
+    expect(appendToolUse).toHaveBeenCalledTimes(1);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("attributes a skill run when the same skill is actually installed under .claude/skills", async () => {
+    const { appendSkillRun, appendToolUse } = await import("./runsStore");
+    vi.mocked(appendSkillRun).mockClear();
+    vi.mocked(appendToolUse).mockClear();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hh-skill-invoke-library-installed-"));
+    fs.mkdirSync(path.join(tmpDir, ".claude", "skills", "task-evidence-report"), { recursive: true });
+
+    await handleHookRequest({
+      hookName: "skill-invoke",
+      agent: "claude",
+      cwd: tmpDir,
+      body: {
+        session_id: "library-session-2",
+        tool_name: "Read",
+        tool_input: { path: path.join(tmpDir, "skills_library", "task-evidence-report", "SKILL.md") },
+        tool_use_id: "call-lib-2",
+        tool_response: "file contents",
+      },
+    });
+
+    expect(appendSkillRun).toHaveBeenCalledTimes(1);
+    expect(appendToolUse).not.toHaveBeenCalled();
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
