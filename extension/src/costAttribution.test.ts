@@ -72,6 +72,77 @@ describe("buildCostAttribution", () => {
   });
 });
 
+describe("buildCostAttribution — provisioning rows excluded", () => {
+  it("does not attribute cost to generate_skills.py install/generate bookkeeping rows", () => {
+    const target = makeWorkspace();
+    const runs = path.join(target, ".claude", "learning", "runs.jsonl");
+    // Mirrors record_skill_run()'s output for a "sync-library --force" batch: every skill in
+    // the same batch gets the identical tier-default token count/cost (25000 tokens / $0.225
+    // for "medium"), which is exactly the equal-split pattern real per-skill attribution must
+    // never include.
+    const installRows = ["skill-a", "skill-b", "skill-c"].map((skill) => ({
+      ts: "2026-08-11T11:19:02.631Z",
+      skill,
+      action: "install",
+      agent: "claude",
+      tokens: 25_000,
+      cost: 0.225,
+      rc: 0,
+      success: true,
+      session_id: `manual_2026-08-11T11:19:02.631Z`,
+      project: target,
+      metadata: { matched: "global-install" },
+    }));
+    fs.writeFileSync(runs, installRows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
+
+    const libraryDir = path.join(__dirname, "..", "..", "skills_library");
+    const built = buildCostAttribution(target, libraryDir);
+    expect(built.skills["skill-a"]).toBeUndefined();
+    expect(built.skills["skill-b"]).toBeUndefined();
+    expect(built.skills["skill-c"]).toBeUndefined();
+    expect(Object.keys(built.skills)).toHaveLength(0);
+  });
+
+  it("still attributes cost from real skill_invoke rows alongside install rows for other skills", () => {
+    const target = makeWorkspace();
+    const runs = path.join(target, ".claude", "learning", "runs.jsonl");
+    const rows = [
+      {
+        ts: "2026-08-11T11:19:02.631Z",
+        skill: "skill-a",
+        action: "install",
+        agent: "claude",
+        tokens: 25_000,
+        cost: 0.225,
+        rc: 0,
+        success: true,
+        session_id: "manual_2026-08-11T11:19:02.631Z",
+        project: target,
+        metadata: { matched: "global-install" },
+      },
+      {
+        ts: "2026-08-11T11:32:01.195Z",
+        skill: "skill-a",
+        action: "skill_invoke",
+        agent: "claude",
+        tokens: 341_260,
+        cost: 0.1083,
+        rc: 0,
+        success: true,
+        session_id: "real-session",
+        project: target,
+        metadata: { source: "skill-invoke-hook-v2", invoked: true, cost_method: "usage_breakdown" },
+      },
+    ];
+    fs.writeFileSync(runs, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
+
+    const libraryDir = path.join(__dirname, "..", "..", "skills_library");
+    const built = buildCostAttribution(target, libraryDir);
+    expect(built.skills["skill-a"]?.claude?.cost).toBeCloseTo(0.1083, 6);
+    expect(built.skills["skill-a"]?.claude?.tokens).toBe(341_260);
+  });
+});
+
 describe("detectEqualSplitCluster", () => {
   it("flags three skills with identical cost", () => {
     const map = {
