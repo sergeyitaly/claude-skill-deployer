@@ -131,9 +131,15 @@ describe("resetMisattributedData", () => {
     const target = fs.mkdtempSync(path.join(os.tmpdir(), "usage-reset-"));
     installSkill(target, "ci-pipeline-debug");
     installSkill(target, "profile-init");
+    // resetMisattributedData() prunes runs.jsonl to a 90-day retention window after
+    // filtering out collector-transcript rows (see pruneRunsJsonl() in learningPrune.ts).
+    // A hardcoded past date here would eventually age out of that window and get pruned
+    // entirely — including the "kept" skill_invoke row — failing this test for a reason
+    // unrelated to what it's actually verifying. Use a timestamp relative to "now" instead.
+    const recentTs = new Date(Date.now() - 60_000).toISOString();
     writeRuns(target, [
       {
-        ts: "2026-06-12T12:00:00.000Z",
+        ts: recentTs,
         skill: "ci-pipeline-debug",
         action: "transcript",
         agent: "claude",
@@ -142,7 +148,7 @@ describe("resetMisattributedData", () => {
         metadata: { source: ATTRIBUTION_COLLECTOR_SOURCE },
       },
       {
-        ts: "2026-06-12T12:01:00.000Z",
+        ts: recentTs,
         skill: "profile-init",
         action: "skill_invoke",
         agent: "claude",
