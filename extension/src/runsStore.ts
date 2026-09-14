@@ -24,11 +24,24 @@ export function isCollectorTranscriptRun(entry: {
   return entry.action === "transcript" && entry.metadata?.source === ATTRIBUTION_COLLECTOR_SOURCE;
 }
 
+/** Provisioning actions from generate_skills.py's record_skill_run() (install/generate). These
+ * log a flat, synthetic tier-based placeholder cost (e.g. 25000 tokens for "medium" regardless of
+ * the skill) purely so cost-report/optimizer can see "this skill exists" — never a measured
+ * invocation. Every skill copied in the same install/generate batch gets the identical
+ * tier-default token count and cost, which is exactly the equal-split pattern
+ * detectEqualSplitCluster() flags as mis-attributed data. Excluding them here keeps that
+ * bookkeeping out of per-skill cost attribution and usage stats. */
+const PROVISIONING_ACTIONS = new Set(["install", "generate"]);
+
+export function isProvisioningRun(entry: { action?: string }): boolean {
+  return typeof entry.action === "string" && PROVISIONING_ACTIONS.has(entry.action);
+}
+
 export function isUsageRunRecord(entry: {
   action?: string;
   metadata?: { source?: string };
 }): boolean {
-  return !isCollectorTranscriptRun(entry);
+  return !isCollectorTranscriptRun(entry) && !isProvisioningRun(entry);
 }
 
 export function isUsageBreakdownRun(entry: { metadata?: RunMetadata }): boolean {

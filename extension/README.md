@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.151
+
+### "Reset Mis-attributed Cost Data" now actually stays fixed
+
+Running the reset command used to clear the warning about skills sharing an identical, mis-attributed cost — only for a new, near-identical warning to appear the moment the dashboard rebuilt. The cause: installing or generating skills via the `generate_skills.py` CLI (`sync-library`, `generate`) logs a bookkeeping entry per skill so the extension knows it now exists locally, using the same flat, tier-based cost estimate for every skill in that batch. That bookkeeping was being counted as if it were real, measured per-skill spend. It no longer is — per-skill cost numbers on the dashboard should now stay accurate after a reset instead of drifting back to "unreliable."
+
 ## What's new in 1.0.150
 
 ### Two real bugs found while checking a value-audit report's specific claims

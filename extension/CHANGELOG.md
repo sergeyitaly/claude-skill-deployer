@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.151** | Attribution reset kept regenerating the exact equal-split mis-attribution it's meant to clear — traced to `generate_skills.py`'s `record_skill_run()` logging flat, synthetic tier-default costs for `install`/`generate` bookkeeping events, which `attributionFromRuns()` counted as real per-skill cost data on every rebuild |
 | **1.0.150** | A pasted value-audit report's exact numbers (skill-adoption line counts, a phantom uninstalled-skill entry, a dead `skill-gap-detector.js` SessionStart hook) didn't reproduce in this repo's own telemetry — but two of its findings pointed at real, general bugs anyway: a hook-migration gap for filenames deleted outright (not renamed) in the earlier "Dead hook removal" cleanup, and a skill-invocation heuristic that counted reads of the deployer's own uninstalled skill catalog as real skill usage |
 | **1.0.149** | Found the root cause behind "confidence scores never move" — a self-reinforcing bug where repositoryAffinity could be permanently zeroed by history predating a real tracking fix, with no recovery path; now uses a 30-day recency window and a floor instead of a permanent hard zero |
 | **1.0.148** | Fourth audit round, acted on in full — a third independent disable path (branch profiles) with no user-reenable awareness, 39 dead override entries, a structurally-always-false feedback field removed, an "uncached network call every session boot" fix, and a dashboard-render write-amplification bug; 3 other findings verified with real data and confirmed already-fixed/intentional rather than re-fixed blind |
@@ -97,6 +98,23 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.151] - 2026-09-14
+
+**Summary:** Running "Reset Mis-attributed Cost Data" against a real project cleared the old equal-split cluster but a new one appeared immediately on the very next rebuild — 9 skill names (several not even installed in the workspace) each attributed the identical `25000 tokens / $0.225 / 1 session`. Traced to a source outside `extension/src` entirely: `generate_skills.py`'s CLI install path.
+
+**Theme:** Root-causing a live, reproducing bug flagged during a value-audit follow-up, rather than accepting a reset that immediately regenerates the same symptom.
+
+### Fixed
+
+- **`generate_skills.py`'s `record_skill_run()` writes `action:"install"`/`action:"generate"` bookkeeping rows with a flat, synthetic tier-default cost (`TIER_SESSION_TOKENS` in `cost_utils.py` — e.g. exactly `25000` tokens / `$0.225` for every "medium"-tier skill, regardless of what the skill actually does) every time `sync-library`/`generate` copies a batch of skills — this is provisioning telemetry ("this skill now exists locally"), never a measured invocation. `isUsageRunRecord()` (`runsStore.ts`) only ever excluded the older attribution-collector's `action:"transcript"` rows from cost attribution; it had no knowledge of this second, unrelated source of non-usage rows, so `attributionFromRuns()` (`costAttribution.ts`) folded every install/generate batch's identical placeholder cost straight into `cost-attribution.json` as if it were real per-skill spend — reproducing `detectEqualSplitCluster()`'s mis-attribution signature on every single collector rebuild, including immediately after a manual reset. New `isProvisioningRun()` export excludes both `install` and `generate` actions from `isUsageRunRecord()`, alongside the existing collector-transcript exclusion.
+- 6 new regression tests (`runsStore.test.ts` — new file — ×4, `costAttribution.test.ts` ×2) covering the exact reported pattern: an install/generate batch across multiple skills contributes zero cost attribution, while a real `skill_invoke` row for the same skill is still counted correctly.
+
+### Known pre-existing issue (not touched this round)
+
+- `usageStats.compute.test.ts`'s `resetMisattributedData` test ("removes collector transcript rows but keeps hook runs") fails on unmodified `main`, independent of this fix — confirmed by reproducing it against the code before this change was applied. Left alone since it's unrelated to the install/generate bug and out of scope for this fix; flagged for its own investigation.
 
 ---
 
