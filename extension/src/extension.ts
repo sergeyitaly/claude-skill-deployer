@@ -1191,6 +1191,27 @@ workspaceFolderStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBa
             if (dirCacheGuardStatus !== "already-configured") {
               log(`Dir cache guard hook ${dirCacheGuardStatus}.`);
             }
+            // mcp-force/mcp-gate hooks were previously installed exactly once, from the
+            // manual "Enable MCP-Force Mode" command, and never re-synced on later
+            // activations — unlike every other hook category above/below, which all call
+            // through unconditionally so a stale-port entry (hook server fell back to a
+            // different port than a prior session, e.g. 4895 -> 50882) gets rewritten.
+            // Confirmed live: a workspace with MCP-Force Mode already enabled had both
+            // hooks pointing at a stale port, so they silently never reached the running
+            // server (curl ... || true swallows the failure) and never logged to
+            // hook-health.jsonl — indistinguishable from "never fires" without reading
+            // settings.json directly. Only touch workspaces where MCP-Force permissions
+            // are already active — this must not silently enable the feature for anyone.
+            if (isMcpForcePermissionsActive(initialTarget)) {
+              const mcpForceStatus = installMcpForceHook(initialTarget);
+              if (mcpForceStatus !== "already-configured") {
+                log(`MCP-force hook ${mcpForceStatus}.`);
+              }
+              const mcpGateStatus = installMcpGateHook(initialTarget);
+              if (mcpGateStatus !== "already-configured") {
+                log(`MCP-gate hook ${mcpGateStatus}.`);
+              }
+            }
           }
           refreshMcpStatusBars(getWorkspaceTarget());
           if (initialTarget) maybeAutoEnableMcpForce(initialTarget);

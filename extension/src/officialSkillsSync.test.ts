@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   checkOfficialSkillUpdates,
   classifyOfficialSkillCandidates,
+  fetchUpstreamSkillNames,
   formatOfficialSkillsSessionContext,
   listLocalSkillNames,
   OFFICIAL_SKILLS_CHECK_TTL_MS,
@@ -157,5 +158,39 @@ describe("checkOfficialSkillUpdates — TTL gate (previously missing entirely)",
     await checkOfficialSkillUpdates(libraryDir);
 
     expect(childProcess.execFileSync).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fetchUpstreamSkillNames — request timeout (previously unbounded)", () => {
+  // Confirmed live in this project's own hook-health.jsonl: an "official-skills"
+  // SessionStart call took 28,879ms — longer than fetchRemoteHeadSha()'s 15s git
+  // ls-remote timeout, meaning the slow leg was this function's fetch(), which had no
+  // timeout at all before this fix. Uses fake timers so the test doesn't actually wait
+  // 15 real seconds to prove the abort fires.
+  it("aborts and throws a clear error if the GitHub API never responds", async () => {
+    vi.useFakeTimers();
+    try {
+      // A fetch mock that never resolves on its own — only aborting settles it, mirroring
+      // a genuinely hung request. Rejects via the AbortSignal exactly like real fetch().
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
+          return new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const err = new Error("The operation was aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          });
+        })
+      );
+
+      const promise = fetchUpstreamSkillNames();
+      const assertion = expect(promise).rejects.toThrow(/timed out after 15s/);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

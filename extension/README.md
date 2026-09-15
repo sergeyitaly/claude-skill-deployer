@@ -12,6 +12,14 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.153
+
+### Faster hooks, and a silent hook-deletion bug fixed
+
+Two hooks that ran on every single prompt were adding up to half a second of delay each time — one was re-scanning your entire `node_modules` folder looking for infrastructure files, the other was re-reading your whole Claude Code usage history from disk instead of using the cache. Both are now fast. A third hook (the one that checks for updates to official Anthropic skills) could occasionally take up to 29 seconds on session start if GitHub was slow to respond — it now times out after 15 seconds like its sibling check already did.
+
+Fixing a fourth, smaller issue (MCP-Force Mode's hooks not staying in sync when the extension's background server changed ports) surfaced something more serious: a bug where installing certain hooks could silently delete *other, unrelated* hooks in the same category — including one that ran on every single extension startup. If you'd ever noticed a hook you set up mysteriously stop working with no error, this was very likely why. It's fixed now, with tests specifically proving it can't happen again.
+
 ## What's new in 1.0.152
 
 ### One project's file activity could bleed into another's usage dashboard

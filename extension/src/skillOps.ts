@@ -42,7 +42,7 @@ export type CopyStatus =
   | "would-install"
   | "installed";
 
-const EXCLUDE_DIRS = new Set([
+export const EXCLUDE_DIRS = new Set([
   ".git",
   "node_modules",
   ".terraform",

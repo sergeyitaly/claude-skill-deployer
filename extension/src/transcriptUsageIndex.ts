@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { listTranscriptFiles } from "./transcriptParsers";
-import { CreditUsageSummary, computeCreditUsageFromRoots } from "./usageCost";
+import { claudeProjectsDir, CreditUsageSummary, computeCreditUsageFromRoots, totalTokensForModelUsage } from "./usageCost";
 import { isCursorTranscriptRoot } from "./workspaceTranscripts";
 import { transcriptFileMatchesWorkspace } from "./workspaceTranscripts";
+import { localDateKey } from "./localDate";
 
 interface TranscriptFingerprint {
   maxMtimeMs: number;
@@ -112,4 +113,27 @@ export function invalidateTranscriptUsageCache(target?: string): void {
 /** Test helper — number of warm transcript cache entries. */
 export function transcriptCacheSize(): number {
   return transcriptCache.size;
+}
+
+/**
+ * Cached, fingerprint-invalidated equivalent of usageCost.ts's computeTodayCreditUsage().
+ *
+ * The raw computeTodayCreditUsage() does a full disk walk + parse of every transcript
+ * file under ~/.claude/projects on every call. It's the sole implementation used by
+ * handleBudget() (hookHandlers.ts), which fires on every single UserPromptSubmit hook —
+ * confirmed live in this project's own hook-health.jsonl: avg 262ms, max 455ms per call,
+ * for a check that (per fingerprintTranscriptRoots()) only needs to redo real work when
+ * a transcript file's mtime has actually changed since the last call. Routing through
+ * the same readCachedCreditUsageFromRoots() cache agentOps.ts already relies on for the
+ * identical underlying data collapses this to a cheap stat-only fingerprint check on the
+ * common case (no new transcript activity since the last prompt in the same session).
+ */
+export function computeTodayCreditUsageCached(): { totalTokens: number; totalCost: number } {
+  const today = localDateKey();
+  const summary = readCachedCreditUsageFromRoots([claudeProjectsDir()], 1);
+  const todayRow = summary.byDay.find((d) => d.date === today);
+  if (!todayRow) {
+    return { totalTokens: 0, totalCost: 0 };
+  }
+  return { totalTokens: totalTokensForModelUsage(todayRow), totalCost: todayRow.cost };
 }
