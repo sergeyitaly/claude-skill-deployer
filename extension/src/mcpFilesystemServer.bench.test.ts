@@ -34,10 +34,10 @@ class McpClient {
   private readonly pending = new Map<number, (res: JsonRpcResponse) => void>();
   private buffer = "";
 
-  constructor(configPath: string) {
+  constructor(configPath: string, envOverrides: Record<string, string | undefined> = { MCP_DISABLE_USAGE_LOG: "1" }) {
     this.proc = spawn("node", [SERVER_PATH, "--config", configPath], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, MCP_DISABLE_USAGE_LOG: "1" },
+      env: { ...process.env, ...envOverrides },
     });
 
     this.proc.stdout.on("data", (chunk: Buffer) => {
@@ -219,6 +219,77 @@ describe("Filesystem MCP server benchmark", () => {
       // Restore config to tmpDir-only for remaining tests
       fs.writeFileSync(configFile, JSON.stringify({ allowedDirs: [tmpDir] }), "utf-8");
       fs.rmSync(extraDir, { recursive: true, force: true });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // workspaceLogPath live reload — this server is a single process shared
+  // machine-wide across every open workspace (see mcpOfficial.ts). If
+  // workspaceLogPath were cached once at startup instead of re-read on every
+  // config change (like allowedDirs already is), a long-lived process would
+  // keep writing every subsequent tool call into whichever workspace was
+  // active when it started — mixing one project's file-access history into
+  // an unrelated project's telemetry.
+  // -------------------------------------------------------------------------
+
+  it("workspaceLogPath live reload: usage log entries follow config changes without restart", async () => {
+    // This suite's shared `client` runs with MCP_DISABLE_USAGE_LOG=1, so spin up a
+    // dedicated logging-enabled process scoped to its own config file.
+    const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-logtest-"));
+    const workspaceA = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-ws-a-"));
+    const workspaceB = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-ws-b-"));
+    const logConfigFile = path.join(logDir, "allowed-dirs.json");
+    const logA = path.join(workspaceA, "mcp-usage.jsonl");
+    const logB = path.join(workspaceB, "mcp-usage.jsonl");
+
+    fs.writeFileSync(
+      logConfigFile,
+      JSON.stringify({ allowedDirs: [workspaceA, workspaceB], workspaceLogPath: logA }),
+      "utf-8"
+    );
+
+    const loggingClient = new McpClient(logConfigFile, {});
+
+    try {
+      await loggingClient.call("initialize", {
+        protocolVersion: "2024-11-05",
+        clientInfo: { name: "bench", version: "0.0.1" },
+      });
+      loggingClient.notify("notifications/initialized");
+
+      const fileA = path.join(workspaceA, "a.txt");
+      fs.writeFileSync(fileA, "content a");
+      await loggingClient.call("tools/call", { name: "read_file", arguments: { path: fileA } });
+
+      // Wait for the async log flush (setImmediate) to land.
+      await new Promise((r) => setTimeout(r, 100));
+      expect(fs.existsSync(logA)).toBe(true);
+      expect(fs.readFileSync(logA, "utf-8")).toContain(fileA.replace(/\\/g, "\\\\"));
+
+      // Simulate a different project window becoming active — the extension
+      // rewrites allowed-dirs.json's workspaceLogPath in place, same process kept alive.
+      fs.writeFileSync(
+        logConfigFile,
+        JSON.stringify({ allowedDirs: [workspaceA, workspaceB], workspaceLogPath: logB }),
+        "utf-8"
+      );
+
+      const fileB = path.join(workspaceB, "b.txt");
+      fs.writeFileSync(fileB, "content b");
+      await loggingClient.call("tools/call", { name: "read_file", arguments: { path: fileB } });
+
+      await new Promise((r) => setTimeout(r, 100));
+      expect(fs.existsSync(logB)).toBe(true);
+      const logBContent = fs.readFileSync(logB, "utf-8");
+      expect(logBContent).toContain(fileB.replace(/\\/g, "\\\\"));
+      // The bug: without a live re-read, this second call would have kept
+      // writing to logA (workspace A) instead of logB (workspace B).
+      expect(logBContent).not.toContain(fileA.replace(/\\/g, "\\\\"));
+    } finally {
+      loggingClient.close();
+      fs.rmSync(logDir, { recursive: true, force: true });
+      fs.rmSync(workspaceA, { recursive: true, force: true });
+      fs.rmSync(workspaceB, { recursive: true, force: true });
     }
   });
 

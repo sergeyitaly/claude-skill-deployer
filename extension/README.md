@@ -12,6 +12,12 @@ you install the skills relevant to whatever project you have open. It targets
 
 Distribution map: [diagram/00-extension-registries.md](../diagram/00-extension-registries.md) Â· Publish: [PUBLISHING.md](PUBLISHING.md)
 
+## What's new in 1.0.152
+
+### One project's file activity could bleed into another's usage dashboard
+
+The filesystem MCP server runs as a single background process shared across every project window you have open. Its record of *which* project's usage log to write to was only ever checked once, right when the process started — so if you opened a different project afterward, that project's own file reads and writes could keep getting logged against whichever project happened to be open first. If you noticed your Cost Dashboard or efficiency panel showing file paths that don't belong to the current project, this was why. It now checks the current project every time, the same way it already did for which folders are allowed to be accessed.
+
 ## What's new in 1.0.151
 
 ### "Reset Mis-attributed Cost Data" now actually stays fixed
