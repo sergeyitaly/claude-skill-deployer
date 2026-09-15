@@ -398,7 +398,13 @@ function summarizeByModel(buckets: Buckets): ModelUsage[] {
     .sort((a, b) => totalTokens(b) - totalTokens(a));
 }
 
-/** Token and estimated cost for today (local calendar day) across all projects. */
+/** Token and estimated cost for today (local calendar day) across all projects.
+ *
+ * Callers should prefer computeTodayCreditUsageCached() (transcriptUsageIndex.ts) —
+ * this raw version does a full disk walk + parse of every transcript file under
+ * ~/.claude/projects on every call, with no caching. It's kept here (uncached) only
+ * because transcriptUsageIndex.ts imports from this module, not the reverse — adding
+ * the cache here directly would create a circular import. */
 export function computeTodayCreditUsage(): { totalTokens: number; totalCost: number } {
   const today = localDateKey();
   const summary = computeCreditUsage(1);

@@ -10,6 +10,12 @@ import {
   installProfileInitSessionHook,
   areProfileInitHooksConfigured,
   removeDeadHookScriptReferences,
+  installMcpForceHook,
+  installMcpGateHook,
+  isMcpForceHookConfigured,
+  isMcpGateHookConfigured,
+  installDirCacheGuardHook,
+  installOfficialSkillsSessionHook,
 } from "./hookOps";
 
 vi.mock("vscode", () => ({
@@ -25,8 +31,9 @@ vi.mock("vscode", () => ({
   },
 }));
 
+const mockedHookPort = { value: 4895 };
 vi.mock("./hookServer", () => ({
-  hookBaseUrl: () => "http://127.0.0.1:4895",
+  hookBaseUrl: () => `http://127.0.0.1:${mockedHookPort.value}`,
 }));
 
 const EXTENSION_PATH = path.join(__dirname, "..");
@@ -39,6 +46,7 @@ function makeWorkspace(): string {
 }
 
 afterEach(() => {
+  mockedHookPort.value = 4895;
   for (const ws of workspaces) {
     fs.rmSync(ws, { recursive: true, force: true });
   }
@@ -120,6 +128,35 @@ describe("installAttributionHooks", () => {
     expect(cmds.some((c) => c.includes("51710"))).toBe(false);
     // Current port must be present
     expect(cmds.some((c) => c.includes("4895") && c.includes("/hook/skill-invoke"))).toBe(true);
+  });
+
+  it("regression: installing an unrelated PreToolUse hook (dir-cache-guard) must not delete the skill-invoke matcher", () => {
+    // Confirmed live: ensurePreToolHookRegistered()/ensurePostToolHookRegistered() called
+    // String.includes(legacyFilename) with legacyFilename === "" (installDirCacheGuardHook
+    // has no legacy filename to migrate — it's a brand-new hook). "anything".includes("")
+    // is always true in JS, so the filter step treated EVERY existing PreToolUse matcher
+    // as "legacy" and deleted it, leaving only the dir-cache-guard entry behind. Since
+    // installDirCacheGuardHook() is called unconditionally on every extension activation
+    // (see extension.ts), and attribution hooks are only reinstalled when
+    // areAttributionHooksConfigured() reports MISSING (a presence check that would say
+    // "already there" right after this silent deletion), nothing was restoring what this
+    // wiped — the skill-invoke PreToolUse hook was being destroyed on every single
+    // activation of the extension, in every workspace.
+    const target = makeWorkspace();
+    installAttributionHooks(EXTENSION_PATH, target);
+
+    const before = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { PreToolUse?: { hooks: { command: string }[] }[] } };
+    expect(before.hooks?.PreToolUse?.some((m) => m.hooks.some((h) => h.command.includes("/hook/skill-invoke")))).toBe(true);
+
+    installDirCacheGuardHook(target);
+
+    const after = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { PreToolUse?: { hooks: { command: string }[] }[] } };
+    expect(after.hooks?.PreToolUse?.some((m) => m.hooks.some((h) => h.command.includes("/hook/skill-invoke")))).toBe(true);
+    expect(after.hooks?.PreToolUse?.some((m) => m.hooks.some((h) => h.command.includes("/hook/dir-cache-guard")))).toBe(true);
   });
 });
 
@@ -382,5 +419,113 @@ describe("getWorkspaceHookStatus", () => {
     expect(status.attribution.allConfigured).toBe(false);
     expect(status.costControl.sessionSize).toBe(false);
     expect(status.costControl.budget).toBe(false);
+  });
+});
+
+describe("installMcpForceHook / installMcpGateHook — stale-port re-sync", () => {
+  // Confirmed live: a real workspace had MCP-Force Mode already enabled, but its
+  // mcp-force/mcp-gate hooks pointed at a stale port (50882) while the hook server was
+  // actually listening on the current default (4895) — every other hook category
+  // (skill-invoke, dir-cache-guard, cli-loop-guard, etc.) already self-heals a stale
+  // port because extension.ts calls its install*Hook() function unconditionally on
+  // every activation, not just once. mcp-force/mcp-gate were only ever installed from
+  // the manual "Enable MCP-Force Mode" command and never re-synced afterward — so a
+  // hook server port change (e.g. the default port was in use, so it fell back) left
+  // them silently unreachable (curl ... || true swallows the failure) with zero
+  // corresponding entry in hook-health.jsonl, indistinguishable from "hook never fires"
+  // without reading settings.json directly.
+
+  it("installs both hooks pointing at the current port", () => {
+    const target = makeWorkspace();
+
+    expect(isMcpForceHookConfigured(target)).toBe(false);
+    expect(isMcpGateHookConfigured(target)).toBe(false);
+
+    expect(installMcpForceHook(target)).toBe("installed");
+    expect(installMcpGateHook(target)).toBe("installed");
+
+    expect(isMcpForceHookConfigured(target)).toBe(true);
+    expect(isMcpGateHookConfigured(target)).toBe(true);
+
+    const settingsFile = path.join(target, ".claude", "settings.json");
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8")) as {
+      hooks?: {
+        UserPromptSubmit?: { hooks: { command: string }[] }[];
+        SessionStart?: { hooks: { command: string }[] }[];
+      };
+    };
+    const forceCmds = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    const gateCmds = (settings.hooks?.SessionStart ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    expect(forceCmds.some((c) => c.includes("/hook/mcp-force") && c.includes(":4895"))).toBe(true);
+    expect(gateCmds.some((c) => c.includes("/hook/mcp-gate") && c.includes(":4895"))).toBe(true);
+  });
+
+  it("re-syncs a stale port on an already-configured workspace instead of silently leaving it stale", () => {
+    const target = makeWorkspace();
+    installMcpForceHook(target);
+    installMcpGateHook(target);
+
+    // Simulate the hook server falling back to a different port in a later session
+    // (e.g. the default port was already in use) — same scenario proven live.
+    mockedHookPort.value = 50882;
+
+    // Reproduces the pre-fix bug: calling through with the OLD port baked in would leave
+    // the hooks silently pointing at 4895 forever, since installMcpForceHook/
+    // installMcpGateHook only ever ran once from the manual enable command.
+    const forceStatus = installMcpForceHook(target);
+    const gateStatus = installMcpGateHook(target);
+    expect(forceStatus).toBe("updated");
+    expect(gateStatus).toBe("updated");
+
+    const settingsFile = path.join(target, ".claude", "settings.json");
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8")) as {
+      hooks?: {
+        UserPromptSubmit?: { hooks: { command: string }[] }[];
+        SessionStart?: { hooks: { command: string }[] }[];
+      };
+    };
+    const forceCmds = (settings.hooks?.UserPromptSubmit ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    const gateCmds = (settings.hooks?.SessionStart ?? []).flatMap((m) => m.hooks.map((h) => h.command));
+    // The stale port must be gone, and the current port must be present — mirrors the
+    // existing "replaces stale-port skill-invoke hook" assertion style for other hooks.
+    expect(forceCmds.some((c) => c.includes("/hook/mcp-force") && c.includes(":4895"))).toBe(false);
+    expect(forceCmds.some((c) => c.includes("/hook/mcp-force") && c.includes(":50882"))).toBe(true);
+    expect(gateCmds.some((c) => c.includes("/hook/mcp-gate") && c.includes(":4895"))).toBe(false);
+    expect(gateCmds.some((c) => c.includes("/hook/mcp-gate") && c.includes(":50882"))).toBe(true);
+  });
+
+  it("returns already-configured when the port hasn't changed", () => {
+    const target = makeWorkspace();
+    installMcpForceHook(target);
+    installMcpGateHook(target);
+
+    expect(installMcpForceHook(target)).toBe("already-configured");
+    expect(installMcpGateHook(target)).toBe("already-configured");
+  });
+
+  it("regression: installing mcp-gate must not delete a pre-existing, unrelated official-skills SessionStart hook", () => {
+    // Confirmed live: installMcpGateHook() calls ensureSessionStartHookRegistered() with
+    // legacyFilename: "" (it has no legacy filename to migrate from). "anything".includes("")
+    // is always true in JS, so the filter step treated the pre-existing official-skills
+    // SessionStart matcher as "legacy" and deleted it entirely, leaving only mcp-gate
+    // behind. This project's own settings.json only avoided losing official-skills because
+    // it happened to be (re)installed after mcp-gate in its real history — installing in
+    // the other order, or calling installMcpGateHook a second time (e.g. to re-sync a
+    // stale port, per the fix above), would silently delete it.
+    const target = makeWorkspace();
+    installOfficialSkillsSessionHook(EXTENSION_PATH, target);
+
+    const before = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { SessionStart?: { hooks: { command: string }[] }[] } };
+    expect(before.hooks?.SessionStart?.some((m) => m.hooks.some((h) => h.command.includes("/hook/official-skills")))).toBe(true);
+
+    installMcpGateHook(target);
+
+    const after = JSON.parse(
+      fs.readFileSync(path.join(target, ".claude", "settings.json"), "utf-8")
+    ) as { hooks?: { SessionStart?: { hooks: { command: string }[] }[] } };
+    expect(after.hooks?.SessionStart?.some((m) => m.hooks.some((h) => h.command.includes("/hook/official-skills")))).toBe(true);
+    expect(after.hooks?.SessionStart?.some((m) => m.hooks.some((h) => h.command.includes("/hook/mcp-gate")))).toBe(true);
   });
 });

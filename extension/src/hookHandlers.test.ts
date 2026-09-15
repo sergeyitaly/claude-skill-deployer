@@ -25,7 +25,7 @@ vi.mock("./budgetConfig", () => ({
   readBudgetState: () => ({}), writeBudgetState: vi.fn(),
 }));
 vi.mock("./budgetOps", () => ({ disableHighTierSkills: () => [] }));
-vi.mock("./usageCost", () => ({ computeTodayCreditUsage: () => ({ totalCost: 0 }) }));
+vi.mock("./transcriptUsageIndex", () => ({ computeTodayCreditUsageCached: () => ({ totalCost: 0 }) }));
 vi.mock("./usageStats", () => ({ formatTokenCount: () => "0", readRunRecords: () => [] }));
 vi.mock("./officialSkillsSync", () => ({
   checkOfficialSkillUpdates: () => ({ updates: [] }),

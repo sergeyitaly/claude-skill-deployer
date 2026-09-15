@@ -19,7 +19,7 @@ import { readBudgetConfig, readBudgetState, writeBudgetState, BudgetDayNotificat
 import { readCoachConfig } from "./coachConfig";
 import { disableHighTierSkills } from "./budgetOps";
 import { getActiveEmergencyCutoffReminder, formatEmergencyCutoffReminderText, EmergencyCutoffReminder } from "./emergencyCutoff";
-import { computeTodayCreditUsage } from "./usageCost";
+import { computeTodayCreditUsageCached } from "./transcriptUsageIndex";
 import { formatTokenCount, readRunRecords } from "./usageStats";
 import {
   checkOfficialSkillUpdates,
@@ -33,6 +33,7 @@ import {
   queueSessionSkillApplyRequest,
 } from "./sessionSkillApply";
 import { applyTaskSkillFocusFromProposals } from "./taskSkillFocus";
+import { EXCLUDE_DIRS } from "./skillOps";
 import { applyBranchProfile, getCurrentBranch, loadBranchProfile } from "./branchProfiles";
 import { appendHookHealth } from "./hookHealth";
 import { recordSessionProposalOutcome, recordSessionRejectionFeedback } from "./proposalOutcome";
@@ -511,7 +512,7 @@ function handleBudget(req: HookRequest): HookResponse {
   if (!cwd) return {};
 
   const config = readBudgetConfig();
-  const { totalTokens, totalCost } = computeTodayCreditUsage();
+  const { totalTokens, totalCost } = computeTodayCreditUsageCached();
   const today = new Date().toISOString().slice(0, 10);
   const state = readBudgetState();
   if (!state.notifications) state.notifications = {};
@@ -738,6 +739,17 @@ function dirHasFiles(dir: string): boolean {
   try { return fs.readdirSync(dir).length > 0; } catch { return false; }
 }
 
+/**
+ * Recursively scans for a file name pattern. Skips node_modules/.git/dist/etc.
+ * (EXCLUDE_DIRS, the same list collectRelativePaths() in skillOps.ts already uses to
+ * keep its own workspace scan fast) — before this fix, walkForPattern() had no
+ * exclusion at all and would descend into node_modules on every single call. Confirmed
+ * live: this project's own extension/node_modules alone has 14,421 files, and
+ * detectInfraSignals() (5 of its 7 checks call walkForPattern) ran unconditionally on
+ * every UserPromptSubmit via handlePracticalFocus() — measured 124-164ms per call in
+ * this repo, accounting for essentially all of the 150-190ms handlePromptContext takes
+ * end-to-end (every other sub-handler combined: under 15ms).
+ */
 function walkForPattern(dir: string, matchFn: (p: string) => boolean, maxDepth = 4): boolean {
   if (maxDepth <= 0) return false;
   let entries: fs.Dirent[];
@@ -745,12 +757,36 @@ function walkForPattern(dir: string, matchFn: (p: string) => boolean, maxDepth =
   for (const e of entries) {
     const full = path.join(dir, e.name);
     if (e.isFile() && matchFn(e.name)) return true;
-    if (e.isDirectory() && !e.name.startsWith(".") && walkForPattern(full, matchFn, maxDepth - 1)) return true;
+    if (e.isDirectory() && !e.name.startsWith(".") && !EXCLUDE_DIRS.has(e.name) && walkForPattern(full, matchFn, maxDepth - 1)) return true;
   }
   return false;
 }
 
-function detectInfraSignals(cwd: string): string[] {
+interface InfraSignalsCacheEntry {
+  at: number;
+  signals: string[];
+}
+
+/** detectInfraSignals() fires on every UserPromptSubmit (handlePracticalFocus), but the
+ * repo's own infra-file layout essentially never changes within a session — a 60s TTL
+ * (matching detectRelevantSkills()'s DETECTION_CACHE_TTL_MS in skillOps.ts) collapses
+ * repeated prompts in the same short window to one real disk scan. */
+const INFRA_SIGNALS_CACHE_TTL_MS = 60_000;
+const infraSignalsCache = new Map<string, InfraSignalsCacheEntry>();
+
+/** Test helper — clears the infra-signals cache so tests don't leak state across cases. */
+export function invalidateInfraSignalsCache(): void {
+  infraSignalsCache.clear();
+}
+
+export function detectInfraSignals(cwd: string): string[] {
+  const key = path.normalize(cwd);
+  const now = Date.now();
+  const cached = infraSignalsCache.get(key);
+  if (cached && now - cached.at < INFRA_SIGNALS_CACHE_TTL_MS) {
+    return cached.signals;
+  }
+
   const signals: string[] = [];
   const checks: [string, () => boolean][] = [
     ["Terraform", () => walkForPattern(cwd, (p) => p.endsWith(".tf"))],
@@ -764,6 +800,7 @@ function detectInfraSignals(cwd: string): string[] {
   for (const [label, fn] of checks) {
     try { if (fn()) signals.push(label); } catch { /* ignore */ }
   }
+  infraSignalsCache.set(key, { at: now, signals });
   return signals;
 }
 

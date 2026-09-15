@@ -669,12 +669,22 @@ function ensurePostToolHookRegistered(
   settings.hooks = settings.hooks ?? {};
   settings.hooks.PostToolUse = settings.hooks.PostToolUse ?? [];
 
+  // Guard: an empty legacyFilename must never match every hook — String.includes("") is
+  // always true. Confirmed live: installDirCacheGuardHook() (called unconditionally on
+  // EVERY extension activation) passes legacyFilename: "" and, without this guard, wiped
+  // out the completely unrelated skill-invoke PreToolUse/PostToolUse matcher on every
+  // single call — permanently, in every workspace, since attribution hooks are only
+  // reinstalled when areAttributionHooksConfigured() reports missing (presence-gated,
+  // not unconditional), so nothing was restoring what this silently deleted. Same class
+  // of bug fixed in ensureSessionStartHookRegistered() for installMcpGateHook().
   let removedLegacy = false;
-  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter((m) => {
-    const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
-    if (hasLegacy) { removedLegacy = true; return false; }
-    return true;
-  });
+  if (legacyFilename) {
+    settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter((m) => {
+      const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
+      if (hasLegacy) { removedLegacy = true; return false; }
+      return true;
+    });
+  }
 
   // Replace stale-port hooks: if a hook targets /hook/<hookName> but its command
   // no longer matches the canonical URL (e.g. old port 51710 vs current 4895),
@@ -712,12 +722,18 @@ function ensurePreToolHookRegistered(
   settings.hooks = settings.hooks ?? {};
   settings.hooks.PreToolUse = settings.hooks.PreToolUse ?? [];
 
+  // Guard: an empty legacyFilename must never match every hook — see
+  // ensurePostToolHookRegistered()'s matching comment for the confirmed-live bug this
+  // prevents (installDirCacheGuardHook() wiping the unrelated skill-invoke matcher on
+  // every extension activation).
   let removedLegacy = false;
-  settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter((m) => {
-    const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
-    if (hasLegacy) { removedLegacy = true; return false; }
-    return true;
-  });
+  if (legacyFilename) {
+    settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter((m) => {
+      const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
+      if (hasLegacy) { removedLegacy = true; return false; }
+      return true;
+    });
+  }
 
   // Replace stale-port hooks: if a hook targets /hook/<hookName> but its command
   // no longer matches the canonical URL (e.g. the hook server fell back to a
@@ -755,12 +771,23 @@ function ensureSessionStartHookRegistered(
   settings.hooks = settings.hooks ?? {};
   settings.hooks.SessionStart = settings.hooks.SessionStart ?? [];
 
+  // Guard: an empty legacyFilename must never match every hook. String.includes("") is
+  // always true, so without this guard the filter below would treat EVERY SessionStart
+  // matcher as "legacy" and delete it — confirmed live: calling installMcpGateHook()
+  // (which passes legacyFilename: "" — it has no legacy filename to migrate from) wiped
+  // out a pre-existing, unrelated official-skills SessionStart hook entirely, leaving
+  // only the mcp-gate one behind. This workspace's own settings.json survived only
+  // because official-skills happened to be (re)installed after mcp-gate in its history;
+  // installing in the other order, or re-running installMcpGateHook a second time after
+  // official-skills was added, would silently delete it.
   let removedLegacy = false;
-  settings.hooks.SessionStart = settings.hooks.SessionStart.filter((m) => {
-    const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
-    if (hasLegacy) { removedLegacy = true; return false; }
-    return true;
-  });
+  if (legacyFilename) {
+    settings.hooks.SessionStart = settings.hooks.SessionStart.filter((m) => {
+      const hasLegacy = m.hooks.some((h) => h.command.includes(legacyFilename));
+      if (hasLegacy) { removedLegacy = true; return false; }
+      return true;
+    });
+  }
 
   for (const entry of settings.hooks.SessionStart) {
     if (entry.hooks.some((h) => h.command.includes(`/hook/${hookName}`))) {

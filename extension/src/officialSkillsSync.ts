@@ -124,15 +124,37 @@ export function fetchRemoteHeadSha(): string | null {
   }
 }
 
+/** Matches fetchRemoteHeadSha()'s git ls-remote timeout — this is the second network call
+ *  in the same checkOfficialSkillUpdates() flow (only reached once the SHA has actually
+ *  changed), and previously had NO timeout at all. Confirmed live in this project's own
+ *  hook-health.jsonl: an "official-skills" SessionStart call took 28,879ms — longer than
+ *  fetchRemoteHeadSha()'s 15s cap, meaning the slow leg was this untimed fetch(), not git
+ *  ls-remote. The 24h check-TTL (OFFICIAL_SKILLS_CHECK_TTL_MS) already stops this from
+ *  running on every session; this closes the remaining gap for the sessions where it
+ *  legitimately does need to run and the network happens to be slow. */
+const UPSTREAM_FETCH_TIMEOUT_MS = 15_000;
+
 export async function fetchUpstreamSkillNames(): Promise<string[]> {
-  const res = await fetch(OFFICIAL_SKILLS_API, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "claude-skills-deployer" },
-  });
-  if (!res.ok) {
-    throw new Error(`GitHub API ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(OFFICIAL_SKILLS_API, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "claude-skills-deployer" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status}`);
+    }
+    const body = (await res.json()) as { name?: string; type?: string }[];
+    return body.filter((e) => e.type === "dir" && e.name).map((e) => e.name as string).sort();
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`GitHub API request timed out after ${UPSTREAM_FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  const body = (await res.json()) as { name?: string; type?: string }[];
-  return body.filter((e) => e.type === "dir" && e.name).map((e) => e.name as string).sort();
 }
 
 export async function checkOfficialSkillUpdates(libraryDir: string): Promise<OfficialSkillsCheckResult> {
