@@ -89,6 +89,11 @@ function watchAllowedDirsConfig() {
   } catch { /* ignore watch errors — stale cache is safe */ }
 }
 
+/** Last-parsed workspaceLogPath from allowed-dirs.json, refreshed alongside allowedDirs
+ * by getAllowedDirs() below (same cache key, same fs.watch invalidation). null when the
+ * config has no workspaceLogPath or hasn't been read yet. */
+let _workspaceLogPathCache = null;
+
 function getAllowedDirs() {
   if (configPath) {
     let stat = null;
@@ -101,6 +106,9 @@ function getAllowedDirs() {
       if (Array.isArray(cfg.allowedDirs) && cfg.allowedDirs.length > 0) {
         _allowedDirsCache = cfg.allowedDirs.map((d) => path.resolve(d));
         _allowedDirsCacheKey = cacheKey;
+        _workspaceLogPathCache = typeof cfg.workspaceLogPath === "string" && cfg.workspaceLogPath
+          ? cfg.workspaceLogPath
+          : null;
         watchAllowedDirsConfig();
         return _allowedDirsCache;
       }
@@ -110,7 +118,28 @@ function getAllowedDirs() {
   }
   _allowedDirsCache = [path.resolve(os.homedir(), ".claude")];
   _allowedDirsCacheKey = null;
+  _workspaceLogPathCache = null;
   return _allowedDirsCache;
+}
+
+/**
+ * Current workspace-scoped log path from allowed-dirs.json, re-read whenever the config
+ * changes (same cache invalidated by watchAllowedDirsConfig()'s fs.watch).
+ *
+ * This server is a single process shared machine-wide across every VS Code/Cursor/Kiro
+ * window (see mcpOfficial.ts: "allowed-dirs.json is a single file shared by one filesystem
+ * MCP server registered once, machine-wide... not a per-project config"). workspaceLogPath
+ * gets overwritten every time a different project window activates. A long-lived server
+ * process that only read this value once at startup would keep logging every subsequent
+ * tool call — from whichever workspace is *actually* active now — into the workspace that
+ * happened to be active when the process first started, silently mixing one project's
+ * file-access history into another's telemetry (e.g. a workspace's own dashboard rendering
+ * skill rows from a completely unrelated project). Calling getAllowedDirs() first ensures
+ * the cache is current before this reads it.
+ */
+function getWorkspaceLogPath() {
+  getAllowedDirs();
+  return _workspaceLogPathCache;
 }
 
 function normalizeAllowedDirComparison(p) {
@@ -219,18 +248,6 @@ function pruneSessionCaches(keepSessionId) {
   }
 }
 
-/** Workspace-scoped log path resolved once at startup from allowed-dirs.json config, or null. */
-const WORKSPACE_LOG_PATH = (() => {
-  if (!configPath) return null;
-  try {
-    const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    const p = cfg.workspaceLogPath;
-    return typeof p === "string" && p ? p : null;
-  } catch {
-    return null;
-  }
-})();
-
 // ---------------------------------------------------------------------------
 // Async write queue for MCP usage log.
 // Batches rapid successive tool-call entries into a single I/O operation via
@@ -265,7 +282,7 @@ function appendMcpUsageLog(entry) {
   };
 
   enqueue(MCP_USAGE_LOG);
-  const wsLog = WORKSPACE_LOG_PATH;
+  const wsLog = getWorkspaceLogPath();
   if (wsLog && wsLog !== MCP_USAGE_LOG) enqueue(wsLog);
 
   if (!_logFlushScheduled) {

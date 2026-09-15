@@ -18,6 +18,7 @@ Each release includes:
 
 | Versions | Theme |
 |----------|--------|
+| **1.0.152** | A live-project audit's "cross-agent sync silently deleted a hand-written skill file" report didn't hold up on inspection — but chasing the evidence trail (that project's file writes showing up in a *different* project's own telemetry) found a real, general bug: the bundled filesystem MCP server's workspace-scoped usage log path was read once at startup and never refreshed, so a long-lived shared server process kept logging every workspace's activity into whichever project happened to be open when it started |
 | **1.0.151** | Attribution reset kept regenerating the exact equal-split mis-attribution it's meant to clear — traced to `generate_skills.py`'s `record_skill_run()` logging flat, synthetic tier-default costs for `install`/`generate` bookkeeping events, which `attributionFromRuns()` counted as real per-skill cost data on every rebuild |
 | **1.0.150** | A pasted value-audit report's exact numbers (skill-adoption line counts, a phantom uninstalled-skill entry, a dead `skill-gap-detector.js` SessionStart hook) didn't reproduce in this repo's own telemetry — but two of its findings pointed at real, general bugs anyway: a hook-migration gap for filenames deleted outright (not renamed) in the earlier "Dead hook removal" cleanup, and a skill-invocation heuristic that counted reads of the deployer's own uninstalled skill catalog as real skill usage |
 | **1.0.149** | Found the root cause behind "confidence scores never move" — a self-reinforcing bug where repositoryAffinity could be permanently zeroed by history predating a real tracking fix, with no recovery path; now uses a 30-day recency window and a floor instead of a permanent hard zero |
@@ -98,6 +99,19 @@ Each release includes:
 | **1.0.37** | Benchmarks & release quality |
 | **1.0.17 â€“ 1.0.29** | Cost intelligence, multi-agent, CLI headless |
 | **1.0.0 â€“ 1.0.16** | Foundation â€” skills, agents, profile init |
+
+---
+
+## [1.0.152] - 2026-09-15
+
+**Summary:** A live-project audit reported that cross-agent sync "silently deleted" a hand-written `.kiro/skills/dig-management/` folder with no error or log entry. That project's own file couldn't be found anywhere, and its writes turned out to be logged in a completely different, unrelated workspace's `mcp-usage.jsonl` and dashboard — a genuinely alarming symptom, but not the one reported. Tracing why one project's file-access history was landing in another project's telemetry found the real, general bug underneath it.
+
+**Theme:** A specific incident report didn't reproduce as described, but the evidence it left behind (misplaced telemetry, not a missing file) pointed at a real shared-process caching bug — fixed generally, not scoped to whichever project happened to trigger it.
+
+### Fixed
+
+- **The bundled filesystem MCP server's workspace-scoped usage-log path (`workspaceLogPath` in `allowed-dirs.json`) was resolved once at process startup and cached forever.** This server is a single process shared machine-wide across every open VS Code/Cursor/Kiro window (`mcpOfficial.ts`: "allowed-dirs.json is a single file shared by one filesystem MCP server registered once, machine-wide... not a per-project config"). Every time a different project's window activates, the extension overwrites `workspaceLogPath` in that same shared config file to point at the newly-active project. A long-lived server process that only read this value once at startup kept writing every subsequent tool call — from whichever project is *actually* active now — into the workspace that happened to be active when the process first started, silently mixing one project's file-access history into an unrelated project's own dashboard and efficiency-metrics panel. Meanwhile the sibling `allowedDirs` value right next to it in the same file was already correctly live-reloaded via `fs.watch` (`watchAllowedDirsConfig()`) — `workspaceLogPath` just never got the same treatment. New `getWorkspaceLogPath()` reads from the same watch-invalidated cache `getAllowedDirs()` already maintains, so both values now stay current together.
+- New regression test (`mcpFilesystemServer.bench.test.ts`) spins up a real server process, writes a file in "workspace A," rewrites the config's `workspaceLogPath` to "workspace B" without restarting the process (reproducing what happens when a different project window activates), then verifies a second tool call correctly logs to workspace B's file — not workspace A's. Confirmed the test fails against the pre-fix code (reintroduced the bug locally, watched the assertion fail exactly as expected) before confirming it passes against the fix.
 
 ---
 
