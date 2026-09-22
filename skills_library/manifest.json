@@ -222,6 +222,13 @@
       "version": "1.0.0",
       "changelog": "New skill — covers extension Vitest test workflows"
     },
+    "multi-pwa": {
+      "description": "Build one offline web app that holds many tools at once - a toolkit, a launcher, a suite - rather than a single-purpose page. Covers the tool registry that drives the home grid, routing, search and tests; a shared UI kit; an icon and a home-screen name per tool; long-press selection and a guided per-tool install; light and dark themes that cannot drift; and assembling one index.html from parts with the CSP re-pinned in CI",
+      "detect_globs": ["**/manifest.webmanifest", "**/src/app/*.js", "**/tools/build.mjs", "**/tools/tool-icons.mjs", "**/icons/tools/**"],
+      "cost_estimate": "medium",
+      "version": "1.0.0",
+      "changelog": "New skill - many tools in one installable offline app"
+    },
     "single-file-pwa": {
       "description": "Build and ship a single-file offline web app - one index.html that installs to a phone home screen from free GitHub Pages hosting, works with no network, and needs no app store, developer account or backend. Covers the service worker, the manifest and install buttons for Android and iOS, filling the screen once installed, a hash-pinned Content-Security-Policy, and dependency-free tests in CI",
       "detect_globs": ["**/manifest.webmanifest", "**/*.webmanifest", "**/sw.js", "**/service-worker.js", "**/tools/csp.mjs", "**/tools/csp.js"],

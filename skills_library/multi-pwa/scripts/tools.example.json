@@ -1,0 +1,98 @@
+[
+  {
+    "id": "cidr",
+    "name": "CIDR Calculator",
+    "short": "CIDR",
+    "label": "/22",
+    "colour": "#5eead4",
+    "description": "Network, broadcast, mask and host range"
+  },
+  {
+    "id": "subnet",
+    "name": "Subnet Splitter",
+    "short": "Subnets",
+    "label": "SUB",
+    "colour": "#38bdf8",
+    "description": "Carve a block into equal subnets"
+  },
+  {
+    "id": "base64",
+    "name": "Base64",
+    "short": "Base64",
+    "label": "B64",
+    "colour": "#a78bfa",
+    "description": "Encode and decode base64"
+  },
+  {
+    "id": "url",
+    "name": "URL Encoder",
+    "short": "URL",
+    "label": "%20",
+    "colour": "#f472b6",
+    "description": "Percent-encoding and query parsing"
+  },
+  {
+    "id": "regex",
+    "name": "Regex Tester",
+    "short": "Regex",
+    "label": ".*",
+    "colour": "#fb923c",
+    "description": "Matches, groups and replacements"
+  },
+  {
+    "id": "jwt",
+    "name": "JWT Decoder",
+    "short": "JWT",
+    "label": "JWT",
+    "colour": "#facc15",
+    "description": "Header, claims and expiry"
+  },
+  {
+    "id": "time",
+    "name": "Unix Timestamp",
+    "short": "Epoch",
+    "label": "TS",
+    "colour": "#4ade80",
+    "description": "Epoch to date, and back"
+  },
+  {
+    "id": "uuid",
+    "name": "UUID Generator",
+    "short": "UUID",
+    "label": "UID",
+    "colour": "#22d3ee",
+    "description": "Random v4 and time-ordered v7"
+  },
+  {
+    "id": "password",
+    "name": "Password Generator",
+    "short": "Password",
+    "label": "***",
+    "colour": "#f87171",
+    "description": "Random secrets with an entropy figure"
+  },
+  {
+    "id": "hash",
+    "name": "Hash Calculator",
+    "short": "Hash",
+    "label": "#",
+    "colour": "#c084fc",
+    "description": "MD5, SHA-1 and SHA-256"
+  },
+  {
+    "id": "json",
+    "name": "JSON Formatter",
+    "short": "JSON",
+    "label": "{ }",
+    "colour": "#fbbf24",
+    "description": "Pretty-print, minify, find the error"
+  },
+  {
+    "id": "yaml",
+    "name": "YAML Validator",
+    "short": "YAML",
+    "label": "YML",
+    "colour": "#34d399",
+    "description": "Errors by line, and the JSON it means"
+  }
+]
