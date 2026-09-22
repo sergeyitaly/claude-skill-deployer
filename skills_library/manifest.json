@@ -221,6 +221,13 @@
       "cost_estimate": "low",
       "version": "1.0.0",
       "changelog": "New skill — covers extension Vitest test workflows"
+    },
+    "single-file-pwa": {
+      "description": "Build and ship a single-file offline web app - one index.html that installs to a phone home screen from free GitHub Pages hosting, works with no network, and needs no app store, developer account or backend. Covers the service worker, the manifest and install buttons for Android and iOS, filling the screen once installed, a hash-pinned Content-Security-Policy, and dependency-free tests in CI",
+      "detect_globs": ["**/manifest.webmanifest", "**/*.webmanifest", "**/sw.js", "**/service-worker.js", "**/tools/csp.mjs", "**/tools/csp.js"],
+      "cost_estimate": "medium",
+      "version": "1.0.0",
+      "changelog": "New skill - single-file offline PWA on GitHub Pages"
     }
   }
 }
